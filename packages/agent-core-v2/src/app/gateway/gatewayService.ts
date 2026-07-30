@@ -63,14 +63,14 @@ export class RestGateway implements IRestGateway {
     content: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
     const service = this.agent(sessionId, agentId).accessor.get(IAgentPromptService);
-    const queued = await service.enqueue({ message: {
+    const submitted = await service.enqueueOrSteer({ message: {
       role: 'user',
       content: [{ type: 'text', text: content }],
       toolCalls: [],
       origin: { kind: 'user' },
     } });
-    const [steered] = await service.steer([queued.id]);
-    const turn = await steered?.launched;
+    if (submitted.state === 'pending') return undefined;
+    const turn = await submitted.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {

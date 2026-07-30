@@ -19,6 +19,46 @@ afterEach(async () => {
 });
 
 describe('Session.steer', () => {
+  it('starts a new turn when the session is idle', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      provider = await createFakeProviderHarness();
+      provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
+        await reply.sseJson(200, [
+          completionChunk({ content: 'idle steer response' }),
+          completionChunk({}, 'stop'),
+        ]);
+      });
+      await harness.setConfig({
+        providers: {
+          local: { type: 'kimi', baseUrl: `${provider.baseUrl}/v1`, apiKey: 'sk-test' },
+        },
+        models: {
+          'fake-model': { provider: 'local', model: 'fake-model', maxContextSize: 262144 },
+        },
+        defaultModel: 'fake-model',
+      });
+      const session = await harness.createSession({ id: 'ses_steer_idle', workDir });
+      const ended = waitForEvent(session, (event) => event.type === 'turn.ended');
+
+      await expect(session.steer('start from idle')).resolves.toBeUndefined();
+      await ended;
+      await expect(
+        waitForAgentWireEvent(homeDir, session.id, 'turn.prompt', (event) =>
+          Array.isArray(event['input']),
+        ),
+      ).resolves.toMatchObject({
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: 'start from idle' }],
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('sends turn.steer to the core session runtime', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');

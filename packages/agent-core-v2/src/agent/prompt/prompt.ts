@@ -50,6 +50,7 @@ export interface PromptQueueSnapshot {
 export interface IAgentPromptService {
   readonly _serviceBrand: undefined;
   enqueue(input: PromptInput): Promise<PromptHandle>;
+  enqueueOrSteer(input: PromptInput): Promise<PromptHandle>;
   list(): PromptQueueSnapshot;
   steer(promptIds: readonly string[]): Promise<readonly PromptHandle[]>;
   abort(promptId: string, reason?: Error): boolean;

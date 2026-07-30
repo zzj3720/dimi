@@ -98,6 +98,19 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   async enqueue(input: PromptInput): Promise<PromptHandle> {
+    const record = this.createPending(input);
+    await this.startIfIdle(record);
+    return record.handle;
+  }
+
+  async enqueueOrSteer(input: PromptInput): Promise<PromptHandle> {
+    const record = this.createPending(input);
+    if (this.active !== undefined) return (await this.steer([record.id]))[0]!;
+    await this.startIfIdle(record);
+    return record.handle;
+  }
+
+  private createPending(input: PromptInput): Record {
     const id = input.id ?? input.message.id ?? newMessageId();
     const message = { ...input.message, id };
     const launchedDeferred = deferred<Turn | undefined>();
@@ -114,14 +127,14 @@ export class AgentPromptService implements IAgentPromptService {
       completion: completionDeferred.promise,
     };
     this.pending.push(record);
-    if (this.active === undefined && !this.launching) {
-      if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') {
-        return record.handle;
-      }
-      void this.startNext();
-      await Promise.race([record.launchedDeferred.promise, record.completionDeferred.promise]);
-    }
-    return record.handle;
+    return record;
+  }
+
+  private async startIfIdle(record: Record): Promise<void> {
+    if (this.active !== undefined || this.launching) return;
+    if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') return;
+    void this.startNext();
+    await Promise.race([record.launchedDeferred.promise, record.completionDeferred.promise]);
   }
 
   list(): PromptQueueSnapshot {
