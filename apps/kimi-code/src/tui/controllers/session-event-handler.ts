@@ -731,7 +731,7 @@ export class SessionEventHandler {
     } else if (change.kind === 'lifecycle') {
       this.pendingModelBlockedFallback = undefined;
     }
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, change.actor);
+    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', change.actor);
     if (marker !== null) {
       state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
@@ -743,7 +743,7 @@ export class SessionEventHandler {
     if (change === undefined) return;
     this.pendingModelBlockedFallback = undefined;
     const { state } = this.host;
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, 'model');
+    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', 'model');
     if (marker !== null) {
       state.transcriptContainer.addChild(marker);
       state.ui.requestRender();

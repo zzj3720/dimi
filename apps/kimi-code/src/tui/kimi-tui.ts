@@ -81,6 +81,11 @@ import { StepSummaryComponent } from './components/messages/step-summary';
 import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
 import {
+  ToolCallSequenceComponent,
+  toolCallsIn,
+  type ToolDisplayMode,
+} from './components/messages/tool-call-sequence';
+import {
   ReplayTurnBoundaryComponent,
   UserMessageComponent,
 } from './components/messages/user-message';
@@ -1018,7 +1023,9 @@ export class KimiTUI {
       renderMode: 'plain',
       content: '',
     };
-    const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
+    const outputComponent = new ShellRunComponent(() => {
+      this.state.ui.requestRender();
+    });
     this.shellOutputStreams.set(commandId, { entry: outputEntry, component: outputComponent });
     this.state.transcriptEntries.push(outputEntry);
     markTranscriptComponent(outputComponent, outputEntry);
@@ -1868,7 +1875,7 @@ export class KimiTUI {
         block.markCanceled();
       } else {
         block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
-        if (this.state.toolOutputExpanded) {
+        if (this.state.toolDisplayMode === 'full') {
           block.setExpanded(true);
         }
       }
@@ -1900,7 +1907,7 @@ export class KimiTUI {
           return new GoalSetMessageComponent();
         }
         if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded);
+          return buildGoalMarker(entry.goalData.change, this.state.toolDisplayMode === 'full');
         }
         return null;
       case 'assistant': {
@@ -1913,7 +1920,8 @@ export class KimiTUI {
       }
       case 'thinking': {
         const thinking = new ThinkingComponent(entry.content, true);
-        if (this.state.toolOutputExpanded) thinking.setExpanded(true);
+        thinking.setHidden(this.state.toolDisplayMode === 'summary');
+        if (this.state.toolDisplayMode === 'full') thinking.setExpanded(true);
         return thinking;
       }
       case 'tool_call':
@@ -1924,7 +1932,7 @@ export class KimiTUI {
             this.state.ui,
             this.state.appState.workDir,
           );
-          if (this.state.toolOutputExpanded) tc.setExpanded(true);
+          if (this.state.toolDisplayMode === 'full') tc.setExpanded(true);
           return tc;
         }
         if (entry.backgroundAgentStatus !== undefined) {
@@ -1948,6 +1956,9 @@ export class KimiTUI {
   }
 
   appendTranscriptEntry(entry: TranscriptEntry): void {
+    if (entry.kind !== 'thinking' && entry.kind !== 'tool_call') {
+      this.collapseTrailingToolCalls();
+    }
     this.state.transcriptEntries.push(entry);
     const component = this.createTranscriptComponent(entry);
     if (component) {
@@ -2142,6 +2153,28 @@ export class KimiTUI {
     );
   }
 
+  collapseTrailingToolCalls(): void {
+    const children = this.state.transcriptContainer.children;
+    let start = children.length;
+    const toolCalls: ToolCallComponent[] = [];
+    while (start > 0) {
+      const child = children[start - 1]!;
+      const calls = toolCallsIn(child);
+      if (calls === undefined && !(child instanceof ThinkingComponent)) break;
+      start -= 1;
+      if (calls !== undefined) toolCalls.unshift(...calls);
+    }
+    if (toolCalls.length === 0) return;
+
+    const sequence = new ToolCallSequenceComponent(
+      children.slice(start),
+      toolCalls,
+      this.state.toolDisplayMode,
+    );
+    children.splice(start, children.length - start, sequence);
+    this.state.transcriptContainer.invalidate();
+  }
+
   /**
    * Fold the just-finished turn's assistant messages down to the completed-turn
    * cap: while a turn is live it may keep TRANSCRIPT_KEEP_RECENT_ASSISTANT
@@ -2205,6 +2238,10 @@ export class KimiTUI {
       const child = children[idx]!;
       if (child instanceof ThinkingComponent) thinkingCount++;
       else if (child instanceof ToolCallComponent) toolCount++;
+      else if (child instanceof ToolCallSequenceComponent) {
+        thinkingCount += child.thinkingCount;
+        toolCount += child.toolCount;
+      }
     }
     if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
 
@@ -2289,6 +2326,10 @@ export class KimiTUI {
           const child = children[idx]!;
           if (child instanceof ThinkingComponent) thinkingCount++;
           else if (child instanceof ToolCallComponent) toolCount++;
+          else if (child instanceof ToolCallSequenceComponent) {
+            thinkingCount += child.thinkingCount;
+            toolCount += child.toolCount;
+          }
         }
         let summary: StepSummaryComponent;
         if (summaryIndex >= 0) {
@@ -2318,11 +2359,13 @@ export class KimiTUI {
   }
 
   showStatus(message: string, color?: ColorToken): void {
+    this.collapseTrailingToolCalls();
     this.state.transcriptContainer.addChild(new StatusMessageComponent(message, color));
     this.state.ui.requestRender();
   }
 
   showNotice(title: string, detail?: string): void {
+    this.collapseTrailingToolCalls();
     this.state.transcriptContainer.addChild(new NoticeMessageComponent(title, detail));
     this.state.ui.requestRender();
   }
@@ -2512,7 +2555,13 @@ export class KimiTUI {
   }
 
   toggleToolOutputExpansion(): void {
-    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
+    const nextMode: ToolDisplayMode =
+      this.state.toolDisplayMode === 'summary'
+        ? 'tools'
+        : this.state.toolDisplayMode === 'tools'
+          ? 'full'
+          : 'summary';
+    this.state.toolDisplayMode = nextMode;
     const children = this.state.transcriptContainer.children;
 
     // A component is expandable only if it sits at or after the start of the
@@ -2532,8 +2581,15 @@ export class KimiTUI {
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;
+      if (child instanceof ToolCallSequenceComponent) {
+        child.setDisplayMode(i >= expandCutoff ? nextMode : 'summary');
+        continue;
+      }
+      if (child instanceof ThinkingComponent) {
+        child.setHidden(nextMode === 'summary');
+      }
       if (!isExpandable(child)) continue;
-      child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
+      child.setExpanded(nextMode === 'full' && i >= expandCutoff);
     }
     // Expanding/collapsing shifts content above the viewport; the clamped
     // differential render would paint a second copy below the stale one in

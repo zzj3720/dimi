@@ -24,6 +24,7 @@ export class ThinkingComponent implements Component {
   private showMarker: boolean;
   private mode: ThinkingRenderMode;
   private expanded = false;
+  private hidden = false;
   private readonly ui: TUI | undefined;
   private spinnerFrame = 0;
   private spinnerInterval: ReturnType<typeof setInterval> | undefined;
@@ -87,7 +88,14 @@ export class ThinkingComponent implements Component {
     this.markRenderDirty();
   }
 
+  setHidden(hidden: boolean): void {
+    if (this.hidden === hidden) return;
+    this.hidden = hidden;
+    this.markRenderDirty();
+  }
+
   render(width: number): string[] {
+    if (this.hidden && this.mode === 'finalized') return [];
     if (
       isRenderCacheEnabled() &&
       this.renderCache !== undefined &&

@@ -24,6 +24,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { ToolCallSequenceComponent } from '#/tui/components/messages/tool-call-sequence';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
@@ -36,12 +37,26 @@ function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
+function countToolCalls(children: readonly unknown[]): number {
+  return children.reduce(
+    (count: number, child) =>
+      count +
+      (child instanceof ToolCallComponent
+        ? 1
+        : child instanceof ToolCallSequenceComponent
+          ? child.toolCount
+          : 0),
+    0,
+  );
+}
+
 interface ReplayDriver {
   readonly state: TUIState;
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   init(): Promise<boolean>;
   switchToSession(session: Session, statusMessage: string): Promise<void>;
+  toggleToolOutputExpansion(): void;
 }
 
 function makeStartupInput(): KimiTUIStartupInput {
@@ -640,7 +655,10 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
-    const group = driver.state.transcriptContainer.children.find(
+    const sequence = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    const group = sequence?.children.find(
       (child) => child instanceof AgentGroupComponent,
     );
 
@@ -673,7 +691,10 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
-    const group = driver.state.transcriptContainer.children.find(
+    const sequence = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    const group = sequence?.children.find(
       (child) => child instanceof ReadGroupComponent,
     );
 
@@ -712,6 +733,12 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(summary).toContain('Used 1 tool · ran 1 agent');
+    expect(summary).not.toContain('Agent swarm:');
+
+    driver.toggleToolOutputExpansion();
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
     expect(transcript).toContain('Agent swarm: ✓ 1 completed · ✗ 1 failed');
@@ -752,6 +779,12 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(summary).toContain('Used 1 tool · ran 1 agent');
+    expect(summary).not.toContain('Agent swarm:');
+
+    driver.toggleToolOutputExpansion();
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
     expect(transcript).toContain('Agent swarm: ✗ 1 failed · ⊘ 1 aborted');
@@ -1152,6 +1185,7 @@ describe('KimiTUI resume message replay', () => {
     expect(collapsed).not.toContain('Compacted transcript summary.');
 
     driver.state.editor.onToggleToolExpand?.();
+    driver.state.editor.onToggleToolExpand?.();
     const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
     expect(expanded).toContain('Compacted transcript summary.');
   });
@@ -1172,7 +1206,7 @@ describe('KimiTUI resume message replay', () => {
       },
     ]);
     const driver = await makeDriver(initial);
-    driver.state.toolOutputExpanded = true;
+    driver.state.toolDisplayMode = 'full';
     await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
@@ -1289,6 +1323,11 @@ describe('KimiTUI resume message replay', () => {
       { time: REPLAY_TIME, type: 'plan_updated', enabled: false },
     ]);
 
+    const summary = driver.state.transcriptContainer.render(120).join('\n');
+    expect(summary).toContain('Used 1 tool');
+    expect(summary).not.toContain('Final Plan');
+
+    driver.toggleToolOutputExpansion();
     const transcript = driver.state.transcriptContainer.render(120).join('\n');
 
     expect(transcript).toContain('Plan review rejected');
@@ -1322,11 +1361,7 @@ describe('KimiTUI resume message replay', () => {
     expect(transcript).not.toContain('round 14 summary');
     expect(transcript).toContain('round 15 summary');
     expect(transcript).toContain('round 24 summary');
-    expect(
-      driver.state.transcriptContainer.children.filter(
-        (child) => child instanceof ToolCallComponent,
-      ),
-    ).toHaveLength(10);
+    expect(countToolCalls(driver.state.transcriptContainer.children)).toBe(10);
   });
 
   it('folds oversized goal rounds even though continuation boundaries are hidden', async () => {
@@ -1364,8 +1399,7 @@ describe('KimiTUI resume message replay', () => {
 
     // The oversized round folds to the per-turn caps even with no visible
     // boundary component mounted for the continuation prompt.
-    const tools = children.filter((child) => child instanceof ToolCallComponent);
-    expect(tools).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
+    expect(countToolCalls(children)).toBe(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
     expect(assistants).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
 
