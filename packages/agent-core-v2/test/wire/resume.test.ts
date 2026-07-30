@@ -103,6 +103,7 @@ describe('Agent resume', () => {
         system: <system-prompt>
         tools: Bash
         messages:
+          user: text "Historical prompt"
           user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <plan-mode-reminder>
@@ -313,7 +314,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -389,9 +390,11 @@ describe('Agent resume', () => {
       {
         type: 'context.apply_compaction',
         summary: 'Compacted delivered notification.',
+        contextSummary: 'Compacted delivered notification.',
         compactedCount: 1,
         tokensBefore: 10,
         tokensAfter: 3,
+        keptUserMessageCount: 0,
       },
     ] as unknown as WireRecord[]);
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-delivered-'));
@@ -454,9 +457,11 @@ describe('Agent resume', () => {
       {
         type: 'context.apply_compaction',
         summary: 'Compacted implementation notes.',
+        contextSummary: 'Compacted implementation notes.',
         compactedCount: 1,
         tokensBefore: 120,
         tokensAfter: 24,
+        keptUserMessageCount: 1,
       },
     ] as unknown as WireRecord[]);
     const ctx = testAgent({ persistence, autoConfigure: false });
@@ -464,6 +469,11 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
 
     expect(ctx.context.get()).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'Historical prompt before compaction' }],
+        origin: { kind: 'user' },
+      }),
       expect.objectContaining({
         role: 'user',
         content: [{ type: 'text', text: 'Compacted implementation notes.' }],
@@ -1013,9 +1023,11 @@ function resumeHistory(): WireRecord[] {
     {
       type: 'context.apply_compaction',
       summary: 'Historical compacted summary.',
+      contextSummary: 'Historical compacted summary.',
       compactedCount: 3,
       tokensBefore: 12,
       tokensAfter: 4,
+      keptUserMessageCount: 1,
     },
     {
       type: 'plan_mode.enter',

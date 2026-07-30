@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const tempDirs: string[] = [];
 const stdioFixture = join(
   import.meta.dirname,
-  '../../agent-core/test/mcp/fixtures/mock-stdio-server.mjs',
+  '../../agent-core-v2/test/agent/mcp/fixtures/mock-stdio-server.mjs',
 );
 
 afterEach(async () => {
@@ -109,7 +109,6 @@ describe('global MCP configuration (persisted user entries)', () => {
         name: 'docs',
         transport: 'http',
         url: 'https://example.test/mcp',
-        auth: 'oauth',
       });
 
       await expect(harness.listMcpServers()).resolves.toEqual([
@@ -117,7 +116,6 @@ describe('global MCP configuration (persisted user entries)', () => {
           name: 'docs',
           transport: 'http',
           url: 'https://example.test/mcp',
-          auth: 'oauth',
         },
       ]);
     } finally {
@@ -220,7 +218,6 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
         name: 'remote',
         transport: 'http',
         url: 'https://mcp.example.test/mcp',
-        auth: 'oauth',
       });
 
       await expect(harness.resetMcpServerAuth('remote')).resolves.toBeUndefined();

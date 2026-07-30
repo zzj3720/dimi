@@ -154,6 +154,7 @@ function compactionCompletedEvent() {
       tokensBefore: 100,
       tokensAfter: 10,
       compactedCount: 1,
+      keptUserMessageCount: 1,
     },
   } as const;
 }

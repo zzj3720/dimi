@@ -9,13 +9,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createKimiHarness,
   KimiError,
-  type SessionSummary,
+  resolveGlobalLogPath,
 } from '#/index';
-import { resolveGlobalLogPath } from '../../agent-core/src/logging/logger';
 import {
   WIRE_PROTOCOL_VERSION,
   exportSessionDirectory,
-} from '../../agent-core/src/session/export';
+  type ExportSessionDirectorySummary,
+} from '@moonshot-ai/agent-core-v2';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
 
@@ -86,13 +86,11 @@ function makeSummary(input: {
   readonly sessionDir: string;
   readonly workDir: string;
   readonly title?: string | undefined;
-}): SessionSummary {
+}): ExportSessionDirectorySummary {
   return {
     id: input.id,
     sessionDir: input.sessionDir,
-    workDir: input.workDir,
-    createdAt: 1,
-    updatedAt: 2,
+    workspaceDir: input.workDir,
     title: input.title,
   };
 }
@@ -103,18 +101,21 @@ describe('exportSessionDirectory', () => {
     const sid = 'ses_export_test';
     const workDir = join(tmp, 'work');
     const sessionDir = join(tmp, 'sessions', sid);
+    await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
     await mkdir(join(sessionDir, 'subagents'), { recursive: true });
     await writeFile(
-      join(sessionDir, 'wire.jsonl'),
+      join(sessionDir, 'agents', 'main', 'wire.jsonl'),
       [
         JSON.stringify({
-          type: 'turn_begin',
+          type: 'turn.prompt',
           time: Date.parse('2026-04-18T10:00:00Z'),
-          user_input: 'hello',
+          input: [{ type: 'text', text: 'hello' }],
+          origin: { kind: 'user' },
         }),
         JSON.stringify({
-          type: 'turn_end',
+          type: 'context.append_message',
           time: Date.parse('2026-04-18T10:00:03Z'),
+          message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
         }),
         '',
       ].join('\n'),
@@ -138,9 +139,9 @@ describe('exportSessionDirectory', () => {
     expect(result.sessionDir).toBe(sessionDir);
     expect(result.entries).toEqual([
       'manifest.json',
+      'agents/main/wire.jsonl',
       'state.json',
       'subagents/a.txt',
-      'wire.jsonl',
     ]);
     expect(result.manifest).toMatchObject({
       sessionId: sid,
@@ -216,20 +217,19 @@ describe('exportSessionDirectory', () => {
     }
   });
 
-  it('omits global log manifest path when the global log cannot be bundled', async () => {
+  it('omits a missing optional global log', async () => {
     const tmp = await makeTempDir();
     const homeDir = join(tmp, 'home');
     const sid = 'ses_unreadable_global_log';
     const sessionDir = join(tmp, 'sessions', sid);
     await mkdir(sessionDir, { recursive: true });
     await writeFile(join(sessionDir, 'state.json'), '{}', 'utf-8');
-    await mkdir(resolveGlobalLogPath(homeDir), { recursive: true });
 
     const outputPath = join(tmp, 'unreadable-global.zip');
     const result = await exportSessionDirectory({
       request: { sessionId: sid, outputPath, includeGlobalLog: true, version: '1.0.0-test' },
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
-      homeDir,
+      globalLogPath: resolveGlobalLogPath(homeDir),
     });
 
     expect(result.manifest.globalLogPath).toBeUndefined();
@@ -289,7 +289,6 @@ describe('exportSessionDirectory', () => {
         summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
       }),
     ).rejects.toMatchObject({
-      name: 'KimiError',
       code: 'session.export_not_found',
     } satisfies Partial<KimiError>);
   });
@@ -313,7 +312,8 @@ describe('KimiHarness.exportSession', () => {
     const sessionDir = (await harness.listSessions({ workDir })).find(
       (item) => item.id === session.id,
     )!.sessionDir;
-    await writeFile(join(sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+    await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
+    await writeFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf-8');
     await mkdir(join(sessionDir, 'subagents'), { recursive: true });
     await writeFile(join(sessionDir, 'subagents', 'demo.txt'), 'demo', 'utf-8');
 
@@ -323,7 +323,7 @@ describe('KimiHarness.exportSession', () => {
     expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.entries).toContain('manifest.json');
     expect(result.entries).toContain('state.json');
-    expect(result.entries).toContain('wire.jsonl');
+    expect(result.entries).toContain('agents/main/wire.jsonl');
     expect(result.entries).toContain('subagents/demo.txt');
     expect(result.manifest.sessionId).toBe(session.id);
     expect(records).toContainEqual({

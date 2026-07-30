@@ -9,16 +9,18 @@ Kimi Code CLI 把每次对话持久化为一个「会话」，保留消息历史
 ```text
 ~/.kimi-code/
 ├── config.toml
-├── session_index.jsonl
+├── workspaces.json
 └── sessions/
-    └── <workDirKey>/
+    └── <workspaceId>/
         └── <sessionId>/
             ├── state.json
             └── agents/
                 ├── main/
-                │   └── wire.jsonl
+                │   ├── wire.jsonl
+                │   └── tasks/
                 └── <subagentId>/
-                    └── wire.jsonl
+                    ├── wire.jsonl
+                    └── tasks/
 ```
 
 - `state.json`：会话标题、创建时间等元数据。

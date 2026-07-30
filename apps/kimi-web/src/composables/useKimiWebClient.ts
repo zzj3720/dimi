@@ -289,13 +289,6 @@ export interface ExtendedState extends KimiClientState {
    * prompt and connects without a credential.
    */
   dangerousBypassAuth: boolean;
-  /**
-   * Engine generation of the connected server: `'v2'` = kap-server /
-   * agent-core-v2, `'v1'` = an older (legacy) server binary. Read from `/meta`
-   * (`backend` field; older servers omit it ⇒ v1). Drives the dev-mode
-   * backend badge in the Sidebar.
-   */
-  backend: 'v1' | 'v2';
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
@@ -384,7 +377,6 @@ const rawState: ExtendedState = reactive({
   connected: false,
   serverVersion: '',
   dangerousBypassAuth: false,
-  backend: 'v1',
   workspaceName: 'kimi-web',
   connection: 'disconnected' as ConnectionState,
   permission: loadPermissionFromStorage(),
@@ -1096,9 +1088,8 @@ function connectEventsIfNeeded(): void {
       // refresh even though the reconnect already succeeded.
       if (connected) {
         dismissWsError();
-        // A (re)connect can mean the backend was restarted — or switched, when
-        // the dev proxy was moved to the other engine. Re-read /meta so
-        // serverVersion / backend never go stale.
+        // A reconnect can mean the server restarted. Re-read /meta so its
+        // version and capabilities never go stale.
         void workspaceState.refreshServerMeta();
       }
     },
@@ -2044,7 +2035,6 @@ const loadMoreMessagesError = computed<boolean>(() => {
   return sid ? rawState.messagesLoadMoreErrorBySession[sid] ?? false : false;
 });
 const serverVersion = computed<string>(() => rawState.serverVersion);
-const backend = computed<'v1' | 'v2'>(() => rawState.backend);
 const dangerousBypassAuth = computed<boolean>(() => rawState.dangerousBypassAuth);
 
 /**
@@ -2801,7 +2791,6 @@ export function useKimiWebClient() {
     hasMoreMessages,
     loadMoreMessagesError,
     serverVersion,
-    backend,
     dangerousBypassAuth,
     clearDangerousBypassAuth,
     initialized,

@@ -61,6 +61,8 @@ import {
   type ToolCallDupType,
   type ToolExecutionResult,
   type ToolExecutorExecuteOptions,
+  type ToolTaskLifecycle,
+  type ToolTaskLifecycleController,
   type UnavailableToolDescriber,
 } from './toolExecutor';
 import { ToolScheduler } from './toolScheduler';
@@ -70,6 +72,8 @@ import { ToolScheduler } from './toolScheduler';
 import './toolExecutorEvents';
 
 const ABORT_GRACE_MS = 2_000;
+const TOOL_FOREGROUND_BUDGET_MS = 3_000;
+const DEFAULT_AUTO_WAIT_TIMEOUT_SECONDS = 20;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
 const TOOL_OUTPUT_NON_TEXT = 'Tool returned non-text content.';
 
@@ -86,24 +90,17 @@ interface TimedToolResult {
   readonly durationMs: number;
 }
 
-type SettledTimedToolResult =
-  | { readonly status: 'fulfilled'; readonly value: TimedToolResult }
-  | { readonly status: 'rejected'; readonly index: number; readonly reason: unknown };
-
 type SettledToolExecutionResult =
   | { readonly status: 'fulfilled'; readonly value: ToolExecutionResult }
   | { readonly status: 'rejected'; readonly reason: unknown };
 
-type ToolExecutionResultPromise = Promise<SettledToolExecutionResult>;
-
-type ToolExecutionStreamEvent =
-  | { readonly type: 'timed'; readonly result: IteratorResult<TimedToolResult> }
-  | { readonly type: 'timedRejected'; readonly reason: unknown }
-  | {
-      readonly type: 'finalized';
-      readonly promise: ToolExecutionResultPromise;
-      readonly settled: SettledToolExecutionResult;
-    };
+interface PreparedExecution {
+  readonly task: ToolExecutionTask;
+  readonly call: PreflightedToolCall;
+  readonly lifecycle?: ToolTaskLifecycle;
+  readonly autoWaitTimeoutSeconds?: number;
+  readonly stopBatchAfterThis?: boolean;
+}
 
 export const toolExecutorToolCallDupTypesKey = defineState<Map<string, ToolCallDupType>>(
   'toolExecutor.toolCallDupTypes',
@@ -129,6 +126,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   private missingToolDescriber: MissingToolDescriber | undefined;
   private unavailableToolDescriber: UnavailableToolDescriber | undefined;
   private toolCallGuard: ToolCallGuard | undefined;
+  private taskLifecycleController: ToolTaskLifecycleController | undefined;
 
   recordDupType(toolCallId: string, dupType: ToolCallDupType): void {
     this.toolCallDupTypes.set(toolCallId, dupType);
@@ -152,6 +150,16 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     this.missingToolDescriber = describer;
     return toDisposable(() => {
       if (this.missingToolDescriber === describer) this.missingToolDescriber = undefined;
+    });
+  }
+
+  registerTaskLifecycleController(controller: ToolTaskLifecycleController) {
+    if (this.taskLifecycleController !== undefined) {
+      throw new Error('A tool task lifecycle controller is already registered.');
+    }
+    this.taskLifecycleController = controller;
+    return toDisposable(() => {
+      if (this.taskLifecycleController === controller) this.taskLifecycleController = undefined;
     });
   }
 
@@ -200,11 +208,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         this.log,
       ),
     );
-    const preparedTasks: Array<{
-      task: ToolExecutionTask;
-      call: PreflightedToolCall;
-      stopBatchAfterThis?: boolean;
-    }> = [];
+    const preparedTasks: PreparedExecution[] = [];
 
     let stopBatch = false;
     for (const call of preflighted) {
@@ -217,6 +221,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       preparedTasks.push({
         task: prepared.task,
         call,
+        lifecycle: prepared.lifecycle,
+        autoWaitTimeoutSeconds: prepared.autoWaitTimeoutSeconds,
         stopBatchAfterThis: prepared.stopBatchAfterThis,
       });
       if (prepared.stopBatchAfterThis === true) {
@@ -224,86 +230,109 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       }
     }
 
-    const timedResults = this.executeBatch(
-      preparedTasks.map(({ task }) => task),
-      options.signal,
-    )[Symbol.asyncIterator]();
-    let nextTimed: Promise<IteratorResult<TimedToolResult>> | undefined = timedResults.next();
-    const finalizations = new Set<ToolExecutionResultPromise>();
+    const outcomes: Array<SettledToolExecutionResult | undefined> = preparedTasks.map(
+      () => undefined,
+    );
+    const finalizations = this.executeBatch(preparedTasks, options).map((promise, index) => {
+      const observed = promise.then(
+        (value): void => {
+          outcomes[index] = { status: 'fulfilled', value };
+        },
+        (error): void => {
+          outcomes[index] = { status: 'rejected', reason: error };
+        },
+      );
+      preparedTasks[index]?.lifecycle?.bindExecution(observed);
+      return observed;
+    });
 
-    try {
-      while (nextTimed !== undefined || finalizations.size > 0) {
-        const candidates: Array<Promise<ToolExecutionStreamEvent>> = [];
-        if (nextTimed !== undefined) {
-          candidates.push(
-            nextTimed.then(
-              (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
-            ),
-          );
-        }
-        for (const promise of finalizations) {
-          candidates.push(
-            promise.then((settled): ToolExecutionStreamEvent => ({
-              type: 'finalized',
-              promise,
-              settled,
-            })),
-          );
-        }
+    if (this.taskLifecycleController === undefined) {
+      await Promise.all(finalizations);
+    } else {
+      const budget = foregroundBudget();
+      await Promise.race([Promise.all(finalizations), budget.promise]);
+      budget.cancel();
+    }
 
-        const event = await Promise.race(candidates);
-        if (event.type === 'timedRejected') {
-          throw event.reason;
-        }
-        if (event.type === 'timed') {
-          if (event.result.done === true) {
-            nextTimed = undefined;
-            continue;
-          }
+    const detached = new Set<number>();
+    for (let index = 0; index < preparedTasks.length; index += 1) {
+      if (outcomes[index] !== undefined) continue;
+      const lifecycle = preparedTasks[index]?.lifecycle;
+      if (lifecycle === undefined) continue;
+      await lifecycle.detach();
+      if (outcomes[index] === undefined) detached.add(index);
+    }
+    if (detached.size > 0) {
+      await this.taskLifecycleController?.beginAutoWait(
+        options.turnId,
+        [...detached].map((index) => {
+          const prepared = preparedTasks[index]!;
+          return {
+            taskId: prepared.lifecycle!.taskId,
+            toolCallId: prepared.call.toolCall.id,
+            toolName: prepared.call.toolName,
+            autoWaitTimeoutSeconds:
+              prepared.autoWaitTimeoutSeconds ?? DEFAULT_AUTO_WAIT_TIMEOUT_SECONDS,
+          };
+        }),
+      );
+    }
 
-          const finalization = this.finalizeTimedResult(
-            preparedTasks[event.result.value.index]!,
-            event.result.value,
-            options,
-          ).then(
-            (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
-          );
-          finalizations.add(finalization);
-          nextTimed = timedResults.next();
+    for (let index = 0; index < preparedTasks.length; index += 1) {
+      let outcome = outcomes[index];
+      if (outcome === undefined) {
+        const prepared = preparedTasks[index]!;
+        const lifecycle = prepared.lifecycle;
+        if (lifecycle === undefined) {
+          await finalizations[index];
+          outcome = outcomes[index];
+        } else if (detached.has(index)) {
+          const result = backgroundToolResult(prepared.call.toolName, lifecycle.taskId);
+          this.dispatchToolResult(prepared.call, result, options, true);
+          yield {
+            toolCallId: prepared.call.toolCall.id,
+            toolName: prepared.call.toolName,
+            result,
+          };
           continue;
+        } else {
+          await finalizations[index];
+          outcome = outcomes[index];
         }
-
-        finalizations.delete(event.promise);
-        if (event.settled.status === 'rejected') throw event.settled.reason;
-        yield event.settled.value;
       }
-    } finally {
-      await timedResults.return?.();
-      await Promise.allSettled(finalizations);
+      if (outcome?.status === 'rejected') throw outcome.reason;
+      if (outcome?.status === 'fulfilled') yield outcome.value;
     }
   }
 
   private async finalizeTimedResult(
-    prepared: {
-      readonly call: PreflightedToolCall;
-    },
+    prepared: PreparedExecution,
     timedResult: TimedToolResult,
     options: ToolExecutorExecuteOptions,
   ): Promise<ToolExecutionResult> {
     const { call } = prepared;
     const rawResult = timedResult.result;
-    const finalized = await this.finalizeToolResult(call, rawResult, options);
+    let finalized: ToolResult;
+    try {
+      finalized = await this.finalizeToolResult(call, rawResult, options);
+    } catch (error) {
+      await prepared.lifecycle?.settle({
+        output: `Tool "${call.toolName}" failed while finalizing its result: ${errorMessage(error)}`,
+        isError: true,
+      });
+      throw error;
+    }
 
     this.dispatchToolResult(call, finalized, options);
     this.trackToolCall(call, finalized, timedResult.durationMs, options);
 
-    return {
+    const result = {
       toolCallId: call.toolCall.id,
       toolName: call.toolName,
       result: finalized,
     };
+    await prepared.lifecycle?.settle(finalized);
+    return result;
   }
 
   private trackToolCall(
@@ -335,6 +364,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     options: ToolExecutorExecuteOptions,
   ): Promise<{
     task: ToolExecutionTask;
+    lifecycle?: ToolTaskLifecycle;
+    autoWaitTimeoutSeconds?: number;
     stopBatchAfterThis?: boolean;
   }> {
     const settleError = (
@@ -418,6 +449,28 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       options.signal,
     );
 
+    let lifecycle: ToolTaskLifecycle | undefined;
+    try {
+      lifecycle =
+        execution.taskMode === 'control'
+          ? undefined
+          : await this.taskLifecycleController?.prepare({
+              turnId: options.turnId,
+              toolCallId: call.toolCall.id,
+              toolName: call.toolName,
+              description: execution.description ?? `Running ${call.toolName}`,
+              autoWaitTimeoutSeconds:
+                execution.autoWaitTimeoutSeconds ?? DEFAULT_AUTO_WAIT_TIMEOUT_SECONDS,
+              signal: options.signal,
+            });
+    } catch (error) {
+      return settleError(
+        call.args,
+        `Tool "${call.toolName}" could not be durably recorded: ${errorMessage(error)}`,
+        displayFields,
+      );
+    }
+
     this.dispatchToolCall(call, call.args, options, displayFields);
 
     return {
@@ -426,6 +479,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         execute: async (taskSignal) =>
           this.runSingleExecution(call, execution, executionMetadata, options, taskSignal),
       },
+      lifecycle,
+      autoWaitTimeoutSeconds: execution.autoWaitTimeoutSeconds ?? DEFAULT_AUTO_WAIT_TIMEOUT_SECONDS,
       stopBatchAfterThis: execution.stopBatchAfterThis,
     };
   }
@@ -439,22 +494,22 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     return makeResolvedTask(makeErrorToolResult(call, call.args, output));
   }
 
-  private async *executeBatch(
-    tasks: ToolExecutionTask[],
-    signal: AbortSignal,
-  ): AsyncIterable<TimedToolResult> {
+  private executeBatch(
+    preparedTasks: readonly PreparedExecution[],
+    options: ToolExecutorExecuteOptions,
+  ): readonly Promise<ToolExecutionResult>[] {
     const scheduler = new ToolScheduler<TimedToolResult>();
-    const allResults: Array<Promise<TimedToolResult>> = [];
-    const pendingResults = new Map<number, Promise<SettledTimedToolResult>>();
+    const results: Array<Promise<ToolExecutionResult>> = [];
 
-    for (let index = 0; index < tasks.length; index += 1) {
-      const task = tasks[index]!;
+    for (let index = 0; index < preparedTasks.length; index += 1) {
+      const prepared = preparedTasks[index]!;
       const pendingResult = scheduler.add({
-        accesses: task.accesses,
+        accesses: prepared.task.accesses,
         start: async () => {
           const startedAt = Date.now();
+          const signal = prepared.lifecycle?.signal ?? options.signal;
           return {
-            result: task.execute(signal).then((result) => ({
+            result: prepared.task.execute(signal).then((result) => ({
               index,
               result,
               durationMs: Math.max(0, Date.now() - startedAt),
@@ -462,27 +517,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           };
         },
       });
-      allResults.push(pendingResult);
-      pendingResults.set(
-        index,
-        pendingResult.then(
-          (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+      results.push(
+        pendingResult.then((timedResult) =>
+          this.finalizeTimedResult(prepared, timedResult, options),
         ),
       );
     }
-
-    try {
-      while (pendingResults.size > 0) {
-        const settled = await Promise.race(pendingResults.values());
-        const index = settled.status === 'fulfilled' ? settled.value.index : settled.index;
-        pendingResults.delete(index);
-        if (settled.status === 'rejected') throw settled.reason;
-        yield settled.value;
-      }
-    } finally {
-      await Promise.allSettled(allResults);
-    }
+    return results;
   }
 
   private async runSingleExecution(
@@ -493,11 +534,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     signal: AbortSignal,
   ): Promise<ToolResult> {
     if (signal.aborted) {
-      return makeErrorToolResult(
-        call,
-        call.args,
-        abortedToolOutput(call.toolName, signal),
-      ).result;
+      return makeErrorToolResult(call, call.args, abortedToolOutput(call.toolName, signal)).result;
     }
 
     let rawResult: ExecutableToolResult;
@@ -561,6 +598,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       toolCallId: call.toolCall.id,
       name: call.toolName,
       args,
+      display: displayFields?.display,
     });
   }
 
@@ -568,6 +606,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     call: PreflightedToolCall,
     result: ToolResult,
     options: ToolExecutorExecuteOptions,
+    synthetic?: boolean,
   ): void {
     this.eventBus.publish({
       type: 'tool.result',
@@ -575,6 +614,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       toolCallId: call.toolCall.id,
       output: result.output,
       isError: result.isError,
+      synthetic,
     });
   }
 
@@ -631,9 +671,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       display: result.display,
       approvalRule: result.approvalRule,
       stopTurn:
-        result.stopTurn === true ||
-        didCtx.stopTurn === true ||
-        effectiveResult.stopTurn === true,
+        result.stopTurn === true || didCtx.stopTurn === true || effectiveResult.stopTurn === true,
       stopBatchAfterThis: result.stopBatchAfterThis,
       delivery: coercedResult.delivery,
     };
@@ -671,7 +709,10 @@ interface PreparedToolResult {
   readonly stopTurn?: boolean;
 }
 
-type ToolCallDisplayFields = { description?: string | undefined; display?: ToolInputDisplay | undefined };
+type ToolCallDisplayFields = {
+  description?: string | undefined;
+  display?: ToolInputDisplay | undefined;
+};
 
 function buildBeforeExecuteContext(
   call: RunnableToolCall,
@@ -924,14 +965,36 @@ async function raceWithAbortGrace<Result>(
     if (onAbort !== undefined) {
       try {
         signal.removeEventListener('abort', onAbort);
-      } catch {
-      }
+      } catch {}
     }
   }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function foregroundBudget(): { readonly promise: Promise<void>; cancel(): void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, TOOL_FOREGROUND_BUDGET_MS);
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (timer !== undefined) clearTimeout(timer);
+    },
+  };
+}
+
+function backgroundToolResult(toolName: string, taskId: string): ToolResult {
+  return {
+    output: [
+      `Tool "${toolName}" is still running as task ${taskId}.`,
+      'Its final result will arrive automatically. Continue independent work, or call WaitFor if no useful work remains.',
+    ].join('\n'),
+    stopTurn: true,
+  };
 }
 
 registerScopedService(

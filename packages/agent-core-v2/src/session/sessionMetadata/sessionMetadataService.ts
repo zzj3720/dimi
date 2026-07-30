@@ -7,12 +7,8 @@
  * construction (creating it on first run), and logs through `log`. The
  * plain-data state (`data`) is registered into `sessionState`
  * (`ISessionStateService`) and read/written through it. The
- * document always carries the `agents` / `custom` maps that v1's
- * `Session.resume()` reads unconditionally — seeded at creation, backfilled
- * and persisted on load for documents written before the seeding existed
- * (without touching `updatedAt`, so a format heal never reorders session
- * listings) — keeping sessions on a shared `KIMI_CODE_HOME` resumable by
- * released v1 builds. Re-registering an agent whose metadata is unchanged is
+ * document always carries `version`, `cwd`, `agents`, and `custom` as one
+ * authoritative current schema. Re-registering an agent whose metadata is unchanged is
  * a no-op (no write, no mirror, no event), so resuming a session — which
  * re-registers its agents as they materialize — never bumps `updatedAt` and
  * never reorders session listings. Bound at Session scope.
@@ -157,15 +153,7 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
   private async load(): Promise<void> {
     const existing = await this.store.get<SessionMeta>(this.scope, META_KEY);
     if (existing !== undefined) {
-      this.data = normalizeSessionMeta(existing, this.ctx.sessionId);
-      if (this.data.agents === undefined || this.data.custom === undefined) {
-        this.data = {
-          ...this.data,
-          agents: this.data.agents ?? {},
-          custom: this.data.custom ?? {},
-        };
-        await this.store.set(this.scope, META_KEY, this.data);
-      }
+      this.data = existing;
       return;
     }
     const now = Date.now();
@@ -201,38 +189,6 @@ function recordEquals(a: AgentMeta['labels'], b: AgentMeta['labels']): boolean {
   return (
     entriesA.length === entriesB.length && entriesA.every(([key, value]) => b?.[key] === value)
   );
-}
-
-export function normalizeSessionMeta(raw: SessionMeta, sessionId: string): SessionMeta {
-  const legacy = raw as unknown as {
-    createdAt?: unknown;
-    updatedAt?: unknown;
-    workDir?: unknown;
-  };
-  const cwd =
-    raw.cwd ?? (typeof legacy.workDir === 'string' && legacy.workDir.length > 0
-      ? legacy.workDir
-      : undefined);
-  if (raw.version === SESSION_META_VERSION) {
-    return cwd === raw.cwd ? raw : { ...raw, cwd };
-  }
-  return {
-    ...raw,
-    id: sessionId,
-    version: SESSION_META_VERSION,
-    cwd,
-    createdAt: toEpochMs(legacy.createdAt),
-    updatedAt: toEpochMs(legacy.updatedAt),
-  };
-}
-
-export function toEpochMs(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
 }
 
 registerScopedService(

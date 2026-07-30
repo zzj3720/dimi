@@ -1,12 +1,12 @@
 ---
 name: agent-core-review
-description: Use ONLY for code review and test write/review guidance in `packages/agent-core-v2` (the DI × Scope agent engine). Does NOT apply to the legacy `packages/agent-core` or to any other package — for those, do not load this skill. Groups the review and testing lenses used for agent-core-v2 — `slop` (single-level-of-abstraction / layered error-handling review, invoked only on explicit request) and `test` (contract-driven per-test rules for both authoring and reviewing tests). Apply the sub-skill that matches the task; do not apply `slop` unprompted.
+description: Use ONLY for code review and test write/review guidance in `packages/agent-core-v2` (the DI × Scope agent engine). Does not apply to other packages. Groups the runtime review and testing lenses — `slop` (single-level-of-abstraction / layered error-handling review, invoked only on explicit request) and `test` (contract-driven per-test rules for both authoring and reviewing tests). Apply the sub-skill that matches the task; do not apply `slop` unprompted.
 has-sub-skill: true
 ---
 
 # kc-review
 
-> **Scope: `packages/agent-core-v2` only.** These lenses are calibrated for the v2 engine (DI × Scope). Do not apply them to the legacy `packages/agent-core` or to other packages.
+> **Scope: `packages/agent-core-v2` only.** These lenses are calibrated for the DI × Scope runtime. Do not apply them to other packages.
 
 A bundle of the lenses used when reviewing or testing `packages/agent-core-v2`. Each sub-skill is self-contained; invoke the one that matches the task.
 

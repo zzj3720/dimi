@@ -62,14 +62,14 @@ function makeInMemoryStreamPair(): {
 /**
  * Build a fake {@link Session} whose `getResumeState` reports the given
  * main-agent config so the server's resume-state projection (modelAlias
- * → currentModelId, thinkingEffort → currentThinkingEnabled) gets a
+ * → currentModelId, thinkingLevel → currentThinkingEnabled) gets a
  * deterministic input. History is empty because `resumeSession` does
  * not replay anyway — the field is kept for API parity with the
  * matching session-load helper.
  */
 function makeSessionWithMainConfig(
   sessionId: string,
-  mainConfig?: { modelAlias?: string; thinkingEffort?: string },
+  mainConfig?: { modelAlias?: string; thinkingLevel?: string },
 ): Session {
   return {
     id: sessionId,
@@ -143,7 +143,7 @@ describe('AcpServer.resumeSession', () => {
     const sessionId = 'sess-resume-model';
     // Resume state reports kimi-plain (thinking unsupported) so we can
     // assert the projection picks the alias from main-agent config and
-    // that thinking flips to `on` because `thinkingEffort='high'` is
+    // that thinking flips to `on` because `thinkingLevel='high'` is
     // non-`off` per the server's boolean projection. The mode currentValue
     // is always `default` because mode is session-scoped (PLAN D9).
     //
@@ -151,7 +151,7 @@ describe('AcpServer.resumeSession', () => {
     // would suppress it via `thinkingSupported: false`).
     const session = makeSessionWithMainConfig(sessionId, {
       modelAlias: 'kimi-coder',
-      thinkingEffort: 'high',
+      thinkingLevel: 'high',
     });
     const harness = makeHarness({ hasUsableToken: true, session });
 
@@ -179,7 +179,7 @@ describe('AcpServer.resumeSession', () => {
     expect(modelOpt!.currentValue).toBe('kimi-coder');
 
     if (thinkingOpt!.type !== 'select') throw new Error('thinking option must be a select');
-    // `thinkingEffort='high'` → boolean projection picks the `on` slot.
+    // `thinkingLevel='high'` → boolean projection picks the `on` slot.
     expect(thinkingOpt!.currentValue).toBe('on');
 
     if (modeOpt!.type !== 'select') throw new Error('mode option must be a select');

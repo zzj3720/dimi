@@ -6,7 +6,7 @@
 //   - per-turn / per-step / per-tool wall-clock duration (from record `time`)
 //   - per-turn token cost (sum of step usages) and cache-hit rate
 //   - context-window fill over time (mirrors agent-core's snapshot formula)
-//   - tool-result truncation / size / error flags
+//   - tool-result size / error flags
 //   - tool usage stats (count, error rate, latency)
 //   - idle gaps (large wall-clock gaps between records → waiting)
 //
@@ -24,18 +24,14 @@ export interface ToolCallNode {
   callLineNo: number;
   toolCallId: string;
   name: string;
-  description?: string;
   callTime?: number;
   resultLineNo?: number;
   resultTime?: number;
   /** resultTime − callTime, when both are known. */
   durationMs?: number;
   isError?: boolean;
-  truncated?: boolean;
   /** Approximate byte size of the tool result output. */
   outputBytes?: number;
-  /** Optional human-readable side-channel message on the result. */
-  resultMessage?: string;
 }
 
 export interface StepNode {
@@ -98,7 +94,6 @@ export interface ToolStat {
   name: string;
   count: number;
   errorCount: number;
-  truncatedCount: number;
   /** Number of calls that had both call and result times (so durationMs). */
   timedCount: number;
   totalMs: number;
@@ -136,7 +131,6 @@ export interface AnalysisSummary {
   stepCount: number;
   toolCallCount: number;
   toolErrorCount: number;
-  truncatedToolCount: number;
   /** Sum of all step usages — total tokens processed across the session. */
   totalTokens: number;
   /** Latest context-window fill (last step.end snapshot). */
@@ -316,8 +310,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined);
           const step: StepNode = {
             uuid: ev.uuid,
-            step: ev.step,
-            turnId: ev.turnId,
+            step: ev.step ?? -1,
+            turnId: ev.turnId ?? '?',
             beginLineNo: entry.lineNo,
             beginTime: t,
             content: { textChars: 0, thinkChars: 0 },
@@ -361,7 +355,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
                 lineNo: entry.lineNo,
                 time: t,
                 turnIndex: current?.index ?? -1,
-                step: ev.step,
+                step: ev.step ?? -1,
                 contextTokens,
               });
             }
@@ -372,7 +366,6 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             callLineNo: entry.lineNo,
             toolCallId: ev.toolCallId,
             name: ev.name,
-            description: ev.description,
             callTime: t,
           };
           toolByCallId.set(ev.toolCallId, node);
@@ -390,15 +383,12 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         } else if (ev.type === 'tool.result') {
           const node = toolByCallId.get(ev.toolCallId);
           const isError = ev.result.isError === true;
-          const truncated = ev.result.truncated === true;
           const bytes = outputSize(ev.result.output);
           if (node) {
             node.resultLineNo = entry.lineNo;
             node.resultTime = t;
             node.isError = isError;
-            node.truncated = truncated;
             node.outputBytes = bytes;
-            node.resultMessage = ev.result.message;
             if (node.callTime !== undefined && t !== undefined) node.durationMs = t - node.callTime;
             if (isError && current) current.toolErrorCount += 1;
             recordToolStat(toolStatMap, node);
@@ -438,12 +428,11 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
 function recordToolStat(map: Map<string, ToolStat>, node: ToolCallNode): void {
   let s = map.get(node.name);
   if (!s) {
-    s = { name: node.name, count: 0, errorCount: 0, truncatedCount: 0, timedCount: 0, totalMs: 0, avgMs: null, maxMs: null, totalOutputBytes: 0 };
+    s = { name: node.name, count: 0, errorCount: 0, timedCount: 0, totalMs: 0, avgMs: null, maxMs: null, totalOutputBytes: 0 };
     map.set(node.name, s);
   }
   s.count += 1;
   if (node.isError) s.errorCount += 1;
-  if (node.truncated) s.truncatedCount += 1;
   if (node.outputBytes !== undefined) s.totalOutputBytes += node.outputBytes;
   if (node.durationMs !== undefined) {
     s.timedCount += 1;
@@ -462,7 +451,6 @@ function summarize(
   let stepCount = 0;
   let toolCallCount = 0;
   let toolErrorCount = 0;
-  let truncatedToolCount = 0;
   let totalTokens = 0;
   let activeMs = 0;
   for (const turn of turns) {
@@ -474,16 +462,12 @@ function summarize(
     toolErrorCount += turn.toolErrorCount;
     totalTokens += usageTotal(turn.tokens);
     activeMs += turn.durationMs ?? 0;
-    for (const step of turn.steps) {
-      for (const tc of step.toolCalls) if (tc.truncated) truncatedToolCount += 1;
-    }
   }
   return {
     turnCount: turns.length,
     stepCount,
     toolCallCount,
     toolErrorCount,
-    truncatedToolCount,
     totalTokens,
     contextTokens,
     peakContextTokens: peakContext,

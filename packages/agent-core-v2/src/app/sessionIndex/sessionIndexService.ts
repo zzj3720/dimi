@@ -7,20 +7,15 @@
  * session ids are enumerated via `IFileSystemStorageService.list`, and each session's
  * metadata document is read via `IAtomicDocumentStore` to build its summary.
  *
- * One physical folder may be split across sibling buckets by legacy id
- * spellings (Windows casing/slash variants minted different `workspaceId`s for
- * the same directory; see `IWorkspaceAliases.resolveAliasIds`). A list or
+ * One physical folder may be registered under sibling workspace ids because
+ * Windows roots can differ by casing or slash spelling. A list or
  * `countActive` query takes the workspace-id *set*, enumerates each bucket,
  * and merges before the single recency sort and `limit` step — the merged
  * listing is observably identical to a single-bucket list (same sort key,
  * same cursor shape); filtering options keep their meaning.
  *
- * The session metadata document lives at `<sessionDir>/state.json`, a layout
- * shared by v1 and v2; the `version` field distinguishes them (`2` = v2,
- * epoch-ms timestamps; absent = v1, ISO-string timestamps). The reader also
- * falls back to the legacy `<sessionDir>/session-meta/state.json` path for v2
- * sessions written before the layouts were unified. Both timestamp
- * representations are normalized to epoch ms.
+ * Session metadata lives at `<sessionDir>/state.json` with epoch-millisecond
+ * timestamps and a top-level `cwd`.
  *
  * Read model (flag `persistence_minidb_readmodel`): when enabled, summaries are
  * served from the `IQueryStore` derived read model instead of re-reading and
@@ -29,8 +24,8 @@
  * summary is resolved through the read model — falling back to a disk read +
  * backfill on a cold miss. Writes (create / archive / metadata update) keep the
  * read model warm via `SessionMetadata`; new sessions that have not been
- * mirrored yet are simply a cold miss and backfilled on first read. The legacy
- * N+1 path remains as the flag-off fallback — and as the runtime fallback if
+ * mirrored yet are simply a cold miss and backfilled on first read. The disk
+ * path remains as the flag-off fallback — and as the runtime fallback if
  * the query store ever reports `storage.locked`: the first lock warns once and
  * disables the read model for the rest of the process lifetime. (The minidb
  * backend is a multi-process `ClusterDb` and no longer produces that error;
@@ -57,30 +52,16 @@ import {
   type SessionSummary,
 } from './sessionIndex';
 
-const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';
 const SESSION_COLLECTION = 'session';
 const READ_MODEL_FLAG = 'persistence_minidb_readmodel';
 
 function parseTime(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function recoverCwd(meta: Record<string, unknown>): string | undefined {
   if (typeof meta['cwd'] === 'string' && meta['cwd'].length > 0) return meta['cwd'];
-  if (typeof meta['workDir'] === 'string' && meta['workDir'].length > 0) {
-    return meta['workDir'];
-  }
-  const custom = meta['custom'];
-  if (custom !== null && typeof custom === 'object' && !Array.isArray(custom)) {
-    const fromCustom = (custom as Record<string, unknown>)['cwd'];
-    if (typeof fromCustom === 'string' && fromCustom.length > 0) return fromCustom;
-  }
   return undefined;
 }
 
@@ -109,31 +90,31 @@ export class FileSessionIndex implements ISessionIndex {
   ) {}
 
   async list(query: SessionListQuery): Promise<Page<SessionSummary>> {
-    if (!this.readModelEnabled()) return this.listLegacy(query);
+    if (!this.readModelEnabled()) return this.listFromDisk(query);
     return this.withReadModelFallback(
       () => this.listFromReadModel(query),
-      () => this.listLegacy(query),
+      () => this.listFromDisk(query),
     );
   }
 
   async get(id: string): Promise<SessionSummary | undefined> {
-    if (!this.readModelEnabled()) return this.getLegacy(id);
+    if (!this.readModelEnabled()) return this.getFromDisk(id);
     return this.withReadModelFallback(
       () => this.getFromReadModel(id),
-      () => this.getLegacy(id),
+      () => this.getFromDisk(id),
     );
   }
 
   async countActive(workspaceIds: readonly string[]): Promise<number> {
-    if (!this.readModelEnabled()) return this.countActiveLegacy(workspaceIds);
+    if (!this.readModelEnabled()) return this.countActiveFromDisk(workspaceIds);
     return this.withReadModelFallback(
       () => this.countActiveFromReadModel(workspaceIds),
-      () => this.countActiveLegacy(workspaceIds),
+      () => this.countActiveFromDisk(workspaceIds),
     );
   }
 
-  private async withReadModelFallback<T>(op: () => Promise<T>, legacy: () => Promise<T>): Promise<T> {
-    if (this.readModelDisabled) return legacy();
+  private async withReadModelFallback<T>(op: () => Promise<T>, disk: () => Promise<T>): Promise<T> {
+    if (this.readModelDisabled) return disk();
     try {
       return await op();
     } catch (error) {
@@ -142,7 +123,7 @@ export class FileSessionIndex implements ISessionIndex {
       this.log.warn('query-store locked by another process; disabling read model', {
         error: String(error),
       });
-      return legacy();
+      return disk();
     }
   }
 
@@ -226,9 +207,9 @@ export class FileSessionIndex implements ISessionIndex {
     return summary;
   }
 
-  private async listLegacy(query: SessionListQuery): Promise<Page<SessionSummary>> {
+  private async listFromDisk(query: SessionListQuery): Promise<Page<SessionSummary>> {
     if (query.sessionId !== undefined) {
-      const summary = await this.getLegacy(query.sessionId);
+      const summary = await this.getFromDisk(query.sessionId);
       const items =
         summary !== undefined && (!summary.archived || query.includeArchived === true)
           ? [summary]
@@ -251,7 +232,7 @@ export class FileSessionIndex implements ISessionIndex {
     return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
   }
 
-  private async getLegacy(id: string): Promise<SessionSummary | undefined> {
+  private async getFromDisk(id: string): Promise<SessionSummary | undefined> {
     for (const workspaceId of await this.listWorkspaceIds()) {
       if (!(await this.hasSession(workspaceId, id))) continue;
       const summary = await this.readSummary(workspaceId, id);
@@ -260,7 +241,7 @@ export class FileSessionIndex implements ISessionIndex {
     return undefined;
   }
 
-  private async countActiveLegacy(workspaceIds: readonly string[]): Promise<number> {
+  private async countActiveFromDisk(workspaceIds: readonly string[]): Promise<number> {
     let count = 0;
     for (const workspaceId of workspaceIds) {
       for (const sessionId of await this.listSessionIds(workspaceId)) {
@@ -301,7 +282,7 @@ export class FileSessionIndex implements ISessionIndex {
     sessionId: string,
   ): Promise<SessionSummary | undefined> {
     const base = `${this.sessionsScope}/${workspaceId}/${sessionId}`;
-    const meta = (await this.readMeta(base)) ?? (await this.readMeta(`${base}/${META_SCOPE}`));
+    const meta = await this.readMeta(base);
     if (meta === undefined) return undefined;
     const rawCustom = meta['custom'];
     const custom =

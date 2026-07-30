@@ -1,6 +1,5 @@
 /**
- * `SnapshotReader` — server-layer disk reader for `GET /sessions/{sid}/snapshot`
- * (`KIMI_SNAPSHOT_READER=auto`, the default).
+ * `SnapshotReader` — server-layer disk reader for `GET /sessions/{sid}/snapshot`.
  *
  * Reads `<homeDir>/sessions/<workspaceId>/<sid>/state.json` and
  * `…/agents/main/wire.jsonl` directly, bypassing
@@ -8,10 +7,9 @@
  * full wire replay). The transcript is reduced from the `context.*` records
  * with `reduceContextTranscript`, which mirrors the live reducers EXCEPT that
  * `context.apply_compaction` keeps the full history and appends a summary
- * marker instead of dropping the compacted prefix — the same full-transcript
- * view v1 serves (so compacted-away assistant replies stay visible after a
- * later undo). `(size, mtimeMs)` transcript cache and the watermark both come
- * from in-memory state, keeping warm reads sub-ms.
+ * marker instead of dropping the compacted prefix, so compacted-away assistant
+ * replies stay visible after a later undo. `(size, mtimeMs)` transcript cache
+ * and the watermark both come from in-memory state, keeping warm reads sub-ms.
  *
  * Pending approvals/questions, the live status, and `current_prompt_id` are
  * only available while the session is live; for a cold session they correctly
@@ -27,8 +25,6 @@ import {
   ISessionIndex,
   ISessionInteractionService,
   ISessionLifecycleService,
-  IWorkspaceService,
-  normalizeSessionMeta,
   reduceContextTranscript,
   toProtocolMessage,
   type ContextMessage,
@@ -76,7 +72,6 @@ interface TranscriptCacheEntry {
 
 interface LocatedSession {
   readonly workspaceId: string;
-  readonly cwd: string;
   readonly sessionDir: string;
   readonly meta: SessionMeta;
 }
@@ -118,7 +113,7 @@ export class SnapshotReader implements ISnapshotReader {
     const live = core.accessor.get(ISessionLifecycleService).get(sid);
     const session = toWireSession(
       { ...located.meta, workspaceId: located.workspaceId },
-      located.cwd,
+      located.meta.cwd,
       resolveSessionFacts(core, sid),
     );
 
@@ -149,35 +144,21 @@ export class SnapshotReader implements ISnapshotReader {
   }
 
   /**
-   * Resolve `(workspaceId, sessionDir, cwd, meta)` for `sid`. Mirrors the
-   * legacy route's 404 conditions: unknown to the index, or workspace no longer
-   * registered (cwd is unrecoverable and would produce an invalid `Session`).
+   * Resolve the current persisted session document. The session owns its cwd;
+   * workspace registration is not part of snapshot identity.
    */
   private async locateSession(sid: string): Promise<LocatedSession> {
     const { core, homeDir } = this.deps;
     const summary = await core.accessor.get(ISessionIndex).get(sid);
     if (summary === undefined) throw new SnapshotNotFoundError(sid);
-    const workspace = await core.accessor.get(IWorkspaceService).get(summary.workspaceId);
-    if (workspace === undefined) throw new SnapshotNotFoundError(sid);
 
     const sessionDir = join(homeDir, SESSIONS_ROOT, summary.workspaceId, sid);
-    const rawMeta = await this.readStateMeta(join(sessionDir, STATE_FILE));
-    const meta = normalizeSessionMeta((rawMeta ?? summary) as SessionMeta, sid);
-    return { workspaceId: summary.workspaceId, cwd: workspace.root, sessionDir, meta };
+    const meta = await this.readStateMeta(join(sessionDir, STATE_FILE));
+    return { workspaceId: summary.workspaceId, sessionDir, meta };
   }
 
-  /** Best-effort `state.json` read; missing / corrupt degrades to `undefined`. */
-  private async readStateMeta(statePath: string): Promise<SessionMeta | undefined> {
-    try {
-      const raw = await readFile(statePath, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return undefined;
-      }
-      return parsed as SessionMeta;
-    } catch {
-      return undefined;
-    }
+  private async readStateMeta(statePath: string): Promise<SessionMeta> {
+    return JSON.parse(await readFile(statePath, 'utf-8')) as SessionMeta;
   }
 
   private async readTranscriptCached(

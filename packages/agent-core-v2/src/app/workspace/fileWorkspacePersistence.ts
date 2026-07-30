@@ -2,12 +2,8 @@
  * `workspace` domain (L2) — `FileWorkspacePersistence` implementation.
  *
  * File backend of `IWorkspacePersistence`. Persists the catalog as a single
- * v1-compatible `workspaces.json` document at the storage root
- * (`<homeDir>/workspaces.json`, via `scope = ''`) through the
- * `IAtomicDocumentStore` access-pattern Store. The `deleted_workspace_ids`
- * tombstone list round-trips with the catalog so soft deletions survive
- * regardless of which engine (v1 or v2) last wrote the file. Bound at App
- * scope.
+ * `workspaces.json` document at the storage root through the
+ * `IAtomicDocumentStore` access-pattern Store. Bound at App scope.
  */
 
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -57,11 +53,7 @@ export class FileWorkspacePersistence implements IWorkspacePersistence {
         lastOpenedAt: parseTime(entry.last_opened_at, now),
       });
     }
-    const rawDeleted = (file as { deleted_workspace_ids?: unknown }).deleted_workspace_ids;
-    const deletedIds = Array.isArray(rawDeleted)
-      ? rawDeleted.filter((id): id is string => typeof id === 'string')
-      : [];
-    return { workspaces, deletedIds };
+    return { workspaces };
   }
 
   async save(catalog: WorkspaceCatalog): Promise<void> {
@@ -77,7 +69,6 @@ export class FileWorkspacePersistence implements IWorkspacePersistence {
     const file: PersistedWorkspaceFile = {
       version: WORKSPACE_CATALOG_VERSION,
       workspaces: record,
-      deleted_workspace_ids: [...catalog.deletedIds],
     };
     await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
   }

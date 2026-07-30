@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Event } from '@moonshot-ai/agent-core';
+import type { Event } from '#/index';
 import {
   ContextSizeModel,
   IAgentContextSizeService,
@@ -25,7 +25,7 @@ import {
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
 
-import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';
+import { SessionEventWiring, type SessionEventSink } from '#/runtime/session-wiring';
 
 // ---------------------------------------------------------------------------
 // Fakes

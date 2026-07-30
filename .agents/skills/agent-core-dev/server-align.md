@@ -1,6 +1,6 @@
 # Subskill — Server align (expose `agent-core-v2` over `server-v2`)
 
-Wire a v2 domain into `packages/kap-server`, and — when the endpoint is part of the established `/api/v1` wire contract — keep the wire shape **byte-for-byte compatible** with what released v1 clients expect. This is the server-side counterpart of [align.md](align.md): `align.md` ports v1 *business logic* into v2; this file exposes the v2 result over HTTP / WS, reusing the v1 wire contract where it already exists.
+Wire a runtime domain into `packages/kap-server`, and — when the endpoint is part of the established `/api/v1` wire contract — keep the wire shape **byte-for-byte compatible** with what released clients expect. This file covers HTTP / WS exposure and protocol translation only; runtime business logic stays in its owning domain.
 
 Use this when the task is "expose the new v2 Service on the server", "add a `/sessions/:sid/...` route to the `/api/v1` surface", or "keep server-v2 speaking the same `/api/v1` contract released clients rely on".
 
@@ -75,7 +75,7 @@ Reach for a LegacyService when **any** hold:
 
 - The v1 endpoint carries state the v2 domain deliberately dropped (e.g. a FIFO queue, a `prompt_id`, idempotent `abort`/`steer`, auto-start-next).
 - The v1 method returns a handle/stream that v2 wraps differently, and the v1 clients expect the old envelope shape.
-- Matching v1 would force a `Map<sessionId, …>`-at-`App` anti-pattern or a scope/domain-direction violation into the native Service (see [align.md](align.md) red lines).
+- Matching the wire contract would force a `Map<sessionId, …>`-at-`App` anti-pattern or a scope/domain-direction violation into the native Service (see [design.md](design.md) red lines).
 - The native Service's error set / return type would have to grow v1-only branches.
 
 Do **not** put v1 quirks into the native v2 Service "to keep the route simple". That is the conflict this rule exists to prevent: the native Service serves the v2 architecture; the LegacyService serves the wire contract.

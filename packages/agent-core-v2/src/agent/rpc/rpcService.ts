@@ -205,6 +205,7 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   private async updatePromptMetadata(text: string | undefined): Promise<void> {
+    if (this.scopeContext.agentId !== MAIN_AGENT_ID) return;
     await applyPromptMetadataUpdate(
       {
         metadata: this.metadata,
@@ -218,7 +219,7 @@ export class AgentRPCService implements IAgentRPCService {
   getContext(_payload: EmptyPayload) {
     return {
       history: this.context.get(),
-      tokenCount: this.contextSize.get().measured,
+      tokenCount: this.contextSize.get().size,
     };
   }
 

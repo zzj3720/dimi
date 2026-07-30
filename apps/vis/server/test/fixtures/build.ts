@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -14,16 +14,6 @@ export async function buildSessionFixture(name: string): Promise<{
   const sessionDir = join(sessionsDir, 'session_fixture');
   await mkdir(sessionsDir, { recursive: true });
   await cp(src, sessionDir, { recursive: true });
-
-  // Write session_index.jsonl.
-  await writeFile(
-    join(home, 'session_index.jsonl'),
-    JSON.stringify({
-      sessionId: 'session_fixture',
-      sessionDir,
-      workDir: '/tmp/work',
-    }) + '\n',
-  );
 
   return {
     home,

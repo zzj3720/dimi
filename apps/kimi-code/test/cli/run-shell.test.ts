@@ -31,7 +31,6 @@ const mocks = vi.hoisted(() => {
     loadTuiConfig: vi.fn(),
     detectTerminalTheme: vi.fn(),
     kimiHarnessConstructor: vi.fn(),
-    kimiHarnessV2Constructor: vi.fn(),
     harnessEnsureConfigFile: vi.fn(),
     harnessGetConfig: vi.fn(async () => ({
       providers: {},
@@ -41,7 +40,6 @@ const mocks = vi.hoisted(() => {
     harnessGetConfigDiagnostics: vi.fn(async () => ({ warnings: [] as readonly string[] })),
     harnessGetCachedAccessToken: vi.fn(),
     harnessClose: vi.fn(),
-    detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
     kimiTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
@@ -96,10 +94,6 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
       mocks.kimiHarnessConstructor(...args);
       return makeHarnessStub(args);
     },
-    createKimiHarnessV2: (...args: unknown[]) => {
-      mocks.kimiHarnessV2Constructor(...args);
-      return makeHarnessStub(args);
-    },
   };
 });
 
@@ -147,10 +141,6 @@ vi.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
 }));
 
-vi.mock('../../src/migration/index', () => ({
-  detectPendingMigration: mocks.detectPendingMigration,
-}));
-
 vi.mock('node:child_process', () => ({
   execSync: mocks.execSync,
 }));
@@ -186,56 +176,6 @@ describe('runShell', () => {
     agent: undefined,
     agentFiles: [],
   };
-
-  function stubTuiStartup(): void {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
-  }
-
-  function withEnv(patch: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
-    const saved: Record<string, string | undefined> = {};
-    for (const key of Object.keys(patch)) {
-      saved[key] = process.env[key];
-      const value = patch[key];
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-    return fn().finally(() => {
-      for (const key of Object.keys(patch)) {
-        const value = saved[key];
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
-        }
-      }
-    });
-  }
-
-  it('builds the v2 harness when the master experimental flag is set', async () => {
-    stubTuiStartup();
-    await withEnv({ KIMI_CODE_EXPERIMENTAL_FLAG: '1' }, async () => {
-      await runShell(minimalCliOptions, '1.2.3-test');
-    });
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledTimes(1);
-    expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
-  });
-
-  it('keeps the v1 harness when the master experimental flag is unset', async () => {
-    stubTuiStartup();
-    await withEnv({ KIMI_CODE_EXPERIMENTAL_FLAG: undefined }, async () => {
-      await runShell(minimalCliOptions, '1.2.3-test');
-    });
-    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
-    expect(mocks.kimiHarnessV2Constructor).not.toHaveBeenCalled();
-  });
 
   it('constructs KimiHarness and KimiTUI with startup input', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
@@ -866,38 +806,4 @@ describe('runShell', () => {
     }
   });
 
-  it('surfaces an invalid target config as an error for kimi migrate, not silently', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.detectPendingMigration.mockResolvedValue({ totalSessions: 1 });
-    mocks.harnessGetConfig.mockRejectedValue(
-      new Error('Invalid configuration in ~/.kimi-code/config.toml'),
-    );
-
-    // A broken config.toml must fail loudly — `kimi migrate` must not swallow
-    // it and proceed, or the user never learns their config is broken.
-    await expect(
-      runShell(
-        {
-          session: undefined,
-          continue: false,
-          yolo: false,
-          auto: false,
-          plan: false,
-          model: undefined,
-          outputFormat: undefined,
-          prompt: undefined,
-          skillsDirs: [],
-          agent: undefined,
-          agentFiles: [],
-        },
-        '1.2.3-test',
-        { migrateOnly: true },
-      ),
-    ).rejects.toThrow('Invalid configuration');
-    expect(mocks.tuiStart).not.toHaveBeenCalled();
-  });
 });

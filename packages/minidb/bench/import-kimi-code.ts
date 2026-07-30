@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { MiniDb } from '../src/index.js';
+import { listKimiSessions, loadKimiWorkspaces } from './kimi-sessions.js';
 
 const argv = process.argv.slice(2);
 const arg = (name, def) => {
@@ -112,11 +113,7 @@ async function main() {
   await fs.rm(OUT, { recursive: true, force: true });
 
   // workspaces
-  const wsRaw = JSON.parse(readFileSync(path.join(DATA, 'workspaces.json'), 'utf8'));
-  const workspaces = wsRaw.workspaces || wsRaw;
-
-  // session index
-  const lines = readFileSync(path.join(DATA, 'session_index.jsonl'), 'utf8').trim().split('\n');
+  const workspaces = loadKimiWorkspaces(DATA);
 
   const db = await MiniDb.open({
     dir: OUT,
@@ -134,41 +131,29 @@ async function main() {
   let totalMessages = 0;
   let last = performance.now();
 
-  for (const line of lines) {
-    let meta;
-    try {
-      meta = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const { sessionId, sessionDir, workDir } = meta;
+  for (const meta of listKimiSessions(DATA)) {
+    const { sessionId, sessionDir, workDir, state, workspaceId } = meta;
     const wirePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
     if (!existsSync(wirePath)) {
       skipped++;
       continue;
     }
 
-    let state = {};
-    try {
-      state = JSON.parse(readFileSync(path.join(sessionDir, 'state.json'), 'utf8'));
-    } catch {}
-
     const { text, messages } = extractWireText(wirePath, FULL);
     totalTextBytes += Buffer.byteLength(text, 'utf8');
     totalMessages += messages;
 
-    const wsId = path.basename(path.dirname(sessionDir)); // <workspaceId>/<sessionId>
-    const ws = workspaces[wsId] || {};
+    const ws = workspaces[workspaceId] || {};
     const doc = {
       title: state.title || '',
-      workspaceId: wsId,
+      workspaceId,
       workspaceName: ws.name || '',
       workDir: workDir || '',
       text: (state.title ? state.title + '\n' : '') + text,
       messageCount: messages,
     };
-    const updated = state.updatedAt ? Date.parse(state.updatedAt) : 0;
-    const created = state.createdAt ? Date.parse(state.createdAt) : 0;
+    const updated = state.updatedAt ?? 0;
+    const created = state.createdAt ?? 0;
 
     await db.set(sessionId, doc, { dt: { updated, created } });
     imported++;

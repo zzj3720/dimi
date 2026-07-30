@@ -2,7 +2,7 @@
   "name": "@moonshot-ai/agent-core-v2",
   "version": "0.2.0",
   "private": true,
-  "description": "The unified agent engine for Kimi (v2 — DI Scope architecture)",
+  "description": "The unified DI Scope agent engine for Kimi Code",
   "license": "MIT",
   "author": "Moonshot AI",
   "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/agent-core-v2#readme",

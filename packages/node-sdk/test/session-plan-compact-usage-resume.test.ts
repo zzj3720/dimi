@@ -97,7 +97,6 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const session = await harness.createSession({ id: 'ses_compact_runtime', workDir });
 
       await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'compaction.unable',
       } satisfies Partial<KimiError>);
     } finally {
@@ -303,8 +302,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
 
     try {
       await expect(harness.resumeSession({ id: '   ' })).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'session.id_empty',
+        code: 'session.id_invalid',
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();

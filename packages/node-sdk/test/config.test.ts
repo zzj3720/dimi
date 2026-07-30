@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,11 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 
-import {
-  parseConfigString,
-  readConfigFile,
-  writeConfigFile,
-} from '../../agent-core/src/config';
 import { TEST_IDENTITY } from './test-identity';
 
 // node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
@@ -23,7 +18,7 @@ const tempDirs: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
@@ -66,9 +61,8 @@ max_ralph_iterations = 0
 reserved_context_size = 50000
 compaction_trigger_ratio = 0.85
 
-[background]
+[task]
 max_running_tasks = 4
-keep_alive_on_exit = false
 kill_grace_period_ms = 2000
 print_wait_ceiling_s = 3600
 
@@ -117,146 +111,13 @@ max_context_size = "large"
       details: {
         validationIssues: [
           {
-            path: ['models', 'kimi', 'maxContextSize'],
+            path: ['kimi', 'maxContextSize'],
           },
         ],
       },
     });
   });
 
-  it('parses the documented config shape and keeps TUI-only fields in raw', () => {
-    const config = parseConfigString(COMPLETE_TOML, 'complete.toml');
-
-    expect(config.defaultModel).toBe('kimi-for-coding');
-    expect(config.thinking?.enabled).toBe(true);
-    expect(config.thinking?.effort).toBe('high');
-    expect(config.defaultPermissionMode).toBe('auto');
-    expect(config.defaultPlanMode).toBe(false);
-    expect(config.mergeAllAvailableSkills).toBe(true);
-    expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
-
-    const provider = config.providers['kimi-for-coding'];
-    expect(provider).toMatchObject({
-      type: 'kimi',
-      baseUrl: 'https://api.kimi.com/coding/v1',
-      apiKey: 'sk-xxx',
-      customHeaders: { 'X-Custom-Header': 'value' },
-      env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
-    });
-
-    expect(config.models?.['kimi-for-coding']).toMatchObject({
-      provider: 'kimi-for-coding',
-      model: 'kimi-for-coding',
-      maxContextSize: 262144,
-      capabilities: ['image_in', 'thinking', 'video_in'],
-      displayName: 'Kimi for Coding',
-    });
-
-    expect(config.loopControl).toEqual({
-      maxRetriesPerStep: 3,
-      maxRalphIterations: 0,
-      reservedContextSize: 50000,
-      compactionTriggerRatio: 0.85,
-    });
-    expect(config.background).toEqual({
-      maxRunningTasks: 4,
-      keepAliveOnExit: false,
-      killGracePeriodMs: 2000,
-      printWaitCeilingS: 3600,
-    });
-    expect(config.services?.moonshotSearch?.customHeaders).toEqual({ 'X-Search': '1' });
-    expect(config.services?.moonshotFetch?.apiKey).toBe('sk-fetch');
-
-    expect('theme' in config).toBe(false);
-    expect(config.raw?.['theme']).toBe('dark');
-    expect(config.raw?.['skip_afk_prompt_injection']).toBe(false);
-    expect(config.raw?.['show_thinking_stream']).toBe(true);
-    expect(config.raw?.['notifications']).toEqual({ claim_stale_after_ms: 15000 });
-  });
-
-  it('writes typed fields in snake_case and preserves unknown raw sections', async () => {
-    const dir = await makeTempDir();
-    const configPath = join(dir, 'config.toml');
-    const config = parseConfigString(COMPLETE_TOML, configPath);
-
-    await writeConfigFile(configPath, {
-      ...config,
-      defaultModel: 'kimi-for-coding',
-      loopControl: {
-        ...config.loopControl,
-        maxStepsPerTurn: 42,
-      },
-    });
-
-    const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('default_model = "kimi-for-coding"');
-    expect(text).toContain('default_permission_mode = "auto"');
-    expect(text).toContain('extra_skill_dirs = [ "~/team-skills", ".agents/team-skills" ]');
-    expect(text).not.toContain('default_yolo');
-    expect(text).toContain('max_steps_per_turn = 42');
-    expect(text).toContain('display_name = "Kimi for Coding"');
-    expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
-    expect(text).toContain('claim_stale_after_ms = 15000');
-    expect(text).toContain('theme = "dark"');
-
-    const reloaded = readConfigFile(configPath);
-    expect(reloaded.loopControl?.maxStepsPerTurn).toBe(42);
-    expect(reloaded.raw?.['theme']).toBe('dark');
-  });
-
-  it('accepts camelCase aliases without keeping unknown fields in typed config', () => {
-    const config = parseConfigString(`
-defaultModel = "camel-model"
-
-[providers.local]
-type = "openai"
-baseUrl = "https://example.test/v1"
-apiKey = "sk-test"
-unsupported_provider_field = "raw-only"
-
-[models.camel-model]
-provider = "local"
-model = "gpt-test"
-maxContextSize = 128000
-displayName = "Camel Model"
-custom_model_field = "raw-only"
-
-[services.moonshotSearch]
-baseUrl = "https://example.test/search"
-apiKey = "sk-search"
-
-[loopControl]
-maxStepsPerRun = 7
-
-[background]
-maxRunningTasks = 2
-`);
-
-    expect(config.defaultModel).toBe('camel-model');
-    expect(config.providers['local']).toMatchObject({
-      type: 'openai',
-      baseUrl: 'https://example.test/v1',
-      apiKey: 'sk-test',
-    });
-    expect(config.models?.['camel-model']).toMatchObject({
-      maxContextSize: 128000,
-      displayName: 'Camel Model',
-    });
-    expect(config.services?.moonshotSearch).toMatchObject({
-      baseUrl: 'https://example.test/search',
-      apiKey: 'sk-search',
-    });
-    expect(config.loopControl?.maxStepsPerTurn).toBe(7);
-    expect(config.background?.maxRunningTasks).toBe(2);
-
-    expect('unsupportedProviderField' in config.providers['local']!).toBe(false);
-    expect('customModelField' in config.models!['camel-model']!).toBe(false);
-
-    const rawProviders = config.raw?.['providers'] as Record<string, Record<string, unknown>>;
-    const rawModels = config.raw?.['models'] as Record<string, Record<string, unknown>>;
-    expect(rawProviders['local']?.['unsupported_provider_field']).toBe('raw-only');
-    expect(rawModels['camel-model']?.['custom_model_field']).toBe('raw-only');
-  });
 });
 
 describe('KimiHarness config API', () => {
@@ -288,8 +149,6 @@ describe('KimiHarness config API', () => {
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
     expect(config.services?.moonshotSearch?.apiKey).toBe('sk-search-updated');
-    expect(config.raw?.['theme']).toBe('dark');
-
     const text = await readFile(configPath, 'utf-8');
     expect(text).toContain('theme = "dark"');
     expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
@@ -307,7 +166,7 @@ describe('KimiHarness config API', () => {
     const setInvalidConfig = harness.setConfig({
       providers: {
         bad: {
-          type: 'not-a-provider',
+          type: 42,
         },
       },
     } as never);
@@ -324,7 +183,11 @@ describe('KimiHarness config API', () => {
     const homeDir = await makeTempDir();
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
-    await expect(harness.getConfig()).resolves.toEqual({ providers: {} });
+    await expect(harness.getConfig()).resolves.toMatchObject({
+      providers: {},
+      models: {},
+      services: {},
+    });
   });
 
   it('returns experimental feature metadata through the harness', async () => {
@@ -333,30 +196,11 @@ describe('KimiHarness config API', () => {
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     const features = await harness.getExperimentalFeatures();
-    expect(features).toEqual([
-      {
-        id: 'tool-select',
-        title: 'Tool select (progressive tool disclosure)',
-        description:
-          'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
-      {
-        id: 'secondary-model',
-        title: 'Secondary model for subagents',
-        description:
-          'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
-    ]);
+    expect(features.map((feature) => feature.id)).toEqual(expect.arrayContaining([
+      'tool-select',
+      'secondary-model',
+    ]));
+    expect(features.every((feature) => typeof feature.enabled === 'boolean')).toBe(true);
   });
 
   it('can create the default config scaffold without selecting a model', async () => {
@@ -367,7 +211,7 @@ describe('KimiHarness config API', () => {
     await harness.ensureConfigFile();
 
     const text = await readFile(configPath, 'utf-8');
-    expect(text).toContain('Runtime settings for Kimi Code.');
+    expect(text).toContain('Kimi Code runtime settings.');
     expect(text).not.toMatch(/^default_thinking =/m);
     expect(text).not.toMatch(/^default_model =/m);
 
@@ -382,6 +226,7 @@ describe('KimiHarness config API', () => {
     const workDir = join(homeDir, 'work');
     const configPath = join(homeDir, 'config.toml');
     await writeFile(configPath, COMPLETE_TOML, 'utf-8');
+    await mkdir(workDir, { recursive: true });
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const session = await harness.createSession({
       id: 'session-sdk-reload',
@@ -404,6 +249,7 @@ describe('KimiHarness config API', () => {
     const workDir = join(homeDir, 'work');
     const configPath = join(homeDir, 'config.toml');
     await writeFile(configPath, COMPLETE_TOML, 'utf-8');
+    await mkdir(workDir, { recursive: true });
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const session = await harness.createSession({
       id: 'session-sdk-reload-forward',

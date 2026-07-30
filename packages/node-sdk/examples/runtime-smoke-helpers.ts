@@ -238,8 +238,8 @@ function logEvent(event: Event): void {
     case 'compaction.blocked':
     case 'compaction.cancelled':
     case 'compaction.completed':
-    case 'background.task.started':
-    case 'background.task.terminated':
+    case 'task.started':
+    case 'task.terminated':
     case 'warning':
       break;
   }

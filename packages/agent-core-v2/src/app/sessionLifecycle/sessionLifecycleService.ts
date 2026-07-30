@@ -13,12 +13,7 @@
  * Materializes the session's initial metadata on
  * creation by resolving `sessionMetadata`. Bound at App scope. Persisted
  * sessions are discovered through the `sessionIndex` read model, and workspace
- * roots are remembered through `workspace`. On create / fork the
- * session is also appended to the shared `session_index.jsonl` so v1 clients
- * (TUI, export) can discover sessions created by the v2 engine; the entry is
- * indexed under the registry-resolved workspace id — the same id seeding the
- * session's storage scope — so an alias spelling of the workDir cannot split
- * the session into a bucket v1 readers never look in. Fork flushes
+ * roots are remembered through `workspace`. Fork flushes
  * live Agent wire journals, normalizes a missing protocol envelope, and
  * appends the fork boundary before restoring the target Agent. On
  * materialize, the session's metadata, tool policy, and agent-profile catalog
@@ -51,6 +46,10 @@ import { unwrapErrorCause } from '#/_base/errors/errors';
 import { Emitter, type Event } from '#/_base/event';
 import { DEFAULT_PLAN_MODE_SECTION } from '#/agent/plan/configSection';
 import { IAgentPlanService } from '#/agent/plan/plan';
+import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
+import { isUserVisiblePromptOrigin } from '#/agent/replayBuilder/turns';
+import type { PromptOrigin } from '#/agent/contextMemory/types';
+import type { ContentPart } from '#/kosong/contract/message';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { CRON_SESSION_TAG, type CronTask } from '#/app/cron/cronTask';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
@@ -76,7 +75,11 @@ import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { ISessionMcpService } from '#/session/mcp/sessionMcp';
 import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import {
+  ISessionMetadata,
+  type AgentMeta,
+  type SessionMeta,
+} from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
@@ -92,6 +95,7 @@ import {
   type CreateChildSessionOptions,
   type CreateSessionOptions,
   type ForkSessionOptions,
+  type ResumeSessionOptions,
   type SessionArchivedEvent,
   type SessionClosedEvent,
   type SessionCreatedEvent,
@@ -157,14 +161,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         const planAgent = main ?? (await ensureMainAgent(handle));
         await planAgent.accessor.get(IAgentPlanService).enter();
       }
-      // Index the session under the workspace id the registry actually resolved
-      // (the same one seeding the session's storage scope), not a recomputed
-      // `encodeWorkDirKey` — with root folding the two can diverge.
-      await this.appendSessionIndexEntry(
-        sessionId,
-        opts.workDir,
-        handle.accessor.get(ISessionContext).workspaceId,
-      );
     } catch (error) {
       const sessionDir = handle.accessor.get(ISessionContext).sessionDir;
       this.sessions.delete(sessionId);
@@ -228,27 +224,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return handle;
   }
 
-  /**
-   * Append one entry to the v1-compatible `session_index.jsonl`. `workspaceId`
-   * must be the SAME id the session was materialized with (registry-resolved,
-   * possibly folded from an alias spelling) — recomputing
-   * `encodeWorkDirKey(workDir)` here could mint a different bucket and orphan
-   * the session for v1 readers.
-   */
-  private async appendSessionIndexEntry(
-    sessionId: string,
-    workDir: string,
-    workspaceId: string,
-  ): Promise<void> {
-    const sessionDir = this.bootstrap.sessionDir(workspaceId, sessionId);
-    this.appendLogStore.append('', 'session_index.jsonl', {
-      sessionId,
-      sessionDir,
-      workDir,
-    });
-    await this.appendLogStore.flush();
-  }
-
   private async announceCreated(event: SessionCreatedEvent): Promise<void> {
     await this.hooks.onDidCreateSession.run(event);
     this._onDidCreateSession.fire(event);
@@ -262,12 +237,15 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return this.sessions.get(sessionId);
   }
 
-  resume(sessionId: string): Promise<ISessionScopeHandle | undefined> {
+  resume(
+    sessionId: string,
+    options: ResumeSessionOptions = {},
+  ): Promise<ISessionScopeHandle | undefined> {
     const inflight = this.resuming.get(sessionId);
     if (inflight !== undefined) return inflight;
     const live = this.sessions.get(sessionId);
     if (live !== undefined) return Promise.resolve(live);
-    const promise = this.doResume(sessionId)
+    const promise = this.doResume(sessionId, options)
       .catch((error: unknown) => {
         this.telemetry
           .withContext({ sessionId })
@@ -281,7 +259,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return promise;
   }
 
-  private async doResume(sessionId: string): Promise<ISessionScopeHandle | undefined> {
+  private async doResume(
+    sessionId: string,
+    options: ResumeSessionOptions,
+  ): Promise<ISessionScopeHandle | undefined> {
     const live = this.sessions.get(sessionId);
     if (live !== undefined) return live;
 
@@ -296,6 +277,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       sessionId,
       workDir,
       workspaceId: summary.workspaceId,
+      mcpServers: options.mcpServers,
     });
     const agents = handle.accessor.get(IAgentLifecycleService);
     if (agents.get(MAIN_AGENT_ID) === undefined) {
@@ -413,7 +395,14 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       const targetMeta = target.accessor.get(ISessionMetadata);
 
       const sourceAgents = sourceMeta?.agents ?? {};
-      const agentIds = Object.keys(sourceAgents);
+      const selection = await this.selectForkRecords({
+        sourceHandle,
+        sourceWorkspaceId: workspaceId,
+        sourceSessionId: sourceId,
+        sourceAgents,
+        turnIndex: opts.turnIndex,
+      });
+      const agentIds = [...selection.records.keys()];
       for (const agentId of agentIds) {
         await this.copyAgentWire({
           sourceHandle,
@@ -422,6 +411,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           agentId,
           targetWorkspaceId: targetCtx.workspaceId,
           targetSessionId: targetCtx.sessionId,
+          records: selection.records.get(agentId),
         });
       }
 
@@ -431,7 +421,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         isCustomTitle: opts.title !== undefined ? true : sourceMeta?.isCustomTitle === true,
         forkedFrom: sourceId,
         archived: false,
-        lastPrompt: sourceMeta?.lastPrompt,
+        lastPrompt: selection.lastPrompt ?? sourceMeta?.lastPrompt,
         custom: forkCustomMetadata(sourceMeta?.custom, opts.metadata),
       });
 
@@ -446,7 +436,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         });
       }
 
-      await this.appendSessionIndexEntry(targetId, workspace.root, targetCtx.workspaceId);
       this._onDidForkSession.fire({
         sourceSessionId: sourceId,
         sessionId: targetId,
@@ -503,26 +492,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     readonly agentId: string;
     readonly targetWorkspaceId: string;
     readonly targetSessionId: string;
+    readonly records?: readonly WireRecord[];
   }): Promise<void> {
-    if (args.sourceHandle !== undefined) {
-      const agentHandle = args.sourceHandle.accessor
-        .get(IAgentLifecycleService)
-        .get(args.agentId);
-      if (agentHandle !== undefined) {
-        await agentHandle.accessor.get(IWireService).flush();
-      }
-    }
-
-    const records = await collect(
-      this.appendLogStore.read<WireRecord>(
-        this.bootstrap.agentScope(
-          args.sourceWorkspaceId,
-          args.sourceSessionId,
-          args.agentId,
-        ),
-        AGENT_WIRE_RECORD_KEY,
-      ),
-    );
+    const records = args.records === undefined
+      ? await this.readAgentWire(args)
+      : [...args.records];
     if (records.length === 0) {
       records.push(createWireMetadataRecord());
     } else if (records[0]?.type !== 'metadata') {
@@ -538,6 +512,83 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       ),
       AGENT_WIRE_RECORD_KEY,
       records,
+    );
+  }
+
+  private async selectForkRecords(args: {
+    readonly sourceHandle: ISessionScopeHandle | undefined;
+    readonly sourceWorkspaceId: string;
+    readonly sourceSessionId: string;
+    readonly sourceAgents: Readonly<Record<string, AgentMeta>>;
+    readonly turnIndex?: number;
+  }): Promise<{ readonly records: Map<string, WireRecord[]>; readonly lastPrompt?: string }> {
+    const records = new Map<string, WireRecord[]>();
+    if (args.turnIndex === undefined) {
+      for (const agentId of Object.keys(args.sourceAgents)) {
+        records.set(agentId, await this.readAgentWire({ ...args, agentId }));
+      }
+      return { records };
+    }
+    if (!Number.isInteger(args.turnIndex) || args.turnIndex < 0) {
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'turnIndex must be a non-negative integer');
+    }
+
+    const main = await this.readAgentWire({ ...args, agentId: MAIN_AGENT_ID });
+    const turnStarts = main.flatMap((record, index) =>
+      isUserTurnPrompt(record) ? [index] : [],
+    );
+    const selectedTurnStart = turnStarts[args.turnIndex];
+    if (selectedTurnStart === undefined) {
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'turnIndex is outside the session history', {
+        details: { turnIndex: args.turnIndex, availableTurns: turnStarts.length },
+      });
+    }
+
+    const nextTurnStart = turnStarts[args.turnIndex + 1];
+    const cutoff = nextTurnStart === undefined ? undefined : main[nextTurnStart]?.time;
+    records.set(MAIN_AGENT_ID, nextTurnStart === undefined ? main : main.slice(0, nextTurnStart));
+    for (const agentId of Object.keys(args.sourceAgents)) {
+      if (agentId === MAIN_AGENT_ID) continue;
+      const agentRecords = await this.readAgentWire({ ...args, agentId });
+      const createdAt = agentRecords[0]?.type === 'metadata'
+        ? agentRecords[0]['created_at']
+        : undefined;
+      if (cutoff !== undefined && (typeof createdAt !== 'number' || createdAt >= cutoff)) continue;
+      records.set(
+        agentId,
+        cutoff === undefined
+          ? agentRecords
+          : agentRecords.filter((record) => record.type === 'metadata' || record.time === undefined || record.time < cutoff),
+      );
+    }
+
+    const selected = main[selectedTurnStart];
+    const input = selected?.['input'];
+    return {
+      records,
+      lastPrompt: Array.isArray(input)
+        ? promptMetadataTextFromContentParts(input as readonly ContentPart[])
+        : undefined,
+    };
+  }
+
+  private async readAgentWire(args: {
+    readonly sourceHandle: ISessionScopeHandle | undefined;
+    readonly sourceWorkspaceId: string;
+    readonly sourceSessionId: string;
+    readonly agentId: string;
+  }): Promise<WireRecord[]> {
+    const liveAgent = args.sourceHandle?.accessor.get(IAgentLifecycleService).get(args.agentId);
+    await liveAgent?.accessor.get(IWireService).flush();
+    return collect(
+      this.appendLogStore.read<WireRecord>(
+        this.bootstrap.agentScope(
+          args.sourceWorkspaceId,
+          args.sourceSessionId,
+          args.agentId,
+        ),
+        AGENT_WIRE_RECORD_KEY,
+      ),
     );
   }
 
@@ -639,6 +690,11 @@ function createSessionId(): string {
 
 function forkedRecord(): WireRecord {
   return { type: 'forked', time: Date.now() };
+}
+
+function isUserTurnPrompt(record: WireRecord): boolean {
+  return record.type === 'turn.prompt' &&
+    isUserVisiblePromptOrigin(record['origin'] as PromptOrigin | undefined);
 }
 
 function forkCustomMetadata(

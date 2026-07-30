@@ -257,8 +257,10 @@ export function buildPermissionToolCallUpdate(
   turnId: number | undefined,
   req: ApprovalRequest,
 ): ToolCallUpdate {
+  const rawToolCallId = req.toolCallId ?? req.id;
+  if (rawToolCallId === undefined) throw new Error('Approval request is missing an id');
   const toolCallId =
-    turnId !== undefined ? acpToolCallId(turnId, req.toolCallId) : req.toolCallId;
+    turnId !== undefined ? acpToolCallId(turnId, rawToolCallId) : rawToolCallId;
   const content: ToolCallContent[] = [];
   // Diff entry first — diffs and file-io previews carry the most
   // context and should land at the top of the approval card. Phase 13.2

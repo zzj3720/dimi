@@ -10,8 +10,6 @@ export interface ContextCompactionInput {
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;
-  readonly keptUserMessageCount?: number;
-  readonly keptHeadUserMessageCount?: number;
   readonly droppedCount?: number;
 }
 

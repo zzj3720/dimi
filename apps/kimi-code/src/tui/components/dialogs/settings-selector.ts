@@ -5,6 +5,7 @@ export type SettingsSelection =
   | 'theme'
   | 'editor'
   | 'permission'
+  | 'busy-input'
   | 'experiments'
   | 'upgrade'
   | 'usage';
@@ -31,6 +32,11 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     description: 'Set the external editor command.',
   },
   {
+    value: 'busy-input',
+    label: 'Busy input',
+    description: 'Choose whether Enter queues or steers while the agent is working.',
+  },
+  {
     value: 'experiments',
     label: 'Experiments',
     description: 'Turn experimental features on or off.',
@@ -53,6 +59,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'theme' ||
     value === 'editor' ||
     value === 'permission' ||
+    value === 'busy-input' ||
     value === 'experiments' ||
     value === 'upgrade' ||
     value === 'usage'

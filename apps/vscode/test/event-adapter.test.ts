@@ -428,7 +428,13 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
   it.each([
     {
       type: 'compaction.completed' as const,
-      result: { summary: 'Summary', compactedCount: 3, tokensBefore: 100, tokensAfter: 30 },
+      result: {
+        summary: 'Summary',
+        compactedCount: 3,
+        tokensBefore: 100,
+        tokensAfter: 30,
+        keptUserMessageCount: 1,
+      },
     },
     { type: 'compaction.cancelled' as const },
     { type: 'compaction.blocked' as const, turnId: 7 },

@@ -2,7 +2,6 @@ import type {
   AgentReplayRecord,
   BackgroundTaskInfo,
   ContentPart,
-  ContextMessage,
   PromptOrigin,
   ResumedAgentState,
   ToolCall,
@@ -61,7 +60,7 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
   const contextTokens = agent.context.tokenCount;
   const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
   return {
-    model: agent.config.modelAlias ?? agent.config.provider?.model ?? '',
+    model: agent.config.modelAlias ?? '',
     contextTokens,
     maxContextTokens,
     contextUsage,
@@ -202,12 +201,6 @@ export function toolResultOutput(content: readonly ContentPart[]): string {
 
 export function contentPartsToText(content: readonly ContentPart[]): string {
   return content.map(contentPartToText).join('');
-}
-
-export function backgroundOrigin(
-  message: ContextMessage,
-): Extract<PromptOrigin, { kind: 'background_task' }> | undefined {
-  return message.origin?.kind === 'background_task' ? message.origin : undefined;
 }
 
 export function skillActivationFromOrigin(

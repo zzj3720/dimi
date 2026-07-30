@@ -4,9 +4,7 @@
  * Owns the agent's registry of running and restored tasks:
  * registers and drives tasks to completion, retains a bounded output ring,
  * persists task state and output through task persistence rooted at the
- * agent's own scope (v1's per-agent `<sessionDir>/agents/<id>/tasks/`
- * layout), lets only the main agent read through the previous v2
- * session-level task root without writing back to it, reads
+ * agent's own scope (`<sessionDir>/agents/<id>/tasks/`), reads
  * limits through `config`, records lifecycle and broadcasts through `wire`
  * (persisted `task.started` / `task.terminated` Ops into `TaskModel`, the
  * terminated record carrying a bounded tail of the task's retained output as
@@ -15,15 +13,11 @@
  * (wire replay -> disk load -> reconcile, in that order), delivers live
  * terminal notifications by enqueueing `TaskNotificationStepRequest`s onto
  * `loop` with `activeOrNewTurn` admission (mid-turn ones fold into the active turn's
- * following step; idle ones launch a fresh turn themselves, matching v1's
- * `turn.steer`, so the model consumes the notification without waiting for
+ * following step; idle ones launch a fresh turn themselves, so the model consumes the notification without waiting for
  * the user), silently appends restored notifications through `contextMemory`,
  * re-surfaces active tasks through `contextInjector` after compaction, and
- * requests every owned task to stop on session close (`stopAllOnExit` — v1's
- * `stopBackgroundTasksOnExit`) with configurable SIGTERM grace and SIGKILL
- * escalation. `keepAliveOnExit` skips task-manager teardown so independently
- * living external work such as processes can continue; Session-scoped agents
- * remain governed by the Session lifecycle. Scope disposal paths that bypass
+ * requests every owned task to stop on session close (`stopAllOnExit`) with configurable SIGTERM grace and SIGKILL
+ * escalation. Scope disposal paths that bypass
  * graceful close synchronously cancel/abort work and immediately attempt a
  * best-effort force-stop to reduce the risk of surviving child processes.
  * The plain-data task state (`ghosts`, `scheduledNotificationKeys`,
@@ -44,14 +38,12 @@ import { join } from 'pathe';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '#/kosong/contract/message';
+import type { ToolResult } from '#/tool/toolContract';
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import {
-  abortable,
-  userCancellationReason,
-} from '#/_base/utils/abort';
+import { abortable, userCancellationReason } from '#/_base/utils/abort';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
 import { defineCheckpointedModel } from '#/agent/contextMemory/conversationTime';
@@ -60,14 +52,16 @@ import type { ContextMessage, TaskOrigin } from '#/agent/contextMemory/types';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { MessageStepRequest } from '#/agent/loop/stepRequest';
+import {
+  IAgentToolExecutorService,
+  type ToolTaskLifecycle,
+  type ToolTaskLifecycleContext,
+} from '#/agent/toolExecutor/toolExecutor';
+import { IAgentWaitService } from '#/agent/wait/wait';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
-import {
-  TERMINAL_STATUSES,
-  type AgentTaskInfoBase,
-  type AgentTaskSettlement,
-} from './types';
+import { TERMINAL_STATUSES, type AgentTaskInfoBase, type AgentTaskSettlement } from './types';
 import { renderNotificationXml } from './notificationXml';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -153,6 +147,7 @@ interface ManagedTask {
   stopReason?: string;
   terminalNotificationSuppressed?: boolean;
   terminalFired: boolean;
+  recorded: boolean;
   readonly abortController: AbortController;
   foregroundSignalCleanup?: () => void;
   lifecyclePromise: Promise<void>;
@@ -269,6 +264,8 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentContextInjectorService injector: IAgentContextInjectorService,
     @IAgentLoopService private readonly loop: IAgentLoopService,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IAgentWaitService waits: IAgentWaitService,
     @IAgentConversationUndoParticipantRegistry
     undoParticipants: IAgentConversationUndoParticipantRegistry,
     @ILogService private readonly log: ILogService,
@@ -279,16 +276,23 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this.states.register(taskScheduledNotificationKeysKey);
     this.states.register(taskDeliveredNotificationKeysKey);
     this.states.register(taskActiveTaskReminderPendingKey);
-    const fallbackRoot =
-      scopeContext.agentId === 'main'
-        ? { dir: session.sessionDir, scope: session.scope() }
-        : undefined;
     this.persistence = new AgentTaskPersistence(
       join(session.sessionDir, 'agents', scopeContext.agentId),
       scopeContext.scope(),
       atomicDocs,
       byteStore,
-      fallbackRoot,
+    );
+    this._register(
+      toolExecutor.registerTaskLifecycleController({
+        prepare: (context) => this.prepareToolTask(context),
+        beginAutoWait: async (turnId, tasks) => {
+          const active = tasks.filter((task) => {
+            const entry = this.tasks.get(task.taskId);
+            return entry !== undefined && !TERMINAL_STATUSES.has(entry.status);
+          });
+          await waits.startAutoWait(turnId, active);
+        },
+      }),
     );
     this._register(
       undoParticipants.register({
@@ -365,6 +369,89 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
   }
 
+  private async prepareToolTask(context: ToolTaskLifecycleContext): Promise<ToolTaskLifecycle> {
+    const entry: ManagedTask = {
+      taskId: generateTaskId('tool'),
+      task: undefined,
+      handle: undefined,
+      toInfoFn: (base) => ({
+        ...base,
+        kind: 'tool',
+        turnId: context.turnId,
+        toolCallId: context.toolCallId,
+        toolName: context.toolName,
+        autoWaitTimeoutSeconds: context.autoWaitTimeoutSeconds,
+      }),
+      outputChunks: [],
+      outputSizeBytes: 0,
+      retainedOutputBytes: 0,
+      outputLimitTripped: false,
+      status: 'running',
+      options: {
+        detached: false,
+        signal: context.signal,
+        description: context.description,
+      },
+      startedAt: Date.now(),
+      endedAt: null,
+      foregroundRelease: createForegroundRelease(),
+      abortController: new AbortController(),
+      lifecyclePromise: Promise.resolve(),
+      persistWriteQueue: Promise.resolve(),
+      outputWriteQueue: Promise.resolve(),
+      pendingOutput: [],
+      pendingOutputBytes: 0,
+      outputPersistStarted: true,
+      waiters: [],
+      terminalFired: false,
+      recorded: true,
+      timedOut: false,
+    };
+    this.tasks.set(entry.taskId, entry);
+    this.installForegroundSignal(entry);
+    this.recordTaskStarted(this.toInfo(entry));
+    await Promise.all([this.persistLiveStrict(entry), this.wire.flush()]);
+
+    return {
+      taskId: entry.taskId,
+      signal: entry.abortController.signal,
+      bindExecution: (execution) => {
+        entry.lifecyclePromise = execution;
+      },
+      detach: () => this.detachToolTask(entry),
+      settle: (result) => this.settleToolTask(entry, result),
+    };
+  }
+
+  private async detachToolTask(entry: ManagedTask): Promise<void> {
+    if (TERMINAL_STATUSES.has(entry.status) || this.isDetached(entry)) return;
+    const foregroundRelease = entry.foregroundRelease;
+    entry.foregroundRelease = undefined;
+    entry.foregroundSignalCleanup?.();
+    entry.foregroundSignalCleanup = undefined;
+    this.startOutputPersist(entry);
+    this.recordTaskStarted(this.toInfo(entry));
+    foregroundRelease?.resolve('detached');
+    await Promise.all([this.persistLiveStrict(entry), this.wire.flush()]);
+  }
+
+  private async settleToolTask(entry: ManagedTask, result: ToolResult): Promise<void> {
+    if (TERMINAL_STATUSES.has(entry.status)) return;
+    this.appendOutput(entry, renderToolTaskOutput(result));
+    await entry.outputWriteQueue;
+    await this.settleTask(entry, {
+      status: entry.timedOut
+        ? 'timed_out'
+        : entry.stopReason !== undefined
+          ? 'killed'
+          : result.isError === true
+            ? 'failed'
+            : 'completed',
+      stopReason: entry.stopReason,
+    });
+    await Promise.all([this.persistLiveStrict(entry), this.wire.flush()]);
+  }
+
   registerTask(task: AgentTask, options: RegisterAgentTaskOptions = {}): string {
     const detached = options.detached ?? true;
     const timeoutMs = options.timeoutMs ?? task.timeoutMs;
@@ -398,6 +485,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputPersistStarted: detached,
       waiters: [],
       terminalFired: false,
+      recorded: detached,
       timedOut: false,
     };
     this.tasks.set(entry.taskId, entry);
@@ -461,7 +549,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       retainedOutputBytes: 0,
       outputLimitTripped: false,
       status: 'running',
-      options: { detached, timeoutMs, detachTimeoutMs: options.detachTimeoutMs, signal: detached ? undefined : options.signal, description: options.description },
+      options: {
+        detached,
+        timeoutMs,
+        detachTimeoutMs: options.detachTimeoutMs,
+        signal: detached ? undefined : options.signal,
+        description: options.description,
+      },
       startedAt: Date.now(),
       endedAt: null,
       foregroundRelease: detached ? undefined : createForegroundRelease(),
@@ -474,6 +568,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputPersistStarted: detached,
       waiters: [],
       terminalFired: false,
+      recorded: detached,
       timedOut: false,
     };
     this.tasks.set(taskId, entry);
@@ -489,10 +584,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     const stateSub = handle.onDidChangeState((state) => {
       if (!TERMINAL_TASK_STATES.has(state)) return;
-      const status = entry.timedOut ? 'timed_out' as const
-        : state === 'cancelled' ? 'killed' as const
-          : state === 'failed' ? 'failed' as const
-            : 'completed' as const;
+      const status = entry.timedOut
+        ? ('timed_out' as const)
+        : state === 'cancelled'
+          ? ('killed' as const)
+          : state === 'failed'
+            ? ('failed' as const)
+            : ('completed' as const);
       void this.settleTask(entry, { status, stopReason: entry.stopReason });
     });
 
@@ -503,7 +601,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       },
     };
 
-    entry.lifecyclePromise = handle.result.then(() => { }, () => { });
+    entry.lifecyclePromise = handle.result.then(
+      () => {},
+      () => {},
+    );
 
     this.installForegroundSignal(entry);
 
@@ -653,6 +754,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (foregroundRelease === undefined) return this.toInfo(entry);
 
     entry.foregroundRelease = undefined;
+    entry.recorded = true;
     entry.foregroundSignalCleanup?.();
     entry.foregroundSignalCleanup = undefined;
     this.applyDetachTimeout(entry);
@@ -661,8 +763,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         entry.onDetachFn ??
         (entry.task === undefined ? undefined : entry.task.onDetach?.bind(entry.task));
       onDetach?.();
-    } catch {
-    }
+    } catch {}
     this.startOutputPersist(entry);
     void this.persistLive(entry);
     this.recordTaskStarted(this.toInfo(entry));
@@ -778,8 +879,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           entry.forceStopFn ??
           (entry.task === undefined ? undefined : entry.task.forceStop?.bind(entry.task));
         await forceStop?.();
-      } catch {
-      }
+      } catch {}
     }
 
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -803,7 +903,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   async stopAllOnExit(reason: string): Promise<readonly AgentTaskInfo[]> {
-    if (this.keepAliveOnExit()) return [];
     const active = this.list(true);
     await Promise.all(
       active
@@ -814,20 +913,18 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   override dispose(): void {
-    if (!this.keepAliveOnExit()) {
-      for (const entry of this.tasks.values()) {
-        if (TERMINAL_STATUSES.has(entry.status)) continue;
-        if (entry.timeoutHandle !== undefined) {
-          clearTimeout(entry.timeoutHandle);
-          entry.timeoutHandle = undefined;
-        }
-        if (entry.handle !== undefined) {
-          entry.handle.cancel();
-        } else {
-          entry.abortController.abort(SESSION_CLOSED_REASON);
-        }
-        this.forceStopOnDispose(entry);
+    for (const entry of this.tasks.values()) {
+      if (TERMINAL_STATUSES.has(entry.status)) continue;
+      if (entry.timeoutHandle !== undefined) {
+        clearTimeout(entry.timeoutHandle);
+        entry.timeoutHandle = undefined;
       }
+      if (entry.handle !== undefined) {
+        entry.handle.cancel();
+      } else {
+        entry.abortController.abort(SESSION_CLOSED_REASON);
+      }
+      this.forceStopOnDispose(entry);
     }
     super.dispose();
   }
@@ -840,10 +937,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     try {
       void forceStop().catch(() => {});
     } catch {}
-  }
-
-  private keepAliveOnExit(): boolean {
-    return resolveAgentTaskConfig(this.config)?.keepAliveOnExit === true;
   }
 
   async wait(
@@ -889,9 +982,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     return this.toInfo(entry);
   }
 
-  async waitForForegroundRelease(
-    taskId: string,
-  ): Promise<ForegroundTaskReleaseReason | undefined> {
+  async waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -959,8 +1050,17 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const info = this.toInfo(entry);
     entry.persistWriteQueue = entry.persistWriteQueue
       .then(() => persistence.writeTask(info))
-      .catch(() => { });
+      .catch(() => {});
     return entry.persistWriteQueue;
+  }
+
+  private persistLiveStrict(entry: ManagedTask): Promise<void> {
+    const info = this.toInfo(entry);
+    const write = entry.persistWriteQueue
+      .catch(() => {})
+      .then(() => this.persistence.writeTask(info));
+    entry.persistWriteQueue = write.catch(() => {});
+    return write;
   }
 
   private appendOutput(entry: ManagedTask, chunk: string): void {
@@ -994,7 +1094,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const persistence = this.persistence;
     entry.outputWriteQueue = entry.outputWriteQueue
       .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
-      .catch(() => { });
+      .catch(() => {});
   }
 
   private startOutputPersist(entry: ManagedTask): void {
@@ -1027,10 +1127,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
   }
 
-  private async settleTask(
-    entry: ManagedTask,
-    settlement: AgentTaskSettlement,
-  ): Promise<boolean> {
+  private async settleTask(entry: ManagedTask, settlement: AgentTaskSettlement): Promise<boolean> {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
     entry.endedAt = Date.now();
@@ -1059,12 +1156,14 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   private fireTerminalEffects(entry: ManagedTask): void {
     if (entry.terminalFired) return;
-    if (!this.isDetached(entry)) return;
+    if (!entry.recorded) return;
     entry.terminalFired = true;
     const info = this.toInfo(entry);
-    void this.notifyAgentTask(info).catch((error) => {
-      this.log.error('task notification delivery failed', { taskId: info.taskId, error });
-    });
+    if (this.isDetached(entry)) {
+      void this.notifyAgentTask(info).catch((error) => {
+        this.log.error('task notification delivery failed', { taskId: info.taskId, error });
+      });
+    }
     this.recordTaskTerminated(info, this.retainedOutputTail(entry));
   }
 
@@ -1282,7 +1381,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       taskId: entry.taskId,
       description: entry.task?.description ?? entry.options.description ?? '',
       status: entry.status,
-      detached: this.isDetached(entry) ? true : false,
+      detached: this.isDetached(entry),
       startedAt: entry.startedAt,
       endedAt: entry.endedAt,
       stopReason: entry.stopReason,
@@ -1333,6 +1432,10 @@ function renderOutputPreviewBlock(output: AgentTaskOutputSnapshot): string {
   ].join('\n');
 }
 
+function renderToolTaskOutput(result: ToolResult): string {
+  return typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+}
+
 function shouldListTask(info: AgentTaskInfo, activeOnly: boolean): boolean {
   if (!TERMINAL_STATUSES.has(info.status)) return true;
   if (activeOnly) return false;
@@ -1349,10 +1452,7 @@ function isCompactionSplice(splice: {
   );
 }
 
-function newerRestoredTask(
-  existing: AgentTaskInfo,
-  loaded: AgentTaskInfo,
-): AgentTaskInfo {
+function newerRestoredTask(existing: AgentTaskInfo, loaded: AgentTaskInfo): AgentTaskInfo {
   const existingTerminal = isAgentTaskTerminal(existing.status);
   const loadedTerminal = isAgentTaskTerminal(loaded.status);
   if (existingTerminal && !loadedTerminal) return existing;
@@ -1371,7 +1471,7 @@ function isTaskOrigin(origin: unknown): origin is TaskNotificationOrigin {
   if (typeof origin !== 'object' || origin === null) return false;
   const value = origin as Record<string, unknown>;
   return (
-    (value['kind'] === 'background_task' || value['kind'] === 'task') &&
+    value['kind'] === 'task' &&
     typeof value['taskId'] === 'string' &&
     typeof value['status'] === 'string' &&
     typeof value['notificationId'] === 'string'

@@ -141,7 +141,7 @@ function toWebviewModel(id: string, model: ModelAlias): ModelConfig {
   return {
     id,
     name: effective.displayName ?? effective.model ?? id,
-    provider: effective.provider,
+    provider: effective.providerId ?? effective.provider ?? effective.protocol ?? "custom",
     capabilities: [...(effective.capabilities ?? [])],
     adaptive_thinking: effective.adaptiveThinking,
     support_efforts:

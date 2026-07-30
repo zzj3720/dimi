@@ -29,11 +29,16 @@ export interface CreateSessionOptions {
   readonly mainAgentBinding?: BindAgentInput;
 }
 
+export interface ResumeSessionOptions {
+  readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
+}
+
 export interface ForkSessionOptions {
   readonly sourceSessionId: string;
   readonly newSessionId?: string;
   readonly title?: string;
   readonly metadata?: Record<string, unknown>;
+  readonly turnIndex?: number;
 }
 
 export interface CreateChildSessionOptions {
@@ -89,7 +94,10 @@ export interface ISessionLifecycleService {
   create(opts: CreateSessionOptions): Promise<ISessionScopeHandle>;
   get(sessionId: string): ISessionScopeHandle | undefined;
   list(): readonly ISessionScopeHandle[];
-  resume(sessionId: string): Promise<ISessionScopeHandle | undefined>;
+  resume(
+    sessionId: string,
+    options?: ResumeSessionOptions,
+  ): Promise<ISessionScopeHandle | undefined>;
   close(sessionId: string): Promise<void>;
   archive(sessionId: string): Promise<void>;
   restore(sessionId: string): Promise<ISessionScopeHandle | undefined>;

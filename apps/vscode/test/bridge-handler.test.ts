@@ -521,7 +521,7 @@ function createResumedSession(id: string, workDir: string) {
     sessionDir: join("/private/kimi/sessions", id),
     createdAt: 1,
     updatedAt: 2,
-    metadata: { vscode_legacy_approval: { yolo: false, afk: false } },
+    metadata: { vscode_approval_modes: { yolo: false, afk: false } },
   };
   return {
     id,

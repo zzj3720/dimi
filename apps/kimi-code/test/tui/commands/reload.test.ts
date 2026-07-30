@@ -34,6 +34,7 @@ describe('reload slash commands', () => {
   it('reloads tui.toml without touching Core session state', async () => {
     await writeTuiConfig(`
 theme = "light"
+busy_input_mode = "queue"
 
 [editor]
 command = "vim"
@@ -56,6 +57,7 @@ auto_install = false
     expect(host.state.appState).toMatchObject({
       theme: 'light',
       editorCommand: 'vim',
+      busyInputMode: 'queue',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
     });
@@ -63,6 +65,17 @@ auto_install = false
       'TUI config reloaded.',
       'success',
     );
+  });
+
+  it('defaults busy_input_mode to steer when the key is omitted from tui.toml', async () => {
+    await writeTuiConfig('theme = "dark"\n');
+    const host = makeHost();
+    // Start from an explicit non-default so reload must overwrite it.
+    host.state.appState.busyInputMode = 'queue';
+
+    await handleReloadTuiCommand(host);
+
+    expect(host.state.appState.busyInputMode).toBe('steer');
   });
 
   it('reloads the active session, refreshes runtime config, and applies tui.toml', async () => {
@@ -84,6 +97,7 @@ auto_install = false
     expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(true);
     expect(host.state.appState.theme).toBe('light');
+    expect(host.state.appState.busyInputMode).toBe('steer');
     expect(host.state.appState.availableModels).toEqual({
       fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },
     });
@@ -132,6 +146,7 @@ function makeHost({
     appState: {
       theme: 'dark',
       editorCommand: null,
+      busyInputMode: 'queue' as const,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       availableModels: {},

@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type { SessionSummary, SessionDetail, AgentInfo, SessionHealth, ImportInfo } from './agent-record-types';
@@ -20,6 +20,8 @@ export function isSafeAgentId(id: string): boolean {
 }
 
 interface StateJson {
+  cwd?: string;
+  workDir?: string;
   createdAt?: string | number;
   updatedAt?: string | number;
   title?: string;
@@ -35,7 +37,6 @@ interface StateJson {
 export async function listSessions(home: string): Promise<SessionSummary[]> {
   const sessionsDir = join(home, 'sessions');
   const buckets = await readdir(sessionsDir, { withFileTypes: true }).catch(() => []);
-  const index = await readSessionIndex(home);
   const out: SessionSummary[] = [];
   for (const bucket of buckets) {
     if (!bucket.isDirectory()) continue;
@@ -44,8 +45,7 @@ export async function listSessions(home: string): Promise<SessionSummary[]> {
     for (const entry of sessionDirs) {
       if (!entry.isDirectory() || !SESSION_ID_RE.test(entry.name)) continue;
       const sessionDir = join(bucketDir, entry.name);
-      const workDir = index.get(entry.name)?.workDir ?? '';
-      const summary = await tryReadSummary(sessionDir, entry.name, workDir);
+      const summary = await tryReadSummary(sessionDir, entry.name);
       if (summary !== null) out.push(summary);
     }
   }
@@ -66,8 +66,6 @@ export async function readSessionDetail(home: string, sessionId: string): Promis
   if (isImportId(sessionId)) return readImportedDetail(home, sessionId);
   const sessionDir = await findSessionDir(home, sessionId);
   if (sessionDir === null) return null;
-  const index = await readSessionIndex(home);
-  const workDir = index.get(sessionId)?.workDir ?? '';
   const state = await readState(sessionDir);
   // When state.json is unreadable we still return a SessionDetail so the
   // UI can render the broken-state diagnostic. Agent inventory cannot be
@@ -76,11 +74,27 @@ export async function readSessionDetail(home: string, sessionId: string): Promis
   // still inspect the wire/context of a session whose state is corrupt.
   if (state === null) {
     const agents = await discoverAgentsFromDisk(sessionDir);
-    return { sessionId, sessionDir, workDir, state: null, agents, imported: false, importMeta: null };
+    return {
+      sessionId,
+      sessionDir,
+      workDir: '',
+      state: null,
+      agents,
+      imported: false,
+      importMeta: null,
+    };
   }
   if (state.custom?.['imported_from_kimi_cli'] === true) return null;
   const agents = await inventoryAgents(sessionDir, state);
-  return { sessionId, sessionDir, workDir, state, agents, imported: false, importMeta: null };
+  return {
+    sessionId,
+    sessionDir,
+    workDir: stateWorkDir(state),
+    state,
+    agents,
+    imported: false,
+    importMeta: null,
+  };
 }
 
 /** Detail for an imported bundle. Same readers as a local session, but the
@@ -107,7 +121,15 @@ async function readImportedDetail(home: string, importId: string): Promise<Sessi
   if (agents.length === 0) {
     agents = await discoverAgentsFromDisk(sessionDir);
   }
-  return { sessionId: importId, sessionDir, workDir, state, agents, imported: true, importMeta: meta };
+  return {
+    sessionId: importId,
+    sessionDir,
+    workDir: stateWorkDir(state) || workDir,
+    state,
+    agents,
+    imported: true,
+    importMeta: meta,
+  };
 }
 
 /** Fallback inventory used when `state.json` is unreadable: walk
@@ -159,7 +181,7 @@ async function discoverAgentsFromDisk(sessionDir: string): Promise<AgentInfo[]> 
 async function tryReadSummary(
   sessionDir: string,
   sessionId: string,
-  workDir: string,
+  workDir = '',
   opts: { imported?: boolean; importMeta?: ImportInfo | null } = {},
 ): Promise<SessionSummary | null> {
   const imported = opts.imported ?? false;
@@ -195,7 +217,7 @@ async function tryReadSummary(
   return {
     sessionId,
     sessionDir,
-    workDir,
+    workDir: stateWorkDir(state) || workDir,
     title: state.title ?? null,
     lastPrompt: state.lastPrompt ?? null,
     isCustomTitle: state.isCustomTitle ?? false,
@@ -226,32 +248,6 @@ function brokenStateSummary(
     wireProtocolVersion: null, health: 'broken_state',
     imported, importMeta,
   };
-}
-
-interface SessionIndexEntry {
-  sessionDir: string;
-  workDir: string;
-}
-
-async function readSessionIndex(home: string): Promise<Map<string, SessionIndexEntry>> {
-  const out = new Map<string, SessionIndexEntry>();
-  let raw: string;
-  try {
-    raw = await readFile(join(home, 'session_index.jsonl'), 'utf8');
-  } catch { return out; }
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line) as { sessionId?: string; sessionDir?: string; workDir?: string };
-      if (typeof entry.sessionId === 'string' && typeof entry.sessionDir === 'string') {
-        out.set(entry.sessionId, {
-          sessionDir: entry.sessionDir,
-          workDir: typeof entry.workDir === 'string' ? entry.workDir : '',
-        });
-      }
-    } catch { /* skip malformed */ }
-  }
-  return out;
 }
 
 async function inventoryAgents(sessionDir: string, state: StateJson): Promise<AgentInfo[]> {
@@ -300,24 +296,6 @@ async function readState(sessionDir: string): Promise<StateJson | null> {
 async function findSessionDir(home: string, sessionId: string): Promise<string | null> {
   if (!SESSION_ID_RE.test(sessionId)) return null;
   const sessionsRoot = resolve(join(home, 'sessions'));
-  const sessionsRootPrefix = sessionsRoot + sep;
-  // Try index first — but only trust entries that point *under*
-  // `<home>/sessions/` AND whose basename matches the requested id.
-  // This blocks stale/poisoned index lines from redirecting reads to
-  // unrelated directories.
-  try {
-    const indexLines = (await readFile(join(home, 'session_index.jsonl'), 'utf8')).split(/\r?\n/);
-    for (const line of indexLines) {
-      if (!line.trim()) continue;
-      const entry = JSON.parse(line) as { sessionId?: string; sessionDir?: string };
-      if (entry.sessionId !== sessionId || typeof entry.sessionDir !== 'string') continue;
-      const candidate = resolve(entry.sessionDir);
-      if (!candidate.startsWith(sessionsRootPrefix)) continue;
-      if (candidate.split(sep).pop() !== sessionId) continue;
-      if (await pathExists(candidate)) return candidate;
-    }
-  } catch { /* no index */ }
-  // Fall back to scanning buckets
   const buckets = await readdir(sessionsRoot, { withFileTypes: true }).catch(() => []);
   for (const bucket of buckets) {
     if (!bucket.isDirectory()) continue;
@@ -325,6 +303,13 @@ async function findSessionDir(home: string, sessionId: string): Promise<string |
     if (await pathExists(candidate)) return candidate;
   }
   return null;
+}
+
+function stateWorkDir(state: StateJson): string {
+  if (typeof state.cwd === 'string') return state.cwd;
+  if (typeof state.workDir === 'string') return state.workDir;
+  const customCwd = state.custom?.['cwd'];
+  return typeof customCwd === 'string' ? customCwd : '';
 }
 
 async function scanWire(path: string): Promise<{ count: number; protocolVersion: string }> {

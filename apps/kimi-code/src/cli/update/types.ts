@@ -36,7 +36,7 @@ export interface UpdateCache {
   readonly source: 'cdn';
   readonly checkedAt: string | null;
   readonly latest: string | null;
-  /** Null when the manifest came from the plain-text fallback or a legacy cache file. */
+  /** Null when the manifest came from the plain-text CDN fallback. */
   readonly manifest: UpdateManifest | null;
 }
 

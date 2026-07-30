@@ -41,7 +41,10 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { keys: 'Ctrl-D', description: 'Exit (on empty input)' },
   { keys: 'Esc', description: 'Close dialogs / interrupt streaming' },
   { keys: '↑ / ↓', description: 'Browse input history' },
-  { keys: 'Enter', description: 'Submit' },
+  {
+    keys: 'Enter',
+    description: 'Submit (steers mid-turn by default; Settings → Busy input can make it queue)',
+  },
 ];
 
 export interface HelpPanelOptions {

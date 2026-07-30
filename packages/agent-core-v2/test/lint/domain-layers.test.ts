@@ -4,25 +4,25 @@ import { SRC_ROOT, checkSource } from '../../scripts/check-domain-layers.mjs';
 
 const at = (domain: string, file: string): string => `${SRC_ROOT}/${domain}/${file}`;
 
-const V1 = ['@moonshot-ai', 'agent-core'].join('/');
+const REMOVED_RUNTIME = ['@moonshot-ai', 'agent-core'].join('/');
 
 describe('check-domain-layers', () => {
-  it('flags a direct import of v1 (@moonshot-ai/agent-core)', () => {
+  it('flags a direct import of the removed runtime package', () => {
     const violations = checkSource(
-      `import { KimiCore } from '${V1}';`,
+      `import { KimiCore } from '${REMOVED_RUNTIME}';`,
       at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.message).toMatch(/v2 must not import v1/);
+    expect(violations[0]?.message).toMatch(/current runtime must not import removed runtime/);
   });
 
-  it('flags a v1 subpath import', () => {
+  it('flags a subpath import of the removed runtime package', () => {
     const violations = checkSource(
-      `import { Session } from '${V1}/session';`,
+      `import { Session } from '${REMOVED_RUNTIME}/session';`,
       at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.message).toMatch(/v2 must not import v1/);
+    expect(violations[0]?.message).toMatch(/current runtime must not import removed runtime/);
   });
 
   it('allows a domain to import a lower layer', () => {

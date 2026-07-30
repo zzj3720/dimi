@@ -28,12 +28,6 @@ import {
 import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
 import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
 
-interface SessionIndexLine {
-  readonly sessionId: string;
-  readonly sessionDir: string;
-  readonly workDir: string;
-}
-
 describe('WorkspaceAliasesService (file-backed)', () => {
   let homeDir: string;
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
@@ -81,26 +75,19 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     return host.app.accessor.get(IWorkspaceAliases);
   }
 
-  async function seedSessionIndex(entries: SessionIndexLine[]): Promise<void> {
-    const text = `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`;
-    await fsp.writeFile(join(homeDir, 'session_index.jsonl'), text, 'utf8');
-  }
-
   async function writeWorkspacesJson(
     workspaces: Record<string, PersistedWorkspaceEntry>,
-    extra?: { readonly deleted_workspace_ids?: unknown },
   ): Promise<void> {
     await fsp.writeFile(
       join(homeDir, 'workspaces.json'),
-      JSON.stringify({ version: 1, workspaces, ...extra }),
+      JSON.stringify({ version: 1, workspaces }),
       'utf8',
     );
   }
 
   it('resolveAliasIds returns every registered id for one physical directory', async () => {
-    // A legacy catalog holds two entries whose roots differ only by casing —
-    // one physical folder, two bucket ids (this is what `dedupeByRoot` merges
-    // for listing; the alias set exposes both for multi-bucket reads).
+    // One catalog can hold two entries whose roots differ only by casing — one
+    // physical folder, two bucket ids. The alias set exposes both for reads.
     const lowerRoot = 'c:\\users\\foo\\proj';
     const typedRoot = 'C:\\Users\\Foo\\Proj';
     const legacyId = 'wd_proj_deadbeef0002';
@@ -122,34 +109,6 @@ describe('WorkspaceAliasesService (file-backed)', () => {
         [legacyId, canonicalId].toSorted(),
       );
     }
-  });
-
-  it('resolveAliasIds folds in session-index-only spellings of the same root', async () => {
-    // The sibling bucket's spelling was never registered: only the legacy
-    // session index remembers it. Malformed index lines are skipped, never
-    // thrown.
-    const typedRoot = 'C:\\Users\\Foo\\Proj';
-    const typedId = encodeWorkDirKey(typedRoot);
-    const indexOnlyId = encodeWorkDirKey('c:\\Users\\Foo\\Proj');
-    await writeWorkspacesJson({
-      [typedId]: {
-        root: typedRoot,
-        name: 'proj',
-        created_at: '2026-01-01T00:00:00.000Z',
-        last_opened_at: '2026-01-01T00:00:00.000Z',
-      },
-    });
-    await seedSessionIndex([
-      { sessionId: 's1', sessionDir: 'sessions/a/s1', workDir: typedRoot },
-      { sessionId: 's2', sessionDir: 'sessions/b/s2', workDir: 'c:\\Users\\Foo\\Proj' },
-      { sessionId: 's3', sessionDir: 'sessions/c/s3', workDir: join(homeDir, 'unrelated') },
-    ]);
-    await fsp.appendFile(join(homeDir, 'session_index.jsonl'), 'not-json\n{}\n', 'utf8');
-
-    const aliases = build();
-    expect((await aliases.resolveAliasIds(typedId)).toSorted()).toEqual(
-      [typedId, indexOnlyId].toSorted(),
-    );
   });
 
   it('resolveAliasIds keeps unknown ids and POSIX roots singleton', async () => {

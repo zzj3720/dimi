@@ -1,8 +1,7 @@
 /**
  * `sessionExport` domain (L6) — persisted wire activity scanner.
  *
- * Reads both legacy root `wire.jsonl` logs and v2 per-agent
- * `agents/<agentId>/wire.jsonl` logs to derive activity timestamps for the
+ * Reads per-agent `agents/<agentId>/wire.jsonl` logs to derive activity timestamps for the
  * export manifest without depending on live Agent services.
  */
 
@@ -54,7 +53,7 @@ async function collectWireFiles(
   sessionDir: string,
   signal?: AbortSignal,
 ): Promise<readonly string[]> {
-  const files = [join(sessionDir, WIRE_FILENAME)];
+  const files: string[] = [];
   const agentsDir = join(sessionDir, 'agents');
   try {
     const entries = await readdir(agentsDir, { recursive: true, withFileTypes: true });
@@ -112,7 +111,8 @@ async function scanWireFile(path: string, signal?: AbortSignal): Promise<Session
       const record = parsed as {
         type?: unknown;
         time?: unknown;
-        userInput?: unknown;
+        input?: unknown;
+        origin?: { readonly kind?: unknown };
       };
       const timeMs =
         typeof record.time === 'number' ? normalizeTimestampMs(record.time) : undefined;
@@ -120,17 +120,11 @@ async function scanWireFile(path: string, signal?: AbortSignal): Promise<Session
         firstActivityMs = minDefined(firstActivityMs, timeMs);
         lastActivityMs = maxDefined(lastActivityMs, timeMs);
       }
-      if (record.type === 'turn_begin') {
+      if (record.type === 'turn.prompt' && record.origin?.kind === 'user') {
         if (timeMs !== undefined) {
           lastUserMessageMs = maxDefined(lastUserMessageMs, timeMs);
         }
-        if (
-          firstUserInput === undefined &&
-          typeof record.userInput === 'string' &&
-          record.userInput.trim().length > 0
-        ) {
-          firstUserInput = record.userInput;
-        }
+        firstUserInput ??= promptText(record.input);
       }
     }
   } finally {
@@ -145,6 +139,22 @@ async function scanWireFile(path: string, signal?: AbortSignal): Promise<Session
     lastUserMessageMs,
     firstUserInput,
   };
+}
+
+function promptText(input: unknown): string | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const text = input
+    .flatMap((part) =>
+      typeof part === 'object' &&
+      part !== null &&
+      (part as { readonly type?: unknown }).type === 'text' &&
+      typeof (part as { readonly text?: unknown }).text === 'string'
+        ? [(part as { readonly text: string }).text]
+        : [],
+    )
+    .join('')
+    .trim();
+  return text.length === 0 ? undefined : text;
 }
 
 export function normalizeTimestampMs(value: number): number | undefined {

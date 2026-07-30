@@ -1,5 +1,6 @@
 import {
   refreshProviderModels,
+  type ManagedKimiConfigShape,
   type ProviderChange,
   type RefreshProviderOptions,
   type RefreshProviderScope,
@@ -34,9 +35,11 @@ export async function refreshAllProviderModels(
 ): Promise<RefreshResult> {
   return refreshProviderModels(
     {
-      getConfig: () => host.getConfig(),
-      removeProvider: (providerId) => host.removeProvider(providerId),
-      setConfig: (patch) => host.setConfig(patch as unknown as KimiConfigPatch),
+      getConfig: async () => (await host.getConfig()) as unknown as ManagedKimiConfigShape,
+      removeProvider: async (providerId) =>
+        (await host.removeProvider(providerId)) as unknown as ManagedKimiConfigShape,
+      setConfig: async (patch) =>
+        (await host.setConfig(patch as unknown as KimiConfigPatch)) as unknown as ManagedKimiConfigShape,
       resolveOAuthToken: (providerName, oauthRef) =>
         host.resolveOAuthToken(providerName, oauthRef as unknown as OAuthRef),
       userAgent: host.userAgent,

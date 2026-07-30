@@ -34,8 +34,8 @@ export interface SessionSummary {
 export interface SessionListQuery {
   /**
    * Restrict to sessions persisted under any of these workspace ids. A single
-   * workspace is `[id]`; callers resolving a legacy split bucket (one
-   * directory, several id spellings — see `IWorkspaceAliases.resolveAliasIds`)
+   * workspace is `[id]`; callers resolving registered sibling ids for one
+   * directory (see `IWorkspaceAliases.resolveAliasIds`)
    * pass the whole alias set and get one merged listing. Absent lists every
    * bucket.
    */

@@ -16,16 +16,16 @@ The permission system answers one question: **for each tool call, in the current
 2. **Heterogeneous policies.** Some check a tool-name set, some count same-batch `AgentSwarm` calls, some run a hook, some inspect the plan state machine — no uniform `(sub, obj, act)` shape.
 3. **Multi-agent × multi-mode × external extension.** Different agents / modes need different permissions, and outsiders (org admins, plugins) must contribute rules or behavior in a decoupled way.
 
-## 2. Current state (v1) at a glance
+## 2. Current runtime at a glance
 
-Code lives in `packages/agent-core/src/agent/permission/`.
+Code lives in `packages/agent-core-v2/src/agent/permissionPolicy/`, `permissionRules/`, and `permissionGate/`.
 
 - **Architecture: ordered chain of responsibility, first hit wins.** `PermissionManager` holds `PermissionPolicy[]`; evaluation iterates in order, the first non-`undefined` result wins.
 - **`PermissionPolicyResult` is a behavior bundle, not a scalar:** `approve` (with `executionMetadata`), `deny` (with `message`), or `ask` (with `resolveApproval` / `resolveError` continuations).
 - **11 dimensions, 19 policies**, hardcoded in `policies/index.ts#createPermissionDecisionPolicies()`. Order is a high-to-low safety cascade: external force → structural deny → state-machine deny → static deny → mode allow → session-memory allow → static ask → static allow → flow allow → sensitive-path ask → default allow → fallback ask.
 - **Resource-access declaration:** tools declare accessed resources in `resolveExecution(input)` via `accesses` (`ToolAccesses`, currently `file` and `all`); generic dimensions read `context.execution.accesses`.
 
-### v1 pain points the target design fixes
+### Remaining design gaps
 
 1. The chain is hardcoded — outsiders cannot contribute.
 2. `mode` is an `if` inside each policy (`YoloModeApprove` / `AutoModeApprove` self-guard).

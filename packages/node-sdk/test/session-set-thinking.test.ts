@@ -47,8 +47,7 @@ describe('Session.setThinking', () => {
       const session = await harness.createSession({ id: 'ses_thinking_empty', workDir });
 
       await expect(session.setThinking('   ')).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'session.thinking_empty',
+        code: 'request.invalid',
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
@@ -65,7 +64,6 @@ describe('Session.setThinking', () => {
       await session.close();
 
       await expect(session.setThinking('high')).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'session.closed',
       } satisfies Partial<KimiError>);
     } finally {

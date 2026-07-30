@@ -1472,8 +1472,6 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.failed',
   'task.started',
   'task.terminated',
-  'background.task.started',
-  'background.task.terminated',
   'cron.fired',
 ]);
 

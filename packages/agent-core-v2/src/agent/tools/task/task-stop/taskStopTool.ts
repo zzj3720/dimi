@@ -34,6 +34,7 @@ export class TaskStopTool implements ITaskStopTool {
   resolveExecution(args: TaskStopInput): ToolExecution {
     return {
       description: `Stopping task ${args.task_id}`,
+      taskMode: 'control',
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.task_id),
       execute: async () => {

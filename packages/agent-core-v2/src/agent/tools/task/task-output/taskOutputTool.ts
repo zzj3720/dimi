@@ -79,6 +79,7 @@ export class TaskOutputTool implements ITaskOutputTool {
   resolveExecution(args: TaskOutputInput): ToolExecution {
     return {
       description: `Reading output of task ${args.task_id}`,
+      taskMode: 'control',
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.task_id),
       execute: () => this.execute(args),

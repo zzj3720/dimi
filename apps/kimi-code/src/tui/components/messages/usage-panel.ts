@@ -10,7 +10,10 @@ import { formatDuration } from '@moonshot-ai/kimi-code-oauth';
 import type { SessionUsage, TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import {
+  cacheHitRatePercent,
+  formatCacheHitRate,
   formatTokenCount,
+  promptTokenTotal,
   ratioSeverity,
   renderProgressBar,
   safeUsageRatio,
@@ -91,12 +94,30 @@ function usageNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-function usageInputTotal(usage: TokenUsage): number {
-  return (
-    usageNumber(usage.inputOther) +
-    usageNumber(usage.inputCacheRead) +
-    usageNumber(usage.inputCacheCreation)
-  );
+function formatSessionUsageRow(
+  label: string,
+  row: TokenUsage,
+  value: Colorize,
+  muted: Colorize,
+): string {
+  const input = promptTokenTotal(row);
+  const output = usageNumber(row.output);
+  const cacheRead = usageNumber(row.inputCacheRead);
+  const cacheWrite = usageNumber(row.inputCacheCreation);
+  const hitRate = cacheHitRatePercent(row);
+  const parts = [
+    `input ${value(formatTokenCount(input))}`,
+    `output ${value(formatTokenCount(output))}`,
+    `total ${value(formatTokenCount(input + output))}`,
+  ];
+  if (cacheRead > 0 || cacheWrite > 0) {
+    parts.push(`R${value(formatTokenCount(cacheRead))}`);
+    parts.push(`W${value(formatTokenCount(cacheWrite))}`);
+  }
+  if (hitRate !== undefined) {
+    parts.push(value(formatCacheHitRate(hitRate)));
+  }
+  return `  ${muted(label)}  ${parts.join('  ')}`;
 }
 
 function buildSessionUsageSection(
@@ -113,25 +134,44 @@ function buildSessionUsageSection(
   if (entries.length === 0) return [muted('  No token usage recorded yet.')];
 
   const lines: string[] = [];
-  let totalInput = 0;
-  let totalOutput = 0;
   for (const [model, row] of entries) {
-    const input = usageInputTotal(row);
-    const output = usageNumber(row.output);
-    totalInput += input;
-    totalOutput += output;
-    lines.push(
-      `  ${muted(model)}  input ${value(formatTokenCount(input))}  output ${value(
-        formatTokenCount(output),
-      )}  total ${value(formatTokenCount(input + output))}`,
-    );
+    lines.push(formatSessionUsageRow(model, row, value, muted));
   }
   if (entries.length > 1) {
-    lines.push(
-      `  ${muted('total')}  input ${value(formatTokenCount(totalInput))}  output ${value(
-        formatTokenCount(totalOutput),
-      )}  total ${value(formatTokenCount(totalInput + totalOutput))}`,
-    );
+    // Prefer the pre-aggregated total when present; otherwise sum rows.
+    const total = usage?.total;
+    if (total !== undefined) {
+      lines.push(formatSessionUsageRow('total', total, value, muted));
+    } else {
+      let totalInput = 0;
+      let totalOutput = 0;
+      let totalCacheRead = 0;
+      let totalCacheWrite = 0;
+      for (const [, row] of entries) {
+        totalInput += promptTokenTotal(row);
+        totalOutput += usageNumber(row.output);
+        totalCacheRead += usageNumber(row.inputCacheRead);
+        totalCacheWrite += usageNumber(row.inputCacheCreation);
+      }
+      lines.push(
+        formatSessionUsageRow(
+          'total',
+          {
+            inputOther: Math.max(0, totalInput - totalCacheRead - totalCacheWrite),
+            output: totalOutput,
+            inputCacheRead: totalCacheRead,
+            inputCacheCreation: totalCacheWrite,
+          },
+          value,
+          muted,
+        ),
+      );
+    }
+  }
+
+  const currentTurn = usage?.currentTurn;
+  if (currentTurn !== undefined) {
+    lines.push(formatSessionUsageRow('current turn', currentTurn, value, muted));
   }
   return lines;
 }

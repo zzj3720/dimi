@@ -20,22 +20,22 @@ export const agentMetaSchema = z.object({
 
 export const sessionMetaSchema = z.object({
   id: z.string(),
-  version: z.number().optional(),
+  version: z.literal(2),
   title: z.string().optional(),
   isCustomTitle: z.boolean().optional(),
   lastPrompt: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   archived: z.boolean(),
-  cwd: z.string().optional(),
+  cwd: z.string(),
   forkedFrom: z.string().optional(),
-  agents: z.record(z.string(), agentMetaSchema).optional(),
-  custom: z.record(z.string(), z.unknown()).optional(),
+  agents: z.record(z.string(), agentMetaSchema),
+  custom: z.record(z.string(), z.unknown()),
 });
 
 /** `Partial<Omit<SessionMeta, 'id' | 'createdAt'>>` — every key optional. */
 export const sessionMetaPatchSchema = z.object({
-  version: z.number().optional(),
+  version: z.literal(2).optional(),
   title: z.string().optional(),
   isCustomTitle: z.boolean().optional(),
   lastPrompt: z.string().optional(),

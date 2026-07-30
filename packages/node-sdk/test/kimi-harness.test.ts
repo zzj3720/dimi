@@ -44,6 +44,7 @@ read_byte_budget = 65536
 
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
     try {
+      await harness.getConfig();
       // The core was constructed in-process; its owner-scoped [image] limits
       // must be readable on the harness for prompt-ingestion paths.
       expect(harness.imageLimits).toBeInstanceOf(ImageLimits);

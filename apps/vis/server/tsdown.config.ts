@@ -5,5 +5,5 @@ export default defineConfig({
   format: ['esm'],
   outDir: 'dist',
   clean: true,
-  external: ['@moonshot-ai/agent-core', '@moonshot-ai/kosong', '@moonshot-ai/kaos'],
+  external: ['@moonshot-ai/agent-core-v2', '@moonshot-ai/kosong', '@moonshot-ai/kaos'],
 });

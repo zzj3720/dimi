@@ -1,36 +1,35 @@
-// apps/vis/server/src/lib/agent-record-types.ts
-// Single source of truth: everything below comes from agent-core directly.
-// Do NOT add local interfaces that duplicate upstream shapes.
-
 export type {
-  AgentRecord,
-  AgentRecordEvents,
-  AgentRecordOf,
   AgentConfigUpdateData,
   CompactionBeginData,
   CompactionResult,
   PermissionApprovalResultRecord,
   PermissionMode,
   UsageRecordScope,
-  ToolStoreUpdate,
   LoopRecordedEvent,
   ContextMessage,
   PromptOrigin,
-  // Background-task shapes are part of agent-core's public surface, so the
-  // visualizer tracks them directly instead of duplicating the union.
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-  ProcessBackgroundTaskInfo,
-  AgentBackgroundTaskInfo,
-  QuestionBackgroundTaskInfo,
-} from '@moonshot-ai/agent-core';
-export { AGENT_WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
+export { WIRE_PROTOCOL_VERSION as AGENT_WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2';
 export type { Message, ContentPart, ToolCall, TokenUsage } from '@moonshot-ai/kosong';
 
-// Local bindings for the upstream types referenced by the vis-only DTOs
-// below. The `export type { … }` re-export above forwards the names to
-// consumers but does NOT bring them into this module's scope.
-import type { AgentRecord, BackgroundTaskInfo } from '@moonshot-ai/agent-core';
+import type {
+  AgentTaskInfo,
+  AgentTaskStatus,
+  PersistedWireRecord,
+} from '@moonshot-ai/agent-core-v2';
+
+type HistoricalAgentRecord =
+  | { type: 'context.update_token_count'; tokenCount: number; time?: number }
+  | { type: 'micro_compaction.apply'; cutoff: number; time?: number };
+
+export type AgentRecord = PersistedWireRecord | HistoricalAgentRecord;
+export type AgentRecordEvents = AgentRecord['type'];
+export type AgentRecordOf<K extends AgentRecordEvents> = Extract<AgentRecord, { type: K }>;
+export type BackgroundTaskInfo = AgentTaskInfo;
+export type BackgroundTaskStatus = AgentTaskStatus;
+export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'process' }>;
+export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'agent' }>;
+export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'question' }>;
 
 /**
  * Persistent representation of a cron task.

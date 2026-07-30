@@ -1273,16 +1273,6 @@ describe('BashTool', () => {
     expect(killOnTimeout.description).not.toContain('moved to the background instead of being killed');
     expect(killOnTimeout.description).toContain('hits its timeout is killed');
 
-    const legacyKillOnTimeout = bashTool(
-      runner,
-      createTestEnv(),
-      createTestCtx(),
-      createFakeTaskService().service,
-      stubToolPolicy(),
-      stubConfig({ background: { bashAutoBackgroundOnTimeout: false } }),
-    );
-    expect(legacyKillOnTimeout.description).toContain('hits its timeout is killed');
-
     const noBackground = bashTool(
       runner,
       createTestEnv(),
@@ -1321,9 +1311,6 @@ describe('BashTool', () => {
 
     await expect(detachTimeoutMsFor({})).resolves.toBe(600_000);
     await expect(detachTimeoutMsFor({ task: { bashTaskTimeoutS: 30 } })).resolves.toBe(30_000);
-    await expect(detachTimeoutMsFor({ background: { bashTaskTimeoutS: 45 } })).resolves.toBe(
-      45_000,
-    );
     await expect(detachTimeoutMsFor({ task: { bashTaskTimeoutS: 0 } })).resolves.toBe(0);
   });
 });

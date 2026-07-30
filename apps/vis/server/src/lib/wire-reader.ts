@@ -5,7 +5,7 @@ import {
   migrateWireRecord,
   resolveWireMigrations,
   type WireMigration,
-} from '@moonshot-ai/agent-core/agent/records/migration/index';
+} from '@moonshot-ai/agent-core-v2';
 
 import type { AgentRecord, WireEntry } from './agent-record-types';
 

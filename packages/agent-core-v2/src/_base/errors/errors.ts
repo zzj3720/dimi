@@ -46,7 +46,7 @@ export class Error2 extends Error {
 
   constructor(code: ErrorCode, message: string, options?: Error2Options) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
-    this.name = options?.name ?? 'Error2';
+    this.name = options?.name ?? 'KimiError';
     this.code = code;
     this.details = options?.details;
   }

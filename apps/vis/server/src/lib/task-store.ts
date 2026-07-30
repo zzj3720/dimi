@@ -5,20 +5,15 @@
 // (+ `tasks/<taskId>/output.log`) — NOT the session root. Callers pass the
 // agent homedir (`<session>/agents/<id>`).
 //
-// The visualizer never writes these files; it mirrors agent-core's on-disk
-// layout (background/persist.ts) for reading only:
+// The visualizer never writes these files; it mirrors the runtime's on-disk
+// layout for reading only:
 //   - the same `VALID_TASK_ID` guard, so a corrupt / hand-edited filename
 //     cannot turn a log path into a traversal primitive;
-//   - the same legacy snake_case → current camelCase normalization, so old
-//     sessions list identically to how the CLI would list them.
 
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type {
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-} from './agent-record-types';
+import type { BackgroundTaskInfo } from './agent-record-types';
 
 /** Task id format: `{prefix}-{8 chars of [0-9a-z]}`. Mirror of agent-core's
  *  `VALID_TASK_ID` (background/persist.ts). Enforced before deriving any
@@ -45,8 +40,7 @@ function taskOutputFile(agentDir: string, taskId: string): string {
  * current `BackgroundTaskInfo` shape and sorted newest-first by start time.
  *
  * Silently skips: filenames that don't match `VALID_TASK_ID`, files that fail
- * to read/parse, and records that are neither the current nor the legacy
- * task shape — matching agent-core's tolerant `listTasks`.
+ * to read/parse, and records that do not use the current task shape.
  */
 export async function listBackgroundTasks(
   agentDir: string,
@@ -70,14 +64,7 @@ export async function listBackgroundTasks(
       continue;
     }
     if (!isReadablePersistedTask(parsed)) continue;
-    try {
-      out.push(normalizePersistedTask(parsed));
-    } catch {
-      // A record can pass the shape guard but still hold type-corrupt fields
-      // (e.g. a legacy `stop_reason` that is a number). Honour the
-      // silently-skips contract instead of failing the whole listing.
-      continue;
-    }
+    out.push(parsed);
   }
   // Newest first; tasks with no start time sort last.
   out.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
@@ -150,91 +137,10 @@ export async function readTaskOutput(
   }
 }
 
-// ── normalization (ported from agent-core/agent/background/persist.ts) ───────
-
-type LegacyBackgroundTaskStatus =
-  | 'running'
-  | 'awaiting_approval'
-  | 'completed'
-  | 'failed'
-  | 'killed'
-  | 'lost';
-
-interface LegacyPersistedTask {
-  readonly task_id: string;
-  readonly command: string;
-  readonly description: string;
-  readonly pid: number;
-  readonly started_at: number;
-  readonly ended_at: number | null;
-  readonly exit_code: number | null;
-  readonly status: LegacyBackgroundTaskStatus;
-  readonly timed_out?: boolean;
-  readonly stop_reason?: string;
-  readonly timeout_ms?: number;
-  readonly agent_id?: string;
-  readonly subagent_type?: string;
-}
-
-type DiskPersistedTask = BackgroundTaskInfo | LegacyPersistedTask;
-
-function normalizePersistedTask(task: DiskPersistedTask): BackgroundTaskInfo {
-  if (isLegacyPersistedTask(task)) return legacyPersistedTaskToInfo(task);
-  return { ...task, detached: task.detached ?? true };
-}
-
-function legacyPersistedTaskToInfo(task: LegacyPersistedTask): BackgroundTaskInfo {
-  const status = legacyStatusToCurrent(task);
-  const base = {
-    taskId: task.task_id,
-    description: task.description,
-    status,
-    detached: true,
-    startedAt: task.started_at,
-    endedAt: task.ended_at,
-    stopReason: optionalNonEmptyString(task.stop_reason),
-    timeoutMs: typeof task.timeout_ms === 'number' ? task.timeout_ms : undefined,
-  };
-  if (task.task_id.startsWith('agent-')) {
-    return {
-      ...base,
-      kind: 'agent',
-      agentId: optionalNonEmptyString(task.agent_id),
-      subagentType: optionalNonEmptyString(task.subagent_type),
-    };
-  }
-  return {
-    ...base,
-    kind: 'process',
-    command: task.command,
-    pid: task.pid,
-    exitCode: task.exit_code,
-  };
-}
-
-function legacyStatusToCurrent(task: LegacyPersistedTask): BackgroundTaskStatus {
-  if (task.status === 'awaiting_approval') return 'running';
-  if (task.status === 'failed' && task.timed_out === true) return 'timed_out';
-  return task.status;
-}
-
-function isReadablePersistedTask(obj: unknown): obj is DiskPersistedTask {
-  return (
-    isRecord(obj) &&
-    (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string')
-  );
-}
-
-function isLegacyPersistedTask(task: DiskPersistedTask): task is LegacyPersistedTask {
-  return 'task_id' in task;
+function isReadablePersistedTask(obj: unknown): obj is BackgroundTaskInfo {
+  return isRecord(obj) && typeof obj['taskId'] === 'string';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function optionalNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
 }

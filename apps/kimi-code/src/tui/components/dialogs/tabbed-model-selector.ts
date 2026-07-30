@@ -26,6 +26,7 @@ import { currentTheme } from '#/tui/theme';
 import { renderTabStrip } from '#/tui/utils/tab-strip';
 
 import {
+  modelProviderName,
   ModelSelectorComponent,
   providerDisplayName,
   type ModelSelection,
@@ -144,7 +145,7 @@ function buildTabs(opts: TabbedModelSelectorOptions): readonly ModelTab[] {
   const providerIds: string[] = [];
   const seen = new Set<string>();
   for (const [, model] of entries) {
-    const provider = model.provider;
+    const provider = modelProviderName(model);
     if (!seen.has(provider)) {
       seen.add(provider);
       providerIds.push(provider);
@@ -161,7 +162,7 @@ function buildTabs(opts: TabbedModelSelectorOptions): readonly ModelTab[] {
   for (const providerId of providerIds) {
     const subset: Record<string, ModelAlias> = {};
     for (const [alias, model] of entries) {
-      if (model.provider === providerId) subset[alias] = model;
+      if (modelProviderName(model) === providerId) subset[alias] = model;
     }
     tabs.push({
       id: providerId,

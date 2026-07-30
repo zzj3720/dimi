@@ -42,6 +42,7 @@ function phaseFromStatus(status: BackgroundTaskStatus): BackgroundAgentStatusPha
 function subjectFor(info: BackgroundTaskInfo): string {
   if (info.kind === 'agent') return 'agent task';
   if (info.kind === 'question') return 'question task';
+  if (info.kind === 'tool') return 'tool task';
   return 'bash task';
 }
 
@@ -87,6 +88,37 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
   }
 
   return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/**
+ * Whether a task-bus snapshot should become a transcript status card.
+ *
+ * Default async tools create a `kind: 'tool'` task for almost every call.
+ * Writing a card for each start/complete floods the transcript, and the
+ * tool-call card already carries per-call status. Policy:
+ *
+ * - Foreground (`detached === false`) never claims "in background". Missing
+ *   `detached` counts as background (reconcile ghosts / older snapshots).
+ * - `tool`: only true-background non-success terminals (`failed` /
+ *   `timed_out` / `killed` / `lost`). Successful background tools stay silent
+ *   — the tool-call card + `/tasks` cover them.
+ * - `process` / `question`: true-background lifecycle still gets cards.
+ * - `agent`: never via this helper — agent cards are owned by the subagent
+ *   event path / tool-call card terminal status.
+ */
+export function shouldShowBackgroundTaskTranscript(info: BackgroundTaskInfo): boolean {
+  if (info.kind === 'agent') return false;
+  // Foreground lifecycle must not claim "in background".
+  if (info.detached === false) return false;
+  if (info.kind === 'tool') {
+    return (
+      info.status === 'failed' ||
+      info.status === 'timed_out' ||
+      info.status === 'killed' ||
+      info.status === 'lost'
+    );
+  }
+  return true;
 }
 
 /**

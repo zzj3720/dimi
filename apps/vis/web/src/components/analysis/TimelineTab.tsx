@@ -159,7 +159,7 @@ function ToolStatsTable({ analysis }: { analysis: Analysis }) {
         <table className="w-full font-mono text-[11px]">
           <thead>
             <tr className="border-b border-border text-fg-3">
-              <Th align="left">tool</Th><Th>calls</Th><Th>errors</Th><Th>truncated</Th>
+              <Th align="left">tool</Th><Th>calls</Th><Th>errors</Th>
               <Th>avg</Th><Th>max</Th><Th>output</Th>
             </tr>
           </thead>
@@ -169,7 +169,6 @@ function ToolStatsTable({ analysis }: { analysis: Analysis }) {
                 <td className="px-2 py-1 text-fg-0">{t.name}</td>
                 <Td>{t.count}</Td>
                 <Td tone={t.errorCount > 0 ? 'var(--color-sev-error)' : undefined}>{t.errorCount}</Td>
-                <Td tone={t.truncatedCount > 0 ? 'var(--color-sev-warning)' : undefined}>{t.truncatedCount}</Td>
                 <Td>{formatDuration(t.avgMs)}</Td>
                 <Td>{formatDuration(t.maxMs)}</Td>
                 <Td>{formatBytes(t.totalOutputBytes)}</Td>
@@ -343,7 +342,6 @@ function ToolRow({ tc, stepDurationMs }: { tc: ToolCallNode; stepDurationMs?: nu
         <span className="text-fg-3 tabular" title="result output size">{formatBytes(tc.outputBytes)}</span>
       ) : null}
       {tc.isError ? <Pill tone="error" variant="outline">error</Pill> : null}
-      {tc.truncated ? <Pill tone="warning" variant="outline">truncated</Pill> : null}
       {tc.resultLineNo === undefined ? <Pill tone="warning" variant="outline">no result</Pill> : null}
       {widthPct > 0 ? (
         <div className="ml-auto h-1 w-24 bg-surface-2">

@@ -1,11 +1,53 @@
 import type {
+  AgentReplayRecord,
+  AgentTaskConfig,
+  AgentTaskInfo,
+  AgentTaskStatus,
+  ContextMessage,
+  ExperimentalFeatureState,
+  ExperimentalFlagMap,
+  ExperimentalFlagSource,
   ExportSessionManifest,
+  GoalBudgetLimits,
+  GoalBudgetReport,
+  GoalChange,
+  GoalChangeStats,
+  GoalSnapshot,
+  GoalStatus,
+  GoalToolResult,
+  ITelemetryAppender,
+  LoopControl,
+  McpServerConfig as RuntimeMcpServerConfig,
+  ModelRecord,
+  MoonshotServiceConfig,
+  OAuthRef,
+  PluginCommandDef,
+  PluginGithubMetadata,
+  PluginGithubRef,
+  PluginInfo,
+  PluginMcpServerInfo,
+  PluginSource,
+  PluginSummary,
+  PromptOrigin,
+  ProviderConfig,
+  ProviderType,
+  ReloadSummary,
   ResumeSessionResult,
+  ResumedAgentState,
+  SecondaryModelConfig,
+  ServicesConfig,
   ShellEnvironment,
-  TelemetryClient,
+  SkillSummary,
   TelemetryContextPatch,
   TelemetryProperties,
-} from '@moonshot-ai/agent-core';
+  ThinkingConfig,
+  ToolInfo,
+} from '@moonshot-ai/agent-core-v2';
+import type {
+  ConfigDiagnostics,
+  McpServerInfo,
+  McpStartupMetrics,
+} from '@moonshot-ai/agent-core-v2/agent/rpc/core-api';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
@@ -18,13 +60,8 @@ export type Unsubscribe = () => void;
 
 export type {
   AgentReplayRecord,
-  AgentBackgroundTaskInfo,
-  BackgroundConfig,
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
   ConfigDiagnostics,
   ContextMessage,
-  CronTaskSnapshot,
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
@@ -33,16 +70,12 @@ export type {
   GoalBudgetReport,
   GoalChange,
   GoalChangeStats,
-  GetCronTasksResult,
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-  KimiConfig,
-  KimiConfigPatch,
   LoopControl,
   McpServerInfo,
   McpStartupMetrics,
-  ModelAlias,
   MoonshotServiceConfig,
   OAuthRef,
   PluginCommandDef,
@@ -52,11 +85,9 @@ export type {
   PluginMcpServerInfo,
   PluginSource,
   PluginSummary,
-  ProcessBackgroundTaskInfo,
   PromptOrigin,
   ProviderConfig,
   ProviderType,
-  QuestionBackgroundTaskInfo,
   ReloadSummary,
   ResumedAgentState,
   ServicesConfig,
@@ -64,12 +95,55 @@ export type {
   SkillSummary,
   ThinkingConfig,
   ToolInfo,
-  GlobalMcpServerConfig as McpServerConfig,
-  GlobalMcpServerTestResult as McpTestResult,
-} from '@moonshot-ai/agent-core';
+};
+
+export type TelemetryClient = ITelemetryAppender;
+export type BackgroundConfig = AgentTaskConfig;
+export type BackgroundTaskInfo = AgentTaskInfo;
+export type BackgroundTaskStatus = AgentTaskStatus;
+export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'agent' }>;
+export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'process' }>;
+export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'question' }>;
+export type ToolBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'tool' }>;
+export type ModelAlias = ModelRecord;
+
+export interface KimiConfig {
+  providers: Record<string, ProviderConfig>;
+  defaultProvider?: string;
+  defaultModel?: string;
+  models?: Record<string, ModelAlias>;
+  secondaryModel?: SecondaryModelConfig;
+  services?: ServicesConfig;
+  thinking?: ThinkingConfig;
+  telemetry?: boolean;
+  readonly [domain: string]: unknown;
+}
+
+export type KimiConfigPatch = Partial<KimiConfig>;
+
+export type SessionMcpServerConfig = RuntimeMcpServerConfig;
+export type McpServerConfig = SessionMcpServerConfig & { readonly name: string };
+
+export interface McpTestResult {
+  readonly success: boolean;
+  readonly output: string;
+}
+
+export interface CronTaskSnapshot {
+  readonly id: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly createdAt: number;
+  readonly lastFiredAt?: number;
+  readonly nextFireAt?: number;
+}
+
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
+}
 
 export type { KimiHostIdentity, OAuthRefreshOutcome };
-export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
+export type { TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
 
 export type PermissionMode = 'yolo' | 'manual' | 'auto';
@@ -107,6 +181,7 @@ export interface CreateSessionOptions {
   readonly kaos?: Kaos | undefined;
   readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
+  readonly mcpServers?: Readonly<Record<string, SessionMcpServerConfig>>;
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
    * an agentfile discovered from the user/project agent directories.
@@ -138,6 +213,7 @@ export interface ResumeSessionInput {
   readonly kaos?: Kaos | undefined;
   readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
+  readonly mcpServers?: Readonly<Record<string, SessionMcpServerConfig>>;
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;
   /** Include persisted subagent states in the returned replay snapshot. */

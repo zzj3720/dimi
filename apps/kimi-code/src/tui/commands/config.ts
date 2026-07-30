@@ -9,19 +9,29 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
+import { BusyInputModeSelectorComponent } from '../components/dialogs/busy-input-mode-selector';
 import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
 import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
 import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
-import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
+import {
+  modelDisplayName,
+  modelProviderName,
+  segmentsFor,
+} from '../components/dialogs/model-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
+import {
+  DEFAULT_TUI_CONFIG,
+  saveTuiConfig,
+  type BusyInputMode,
+  type TuiConfig,
+} from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
@@ -57,13 +67,15 @@ function currentTuiConfig(host: SlashCommandHost): TuiConfig {
     theme: host.state.appState.theme,
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+    busyInputMode: host.state.appState.busyInputMode ?? DEFAULT_TUI_CONFIG.busyInputMode,
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
+    statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
   };
 }
 
 export function effectiveModelForHost(host: SlashCommandHost, model: ModelAlias): ModelAlias {
-  const providerType = host.state.appState.availableProviders[model.provider]?.type;
+  const providerType = host.state.appState.availableProviders[modelProviderName(model)]?.type;
   // Flat models (no named provider, e.g. inline base_url served by a v2
   // backend) have no provider entry to look up; their own protocol declaration
   // plays the provider-identity role, mirroring the resolver.
@@ -286,7 +298,7 @@ export async function handleEffortCommand(host: SlashCommandHost, args: string):
     return;
   }
   if (!segments.includes(arg)) {
-    const providerType = host.state.appState.availableProviders[effective.provider]?.type;
+    const providerType = host.state.appState.availableProviders[modelProviderName(effective)]?.type;
     const protocol = effective.protocol ?? providerType;
     if (protocol !== 'anthropic') {
       host.showError(
@@ -762,6 +774,21 @@ export function showUpdatePreferencePicker(host: SlashCommandHost): void {
   );
 }
 
+export function showBusyInputModePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new BusyInputModeSelectorComponent({
+      currentValue: host.state.appState.busyInputMode ?? DEFAULT_TUI_CONFIG.busyInputMode,
+      onSelect: (value) => {
+        host.restoreEditor();
+        void applyBusyInputModeChoice(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
 export async function showExperimentsPanel(host: SlashCommandHost): Promise<void> {
   let features: readonly ExperimentalFeatureState[];
   try {
@@ -832,10 +859,14 @@ type UpdatePreferenceHost = {
   readonly state: {
     readonly appState: Pick<
       SlashCommandHost['state']['appState'],
-      'theme' | 'editorCommand' | 'notifications' | 'upgrade'
+      'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'busyInputMode' | 'disablePasteBurst' | 'statusLine'
     >;
   };
-  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'upgrade'>): void;
+  setAppState(
+    patch: Partial<
+      Pick<SlashCommandHost['state']['appState'], 'upgrade' | 'busyInputMode'>
+    >,
+  ): void;
   showStatus(msg: string, color?: string): void;
   track: SlashCommandHost['track'];
 };
@@ -866,6 +897,42 @@ export async function applyUpdatePreferenceChoice(
   host.setAppState({ upgrade });
   host.track('upgrade_preference_changed', { auto_install: autoInstall });
   host.showStatus(`Automatic updates ${autoInstall ? 'enabled' : 'disabled'}.`);
+}
+
+export async function applyBusyInputModeChoice(
+  host: UpdatePreferenceHost,
+  mode: BusyInputMode,
+): Promise<void> {
+  const current = host.state.appState.busyInputMode ?? DEFAULT_TUI_CONFIG.busyInputMode;
+  if (mode === current) {
+    host.showStatus(
+      mode === 'steer'
+        ? 'Busy input already set to steer (Enter injects mid-turn).'
+        : 'Busy input already set to queue (Enter waits; Ctrl-S steers).',
+    );
+    return;
+  }
+
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
+      busyInputMode: mode,
+    });
+  } catch (error) {
+    host.showStatus(
+      `Failed to save busy input setting: ${formatErrorMessage(error)}`,
+      'error',
+    );
+    return;
+  }
+
+  host.setAppState({ busyInputMode: mode });
+  host.track('busy_input_mode_changed', { mode });
+  host.showStatus(
+    mode === 'steer'
+      ? 'Busy input: Enter steers immediately while the agent is working.'
+      : 'Busy input: Enter queues; use Ctrl-S to steer immediately.',
+  );
 }
 
 async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
@@ -906,6 +973,7 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'permission': showPermissionPicker(host); return;
     case 'theme': showThemePicker(host); return;
     case 'editor': showEditorPicker(host); return;
+    case 'busy-input': showBusyInputModePicker(host); return;
     case 'experiments': void showExperimentsPanel(host); return;
     case 'upgrade': showUpdatePreferencePicker(host); return;
     case 'usage': void showUsage(host); return;

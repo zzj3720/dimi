@@ -213,7 +213,6 @@ function toSdkServer(server: MCPServerConfig): SdkMcpServerConfig {
     transport: "http",
     url: server.url?.trim() ?? "",
     headers: server.headers,
-    auth: server.auth,
     bearerTokenEnvVar: server.bearerTokenEnvVar,
   };
 }

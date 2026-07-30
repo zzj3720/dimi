@@ -1,11 +1,9 @@
 import {
-  ErrorCodes,
-  KimiError,
   type AgentContextData,
-  type KimiErrorCode,
   type SwarmModeTrigger,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
 
+import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
@@ -192,7 +190,7 @@ export class Session {
     const normalized = normalizeRequiredString(
       model,
       'Session model cannot be empty',
-      ErrorCodes.SESSION_MODEL_EMPTY,
+      ErrorCodes.REQUEST_INVALID,
     );
     await this.rpc.setModel({ sessionId: this.id, model: normalized });
   }
@@ -202,7 +200,7 @@ export class Session {
     const normalized = normalizeRequiredString(
       effort,
       'Session thinking effort cannot be empty',
-      ErrorCodes.SESSION_THINKING_EMPTY,
+      ErrorCodes.REQUEST_INVALID,
     );
     await this.rpc.setThinking({ sessionId: this.id, effort: normalized });
   }
@@ -223,7 +221,7 @@ export class Session {
     this.ensureOpen();
     if (!isPermissionMode(mode)) {
       throw new KimiError(
-        ErrorCodes.SESSION_PERMISSION_MODE_INVALID,
+        ErrorCodes.REQUEST_INVALID,
         'Session permission mode must be yolo, manual, or auto',
       );
     }
@@ -258,7 +256,7 @@ export class Session {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
       throw new KimiError(
-        ErrorCodes.SESSION_PLAN_MODE_INVALID,
+        ErrorCodes.REQUEST_INVALID,
         'Session plan mode must be a boolean',
       );
     }
@@ -377,7 +375,7 @@ export class Session {
     const trimmedTaskId = normalizeRequiredString(
       taskId,
       'Task id cannot be empty',
-      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+      ErrorCodes.REQUEST_INVALID,
     );
     return this.rpc.getBackgroundTaskOutput({
       sessionId: this.id,
@@ -389,7 +387,7 @@ export class Session {
   /**
    * Request a running background task to stop. Sends SIGTERM with a
    * grace period (handled by the core BPM); subscribers receive a
-   * `background.task.terminated` event when the kill settles. Calls
+   * `task.terminated` event when the kill settles. Calls
    * for unknown or already-terminal task ids are no-ops at the core
    * level — this method does not throw in those cases.
    */
@@ -401,7 +399,7 @@ export class Session {
     const trimmedTaskId = normalizeRequiredString(
       taskId,
       'Task id cannot be empty',
-      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+      ErrorCodes.REQUEST_INVALID,
     );
     await this.rpc.stopBackgroundTask({
       sessionId: this.id,
@@ -419,7 +417,7 @@ export class Session {
     const trimmedTaskId = normalizeRequiredString(
       taskId,
       'Task id cannot be empty',
-      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+      ErrorCodes.REQUEST_INVALID,
     );
     return this.rpc.detachBackgroundTask({
       sessionId: this.id,
@@ -431,9 +429,9 @@ export class Session {
    * Block until every still-running background task (across all agents in this
    * session) reaches a terminal state. Used by `kimi -p` after the main agent's
    * turn finishes when the resolved print background mode is `'drain'`
-   * (`print_background_mode = "drain"`, or the legacy `keep_alive_on_exit = true`
-   * fallback), so background subagents get a chance to complete before the process
-   * exits. No-op in other modes. Bounded by `background.print_wait_ceiling_s`.
+   * (`print_background_mode = "drain"`), so background subagents get a chance
+   * to complete before the process exits. No-op in other modes. Bounded by
+   * `task.print_wait_ceiling_s`.
    */
   async waitForBackgroundTasksOnPrint(): Promise<void> {
     this.ensureOpen();
@@ -445,8 +443,8 @@ export class Session {
    * 'completed'`. Returns `'finish'` when the run may exit, or `'continue'` when
    * the caller must keep the session alive so a background-task completion can
    * steer the main agent into a new turn. Policy is selected by
-   * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
-   * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   * `task.print_background_mode` (`'exit' | 'drain' | 'steer'`), defaulting to
+   * `'steer'` when unset.
    */
   async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
     this.ensureOpen();
@@ -620,7 +618,7 @@ export class Session {
 
   private requireSummary(): SessionSummary {
     if (this.summary === undefined) {
-      throw new KimiError(ErrorCodes.SESSION_STATE_INVALID, 'Session summary is unavailable');
+      throw new KimiError(ErrorCodes.INTERNAL, 'Session summary is unavailable');
     }
     return this.summary;
   }

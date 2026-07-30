@@ -194,20 +194,27 @@ describe('AgentConversationUndoService', () => {
     expect(history[1]?.origin?.kind).toBe('compaction_summary');
   });
 
-  it('refuses loudly when a legacy compaction leaves anchors without checkpoints', async () => {
+  it('refuses loudly when a compaction leaves anchors without checkpoints', async () => {
     setup();
     const undo = ctx.get(IAgentConversationUndoService);
     const wire = ctx.get(IWireService);
     ctx.appendTurnExchange('u1', 'a1');
     ctx.appendTurnExchange('u2', 'a2');
-    wire.dispatch(contextApplyCompaction({ summary: 'legacy summary', compactedCount: 2 }));
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'assistant']);
+    wire.dispatch(contextApplyCompaction({
+      summary: 'summary',
+      contextSummary: 'summary',
+      compactedCount: 4,
+      tokensBefore: 100,
+      tokensAfter: 10,
+      keptUserMessageCount: 2,
+    }));
+    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user']);
 
     await expect(undo.undo(1)).rejects.toMatchObject({
       code: ErrorCodes.SESSION_UNDO_UNAVAILABLE,
       details: { reason: 'compaction_boundary', requestedCount: 1, undoableCount: 0 },
     });
-    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'assistant']);
+    expect(ctx.context.get().map((m) => m.role)).toEqual(['user', 'user', 'user']);
   });
 
   it('attributes a checkpoint depth failure to the limiting model', async () => {

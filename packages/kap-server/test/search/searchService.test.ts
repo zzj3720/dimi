@@ -620,7 +620,11 @@ describe('GlobalSearchService', () => {
         type: 'context.apply_compaction',
         time: T3,
         summary: 'condensed',
+        contextSummary: 'condensed',
         compactedCount: 2,
+        tokensBefore: 100,
+        tokensAfter: 10,
+        keptUserMessageCount: 1,
       }),
       userLine('summary', T3 + 1000, { kind: 'compaction_summary' }),
       // Assistant content right after the compaction marker still attaches to

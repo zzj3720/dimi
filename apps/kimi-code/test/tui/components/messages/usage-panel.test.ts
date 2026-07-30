@@ -45,7 +45,7 @@ describe('UsagePanelComponent', () => {
       }).map(strip);
 
       expect(lines).toContain('Session usage');
-      expect(lines).toContain('  kimi  input 2k  output 250  total 2.2k');
+      expect(lines.join('\n')).toMatch(/kimi\s+input 2k\s+output 250\s+total 2\.2k\s+R500\s+W500\s+CH25\.0%/);
       expect(lines).toContain('Context window');
       expect(lines.join('\n')).toContain('25%');
       expect(lines).toContain('Plan usage');

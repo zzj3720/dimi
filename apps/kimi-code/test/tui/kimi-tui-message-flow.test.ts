@@ -146,6 +146,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -1294,7 +1295,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.started',
+        type: 'task.started',
         agentId: 'main',
         sessionId: 'ses-1',
         turnId: 1,
@@ -1336,6 +1337,115 @@ command = "vim"
         (child) => child instanceof WelcomeComponent,
       ),
     ).toHaveLength(1);
+  });
+
+  it('does not append transcript cards for foreground or successful tool tasks', async () => {
+    const { driver } = await makeDriver();
+    const base = {
+      agentId: 'main',
+      sessionId: 'ses-1',
+      turnId: 1,
+    } as const;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.started',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-fg000001',
+          turnId: 1,
+          toolCallId: 'call-fg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'running',
+          detached: false,
+          startedAt: Date.now(),
+          endedAt: null,
+        },
+      } as Event,
+      () => {},
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.started',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg000001',
+          turnId: 1,
+          toolCallId: 'call-bg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'running',
+          detached: true,
+          startedAt: Date.now(),
+          endedAt: null,
+        },
+      } as Event,
+      () => {},
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.terminated',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg000001',
+          turnId: 1,
+          toolCallId: 'call-bg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'completed',
+          detached: true,
+          startedAt: Date.now() - 100,
+          endedAt: Date.now(),
+        },
+      } as Event,
+      () => {},
+    );
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).not.toContain('tool task started in background');
+    expect(transcript).not.toContain('tool task completed in background');
+    expect(
+      driver.state.transcriptEntries.some((entry) => entry.backgroundAgentStatus !== undefined),
+    ).toBe(false);
+  });
+
+  it('appends a transcript card for a failed background tool task', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.terminated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg-fail01',
+          turnId: 1,
+          toolCallId: 'call-fail',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'failed',
+          detached: true,
+          startedAt: Date.now() - 100,
+          endedAt: Date.now(),
+          stopReason: 'tool error',
+        },
+      } as Event,
+      () => {},
+    );
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('tool task failed in background');
+    expect(transcript).toContain('Running Lookup');
   });
 
   it('removes AgentSwarm progress from undone turns', async () => {
@@ -2456,6 +2566,7 @@ command = "vim"
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
       } as Event,
       sendQueued,
@@ -2499,6 +2610,7 @@ command = "vim"
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
       } as Event,
       sendQueued,

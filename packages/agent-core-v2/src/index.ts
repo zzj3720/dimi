@@ -18,9 +18,11 @@ export * from '#/_base/log/logConfig';
 export * from '#/_base/log/formatter';
 export * from '#/_base/log/fileLog';
 export * from '#/_base/log/logService';
+export * from '#/_base/utils/proxy';
 export * from '#/wire/wire';
 export * from '#/wire/wireService';
 export * from '#/wire/record';
+export * from '#/wire/types';
 export * from '#/wire/migration/migration';
 export * from '#/session/sessionLog/sessionLogService';
 export * from '#/app/telemetry/telemetry';
@@ -118,6 +120,7 @@ export * from '#/kosong/model/thinking';
 export * from '#/kosong/model/catalog';
 export * from '#/kosong/model/catalogService';
 export * from '#/kosong/model/modelRequester';
+export * from '#/kosong/model/modelAuth';
 import '#/kosong/model/errors';
 // `ModelCatalogConfig` / `MODEL_CATALOG_SECTION` live in the configSection
 // side-effect module but the edge (kap-server's refresh scheduler) consumes
@@ -258,6 +261,7 @@ import '#/agent/tools/agent-swarm/agentSwarmTool';
 export * from '#/agent/swarm/swarm';
 export * from '#/agent/swarm/swarmService';
 export * from '#/agent/usage/usage';
+export * from '#/agent/usage/usageOps';
 export * from '#/agent/usage/usageService';
 export * from '#/agent/toolDedupe/toolDedupe';
 export * from '#/agent/toolDedupe/toolDedupeService';
@@ -293,6 +297,9 @@ import '#/agent/tools/task/task-stop/taskStopTool';
 export * from '#/agent/task/task';
 export * from '#/agent/task/taskOps';
 export * from '#/agent/task/taskService';
+export * from '#/agent/wait/wait';
+export * from '#/agent/wait/waitService';
+export * from '#/agent/tools/wait-for/waitForTool';
 import '#/app/cron/configSection';
 export * from '#/app/cron/cronTask';
 export * from '#/app/cron/cronTaskPersistence';
@@ -420,6 +427,10 @@ export {
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
   type ImageCompressionTelemetry,
+  type CompressImageOptions,
+  type CompressImageResult,
+  type CompressBase64Result,
+  type ImageCompressionCaptionInput,
 } from '#/agent/media/image-compress';
 export {
   MODEL_ACCEPTED_IMAGE_MIMES,
@@ -462,6 +473,7 @@ export * from '#/agent/contextMemory/conversationTime';
 export * from '#/agent/contextMemory/loopEventFold';
 export * from '#/agent/contextMemory/messageId';
 export * from '#/agent/contextMemory/messageProjection';
+export * from '#/agent/contextMemory/toolResultRender';
 export * from '#/agent/contextMemory/contextTranscript';
 export * from '#/agent/contextMemory/types';
 export * from '#/agent/systemReminder/systemReminder';
@@ -490,6 +502,7 @@ export * from '#/agent/faultInjection/faultInjectionService';
 export * from '#/agent/llmRequester/llmRequestOps';
 export * from '#/_base/utils/retry';
 import '#/agent/loop/configSection';
+export * from '#/agent/loop/configSection';
 export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';
 export * from '#/agent/loop/loopContinuation';
@@ -526,6 +539,7 @@ import '#/app/messageLegacy/errors';
 export * from '#/app/messageLegacy/messageLegacy';
 export * from '#/app/messageLegacy/messageLegacyService';
 export * from '#/agent/replayBuilder/types';
+export * from '#/agent/replayBuilder/turns';
 export * from '#/agent/undo/undo';
 export * from '#/agent/undo/undoService';
 export * from '#/agent/shellCommand/shellCommand';

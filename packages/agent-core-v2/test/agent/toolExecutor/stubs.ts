@@ -24,10 +24,7 @@ export interface ToolExecutorEventStubs {
   fireBeforeExecute(
     context: ResolvedToolExecutionHookContext,
   ): Promise<BeforeExecuteDecision | undefined>;
-  fireWillExecute(
-    data: IWaitUntilData<WillExecuteToolEvent>,
-    signal: AbortSignal,
-  ): Promise<void>;
+  fireWillExecute(data: IWaitUntilData<WillExecuteToolEvent>, signal: AbortSignal): Promise<void>;
 }
 
 export function stubToolExecutorEvents(): ToolExecutorEventStubs {
@@ -44,6 +41,7 @@ export function stubToolExecutorEvents(): ToolExecutorEventStubs {
     registerToolCallGuard: () => ({ dispose() {} }),
     registerUnavailableToolDescriber: () => ({ dispose() {} }),
     registerMissingToolDescriber: () => ({ dispose() {} }),
+    registerTaskLifecycleController: () => ({ dispose() {} }),
   };
   return {
     executor,

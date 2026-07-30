@@ -295,6 +295,7 @@ async function resolveSessionTasks(core: Scope, sid: string): Promise<ResolvedTa
 //   kind:    process   → bash
 //            agent     → subagent
 //            question  → tool
+//            tool      → tool
 //
 //   status:  running   → running
 //            completed → completed
@@ -313,6 +314,8 @@ function mapKind(k: AgentTaskInfo['kind']): TaskKind {
     case 'question':
       // SCHEMAS §7 has no 'question' literal; question tasks are
       // tool-spawned flows, so 'tool' is the closest spec literal.
+      return 'tool';
+    case 'tool':
       return 'tool';
   }
 }

@@ -55,9 +55,9 @@ function replayAgentToWebviewEvents(
   subagents?: SubagentReplayIndex,
 ): UIStreamEvent[] {
   const events: UIStreamEvent[] = [];
+  const toolDisplays = new Map<string, DisplayBlock[]>();
   let turnOpen = false;
   let step = 0;
-  const toolDisplays = new Map<string, readonly DisplayBlock[]>();
 
   events.push(
     withSession(
@@ -65,7 +65,7 @@ function replayAgentToWebviewEvents(
         type: "StatusUpdate",
         payload: {
           ...(agent.config.modelAlias === undefined ? {} : { model: agent.config.modelAlias }),
-          thinking_effort: agent.config.thinkingEffort,
+          thinking_effort: agent.config.thinkingLevel,
           plan_mode: agent.plan !== null,
         },
       },
@@ -129,9 +129,7 @@ function replayAgentToWebviewEvents(
           }
           for (const call of message.toolCalls) {
             const display = message.toolCallDisplays?.[call.id];
-            if (display !== undefined) {
-              toolDisplays.set(call.id, toLegacyDisplay(display));
-            }
+            if (display !== undefined) toolDisplays.set(call.id, toLegacyDisplay(display));
             const toolCall: ToolCall = {
               type: "function",
               id: call.id,
@@ -158,8 +156,6 @@ function replayAgentToWebviewEvents(
 
         if (message.role === "tool" && turnOpen && message.toolCallId !== undefined) {
           ensureStep();
-          const display = toolDisplays.get(message.toolCallId) ?? [];
-          toolDisplays.delete(message.toolCallId);
           events.push(
             withSession(
               {
@@ -170,7 +166,7 @@ function replayAgentToWebviewEvents(
                     is_error: message.isError === true,
                     output: toLegacyContent(message.content),
                     message: "",
-                    display: [...display],
+                    display: toolDisplays.get(message.toolCallId) ?? [],
                   },
                 },
               },
@@ -335,7 +331,7 @@ function renderSubagentInvocation(
   visited: ReadonlySet<string>,
 ): LegacyWireEvent[] {
   const events: LegacyWireEvent[] = [];
-  const toolDisplays = new Map<string, readonly DisplayBlock[]>();
+  const toolDisplays = new Map<string, DisplayBlock[]>();
   let step = 0;
 
   const emit = (event: LegacyWireEvent) => {
@@ -388,8 +384,6 @@ function renderSubagentInvocation(
             invocation.childAgentId,
             message.toolCallId,
           );
-          const display = toolDisplays.get(toolCallId) ?? [];
-          toolDisplays.delete(toolCallId);
           emit({
             type: "ToolResult",
             payload: {
@@ -398,7 +392,7 @@ function renderSubagentInvocation(
                 is_error: message.isError === true,
                 output: toLegacyContent(message.content),
                 message: "",
-                display: [...display],
+                display: toolDisplays.get(toolCallId) ?? [],
               },
             },
           });

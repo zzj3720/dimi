@@ -8,13 +8,12 @@ import {
 
 import type { RuntimeBroadcast } from "./session-runtime";
 import {
-  corePermissionForLegacyApproval,
-  legacyApprovalMetadata,
-  readLegacyApprovalFlags,
-  readMigratedLegacyApprovalFlags,
+  approvalModesMetadata,
+  permissionForApprovalModes,
+  readApprovalModes,
   withGlobalYoloMode,
-  type LegacyApprovalFlags,
-} from "./legacy-approval";
+  type ApprovalModes,
+} from "./approval-modes";
 import { SessionRuntime } from "./session-runtime";
 import { areSameFsPath } from "../utils/fs-path";
 
@@ -86,7 +85,7 @@ export class KimiRuntime {
       requestedId === current.id &&
       areSameFsPath(current.session.workDir, options.workDir)
     ) {
-      await applySessionSettings(current.session, options, current.legacyApprovalFlags);
+      await applySessionSettings(current.session, options, current.approvalModes);
       await current.announceStatus(options.webviewId);
       return current;
     }
@@ -94,32 +93,30 @@ export class KimiRuntime {
     let runtime = requestedId === undefined ? undefined : this.sessions.get(requestedId);
     if (runtime !== undefined) {
       assertSessionWorkDir(runtime.session, options.workDir);
-      await applySessionSettings(runtime.session, options, runtime.legacyApprovalFlags);
+      await applySessionSettings(runtime.session, options, runtime.approvalModes);
       await this.detachView(options.webviewId);
     } else {
-      const defaultApproval: LegacyApprovalFlags = { yolo: options.yoloMode, afk: false };
+      const defaultModes: ApprovalModes = { yolo: options.yoloMode, afk: false };
       const session =
         requestedId === undefined
           ? await this.harness.createSession({
               workDir: options.workDir,
               model: options.model || undefined,
               thinking: normalizeEffort(options.effort),
-              permission: corePermissionForLegacyApproval(defaultApproval),
-              metadata: legacyApprovalMetadata(defaultApproval),
+              permission: permissionForApprovalModes(defaultModes),
+              metadata: approvalModesMetadata(defaultModes),
             })
           : await this.harness.resumeSession({ id: requestedId, includeSubagents: true });
       try {
         assertSessionWorkDir(session, options.workDir);
-        const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval =
-          storedApproval ?? (await this.readMigratedLegacyApproval(session)) ?? defaultApproval;
-        const approval = withGlobalYoloMode(restoredApproval, options.yoloMode);
-        if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
-          await session.updateMetadata(legacyApprovalMetadata(approval));
+        const storedModes = readApprovalModes(session.summary?.metadata) ?? defaultModes;
+        const modes = withGlobalYoloMode(storedModes, options.yoloMode);
+        if (readApprovalModes(session.summary?.metadata) === undefined || modesDiffer(storedModes, modes)) {
+          await session.updateMetadata(approvalModesMetadata(modes));
         }
-        await applySessionSettings(session, options, approval);
+        await applySessionSettings(session, options, modes);
         await this.detachView(options.webviewId);
-        runtime = this.wrapSession(session, approval);
+        runtime = this.wrapSession(session, modes);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
           this.log("Failed to close a rejected session", closeError);
@@ -149,19 +146,18 @@ export class KimiRuntime {
     let runtime = existing ?? this.sessions.get(session.id);
     if (runtime === undefined) {
       try {
-        const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval =
-          storedApproval ??
-          (await this.readMigratedLegacyApproval(session)) ??
-          { yolo: defaultYoloMode, afk: false };
-        const approval = withGlobalYoloMode(restoredApproval, defaultYoloMode);
-        if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
-          await session.updateMetadata(legacyApprovalMetadata(approval));
+        const storedModes = readApprovalModes(session.summary?.metadata) ?? {
+          yolo: defaultYoloMode,
+          afk: false,
+        };
+        const modes = withGlobalYoloMode(storedModes, defaultYoloMode);
+        if (readApprovalModes(session.summary?.metadata) === undefined || modesDiffer(storedModes, modes)) {
+          await session.updateMetadata(approvalModesMetadata(modes));
         }
         const status = await session.getStatus();
-        const permission = corePermissionForLegacyApproval(approval);
+        const permission = permissionForApprovalModes(modes);
         if (status.permission !== permission) await session.setPermission(permission);
-        runtime = this.wrapSession(session, approval);
+        runtime = this.wrapSession(session, modes);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
           this.log("Failed to close a rejected session", closeError);
@@ -208,7 +204,7 @@ export class KimiRuntime {
 
   async setYoloModeForActiveSessions(enabled: boolean): Promise<void> {
     await Promise.all(
-      [...this.sessions.values()].map((session) => session.setLegacyYoloMode(enabled)),
+      [...this.sessions.values()].map((session) => session.setYoloMode(enabled)),
     );
   }
 
@@ -221,28 +217,16 @@ export class KimiRuntime {
     await this.harness.close();
   }
 
-  private wrapSession(session: Session, legacyApproval: LegacyApprovalFlags): SessionRuntime {
+  private wrapSession(session: Session, approvalModes: ApprovalModes): SessionRuntime {
     const runtime = new SessionRuntime({
       session,
-      legacyApproval,
+      approvalModes,
       broadcast: this.broadcast,
       captureBaseline: this.captureBaseline,
       log: this.log,
     });
     this.sessions.set(session.id, runtime);
     return runtime;
-  }
-
-  private async readMigratedLegacyApproval(
-    session: Session,
-  ): Promise<LegacyApprovalFlags | undefined> {
-    const metadata = session.summary?.metadata;
-    try {
-      return await readMigratedLegacyApprovalFlags(metadata);
-    } catch (error) {
-      this.log("Unable to restore legacy session approval settings", error);
-      return undefined;
-    }
   }
 
   private ensureOpen(): void {
@@ -253,7 +237,7 @@ export class KimiRuntime {
 async function applySessionSettings(
   session: Session,
   options: OpenSessionOptions,
-  legacyApproval: LegacyApprovalFlags,
+  approvalModes: ApprovalModes,
 ): Promise<void> {
   const status = await session.getStatus();
   // Model and thinking effort are applied only when the session is created
@@ -261,7 +245,7 @@ async function applySessionSettings(
   // values are defaults for new sessions, matching CLI/TUI resume semantics.
   // Changes made in the pickers reach the active session through the
   // SaveConfig handler instead.
-  const permission = corePermissionForLegacyApproval(legacyApproval);
+  const permission = permissionForApprovalModes(approvalModes);
   if (status.permission !== permission) {
     await session.setPermission(permission);
   }
@@ -271,7 +255,7 @@ export function normalizeEffort(effort: string): ThinkingEffort {
   return (effort.trim() || "off") as ThinkingEffort;
 }
 
-function flagsDiffer(a: LegacyApprovalFlags, b: LegacyApprovalFlags): boolean {
+function modesDiffer(a: ApprovalModes, b: ApprovalModes): boolean {
   return a.yolo !== b.yolo || a.afk !== b.afk;
 }
 

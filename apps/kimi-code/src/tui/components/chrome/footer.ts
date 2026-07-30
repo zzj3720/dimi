@@ -3,7 +3,9 @@
  *
  * Layout:
  *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: N% (tokens/max)
+ *   Line 2: context: N% (tokens/max)  [CH%]
+ *
+ * CH% is the latest prompt-cache hit rate (same semantics as pi's footer).
  */
 
 import type { Component } from '@moonshot-ai/pi-tui';
@@ -28,6 +30,8 @@ import {
   type GitStatusCache,
 } from '#/utils/git/git-status';
 import {
+  cacheHitRatePercent,
+  formatCacheHitRate,
   formatTokenCount,
   usagePercent,
   usagePercentFromRatio,
@@ -168,14 +172,24 @@ function shortenCwd(path: string): string {
  * Footer context readout. Percent comes from the exact token counts when
  * both are known (the ratio can lag a step behind); otherwise it falls
  * back to the precomputed ratio. Counts use the shared 1024-based
- * formatter.
+ * formatter. When a latest prompt usage reports cache activity, append
+ * the pi-style `CH` cache-hit rate.
  */
-function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
+function formatContextStatus(
+  usage: number,
+  tokens?: number,
+  maxTokens?: number,
+  cacheHitRate?: number,
+): string {
+  let base: string;
   if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
     const pct = String(usagePercent(tokens, maxTokens));
-    return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+    base = `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+  } else {
+    base = `context: ${String(usagePercentFromRatio(usage))}%`;
   }
-  return `context: ${String(usagePercentFromRatio(usage))}%`;
+  if (cacheHitRate === undefined) return base;
+  return `${base}  ${formatCacheHitRate(cacheHitRate)}`;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -326,10 +340,16 @@ export class FooterComponent implements Component {
     }
 
     // ── Line 2: transient hint (bottom-left) + context (right) ──
+    // CH% prefers the latest completed step (pi semantics). Fall back to
+    // current-turn usage from the status snapshot when no step has landed yet.
+    const cacheHitRate =
+      cacheHitRatePercent(state.latestPromptUsage) ??
+      cacheHitRatePercent(state.sessionUsage?.currentTurn);
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
+      cacheHitRate,
     );
     const contextWidth = visibleWidth(contextText);
     let line2: string;

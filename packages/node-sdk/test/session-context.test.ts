@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 describe('Session context', () => {
-  it('restores a session-only additional directory after close and resume', async () => {
+  it('keeps a session-only additional directory only for the live session', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-work-');
     const additionalDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-dir-');
@@ -35,11 +35,12 @@ describe('Session context', () => {
     try {
       const session = await harness.createSession({ id: 'ses_additional_resume', workDir });
       await session.addAdditionalDir(additionalDir, { persist: false });
+      expect(session.summary?.additionalDirs).toEqual([toPosix(additionalDir)]);
       await session.close();
 
       const resumed = await harness.resumeSession({ id: 'ses_additional_resume' });
 
-      expect(resumed.summary?.additionalDirs).toEqual([toPosix(additionalDir)]);
+      expect(resumed.summary?.additionalDirs).toEqual([]);
     } finally {
       await harness.close();
     }

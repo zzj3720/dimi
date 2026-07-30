@@ -133,7 +133,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `kimi login`
 
@@ -249,16 +249,6 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 # 排除全局诊断日志
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
-
-### `kimi migrate`
-
-将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。纯交互式运行，会引导你完成全流程。
-
-```sh
-kimi migrate
-```
-
-完整迁移说明见[从 kimi-cli 迁移](../guides/migration.md)。
 
 ### `kimi upgrade`
 

@@ -35,13 +35,18 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── plugins/
 │   ├── installed.json      # 已安装 plugin 记录与启用状态
 │   └── managed/            # zip/本地路径安装的 plugin 副本
-├── session_index.jsonl     # 会话索引
+├── workspaces.json         # 工作区目录
 ├── credentials/            # OAuth 凭据（目录 0700，文件 0600）
 │   ├── <name>.json
 │   └── mcp/
 │       └── <key>-<suffix>.json
 ├── sessions/               # 会话数据（详见下文）
-│   └── <workDirKey>/<sessionId>/
+│   └── <workspaceId>/<sessionId>/
+├── cron/                   # 按工作区分组的定时任务
+│   └── <workspaceId>/<taskId>.json
+├── blobs/                  # 运行时托管的二进制与文档 blob
+├── store/                  # 运行时托管的 store
+├── cache/                  # 运行时缓存
 ├── bin/
 │   ├── rg                  # Grep 使用的托管 ripgrep 二进制（Windows 为 rg.exe）
 │   └── fd                  # 文件引用使用的托管 fd 二进制（Windows 为 fd.exe）
@@ -66,22 +71,26 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 - **`mcp.json`**：用户级 MCP server 声明，启动时与项目内的 `.kimi-code/mcp.json` 合并加载。详见 [MCP](../customization/mcp.md)。
 - **`skills/`**：Kimi 专属用户级 Skills。该目录会随 `KIMI_CODE_HOME` 移动；跨工具通用 Skills 仍可放在 `~/.agents/skills/`。详见 [Agent Skills](../customization/skills.md)。
 - **`plugins/installed.json`**：记录已安装的 plugin、每个 plugin 的启用状态，以及通过 `/plugins` 或 `/plugins mcp disable|enable` 修改的 MCP server 能力状态。本地路径和 zip URL 安装的文件会复制到 `plugins/managed/<id>/`。详见 [Plugins](../customization/plugins.md)。
+- **`workspaces.json`**：把稳定的 workspace ID 映射到工作区根目录和显示名称。会话目录使用该 ID，不再使用路径派生的桶名。
 - **`credentials/`**：OAuth 凭据目录，权限 `0o700`（目录）/ `0o600`（文件），仅当前用户可读写。托管供应商凭据存为 `credentials/<name>.json`，MCP server 凭据存在 `credentials/mcp/` 子目录下。凭据写入使用原子流程（tmp → fsync → rename）防止写损。
 
 ## 会话数据
 
-每个会话的数据存在 `sessions/<workDirKey>/<sessionId>/` 下，同时在顶层 `session_index.jsonl` 里维护一份索引（每行一条记录，含 `sessionId`、`sessionDir`、`workDir` 三个字段）。`workDirKey` 是从工作目录路径生成的桶名，格式为 `wd_<slug>_<sha256前12位>`。
+每个会话存放在 `sessions/<workspaceId>/<sessionId>/` 下。运行时直接枚举这些目录并读取 `state.json`，不再维护独立的会话索引。
 
 会话目录内部包含：
 
 - **`state.json`**：会话标题、`lastPrompt`、创建/更新时间、`forkedFrom` 等元数据。
 - **`upcoming-goals.json`**：由 `/goal next <objective>` 创建的 TUI 专属队列。它不属于 Agent 对话；只有当前目标完成并提升后续目标后，才会进入 Agent 对话。
 - **`agents/main/wire.jsonl`**：主 Agent 的完整通信记录，用于会话恢复和回放。
-- **`agents/main/plans/`**：Plan 模式下写入的计划文件，按计划 id 命名（`<id>.md`）。
-- **`agents/agent-0/` 等**：子 Agent 实例目录，各自含 `wire.jsonl`。
+- **`agents/<agentId>/wire.jsonl`**：每个子 Agent 都有独立的事件日志。
+- **`agents/<agentId>/plans/<id>.md`**：Plan 模式下可编辑的工作文件。
+- **`agents/<agentId>/plan/<id>/v<N>.md`**：提交后的不可变计划版本，由 wire 日志引用。
+- **`agents/<agentId>/tasks/<taskId>.json`**：后台任务和异步工具任务的持久状态。
+- **`agents/<agentId>/tasks/<taskId>/output.log`**：持久化的任务输出。
 - **`logs/kimi-code.log`**：该会话的诊断日志，只有发生诊断事件时才存在。
-- **`tasks/`**：后台任务持久化——`tasks/<task_id>.json` 保存状态/pid/退出码，`tasks/<task_id>/output.log` 保存输出。
-- **`cron/`**：定时任务持久化，用 `kimi --session` 恢复会话时重新加载到调度器。详见[定时任务](../reference/tools.md#定时任务)。
+
+定时任务单独存放在 `cron/<workspaceId>/<taskId>.json`，不依赖某个会话处于运行状态。详见[定时任务](../reference/tools.md#定时任务)。
 
 ## 内置工具缓存
 
@@ -108,7 +117,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 | --- | --- |
 | 重置配置 | 删除 `~/.kimi-code/config.toml` |
 | 重置终端界面偏好 | 删除 `~/.kimi-code/tui.toml` |
-| 清理所有会话 | 删除 `~/.kimi-code/sessions/` 和 `session_index.jsonl` |
+| 清理所有会话 | 删除 `~/.kimi-code/sessions/` |
 | 清理诊断日志 | 删除 `~/.kimi-code/logs/` |
 | 清理输入历史 | 删除 `~/.kimi-code/user-history/` |
 | 重置更新状态 | 删除 `~/.kimi-code/updates/latest.json` |

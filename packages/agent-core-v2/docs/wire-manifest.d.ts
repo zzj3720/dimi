@@ -21,7 +21,7 @@
 // owning model offloads inline media to blob storage), cross-reducers
 // (foreign models that also reduce this record on dispatch and replay).
 
-// Index (44 record types)
+// Index (46 record types)
 //   config.update                      profile              persisted  src/agent/profile/profileOps.ts
 //   context_size.measured              contextSize          transient  src/agent/contextSize/contextSizeOps.ts
 //   context.append_loop_event          contextMemory        persisted  src/agent/contextMemory/contextOps.ts
@@ -66,6 +66,8 @@
 //   turn.prompt                        turn                 persisted  src/agent/loop/turnOps.ts
 //   turn.steer                         turn                 persisted  src/agent/loop/turnOps.ts
 //   usage.record                       usage                persisted  src/agent/usage/usageOps.ts
+//   wait.started                       wait                 persisted  src/agent/wait/wait.ts
+//   wait.terminated                    wait                 persisted  src/agent/wait/wait.ts
 
 /**
  * model: profile · persisted
@@ -136,15 +138,25 @@ interface ContextAppendMessagePayload {
     origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined;
     isError?: boolean;
     note?: string;
+    toolCallDisplays?: Readonly<Record<string, ToolInputDisplay>>;
   };
 }
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
  * owner: src/agent/contextMemory/contextOps.ts
- * shared base: ...contextCompactionBaseShape
  */
-type ContextApplyCompactionPayload = { _name: 'context.apply_compaction'; } & ({ summary: string, compactedCount: number, contextSummary?: string } | { contextSummary: string, compactedCount: number, summary?: string } | { summary: ContextMessage, count: number, compactedCount?: number });
+interface ContextApplyCompactionPayload {
+  _name: 'context.apply_compaction';
+  summary: string;
+  contextSummary: string;
+  compactedCount: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  keptUserMessageCount: number;
+  keptHeadUserMessageCount?: number;
+  droppedCount?: number;
+}
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
@@ -613,6 +625,43 @@ interface UsageRecordPayload {
   usageScope?: 'session' | 'turn';
 }
 
+/**
+ * model: wait · persisted · toEvent
+ * owner: src/agent/wait/wait.ts
+ */
+interface WaitStartedPayload {
+  _name: 'wait.started';
+  wait: {
+    waitId: string;
+    reason: string;
+    source: 'wait_for' | 'auto_wait';
+    timeoutSeconds: number;
+    startedAt: number;
+    deadlineAt: number;
+    turnId?: number;
+    taskIds?: string[];
+  };
+}
+
+/**
+ * model: wait · persisted · toEvent
+ * owner: src/agent/wait/wait.ts
+ */
+interface WaitTerminatedPayload {
+  _name: 'wait.terminated';
+  wait: {
+    waitId: string;
+    reason: string;
+    source: 'wait_for' | 'auto_wait';
+    timeoutSeconds: number;
+    startedAt: number;
+    deadlineAt: number;
+    turnId?: number;
+    taskIds?: string[];
+  };
+  reason: 'notification' | 'message' | 'timeout';
+}
+
 /** Record type → payload sketch. */
 interface WirePayloadMap {
   "config.update": ConfigUpdatePayload;
@@ -659,4 +708,6 @@ interface WirePayloadMap {
   "turn.prompt": TurnPromptPayload;
   "turn.steer": TurnSteerPayload;
   "usage.record": UsageRecordPayload;
+  "wait.started": WaitStartedPayload;
+  "wait.terminated": WaitTerminatedPayload;
 }

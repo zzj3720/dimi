@@ -160,7 +160,6 @@ export async function registerApiV1Routes(
       );
       registerSnapshotRoutes(apiV1 as unknown as Parameters<typeof registerSnapshotRoutes>[0], {
         core,
-        broadcaster: opts.broadcaster,
         reader: opts.snapshotReader,
       });
       registerTranscriptRoutes(apiV1 as unknown as Parameters<typeof registerTranscriptRoutes>[0], {

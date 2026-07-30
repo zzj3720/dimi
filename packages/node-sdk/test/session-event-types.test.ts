@@ -110,8 +110,6 @@ describe('Event public types', () => {
         case 'compaction.completed':
         case 'task.started':
         case 'task.terminated':
-        case 'background.task.started':
-        case 'background.task.terminated':
         case 'cron.fired':
         case 'prompt.submitted':
         case 'prompt.completed':

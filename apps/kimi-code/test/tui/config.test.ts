@@ -34,6 +34,7 @@ describe('TUI config', () => {
     const text = readFileSync(filePath, 'utf-8');
     expect(text).toContain('Client preferences for kimi-code.');
     expect(text).toContain('theme = "auto"');
+    expect(text).toContain('busy_input_mode = "steer"');
     expect(text).toContain('command = ""');
     expect(text).toContain('[upgrade]');
     expect(text).toContain('auto_install = true');
@@ -45,6 +46,7 @@ describe('TUI config', () => {
   it('parses valid TOML', () => {
     const config = parseTuiConfig(`
 theme = "light"
+busy_input_mode = "steer"
 
 [editor]
 command = "code --wait"
@@ -60,6 +62,7 @@ auto_install = false
     expect(config).toEqual({
       theme: 'light',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -76,6 +79,11 @@ disable_paste_burst = true
     expect(config.disablePasteBurst).toBe(true);
   });
 
+  it('defaults busy_input_mode to steer when omitted', () => {
+    const config = parseTuiConfig(`theme = "dark"`);
+    expect(config.busyInputMode).toBe('steer');
+  });
+
   it('normalizes an empty editor command to auto-detect', () => {
     const config = parseTuiConfig(`
 [editor]
@@ -85,6 +93,7 @@ command = "   "
     expect(config).toEqual({
       theme: 'auto',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -97,6 +106,7 @@ command = "   "
 
     expect(config.notifications).toEqual({ enabled: true, condition: 'unfocused' });
     expect(config.upgrade).toEqual({ autoInstall: true });
+    expect(config.busyInputMode).toBe('steer');
   });
 
   it('throws TuiConfigParseError with fallback when parsing fails, leaving the file untouched', async () => {
@@ -118,6 +128,7 @@ command = "   "
       {
         theme: 'light',
         disablePasteBurst: false,
+        busyInputMode: 'steer',
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
@@ -129,6 +140,7 @@ command = "   "
     expect(await loadTuiConfig(filePath)).toEqual({
       theme: 'light',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -142,6 +154,7 @@ command = "   "
       {
         theme,
         disablePasteBurst: DEFAULT_TUI_CONFIG.disablePasteBurst,
+        busyInputMode: DEFAULT_TUI_CONFIG.busyInputMode,
         editorCommand: null,
         notifications: DEFAULT_TUI_CONFIG.notifications,
         upgrade: DEFAULT_TUI_CONFIG.upgrade,

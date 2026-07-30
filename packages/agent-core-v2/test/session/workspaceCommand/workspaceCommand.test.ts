@@ -6,6 +6,7 @@ import { LifecycleScope } from '#/_base/di/scope';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
+import { OrderedHookSlot } from '#/hooks';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -26,6 +27,7 @@ import { ISessionWorkspaceCommandService } from '#/session/workspaceCommand/work
 import { SessionWorkspaceCommandService } from '#/session/workspaceCommand/workspaceCommandService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { SessionWorkspaceContextService } from '#/session/workspaceContext/workspaceContextService';
+import { IWireService } from '#/wire/wire';
 
 import { stubContextMemory, type StubContextMemory } from '../../agent/contextMemory/stubs';
 import { registerStateServices } from '../../state/stubs';
@@ -158,13 +160,14 @@ function enoent(path: string): NodeJS.ErrnoException {
 
 interface AgentsStub extends IAgentLifecycleService {
   readonly mainContext: StubContextMemory;
-  setMain(present: boolean): void;
+  setMain(present: boolean): Promise<void>;
 }
 
 function agentsStub(): AgentsStub {
   const mainContext = stubContextMemory();
   let mainPresent = false;
   const created = new Emitter<IAgentScopeHandle>();
+  const onDidRestore = new OrderedHookSlot<Record<string, never>>();
 
   const mainHandle: IAgentScopeHandle = {
     id: MAIN_AGENT_ID,
@@ -172,6 +175,7 @@ function agentsStub(): AgentsStub {
     accessor: {
       get: <T>(id: ServiceIdentifier<T>): T => {
         if (id === IAgentContextMemoryService) return mainContext as unknown as T;
+        if (id === IWireService) return { hooks: { onDidRestore } } as unknown as T;
         throw new Error(`unexpected service on main handle: ${String(id)}`);
       },
     },
@@ -189,9 +193,10 @@ function agentsStub(): AgentsStub {
     list: () => [],
     remove: () => Promise.resolve(),
     broadcastPermissionMode: () => {},
-    setMain: (present) => {
+    setMain: async (present) => {
       mainPresent = present;
       if (present) created.fire(mainHandle);
+      await onDidRestore.run({});
     },
   };
 }
@@ -237,12 +242,12 @@ describe('SessionWorkspaceCommandService', () => {
     disposables.dispose();
   });
 
-  function build(
+  async function build(
     seedDirs: readonly string[],
     mainPresent: boolean,
     workDir = WORK_DIR,
     gitDir = `${workDir}/.git`,
-  ): Harness {
+  ): Promise<Harness> {
     const fs = new MemoryHostFs([gitDir, workDir, ...seedDirs]);
     const agents = agentsStub();
     const ctx = sessionContext(workDir);
@@ -262,12 +267,12 @@ describe('SessionWorkspaceCommandService', () => {
 
     const workspace = ix.get(ISessionWorkspaceContext);
     const svc = ix.get(ISessionWorkspaceCommandService);
-    agents.setMain(mainPresent);
+    await agents.setMain(mainPresent);
     return { svc, fs, agents, workspace };
   }
 
   it('persists the directory and injects a local-command-stdout message when main exists', async () => {
-    const { svc, fs, agents, workspace } = build([EXTRA_DIR], true);
+    const { svc, fs, agents, workspace } = await build([EXTRA_DIR], true);
 
     const result = await svc.addAdditionalDir({ path: 'extra', persist: true });
 
@@ -294,7 +299,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('does not persist and injects a session-only message when persist is false', async () => {
-    const { svc, fs, agents, workspace } = build([EXTRA_DIR], true);
+    const { svc, fs, agents, workspace } = await build([EXTRA_DIR], true);
 
     const result = await svc.addAdditionalDir({ path: 'extra', persist: false });
 
@@ -312,12 +317,12 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('queues the injection until the main agent is created', async () => {
-    const { svc, agents } = build([EXTRA_DIR], false);
+    const { svc, agents } = await build([EXTRA_DIR], false);
 
     await svc.addAdditionalDir({ path: 'extra', persist: true });
     expect(agents.mainContext.messages).toHaveLength(0);
 
-    agents.setMain(true);
+    await agents.setMain(true);
 
     expect(agents.mainContext.messages).toHaveLength(1);
     expect(agents.mainContext.messages[0]?.content[0]).toMatchObject({
@@ -327,7 +332,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('keeps the persisted config idempotent when the same dir is added twice', async () => {
-    const { svc, fs } = build([EXTRA_DIR], true);
+    const { svc, fs } = await build([EXTRA_DIR], true);
 
     await svc.addAdditionalDir({ path: 'extra', persist: true });
     await svc.addAdditionalDir({ path: 'extra', persist: true });
@@ -339,7 +344,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('serializes concurrent persisted additions so local.toml keeps both directories', async () => {
-    const { svc, fs, workspace } = build([DIR_A, DIR_B], true);
+    const { svc, fs, workspace } = await build([DIR_A, DIR_B], true);
     const pause = fs.pauseNextWrite();
 
     const first = svc.addAdditionalDir({ path: 'a', persist: true });
@@ -365,7 +370,7 @@ describe('SessionWorkspaceCommandService', () => {
     const projectRoot = '/repo/project';
     const workDir = `${projectRoot}/apps/foo`;
     const sharedDir = `${workDir}/shared`;
-    const { svc, fs, workspace } = build([sharedDir], true, workDir, `${projectRoot}/.git`);
+    const { svc, fs, workspace } = await build([sharedDir], true, workDir, `${projectRoot}/.git`);
 
     const result = await svc.addAdditionalDir({ path: 'shared', persist: true });
 
@@ -380,7 +385,7 @@ describe('SessionWorkspaceCommandService', () => {
     const ancestorRoot = '/repo/project';
     const workDir = `${ancestorRoot}/apps/foo`;
     const sharedDir = `${workDir}/shared`;
-    const { svc, fs } = build([sharedDir], true, workDir, `${ancestorRoot}/.git`);
+    const { svc, fs } = await build([sharedDir], true, workDir, `${ancestorRoot}/.git`);
     fs.danglingSymlinks.add(`${workDir}/.git`);
 
     const result = await svc.addAdditionalDir({ path: 'shared', persist: true });
@@ -394,7 +399,7 @@ describe('SessionWorkspaceCommandService', () => {
     const projectRoot = '/repo/project';
     const workDir = `${projectRoot}/apps/foo`;
     const sharedDir = `${workDir}/shared`;
-    const { svc, fs, workspace } = build([sharedDir], true, workDir, `${projectRoot}/.git`);
+    const { svc, fs, workspace } = await build([sharedDir], true, workDir, `${projectRoot}/.git`);
 
     const result = await svc.addAdditionalDir({ path: 'shared', persist: false });
 
@@ -407,7 +412,7 @@ describe('SessionWorkspaceCommandService', () => {
 
   it('expands home-relative dirs against the OS home like v1', async () => {
     const homeDir = '/users/test/shared';
-    const { svc, workspace } = build([homeDir], true);
+    const { svc, workspace } = await build([homeDir], true);
 
     const result = await svc.addAdditionalDir({ path: '~/shared', persist: false });
 
@@ -417,7 +422,7 @@ describe('SessionWorkspaceCommandService', () => {
 
   it('treats project-root stat errors as absent git markers like v1', async () => {
     const projectRoot = '/repo';
-    const { svc, fs } = build([EXTRA_DIR], true, WORK_DIR, `${projectRoot}/.git`);
+    const { svc, fs } = await build([EXTRA_DIR], true, WORK_DIR, `${projectRoot}/.git`);
     const error = new Error('EACCES: cannot stat .git') as NodeJS.ErrnoException;
     error.code = 'EACCES';
     fs.statErrors.set(`${WORK_DIR}/.git`, error);
@@ -429,7 +434,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('rejects a relative path that does not resolve to an existing directory', async () => {
-    const { svc } = build([], true);
+    const { svc } = await build([], true);
 
     await expect(svc.addAdditionalDir({ path: 'missing', persist: true })).rejects.toSatisfy(
       (error) => error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID,
@@ -437,7 +442,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('surfaces a config read IO failure as storage.io_failed', async () => {
-    const { svc, fs } = build([EXTRA_DIR], true);
+    const { svc, fs } = await build([EXTRA_DIR], true);
     const error = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
     error.code = 'EACCES';
     fs.readErrors.set(`${WORK_DIR}/.kimi-code/local.toml`, error);
@@ -448,7 +453,7 @@ describe('SessionWorkspaceCommandService', () => {
   });
 
   it('surfaces invalid TOML in the config as storage.decode_failed', async () => {
-    const { svc, fs } = build([EXTRA_DIR], true);
+    const { svc, fs } = await build([EXTRA_DIR], true);
     fs.files.set(`${WORK_DIR}/.kimi-code/local.toml`, 'not [valid toml');
 
     await expect(svc.addAdditionalDir({ path: 'extra', persist: true })).rejects.toMatchObject({

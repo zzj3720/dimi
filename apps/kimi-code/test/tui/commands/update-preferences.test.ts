@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { applyUpdatePreferenceChoice } from '#/tui/commands/config';
+import {
+  applyBusyInputModeChoice,
+  applyUpdatePreferenceChoice,
+} from '#/tui/commands/config';
 import { darkColors } from '#/tui/theme/colors';
 
 const mocks = vi.hoisted(() => ({
@@ -17,25 +20,30 @@ vi.mock('../../../src/tui/config', async () => {
   };
 });
 
+function makeHost(overrides: Record<string, unknown> = {}) {
+  return {
+    state: {
+      appState: {
+        theme: 'auto' as const,
+        editorCommand: null,
+        disablePasteBurst: false,
+        busyInputMode: 'steer' as const,
+        notifications: { enabled: true, condition: 'unfocused' as const },
+        upgrade: { autoInstall: true },
+        statusLine: { items: null, command: null },
+        ...overrides,
+      },
+      theme: { palette: darkColors },
+    },
+    setAppState: vi.fn(),
+    showStatus: vi.fn(),
+    track: vi.fn(),
+  };
+}
+
 describe('update preference commands', () => {
   it('saves automatic update preference changes to tui.toml', async () => {
-    const setAppState = vi.fn();
-    const showStatus = vi.fn();
-    const track = vi.fn();
-    const host = {
-      state: {
-        appState: {
-          theme: 'auto' as const,
-          editorCommand: null,
-          notifications: { enabled: true, condition: 'unfocused' as const },
-          upgrade: { autoInstall: true },
-        },
-        theme: { palette: darkColors },
-      },
-      setAppState,
-      showStatus,
-      track,
-    };
+    const host = makeHost();
 
     await applyUpdatePreferenceChoice(host, false);
 
@@ -43,11 +51,38 @@ describe('update preference commands', () => {
       theme: 'auto',
       editorCommand: null,
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: false },
+      statusLine: { items: null, command: null },
     });
-    expect(setAppState).toHaveBeenCalledWith({ upgrade: { autoInstall: false } });
-    expect(track).toHaveBeenCalledWith('upgrade_preference_changed', { auto_install: false });
-    expect(showStatus).toHaveBeenCalledWith('Automatic updates disabled.');
+    expect(host.setAppState).toHaveBeenCalledWith({ upgrade: { autoInstall: false } });
+    expect(host.track).toHaveBeenCalledWith('upgrade_preference_changed', { auto_install: false });
+    expect(host.showStatus).toHaveBeenCalledWith('Automatic updates disabled.');
+  });
+
+  it('saves busy input mode changes to tui.toml', async () => {
+    const host = makeHost();
+
+    await applyBusyInputModeChoice(host, 'queue');
+
+    expect(mocks.saveTuiConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ busyInputMode: 'queue' }),
+    );
+    expect(host.setAppState).toHaveBeenCalledWith({ busyInputMode: 'queue' });
+    expect(host.track).toHaveBeenCalledWith('busy_input_mode_changed', { mode: 'queue' });
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'Busy input: Enter queues; use Ctrl-S to steer immediately.',
+    );
+  });
+
+  it('no-ops when busy input mode is unchanged', async () => {
+    const host = makeHost({ busyInputMode: 'steer' });
+    mocks.saveTuiConfig.mockClear();
+
+    await applyBusyInputModeChoice(host, 'steer');
+
+    expect(mocks.saveTuiConfig).not.toHaveBeenCalled();
+    expect(host.setAppState).not.toHaveBeenCalled();
   });
 });

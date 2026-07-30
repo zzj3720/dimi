@@ -48,6 +48,10 @@ export function providerDisplayName(provider: string): string {
   return provider;
 }
 
+export function modelProviderName(model: ModelAlias): string {
+  return model.providerId ?? model.provider ?? model.protocol ?? 'custom';
+}
+
 export function createModelChoiceOptions(
   models: Record<string, ModelAlias>,
 ): readonly ChoiceOption[] {
@@ -55,7 +59,7 @@ export function createModelChoiceOptions(
     const effective = effectiveModelAlias(cfg);
     return {
       value: alias,
-      label: `${modelDisplayName(alias, effective)} (${providerDisplayName(effective.provider)})`,
+      label: `${modelDisplayName(alias, effective)} (${providerDisplayName(modelProviderName(effective))})`,
     };
   });
 }
@@ -91,7 +95,7 @@ function createModelChoices(models: Record<string, ModelAlias>): readonly ModelC
   return Object.entries(models).map(([alias, cfg]) => {
     const effective = effectiveModelAlias(cfg);
     const name = modelDisplayName(alias, effective);
-    const provider = providerDisplayName(effective.provider);
+    const provider = providerDisplayName(modelProviderName(effective));
     return { alias, model: effective, name, provider, label: `${name} (${provider})` };
   });
 }

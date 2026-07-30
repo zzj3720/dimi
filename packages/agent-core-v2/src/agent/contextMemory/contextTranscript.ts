@@ -8,12 +8,8 @@
 import { type ContentPart, type ToolCall } from '#/kosong/contract/message';
 import type { WireRecord } from '#/wire/record';
 
-import {
-  COMPACT_USER_MESSAGE_MAX_TOKENS,
-  collectCompactableUserMessages,
-  selectRecentUserMessages,
-} from './compactionHandoff';
 import { isPromptOwnedInjection, isUndoAnchor } from './conversationTime';
+import { readContextCompactionRecord } from './contextOps';
 import type { LoopRecordedEvent } from './loopEventFold';
 import type { ContextMessage } from './types';
 import { isVacuousContentPart } from './vacuousContent';
@@ -203,16 +199,19 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
         applyLoopEvent(record['event'] as LoopRecordedEvent, record.time);
         break;
       case 'context.apply_compaction': {
+        const compaction = readContextCompactionRecord(record);
         transcript.push({
           message: {
             role: 'user',
-            content: [{ type: 'text', text: readCompactionSummaryText(record) }],
+            content: [{ type: 'text', text: compaction.summary }],
             toolCalls: [],
             origin: { kind: 'compaction_summary' },
           },
           time: record.time,
         });
-        foldedLength = recoverFoldedLength(record, transcript, clearFloor, foldedLength);
+        foldedLength =
+          compaction.keptUserMessageCount +
+          (compaction.keptHeadUserMessageCount === undefined ? 1 : 2);
         resetOpenState();
         break;
       }
@@ -252,56 +251,6 @@ function toMutableEntry(message: ContextMessage, time: number | undefined): Muta
     },
     time,
   };
-}
-
-function recoverFoldedLength(
-  record: WireRecord,
-  transcript: readonly MutableEntry[],
-  clearFloor: number,
-  foldedLength: number,
-): number {
-  const keptUserMessageCount = readNumber(record, 'keptUserMessageCount');
-  const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
-  const compactedCount = readNumber(record, 'compactedCount');
-  if (keptUserMessageCount !== undefined) {
-    return keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 1 : 2);
-  }
-  if (compactedCount !== undefined && compactedCount < foldedLength) {
-    return 1 + (foldedLength - compactedCount);
-  }
-  const keptUserMessages = selectRecentUserMessages(
-    collectCompactableUserMessages(transcript.slice(clearFloor).map((e) => e.message)),
-    COMPACT_USER_MESSAGE_MAX_TOKENS,
-  );
-  return keptUserMessages.length + 1;
-}
-
-function readCompactionSummaryText(record: WireRecord): string {
-  const summary = record['summary'];
-  if (typeof summary === 'string') return summary;
-  const contextSummary = record['contextSummary'];
-  if (typeof contextSummary === 'string') return contextSummary;
-  if (isContextMessageLike(summary)) return textOfParts(summary.content);
-  return '';
-}
-
-function isContextMessageLike(value: unknown): value is ContextMessage {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const message = value as { role?: unknown; content?: unknown };
-  return typeof message.role === 'string' && Array.isArray(message.content);
-}
-
-function textOfParts(content: readonly ContentPart[]): string {
-  let text = '';
-  for (const part of content) {
-    if (part.type === 'text') text += part.text;
-  }
-  return text;
-}
-
-function readNumber(record: WireRecord, key: string): number | undefined {
-  const value = record[key];
-  return typeof value === 'number' ? value : undefined;
 }
 
 function rawToolResultContent(output: string | readonly ContentPart[]): ContentPart[] {

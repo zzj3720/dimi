@@ -10,6 +10,7 @@ import type { ToolInfo } from '#/tool/toolContract';
 import type { SessionSummary } from '#/agent/rpc/core-api';
 import type { UsageStatus } from '#/agent/usage/usage';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import type { TodoItem } from '#/session/todo/todoItem';
 
 type AgentType = 'main' | 'sub';
 
@@ -39,6 +40,7 @@ export interface ResumedAgentState {
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
   readonly tasks: readonly AgentTaskInfo[];
+  readonly todos: readonly TodoItem[];
 }
 
 export interface ResumeSessionResult extends SessionSummary {

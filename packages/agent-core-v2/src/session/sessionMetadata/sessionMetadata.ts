@@ -13,8 +13,7 @@ import type { Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface AgentMeta {
-  /** Absolute standard path retained for older v1 readers. Current readers
-   * derive the agent directory from the session scope and ignore this field. */
+  /** Absolute agent directory exposed to external session inspectors. */
   readonly homedir?: string;
   readonly type?: 'main' | 'sub' | 'independent';
   readonly parentAgentId?: string | null;
@@ -27,17 +26,17 @@ export const SESSION_META_VERSION = 2;
 
 export interface SessionMeta {
   readonly id: string;
-  readonly version?: number;
+  readonly version: typeof SESSION_META_VERSION;
   readonly title?: string;
   readonly isCustomTitle?: boolean;
   readonly lastPrompt?: string;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly archived: boolean;
-  readonly cwd?: string;
+  readonly cwd: string;
   readonly forkedFrom?: string;
-  readonly agents?: Readonly<Record<string, AgentMeta>>;
-  readonly custom?: Record<string, unknown>;
+  readonly agents: Readonly<Record<string, AgentMeta>>;
+  readonly custom: Record<string, unknown>;
 }
 
 export type SessionMetaPatch = Partial<Omit<SessionMeta, 'id' | 'createdAt'>>;

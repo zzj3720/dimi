@@ -181,7 +181,17 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       onDidChangeMetadata: () => ({ dispose: () => {} }),
-      read: () => Promise.resolve({ id: 'sess_test', createdAt: 0, updatedAt: 0, archived: false }),
+      read: () =>
+        Promise.resolve({
+          id: 'sess_test',
+          version: 2,
+          cwd: '/tmp/kimi-agentLifecycle-test',
+          createdAt: 0,
+          updatedAt: 0,
+          archived: false,
+          agents: {},
+          custom: {},
+        }),
       update: () => Promise.resolve(),
       setTitle: () => Promise.resolve(),
       setArchived: () => Promise.resolve(),
@@ -438,6 +448,8 @@ describe('AgentLifecycleService', () => {
       read: () =>
         Promise.resolve({
           id: 'sess_test',
+          version: 2,
+          cwd: '/tmp/kimi-agentLifecycle-test',
           createdAt: 0,
           updatedAt: 0,
           archived: false,
@@ -445,6 +457,7 @@ describe('AgentLifecycleService', () => {
             'agent-0': { homedir: '/tmp/kimi-agentLifecycle-test/agents/agent-0', type: 'sub' },
             'agent-1': { homedir: '/tmp/kimi-agentLifecycle-test/agents/agent-1', type: 'sub' },
           },
+          custom: {},
         }),
       update: () => Promise.resolve(),
       setTitle: () => Promise.resolve(),

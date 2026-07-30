@@ -9,16 +9,18 @@ All sessions are saved under `$KIMI_CODE_HOME/sessions/` (default: `~/.kimi-code
 ```text
 ~/.kimi-code/
 ├── config.toml
-├── session_index.jsonl
+├── workspaces.json
 └── sessions/
-    └── <workDirKey>/
+    └── <workspaceId>/
         └── <sessionId>/
             ├── state.json
             └── agents/
                 ├── main/
-                │   └── wire.jsonl
+                │   ├── wire.jsonl
+                │   └── tasks/
                 └── <subagentId>/
-                    └── wire.jsonl
+                    ├── wire.jsonl
+                    └── tasks/
 ```
 
 - `state.json`: session metadata such as title and creation time.

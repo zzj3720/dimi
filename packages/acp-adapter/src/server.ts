@@ -144,7 +144,7 @@ async function hasUsableConfiguredDefaultModel(harness: KimiHarness): Promise<bo
 }
 
 function providerForAlias(config: KimiConfig, alias: ModelAlias): ProviderConfig | undefined {
-  const providerName = alias.provider ?? config.defaultProvider;
+  const providerName = alias.providerId ?? alias.provider ?? config.defaultProvider;
   return providerName === undefined ? undefined : config.providers[providerName];
 }
 
@@ -168,10 +168,8 @@ function providerHasNonOAuthCredentials(provider: ProviderConfig): boolean {
           (hasEnvValue(provider, 'GOOGLE_CLOUD_LOCATION') ||
             vertexAILocationFromBaseUrl(provider.baseUrl) !== undefined))
       );
-    default: {
-      const exhaustive: never = provider.type;
-      return exhaustive;
-    }
+    default:
+      return false;
   }
 }
 
@@ -347,15 +345,7 @@ export class AcpServer implements Agent {
     // the surface minimal. Phase 10.1 adds `mcpServers` forwarding so
     // ACP-supplied servers (Zed config, JetBrains config) are passed
     // alongside the on-disk config; unsupported ACP-transport servers
-    // are warn-dropped inside the conversion. `mcpServers` is NOT a
-    // declared field on `CreateSessionOptions` — the SDK is a
-    // transparent passthrough for unknown fields (see
-    // `packages/node-sdk/src/kimi-harness.ts:createSession` and
-    // `packages/node-sdk/src/rpc.ts:createSession`), so the kernel
-    // (`CreateSessionPayload.mcpServers` in agent-core) receives the
-    // record verbatim. The `@ts-expect-error` documents this contract;
-    // if the SDK ever switches from spread-passthrough to explicit field
-    // copy, this line breaks and we revisit the boundary.
+    // are warn-dropped inside the conversion.
     const mcpServers = acpMcpServersToConfigs(params.mcpServers);
     if (!this.conn) {
       // Defensive: every code path that constructs `AcpServer` (the
@@ -380,9 +370,6 @@ export class AcpServer implements Agent {
       kaos: acpKaos,
       persistenceKaos,
       sessionStartedProperties: { mode: 'new' },
-      // @ts-expect-error — `mcpServers` is a kernel-side extension
-      // (agent-core `CreateSessionPayload`) the SDK transparently
-      // forwards via spread. See block comment above.
       mcpServers,
     });
     const currentModelId = await this.resolveCurrentModelId();
@@ -508,11 +495,8 @@ export class AcpServer implements Agent {
    * those turns; replay is a load-only behavior). See plan G4
    * (lines 106-170) for the rationale.
    *
-   * The `@ts-expect-error` boundary at the SDK `resumeSession` call
-   * is preserved verbatim — `mcpServers` is a kernel-only extension
-   * the SDK forwards via spread (see the `newSession` comment block
-   * for the full contract). The `session.not_found` → `invalidParams`
-   * mapping is also preserved so unknown-session errors surface as a
+   * The `session.not_found` → `invalidParams` mapping is preserved so
+   * unknown-session errors surface as a
    * structured JSON-RPC failure rather than a generic internal error.
    */
   private async setupSessionFromExisting(params: {
@@ -535,11 +519,8 @@ export class AcpServer implements Agent {
     // harness's `resumeSession` only takes `{ id }` today; the cwd
     // arrives on the request for future validation but is not enforced
     // here (the on-disk session already has its own workDir). Phase
-    // 10.1 also forwards `mcpServers` so a resumed session can pick up
-    // ACP-supplied MCP servers (matching `newSession` behaviour). Same
-    // `@ts-expect-error` boundary as `newSession` — the SDK's
-    // `resumeSession` spreads `input` so unknown fields ride to the
-    // kernel.
+    // ACP-supplied MCP servers are merged with the resumed session's
+    // on-disk configuration.
     const mcpServers = acpMcpServersToConfigs(params.mcpServers);
     const acpKaos = await this.maybeBuildAcpKaos(params.sessionId);
     const persistenceKaos = acpKaos === undefined ? undefined : await this.ensureInnerKaos();
@@ -550,8 +531,6 @@ export class AcpServer implements Agent {
         kaos: acpKaos,
         persistenceKaos,
         sessionStartedProperties: { mode: params.mode },
-        // @ts-expect-error — see block comment above; mcpServers is a
-        // kernel-only field that the SDK forwards via spread.
         mcpServers,
       });
     } catch (err) {
@@ -586,7 +565,7 @@ export class AcpServer implements Agent {
     // projects onto its row set. Falls back to the live session status,
     // then the harness-level default, when the resume state lacks the
     // field.
-    const resumedThinkingEffort = resumeState?.agents?.['main']?.config?.thinkingEffort;
+    const resumedThinkingEffort = resumeState?.agents?.['main']?.config?.thinkingLevel;
     const currentThinkingEffort = await this.resolveCurrentThinkingEffort(
       session,
       resumedThinkingEffort,

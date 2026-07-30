@@ -48,7 +48,6 @@ interface FormData {
   envVars: KeyValueField[];
   headerVars: KeyValueField[];
   bearerTokenEnvVar: string;
-  requiresAuth: boolean;
 }
 
 function emptyForm(): FormData {
@@ -61,7 +60,6 @@ function emptyForm(): FormData {
     envVars: [],
     headerVars: [],
     bearerTokenEnvVar: "",
-    requiresAuth: false,
   };
 }
 
@@ -77,7 +75,6 @@ function serverToForm(s?: MCPServerConfig): FormData {
     envVars: s.env ? Object.entries(s.env).map(([key, value]) => ({ key, value })) : [],
     headerVars: s.headers ? Object.entries(s.headers).map(([key, value]) => ({ key, value })) : [],
     bearerTokenEnvVar: s.bearerTokenEnvVar ?? "",
-    requiresAuth: s.auth === "oauth",
   };
 }
 
@@ -92,7 +89,6 @@ function formToConfig(f: FormData): MCPServerConfig {
       url: f.url.trim(),
       headers: Object.keys(headers).length > 0 ? headers : undefined,
       bearerTokenEnvVar: bearerTokenEnvVar || undefined,
-      auth: f.requiresAuth ? "oauth" : undefined,
     };
   }
   const args = f.args.filter((arg) => arg.length > 0);
@@ -223,10 +219,6 @@ function ServerForm({
           <div>
             <Label className="text-[10px] text-muted-foreground">URL</Label>
             <Input value={data.url} onChange={(e) => set("url", e.target.value)} placeholder="https://..." className="h-7 text-xs font-mono" />
-            <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
-              <input type="checkbox" checked={data.requiresAuth} onChange={(e) => set("requiresAuth", e.target.checked)} className="rounded size-3" />
-              <span className="text-xs text-muted-foreground">Requires OAuth</span>
-            </label>
           </div>
           <KeyValueFields
             label="Headers"
@@ -354,7 +346,6 @@ function ServerItem({ server, onDelete }: { server: MCPServerConfig; onDelete: (
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{server.name}</span>
-            {server.auth === "oauth" && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">OAuth</span>}
           </div>
           <p className="text-[10px] text-muted-foreground truncate font-mono">
             {isHttp ? server.url : (
@@ -366,7 +357,7 @@ function ServerItem({ server, onDelete }: { server: MCPServerConfig; onDelete: (
           </p>
         </div>
         <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {server.auth === "oauth" && (
+          {isHttp && server.bearerTokenEnvVar === undefined && (
             <>
               <Button variant="ghost" size="icon" className="size-6" onClick={() => { void handleAuth(); }} disabled={isLoading}>
                 <IconKey className="size-3" />

@@ -43,20 +43,6 @@ export interface WireRenderer<K extends RecordType> {
 type RendererMap = { [K in RecordType]: WireRenderer<K> };
 
 export const WIRE_RENDERERS: RendererMap = {
-  metadata: {
-    tone: 'meta',
-    label: 'meta',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Mono>protocol v{r.protocol_version}</Mono>
-          <Dim>·</Dim>
-          <Mono>created {new Date(r.created_at).toLocaleString()}</Mono>
-        </span>
-      ),
-    }),
-  },
-
   forked: {
     tone: 'lifecycle',
     label: 'fork',
@@ -81,6 +67,21 @@ export const WIRE_RENDERERS: RendererMap = {
         ),
       };
     },
+  },
+
+  'profile.bind': {
+    tone: 'config',
+    label: 'profile',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.profileName ?? '(default)'}</Mono>
+          {r.modelAlias ? <Dim>· {r.modelAlias}</Dim> : null}
+          <Dim>· thinking={r.thinkingEffort}</Dim>
+        </span>
+      ),
+      right: r.cwd ? <Mono className="truncate max-w-64">{r.cwd}</Mono> : undefined,
+    }),
   },
 
   'turn.prompt': {
@@ -324,6 +325,12 @@ export const WIRE_RENDERERS: RendererMap = {
     },
   },
 
+  'tools.reset_active_tools': {
+    tone: 'tools',
+    label: 'tools',
+    headline: () => ({ main: <Dim>all tools active</Dim> }),
+  },
+
   'tools.update_store': {
     tone: 'meta',
     label: 'store',
@@ -538,6 +545,20 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'plan.revision': {
+    tone: 'lifecycle',
+    label: 'plan',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.id}</Mono>
+          <Dim>v{r.version} · {r.bytes} bytes</Dim>
+        </span>
+      ),
+      right: <Mono className="truncate max-w-64">{r.path}</Mono>,
+    }),
+  },
+
   'swarm_mode.enter': {
     tone: 'subagent',
     label: 'swarm↻',
@@ -597,6 +618,89 @@ export const WIRE_RENDERERS: RendererMap = {
     tone: 'warning',
     label: 'goal×',
     headline: () => ({ main: <Dim>goal cleared</Dim> }),
+  },
+
+  'task.started': {
+    tone: 'tools',
+    label: 'task+',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.info.taskId}</Mono>
+          <Pill tone="tools" variant="soft">
+            {r.info.status}
+          </Pill>
+          <Dim className="truncate">{truncate(r.info.description, 60)}</Dim>
+        </span>
+      ),
+    }),
+  },
+
+  'task.terminated': {
+    tone: 'tools',
+    label: 'task✓',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.info.taskId}</Mono>
+          <Pill tone={r.info.status === 'completed' ? 'success' : 'warning'} variant="soft">
+            {r.info.status}
+          </Pill>
+          <Dim className="truncate">{truncate(r.info.description, 60)}</Dim>
+        </span>
+      ),
+    }),
+  },
+
+  'wait.started': {
+    tone: 'lifecycle',
+    label: 'wait',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Pill tone="lifecycle" variant="soft">
+            {r.wait.source}
+          </Pill>
+          <Mono>{r.wait.waitId}</Mono>
+          <Dim className="truncate">{r.wait.timeoutSeconds}s · {r.wait.reason}</Dim>
+        </span>
+      ),
+    }),
+  },
+
+  'wait.terminated': {
+    tone: 'lifecycle',
+    label: 'wait✓',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.wait.waitId}</Mono>
+          <Dim>· {r.reason}</Dim>
+        </span>
+      ),
+    }),
+  },
+
+  'interaction.request': {
+    tone: 'approval',
+    label: 'ask',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Pill tone="approval" variant="soft">
+            {r.kind}
+          </Pill>
+          <Mono>{r.id}</Mono>
+          {r.toolCallId ? <Dim>· tool #{r.toolCallId.slice(-8)}</Dim> : null}
+        </span>
+      ),
+    }),
+  },
+
+  'interaction.resolved': {
+    tone: 'success',
+    label: 'ask✓',
+    headline: (r) => ({ main: <Mono>{r.id}</Mono> }),
   },
 
   // Observability records — the request trace (see agent-core records/types.ts).

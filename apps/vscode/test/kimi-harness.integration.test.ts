@@ -654,7 +654,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       name: "remote",
       transport: "http",
       url: "https://new.example.test/mcp",
-      auth: "oauth",
     });
 
     await expect(rig.harness.listMcpServers()).resolves.toEqual([
@@ -664,7 +663,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         url: "https://new.example.test/mcp",
         headers: { "X-Workspace": "kept" },
         bearerTokenEnvVar: "REMOTE_MCP_TOKEN",
-        auth: "oauth",
       },
     ]);
   });
@@ -737,7 +735,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       url: "https://old.example.test/mcp",
       headers: { Authorization: "Bearer stored-secret" },
       bearerTokenEnvVar: "KEEP_TOKEN",
-      auth: "oauth",
     });
 
     const servers = await updateMcpServer(rig, {
@@ -747,7 +744,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         transport: "http",
         url: "https://new.example.test/mcp",
         bearerTokenEnvVar: "KEEP_TOKEN",
-        auth: "oauth",
       },
     });
 
@@ -757,7 +753,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         transport: "http",
         url: "https://new.example.test/mcp",
         bearerTokenEnvVar: "KEEP_TOKEN",
-        auth: "oauth",
       },
     ]);
   });
@@ -770,7 +765,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       url: "https://old.example.test/mcp",
       headers: { "X-Keep": "yes" },
       bearerTokenEnvVar: "REMOVE_TOKEN",
-      auth: "oauth",
     });
 
     const servers = await updateMcpServer(rig, {
@@ -780,7 +774,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         transport: "http",
         url: "https://new.example.test/mcp",
         headers: { "X-Keep": "yes" },
-        auth: "oauth",
       },
     });
 
@@ -790,40 +783,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         transport: "http",
         url: "https://new.example.test/mcp",
         headers: { "X-Keep": "yes" },
-        auth: "oauth",
-      },
-    ]);
-  });
-
-  it("switches an OAuth HTTP server back to ordinary HTTP when auth is omitted", async () => {
-    const rig = await createMcpHandlerRig();
-    await rig.harness.addMcpServer({
-      name: "remote",
-      transport: "http",
-      url: "https://old.example.test/mcp",
-      headers: { "X-Keep": "yes" },
-      bearerTokenEnvVar: "KEEP_TOKEN",
-      auth: "oauth",
-    });
-
-    const servers = await updateMcpServer(rig, {
-      originalName: "remote",
-      server: {
-        name: "remote",
-        transport: "http",
-        url: "https://new.example.test/mcp",
-        headers: { "X-Keep": "yes" },
-        bearerTokenEnvVar: "KEEP_TOKEN",
-      },
-    });
-
-    expect(servers).toEqual([
-      {
-        name: "remote",
-        transport: "http",
-        url: "https://new.example.test/mcp",
-        headers: { "X-Keep": "yes" },
-        bearerTokenEnvVar: "KEEP_TOKEN",
       },
     ]);
   });
@@ -974,54 +933,6 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     expect(resumed.id).toBe(plainSession.id);
   });
 
-  it("backfills approval flags for a session migrated before the metadata field existed", async () => {
-    const rig = await createRuntimeRig();
-    const legacySessionDir = join(rig.workDir, "legacy-session");
-    await mkdir(legacySessionDir);
-    await writeFile(
-      join(legacySessionDir, "state.json"),
-      JSON.stringify({ approval: { yolo: false, afk: true } }),
-      "utf8",
-    );
-    const plain = await createPlainHarness(rig.homeDir);
-    const migrated = await plain.createSession({
-      id: "ses_preexisting_migration",
-      workDir: rig.workDir,
-      metadata: { kimi_cli_source_path: legacySessionDir },
-    });
-    await migrated.close();
-
-    const resumed = await openRuntimeSession(rig, migrated.id);
-
-    expect(resumed.legacyApprovalFlags).toEqual({ yolo: false, afk: true });
-    expect(resumed.summary?.metadata?.["vscode_legacy_approval"]).toEqual({
-      yolo: false,
-      afk: true,
-    });
-  });
-
-  it("reports corrupt legacy approval state and still opens the migrated session", async () => {
-    const rig = await createRuntimeRig();
-    const legacySessionDir = join(rig.workDir, "corrupt-legacy-session");
-    await mkdir(legacySessionDir);
-    await writeFile(join(legacySessionDir, "state.json"), "{not-json", "utf8");
-    const plain = await createPlainHarness(rig.homeDir);
-    const migrated = await plain.createSession({
-      id: "ses_corrupt_preexisting_migration",
-      workDir: rig.workDir,
-      metadata: { kimi_cli_source_path: legacySessionDir },
-    });
-    await migrated.close();
-
-    const resumed = await openRuntimeSession(rig, migrated.id);
-
-    expect(resumed.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
-    expect(rig.logs).toContainEqual({
-      message: "Unable to restore legacy session approval settings",
-      error: expect.any(SyntaxError),
-    });
-  });
-
   it("imports a UTF-8 text file into the same session without calling the model", async () => {
     const rig = await createRuntimeRig();
     await writeFile(join(rig.workDir, "notes.md"), "Keep the public API stable.", "utf8");
@@ -1090,7 +1001,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     expect(rig.provider.requests).toHaveLength(0);
   });
 
-  it("keeps a slash-added directory after VS Code closes and resumes the session", async () => {
+  it("keeps a slash-added directory only for the live session", async () => {
     const rig = await createRuntimeRig();
     const additionalDir = join(rig.workDir, "directory with spaces");
     await mkdir(additionalDir);
@@ -1101,7 +1012,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     await rig.runtime.detachView("view-1");
     const resumed = await openRuntimeSession(rig, sessionId);
 
-    expect(resumed.session.summary?.additionalDirs).toContain(additionalDir);
+    expect(resumed.session.summary?.additionalDirs).not.toContain(additionalDir);
   });
 
   it("rejects an invalid plan subcommand without leaving the runtime busy", async () => {
@@ -1188,15 +1099,15 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     const runtime = await openRuntimeSession(rig);
 
     await runSlash(runtime, "/yolo");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    expect(runtime.approvalModes).toEqual({ yolo: true, afk: false });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    expect(runtime.approvalModes).toEqual({ yolo: true, afk: true });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    expect(runtime.approvalModes).toEqual({ yolo: true, afk: false });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
   });
 
@@ -1207,12 +1118,12 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     await rig.runtime.detachView("view-1");
 
     const reopened = await openRuntimeSession(rig, first.id);
-    expect(reopened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    expect(reopened.approvalModes).toEqual({ yolo: false, afk: false });
     await expect(reopened.session.getStatus()).resolves.toMatchObject({ permission: "manual" });
     await rig.runtime.detachView("view-1");
 
     const yoloReopened = await openRuntimeSession(rig, first.id, true);
-    expect(yoloReopened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    expect(yoloReopened.approvalModes).toEqual({ yolo: true, afk: false });
     await expect(yoloReopened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
   });
 

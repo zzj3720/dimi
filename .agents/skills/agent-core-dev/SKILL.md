@@ -1,13 +1,13 @@
 ---
 name: agent-core-dev
-description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, owning or migrating a config section, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, porting business logic from agent-core (v1) to v2, triaging a main-branch commit against v2, or exposing a v2 domain over server-v2 while keeping the /api/v1 wire contract compatible with released clients. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus align workflows for v1→v2 migration, main-branch commit triage, and server-v2 wire exposure; each file carries the rules, examples, and red lines for its step.
+description: Use when developing in packages/agent-core-v2 (the DI × Scope agent engine) — adding or modifying a domain Service, choosing a LifecycleScope, wiring DI dependencies, splitting a domain across scopes, owning a config section, gating behavior behind an experimental flag, raising coded errors, working on the permission system, writing DI/Scope tests, or exposing a runtime domain over the server while keeping the /api/v1 wire contract compatible with released clients. Self-contained guide organized by development stage (orient → design → implement → test → verify) plus server wire exposure; each file carries the rules, examples, and red lines for its step.
 ---
 
 # agent-core-dev
 
 > Develop `packages/agent-core-v2` by lifecycle stage. This skill is **self-contained**: every rule, recipe, and red line lives in the stage files below — it does not delegate to `packages/agent-core-v2/docs/`.
 
-`agent-core-v2` is the new agent engine built on the **DI × Scope** architecture (a port of `packages/agent-core`). Everything resolves through the container: a service declares an **identity**, its **dependencies**, and a **lifetime**; the container decides construction, singleton-per-scope, ordering, and disposal. The stage files restate the rules in imperative form so you can work without reading the source docs.
+`agent-core-v2` is Kimi Code's sole agent engine, built on the **DI × Scope** architecture. Everything resolves through the container: a service declares an **identity**, its **dependencies**, and a **lifetime**; the container decides construction, singleton-per-scope, ordering, and disposal. The stage files restate the rules in imperative form so you can work without reading the source docs.
 
 ## Lifecycle at a glance
 
@@ -27,9 +27,7 @@ Stages are ordered but not strictly linear: a test failure (stage 4) that reveal
 
 End-to-end procedures that span the stages. Reach for these before reading the stage files individually.
 
-- [Align (port `agent-core` → `agent-core-v2`)](align.md): split a v1 class into semantic units, fix each unit's domain / scope / Service / dependencies, then migrate the logic and tests. Use when the task is "move feature X from v1 to v2" or "port `IXxxService` to v2".
-- [Commit align (triage a `main` commit against v2)](commit-align.md): given one `main` commit hash + a short note, find the v1 logic it changed, check whether v2 already has the corresponding implementation, bucket it (aligned / partial / missing / not-applicable), and recommend a minimal fix. Use in the `kimi-code-v2`-catching-up-to-`main` phase, for one commit at a time; escalate to [align.md](align.md) if the gap is a whole domain.
-- [Server align (expose `agent-core-v2` over `server-v2`)](server-align.md): wire a v2 domain into `packages/kap-server` over `/api/v2` (native) and `/api/v1` (v1-compatible mirror), keep the wire schema byte-compatible with the established v1 contract by sharing the `@moonshot-ai/protocol` schema, and isolate v1-only behavior in a `<domain>Legacy` edge adapter instead of distorting the native v2 Service. Use when the task is "expose the new v2 Service on the server", "add a route to the `/api/v1` surface", or "keep server-v2 wire-compatible with released v1 clients".
+- [Server exposure](server-align.md): expose a runtime domain through `packages/kap-server`, sharing `@moonshot-ai/protocol` schemas with the released `/api/v1` wire contract and keeping protocol translation at the edge.
 
 ## Stages
 

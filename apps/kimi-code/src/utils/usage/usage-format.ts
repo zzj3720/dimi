@@ -1,9 +1,56 @@
 /**
- * Formatting helpers for the `/usage` slash command.
+ * Formatting helpers for the `/usage` slash command and footer token stats.
  *
  * Kept pure + ANSI-free so they're trivial to unit-test; the slash
  * command itself chalks the colour afterwards.
  */
+
+/** Minimal token-usage shape shared with SDK `TokenUsage`. */
+export interface CacheUsageInput {
+  readonly inputOther?: number;
+  readonly output?: number;
+  readonly inputCacheRead?: number;
+  readonly inputCacheCreation?: number;
+}
+
+function usageNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * Total prompt tokens for a single generation: non-cache input + cache
+ * read + cache write/creation. Matches the denominator pi uses for CH%.
+ */
+export function promptTokenTotal(usage: CacheUsageInput | null | undefined): number {
+  if (usage === null || usage === undefined) return 0;
+  return (
+    usageNumber(usage.inputOther) +
+    usageNumber(usage.inputCacheRead) +
+    usageNumber(usage.inputCacheCreation)
+  );
+}
+
+/**
+ * Latest-step prompt-cache hit rate as a percentage in [0, 100].
+ * Returns `undefined` when there is no prompt traffic, or when the
+ * provider reported neither cache reads nor cache writes (no cache
+ * signal — same gate as pi's footer `CH` badge).
+ */
+export function cacheHitRatePercent(usage: CacheUsageInput | null | undefined): number | undefined {
+  if (usage === null || usage === undefined) return undefined;
+  const cacheRead = usageNumber(usage.inputCacheRead);
+  const cacheWrite = usageNumber(usage.inputCacheCreation);
+  if (cacheRead === 0 && cacheWrite === 0) return undefined;
+  const prompt = promptTokenTotal(usage);
+  if (prompt <= 0) return undefined;
+  return Math.min(100, Math.max(0, (cacheRead / prompt) * 100));
+}
+
+/** Compact footer/report label, e.g. `CH85.0%`. */
+export function formatCacheHitRate(rate: number): string {
+  if (!Number.isFinite(rate)) return 'CH?%';
+  return `CH${rate.toFixed(1)}%`;
+}
 
 /**
  * Format a token count in 1024-based units: context sizes are powers of

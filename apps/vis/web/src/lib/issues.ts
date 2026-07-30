@@ -5,7 +5,6 @@
 //   - tool.call without paired tool.result (orphan tool.call)
 //   - tool.result without preceding tool.call (orphan tool.result)
 //   - tool.result with isError (tool failed)
-//   - tool.result with truncated output (model saw partial output)
 //   - step.end finishReason 'filtered' (provider blocked the response)
 //   - step.end finishReason 'max_tokens' (response cut at the output cap)
 //   - step.begin without paired step.end (incomplete step)
@@ -23,7 +22,6 @@ export type IssueKind =
   | 'orphan_tool_call'
   | 'missing_tool_result'
   | 'tool_error'
-  | 'tool_truncated'
   | 'model_filtered'
   | 'model_max_tokens'
   | 'incomplete_step'
@@ -93,23 +91,14 @@ export function computeIssues(
               kind: 'tool_error',
               lineNo,
               summary: `${open?.name ?? 'tool'}#${ev.toolCallId.slice(-8)} returned an error`,
-              detail: ev.result.message,
-            });
-          }
-          if (ev.result.truncated === true) {
-            out.push({
-              severity: 'info',
-              kind: 'tool_truncated',
-              lineNo,
-              summary: `${open?.name ?? 'tool'}#${ev.toolCallId.slice(-8)} output truncated`,
-              detail: 'the model saw a paged/dropped partial result',
+              detail: ev.result.note,
             });
           }
         } else if (ev.type === 'step.begin') {
           stepBeginByUuid.set(ev.uuid, {
             lineNo,
-            step: ev.step,
-            turnId: ev.turnId,
+            step: ev.step ?? -1,
+            turnId: ev.turnId ?? '?',
           });
         } else if (ev.type === 'step.end') {
           stepBeginByUuid.delete(ev.uuid);

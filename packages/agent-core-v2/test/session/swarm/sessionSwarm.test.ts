@@ -887,10 +887,13 @@ describe('SessionSwarmService metadata compatibility', () => {
       onDidChangeMetadata: Event.None as Event<SessionMetadataChangedEvent>,
       read: async () => ({
         id: 's1',
+        version: 2,
+        cwd: '/repo',
         createdAt: 0,
         updatedAt: 0,
         archived: false,
         agents,
+        custom: {},
       }),
       update: async () => {},
       setTitle: async () => {},

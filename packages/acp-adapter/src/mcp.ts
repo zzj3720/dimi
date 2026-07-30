@@ -26,8 +26,7 @@
  */
 
 import type { McpServer, McpServerStdio } from '@agentclientprotocol/sdk';
-import type { McpServerConfig } from '@moonshot-ai/agent-core';
-import { log } from '@moonshot-ai/kimi-code-sdk';
+import { log, type SessionMcpServerConfig } from '@moonshot-ai/kimi-code-sdk';
 
 /**
  * Convert an ACP `McpServer[]` into the kernel-native
@@ -42,9 +41,9 @@ import { log } from '@moonshot-ai/kimi-code-sdk';
  */
 export function acpMcpServersToConfigs(
   servers: readonly McpServer[] | undefined,
-): Record<string, McpServerConfig> {
+): Record<string, SessionMcpServerConfig> {
   if (!servers || servers.length === 0) return {};
-  const out: Record<string, McpServerConfig> = {};
+  const out: Record<string, SessionMcpServerConfig> = {};
   for (const server of servers) {
     const converted = acpMcpServerToConfig(server);
     if (converted !== null) out[converted.name] = converted.config;
@@ -54,14 +53,14 @@ export function acpMcpServersToConfigs(
 
 function acpMcpServerToConfig(
   server: McpServer,
-): { name: string; config: McpServerConfig } | null {
+): { name: string; config: SessionMcpServerConfig } | null {
   // The stdio branch of the `McpServer` union has no `type` field
   // (see ACP schema 0.23 — stdio is the bare `McpServerStdio` shape
   // in the discriminated union). Anything without an explicit `type`
   // is treated as stdio.
   if (!('type' in server) || typeof server.type !== 'string') {
     const stdio = server as McpServerStdio;
-    const config: McpServerConfig = {
+    const config: SessionMcpServerConfig = {
       transport: 'stdio',
       command: stdio.command,
       args: stdio.args,
@@ -71,7 +70,7 @@ function acpMcpServerToConfig(
   }
   switch (server.type) {
     case 'http': {
-      const config: McpServerConfig = {
+      const config: SessionMcpServerConfig = {
         transport: 'http',
         url: server.url,
         headers: headersArrayToRecord(server.headers),
@@ -79,7 +78,7 @@ function acpMcpServerToConfig(
       return { name: server.name, config };
     }
     case 'sse': {
-      const config: McpServerConfig = {
+      const config: SessionMcpServerConfig = {
         transport: 'sse',
         url: server.url,
         headers: headersArrayToRecord(server.headers),

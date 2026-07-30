@@ -520,46 +520,10 @@ describe('SessionLifecycleService', () => {
     expect(ensureMcpReady).toHaveBeenCalledWith(mcpServers);
   });
 
-  it('create appends the session to the shared session_index.jsonl', async () => {
-    const appended: unknown[] = [];
-    const svc = build([
-      stubPair(IAppendLogStore, {
-        ...appendLogStoreStub(),
-        append: (scope: string, key: string, record: unknown) => {
-          appended.push({ scope, key, record });
-        },
-      }),
-    ]);
-
-    const handle = await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
-
-    // The index entry addresses the session under the registry-resolved
-    // workspace id — the same id seeding the session's storage scope — not a
-    // recomputed encodeWorkDirKey, so the v1 reader finds it in the bucket it
-    // was materialized into.
-    const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-    expect(appended).toEqual([
-      {
-        scope: '',
-        key: 'session_index.jsonl',
-        record: {
-          sessionId: 's1',
-          sessionDir: `/tmp/sessions/${workspaceId}/s1`,
-          workDir: '/tmp/proj',
-        },
-      },
-    ]);
-  });
-
-  it('does not index and removes a fresh session when initial agent binding fails', async () => {
-    const appended: unknown[] = [];
+  it('removes a fresh session when initial agent binding fails', async () => {
     const remove = vi.fn(() => Promise.resolve());
     const create = vi.fn(() => Promise.reject(new Error('Unknown agent profile')));
     const svc = build([
-      stubPair(IAppendLogStore, {
-        ...appendLogStoreStub(),
-        append: (_scope: string, _key: string, record: unknown) => appended.push(record),
-      }),
       stubPair(IHostFileSystem, { remove } as unknown as IHostFileSystem),
       stubPair(IAgentLifecycleService, {
         ...agentLifecycleStub(),
@@ -575,20 +539,12 @@ describe('SessionLifecycleService', () => {
       }),
     ).rejects.toThrow('Unknown agent profile');
 
-    expect(appended).toEqual([]);
     expect(svc.get('s1')).toBeUndefined();
     expect(remove).toHaveBeenCalledOnce();
   });
 
-  it('indexes the session under the registry-resolved id when the workDir is an alias spelling', async () => {
-    const appended: unknown[] = [];
+  it('uses the registry-resolved workspace id for an alias spelling', async () => {
     const svc = build([
-      stubPair(IAppendLogStore, {
-        ...appendLogStoreStub(),
-        append: (scope: string, key: string, record: unknown) => {
-          appended.push({ scope, key, record });
-        },
-      }),
       stubPair(IWorkspaceService, {
         ...workspaceStub(),
         // As the real registry does after folding: the id minted for the
@@ -607,17 +563,6 @@ describe('SessionLifecycleService', () => {
     const handle = await svc.create({ sessionId: 's1', workDir: 'c:\\users\\foo\\proj' });
 
     expect(handle.accessor.get(ISessionContext).workspaceId).toBe('wd_first_spelling');
-    expect(appended).toEqual([
-      {
-        scope: '',
-        key: 'session_index.jsonl',
-        record: {
-          sessionId: 's1',
-          sessionDir: '/tmp/sessions/wd_first_spelling/s1',
-          workDir: 'c:\\users\\foo\\proj',
-        },
-      },
-    ]);
   });
 
   it('registers the workspace during create so a cold resume can resolve the workdir', async () => {

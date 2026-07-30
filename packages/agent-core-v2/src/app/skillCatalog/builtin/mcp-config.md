@@ -81,9 +81,9 @@ servers that authenticate with a static bearer token from the
 environment. Servers that use OAuth take no token field — the login flow
 above handles them. `transport` is inferred from `command` vs `url`, so
 omit it. For less common fields (`enabled`, `startupTimeoutMs`,
-`toolTimeoutMs`, `enabledTools`, `disabledTools`, `headers`) the source of
-truth is `McpServerStdioConfigSchema` / `McpServerHttpConfigSchema` in
-`packages/agent-core/src/config/schema.ts`.
+`toolTimeoutMs`, `enabledTools`, `disabledTools`, `headers`) use the
+`McpServerStdioConfigSchema` / `McpServerHttpConfigSchema` definitions in
+the runtime MCP domain as the source of truth.
 
 When the user wants to change a timeout for *every* server, don't write
 `startupTimeoutMs` / `toolTimeoutMs` into each entry — the global defaults

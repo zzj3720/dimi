@@ -13,7 +13,11 @@ export function recordingTelemetry(records: TelemetryRecord[]): TelemetryClient 
     },
     withContext: (patch) => ({
       track: (event, properties) => {
-        records.push({ event, sessionId: patch.sessionId ?? null, properties });
+        records.push({
+          event,
+          sessionId: typeof patch['sessionId'] === 'string' ? patch['sessionId'] : null,
+          properties,
+        });
       },
     }),
   };

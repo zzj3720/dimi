@@ -1,6 +1,6 @@
 /**
- * `contextMemory` domain helper — derives the v1-compatible full-compaction
- * handoff shape for live rewrites, wire replay, and snapshot reducers.
+ * `contextMemory` domain helper — derives the full-compaction handoff shape
+ * for live rewrites, wire replay, and snapshot reducers.
  */
 
 import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
@@ -24,15 +24,11 @@ export interface CompactionUserSelection<T> {
 
 export interface ContextCompactionShapeInput {
   readonly summary: string;
-  readonly legacySummaryMessage?: ContextMessage;
   readonly contextSummary?: string;
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;
-  readonly keptUserMessageCount?: number;
-  readonly keptHeadUserMessageCount?: number;
   readonly droppedCount?: number;
-  readonly legacyTail?: boolean;
 }
 
 export interface ContextCompactionShape {
@@ -51,24 +47,6 @@ export function buildContextCompactionShape(
   history: readonly ContextMessage[],
   input: ContextCompactionShapeInput,
 ): ContextCompactionShape {
-  if (usesLegacyTailShape(input)) {
-    const contextSummary = input.contextSummary ?? input.summary;
-    const messages = [
-      input.legacySummaryMessage ?? createCompactionSummaryMessage(contextSummary),
-      ...history.slice(input.compactedCount),
-    ];
-    return {
-      summary: input.summary,
-      contextSummary,
-      compactedCount: input.compactedCount,
-      tokensBefore: input.tokensBefore,
-      tokensAfter: input.tokensAfter ?? estimateTokensForMessages(messages),
-      keptUserMessageCount: 0,
-      droppedCount: input.droppedCount,
-      messages,
-    };
-  }
-
   const compactableUserMessages = collectCompactableUserMessages(history);
   const selection = selectCompactionUserMessages(compactableUserMessages);
   const elisionMessage = selection.elided
@@ -80,10 +58,8 @@ export function buildContextCompactionShape(
   const contextSummary = input.contextSummary ?? input.summary;
   const tokensAfter =
     input.tokensAfter ?? estimateTokens(contextSummary) + estimateTokensForMessages(keptMessages);
-  const keptUserMessageCount =
-    input.keptUserMessageCount ?? selection.head.length + selection.tail.length;
-  const keptHeadUserMessageCount =
-    input.keptHeadUserMessageCount ?? (selection.elided ? selection.head.length : undefined);
+  const keptUserMessageCount = selection.head.length + selection.tail.length;
+  const keptHeadUserMessageCount = selection.elided ? selection.head.length : undefined;
 
   return {
     summary: input.summary,
@@ -254,10 +230,6 @@ export function selectCompactionUserMessages<T extends MessageLike>(
   for (const message of head) keptTokens += estimateTokensForMessage(message);
   for (const message of tail) keptTokens += estimateTokensForMessage(message);
   return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
-}
-
-function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
-  return input.legacyTail === true;
 }
 
 function extractText(content: readonly ContentPart[]): string {

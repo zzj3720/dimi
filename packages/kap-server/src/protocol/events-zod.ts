@@ -179,13 +179,6 @@ export const taskOriginSchema = z.object({
   notificationId: z.string(),
 }) satisfies z.ZodType<TaskOrigin>;
 
-export const backgroundTaskOriginSchema = z.object({
-  kind: z.literal('background_task'),
-  taskId: z.string(),
-  status: taskLifecycleStatusSchema,
-  notificationId: z.string(),
-});
-
 export const cronJobOriginSchema = z.object({
   kind: z.literal('cron_job'),
   jobId: z.string(),
@@ -220,7 +213,6 @@ export const promptOriginSchema = z.discriminatedUnion('kind', [
   compactionSummaryOriginSchema,
   systemTriggerOriginSchema,
   taskOriginSchema,
-  backgroundTaskOriginSchema,
   cronJobOriginSchema,
   cronMissedOriginSchema,
   hookResultOriginSchema,
@@ -425,10 +417,19 @@ export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
   toolCallId: z.string().optional(),
 });
 
+export const toolTaskInfoSchema = taskInfoBaseSchema.extend({
+  kind: z.literal('tool'),
+  turnId: z.number(),
+  toolCallId: z.string(),
+  toolName: z.string(),
+  autoWaitTimeoutSeconds: z.number(),
+});
+
 export const taskInfoSchema = z.discriminatedUnion('kind', [
   processTaskInfoSchema,
   agentTaskInfoSchema,
   questionTaskInfoSchema,
+  toolTaskInfoSchema,
 ]);
 
 export const compactionResultSchema = z.object({
@@ -436,7 +437,7 @@ export const compactionResultSchema = z.object({
   compactedCount: z.number(),
   tokensBefore: z.number(),
   tokensAfter: z.number(),
-  keptUserMessageCount: z.number().optional(),
+  keptUserMessageCount: z.number(),
   keptHeadUserMessageCount: z.number().optional(),
   droppedCount: z.number().optional(),
 }) satisfies z.ZodType<CompactionResult>;
@@ -837,16 +838,6 @@ export const taskTerminatedEventSchema = z.object({
   info: taskInfoSchema,
 });
 
-export const backgroundTaskStartedEventSchema = z.object({
-  type: z.literal('background.task.started'),
-  info: taskInfoSchema,
-});
-
-export const backgroundTaskTerminatedEventSchema = z.object({
-  type: z.literal('background.task.terminated'),
-  info: taskInfoSchema,
-});
-
 export const cronFiredEventSchema = z.object({
   type: z.literal('cron.fired'),
   origin: cronJobOriginSchema,
@@ -953,8 +944,6 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   compactionCompletedEventSchema,
   taskStartedEventSchema,
   taskTerminatedEventSchema,
-  backgroundTaskStartedEventSchema,
-  backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
   promptCompletedEventSchema,
