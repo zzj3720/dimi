@@ -646,6 +646,21 @@ function dispatchNativeEvent(
 export type PrintTurnEnding = Extract<DomainEvent, { type: 'turn.ended' }>;
 
 /**
+ * Node's `setTimeout` delay is a signed 32-bit int. Values above this are
+ * clamped to 1ms and emit `TimeoutOverflowWarning` — which made print-mode
+ * steer with the default 10-year ceiling return immediately while background
+ * tasks were still running. Cap every timer delay here and re-arm when the
+ * remaining wait is larger.
+ */
+export const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
+
+/** Clamp a delay so `setTimeout` never overflows to 1ms. */
+export function clampSetTimeoutMs(ms: number): number {
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.min(ms, MAX_SET_TIMEOUT_MS);
+}
+
+/**
  * Source of `turn.ended` events for the print steer loop. `next` resolves with
  * the next ending (skipping `skipTurnId`, the main turn's own buffered
  * ending), or `null` when `remainingMs` elapses first.
@@ -675,6 +690,10 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
       buffer.push(event);
     },
     next: async (remainingMs, skipTurnId) => {
+      // Non-finite / non-positive budgets time out immediately. Huge finite
+      // budgets (print's 10-year ceiling) are kept as wall-clock deadlines and
+      // waited in ≤ MAX_SET_TIMEOUT_MS slices so Node never clamps them to 1ms.
+      if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
       const deadlineAt = Date.now() + remainingMs;
       const waitOnce = (ms: number): Promise<PrintTurnEnding | null> =>
         new Promise((resolve) => {
@@ -687,11 +706,17 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
             // oxlint-disable-next-line promise/no-multiple-resolved -- `settled` guards the single resolve; the rule cannot see it
             resolve(value);
           };
-          const timer = Number.isFinite(ms)
-            ? setTimeout(() => {
-                settle(null);
-              }, ms)
-            : undefined;
+          const delay = clampSetTimeoutMs(ms);
+          const timer =
+            delay > 0
+              ? setTimeout(() => {
+                  settle(null);
+                }, delay)
+              : undefined;
+          if (delay <= 0) {
+            settle(null);
+            return;
+          }
           waiter = settle;
         });
       for (;;) {
@@ -702,9 +727,14 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
         const ms = deadlineAt - Date.now();
         if (ms <= 0) return null;
         const ending = await waitOnce(ms);
-        if (ending === null) return null;
-        if (ending.turnId !== skipTurnId) return ending;
-        // The skipped turn's own ending: keep waiting within the same budget.
+        if (ending !== null) {
+          if (ending.turnId !== skipTurnId) return ending;
+          // The skipped turn's own ending: keep waiting within the same budget.
+          continue;
+        }
+        // Slice timed out with no event. If the overall deadline is still in
+        // the future we only finished a MAX_SET_TIMEOUT_MS chunk — re-arm.
+        if (Date.now() >= deadlineAt) return null;
       }
     },
   };
@@ -890,7 +920,9 @@ async function drainBackgroundTasks(
         if (seen.has(task.taskId)) continue;
         seen.add(task.taskId);
         suppressions.push(taskService.suppressTerminalNotification(task.taskId));
-        const remaining = Math.max(1, deadline - Date.now());
+        // Cap each wait slice so Node does not clamp a multi-year ceiling to 1ms
+        // and spin-poll the still-running task.
+        const remaining = clampSetTimeoutMs(Math.max(1, deadline - Date.now()));
         const waiter = taskService.wait(task.taskId, remaining);
         batch.push(waiter);
         allWaiters.push(waiter);

@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   applyPrintBackgroundPolicy,
+  clampSetTimeoutMs,
   createPrintTurnEndings,
+  MAX_SET_TIMEOUT_MS,
   PrintSteeredTurnFailedError,
   type PrintTurnEnding,
   type PrintTurnEndings,
 } from '#/cli/run-print';
+import { PRINT_WAIT_CEILING_S_DEFAULT } from '@moonshot-ai/agent-core-v2';
 
 function ending(
   turnId: number,
@@ -425,6 +428,16 @@ describe('applyPrintBackgroundPolicy', () => {
   });
 });
 
+describe('clampSetTimeoutMs', () => {
+  it('caps delays at the signed 32-bit setTimeout maximum', () => {
+    expect(clampSetTimeoutMs(PRINT_WAIT_CEILING_S_DEFAULT * 1000)).toBe(MAX_SET_TIMEOUT_MS);
+    expect(clampSetTimeoutMs(MAX_SET_TIMEOUT_MS + 1)).toBe(MAX_SET_TIMEOUT_MS);
+    expect(clampSetTimeoutMs(1000)).toBe(1000);
+    expect(clampSetTimeoutMs(0)).toBe(0);
+    expect(clampSetTimeoutMs(-5)).toBe(0);
+  });
+});
+
 describe('createPrintTurnEndings', () => {
   it('buffers events pushed before next() and skips the given turn id', async () => {
     const endings = createPrintTurnEndings();
@@ -451,5 +464,48 @@ describe('createPrintTurnEndings', () => {
     endings.push(ending(1));
     endings.push(ending(4));
     await expect(pending).resolves.toMatchObject({ turnId: 4 });
+  });
+
+  it('does not treat a multi-year remainingMs as an immediate timeout', async () => {
+    // Regression: print's default ceiling (10y in ms) overflows signed 32-bit
+    // setTimeout and used to clamp to 1ms, so -p exited while background tasks
+    // were still running.
+    const endings = createPrintTurnEndings();
+    const pending = endings.next(PRINT_WAIT_CEILING_S_DEFAULT * 1000, 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    endings.push(ending(2));
+    await expect(pending).resolves.toMatchObject({ turnId: 2 });
+  });
+});
+
+describe('applyPrintBackgroundPolicy setTimeout overflow', () => {
+  it('steer keeps waiting under the default multi-year ceiling', async () => {
+    let pending = 1;
+    const warn = vi.fn();
+    let resolveEnding!: (value: PrintTurnEnding | null) => void;
+    const turnEndings: PrintTurnEndings = {
+      next: () =>
+        new Promise((resolve) => {
+          resolveEnding = resolve;
+        }),
+    };
+    const run = applyPrintBackgroundPolicy({
+      mode: 'steer',
+      ceilingS: PRINT_WAIT_CEILING_S_DEFAULT,
+      maxTurns: 50,
+      countPending: () => pending,
+      drain: async () => {},
+      turnEndings,
+      skipTurnId: 1,
+      warn,
+      now: () => Date.now(),
+    });
+    // Give the policy a tick to enter the steer wait. Overflow would have
+    // returned already (null ending / 1ms clamp).
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pending = 0;
+    resolveEnding(ending(2));
+    await run;
+    expect(warn).not.toHaveBeenCalled();
   });
 });

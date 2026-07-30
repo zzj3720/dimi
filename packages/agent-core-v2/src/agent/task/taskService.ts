@@ -954,20 +954,44 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       return this.toInfo(entry);
     }
 
+    // Node clamps setTimeout delays above 2^31-1 to 1ms. Wait in slices so a
+    // multi-year print-mode ceiling does not spin-resolve immediately.
+    const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
+    const deadlineAt = Date.now() + timeoutMs;
     let waiter: (() => void) | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const pending = Promise.race([
-        new Promise<void>((resolve) => {
-          waiter = resolve;
-          entry.waiters.push(resolve);
-        }),
-        new Promise<void>((resolve) => {
-          timeout = setTimeout(resolve, timeoutMs);
-          timeout.unref?.();
-        }),
-      ]);
-      await (signal === undefined ? pending : abortable(pending, signal));
+      for (;;) {
+        if (TERMINAL_STATUSES.has(entry.status)) break;
+        const remaining = deadlineAt - Date.now();
+        if (remaining <= 0) break;
+        const sliceMs = Math.min(remaining, MAX_SET_TIMEOUT_MS);
+        const pending = Promise.race([
+          new Promise<void>((resolve) => {
+            waiter = resolve;
+            entry.waiters.push(resolve);
+          }),
+          new Promise<void>((resolve) => {
+            timeout = setTimeout(resolve, sliceMs);
+            timeout.unref?.();
+          }),
+        ]);
+        try {
+          await (signal === undefined ? pending : abortable(pending, signal));
+        } finally {
+          if (timeout !== undefined) {
+            clearTimeout(timeout);
+            timeout = undefined;
+          }
+          if (waiter !== undefined) {
+            const index = entry.waiters.indexOf(waiter);
+            if (index !== -1) entry.waiters.splice(index, 1);
+            waiter = undefined;
+          }
+        }
+        if (TERMINAL_STATUSES.has(entry.status)) break;
+        if (Date.now() >= deadlineAt) break;
+      }
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
       if (waiter !== undefined) {
