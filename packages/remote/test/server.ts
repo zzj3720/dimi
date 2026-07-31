@@ -94,7 +94,7 @@ export async function startRelay(): Promise<{
     host,
     port,
     async close() {
-      for (const socket of connections.keys()) socket.terminate();
+      for (const socket of sockets.clients) socket.terminate();
       await new Promise<void>((resolve) => {
         sockets.close(() => http.close(() => resolve()));
       });

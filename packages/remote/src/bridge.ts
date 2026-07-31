@@ -179,9 +179,9 @@ class RemoteBridge {
     this.#desired = false;
     if (this.#reconnectTimer !== undefined) clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = undefined;
-    for (const socket of this.#localSockets.values()) socket.close();
+    for (const socket of this.#localSockets.values()) socket.terminate();
     this.#localSockets.clear();
-    this.#relay?.close();
+    this.#relay?.terminate();
     this.#relay = undefined;
     await this.#saveQueue;
     this.#options.onStatus?.("offline");
