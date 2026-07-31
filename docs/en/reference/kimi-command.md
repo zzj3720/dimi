@@ -214,12 +214,14 @@ Generate a new persistent bearer token (written to `~/.kimi-code/server.token`);
 
 ### `kimi remote`
 
-Connect this runtime to a native client through an end-to-end encrypted relay. The relay forwards ciphertext and cannot read prompts or responses. The command reuses a running local server when available, otherwise it starts one, then prints a QR code and pairing URI. Keep the command running while the client is connected; press `Ctrl-C` to stop remote access.
+Connect this runtime to a native client through an end-to-end encrypted relay. The relay forwards ciphertext and cannot read prompts or responses. The command reuses a running local server when available, otherwise it starts one. Keep the command running while the client is connected; press `Ctrl-C` to stop remote access.
 
 ```sh
-kimi remote
-kimi remote --relay wss://relay.example.test --name "Workstation"
+kimi remote start
+kimi remote pair --relay wss://relay.example.test --name "Workstation"
 ```
+
+`start` is the default action and reconnects devices that were paired previously. It does not create or display a pairing credential. Use `pair` once when adding a new device; it starts the bridge and prints a QR code plus a 10-minute, single-use pairing URI.
 
 | Option | Description |
 | --- | --- |
@@ -227,7 +229,7 @@ kimi remote --relay wss://relay.example.test --name "Workstation"
 | `--server <url>` | Existing local server URL; reuses or starts a local server when omitted |
 | `--name <name>` | Runtime name shown on paired devices; defaults to the machine hostname |
 
-Scan the displayed QR code in the Android client. The pairing identity is stored in Android secure storage, so later bridge restarts reconnect without pairing again.
+The Android client and runtime store their device identities after pairing. Later `remote start` runs reconnect automatically without scanning again. Stopping remote access does not revoke paired devices.
 
 ### `kimi doctor`
 

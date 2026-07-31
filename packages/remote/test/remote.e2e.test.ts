@@ -92,8 +92,9 @@ describe("remote mobile path", () => {
     const firstBridge = await startRemoteBridge(bridgeOptions);
     cleanups.push(() => firstBridge.close());
 
-    expect(firstBridge.pairingUri).toMatch(/^k-3720:\/\/pair\?/);
-    const pairing = parsePairingUri(firstBridge.pairingUri);
+    const pairingUri = firstBridge.createPairingUri();
+    expect(pairingUri).toMatch(/^k-3720:\/\/pair\?/);
+    const pairing = parsePairingUri(pairingUri);
     const identity = createDeviceIdentity("Test phone", (length) => randomBytes(length));
     let paired = false;
     let socket: WebSocket | undefined;

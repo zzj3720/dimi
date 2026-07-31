@@ -26,6 +26,12 @@ const SWARM_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'off', description: 'Turn swarm mode off' },
 ];
 
+const REMOTE_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'start', description: 'Connect this runtime to the mobile relay' },
+  { value: 'pair', description: 'Pair a new mobile device' },
+  { value: 'stop', description: 'Disconnect this runtime from the mobile relay' },
+];
+
 const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
@@ -47,6 +53,11 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 /** Argument autocompletion for the `/swarm` command (subcommands). */
 export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(SWARM_ARG_COMPLETIONS, argumentPrefix);
+}
+
+/** Argument autocompletion for the `/remote` command. */
+export function remoteArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(REMOTE_ARG_COMPLETIONS, argumentPrefix);
 }
 
 /** Argument autocompletion for the `/add-dir` command. */
@@ -418,6 +429,15 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: [],
     description: 'Open the current session in the Web UI by starting a new server',
     priority: 40,
+    availability: 'always',
+  },
+  {
+    name: 'remote',
+    aliases: [],
+    description: 'Start, pair, or stop encrypted mobile remote access',
+    priority: 40,
+    argumentHint: '<start|pair|stop>',
+    completeArgs: remoteArgumentCompletions,
     availability: 'always',
   },
   {

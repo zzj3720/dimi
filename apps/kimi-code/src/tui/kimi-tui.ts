@@ -18,6 +18,10 @@ import {
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
+import {
+  startRemoteAccess as startRemoteAccessService,
+  type RunningRemoteAccess,
+} from '#/remote-access';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { getInputHistoryFile } from '#/utils/paths';
@@ -230,6 +234,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
+    remoteStatus: null,
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -330,6 +335,7 @@ export class KimiTUI {
     string,
     { entry: TranscriptEntry; component: ShellRunComponent; taskId?: string }
   >();
+  private remoteAccess: Promise<RunningRemoteAccess> | undefined;
   readonly streamingUI: StreamingUIController;
   readonly authFlow: AuthFlowController;
   readonly btwPanelController: BtwPanelController;
@@ -827,6 +833,7 @@ export class KimiTUI {
     }
     this.reverseRpcDisposers.length = 0;
     this.disposeTerminalTracking();
+    await this.stopRemoteAccess().catch(() => {});
     // Restore the terminal even if closing the session / harness throws — a
     // SIGTERM during a network or MCP shutdown must not leave the user stuck in
     // raw mode with a hidden cursor.
@@ -1471,6 +1478,58 @@ export class KimiTUI {
 
   setExitForegroundTask(task: (exitCode: number) => Promise<void>): void {
     this.exitForegroundTask = task;
+  }
+
+  async startRemoteAccess(): Promise<{
+    runtimeId: string;
+    started: boolean;
+  }> {
+    const existing = this.remoteAccess;
+    if (existing !== undefined) {
+      const remote = await existing;
+      return { runtimeId: remote.runtimeId, started: false };
+    }
+
+    let pending: Promise<RunningRemoteAccess>;
+    pending = startRemoteAccessService({
+      onStatus: (status) => {
+        if (this.remoteAccess === pending) this.setAppState({ remoteStatus: status });
+      },
+    });
+    this.remoteAccess = pending;
+    this.setAppState({ remoteStatus: 'connecting' });
+    try {
+      const remote = await pending;
+      return { runtimeId: remote.runtimeId, started: true };
+    } catch (error) {
+      if (this.remoteAccess === pending) {
+        this.remoteAccess = undefined;
+        this.setAppState({ remoteStatus: null });
+      }
+      throw error;
+    }
+  }
+
+  async pairRemoteAccess(): Promise<{
+    runtimeId: string;
+    pairingUri: string;
+  }> {
+    await this.startRemoteAccess();
+    const remote = await this.remoteAccess;
+    if (remote === undefined) throw new Error('Remote access stopped before pairing.');
+    return {
+      runtimeId: remote.runtimeId,
+      pairingUri: remote.createPairingUri(),
+    };
+  }
+
+  async stopRemoteAccess(): Promise<boolean> {
+    const pending = this.remoteAccess;
+    if (pending === undefined) return false;
+    this.remoteAccess = undefined;
+    this.setAppState({ remoteStatus: null });
+    await (await pending).close();
+    return true;
   }
 
   async getStartupMcpMs(): Promise<number> {

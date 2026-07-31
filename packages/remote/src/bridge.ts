@@ -102,13 +102,14 @@ export interface RemoteBridgeOptions {
   readonly statePath: string;
   readonly randomBytes?: RandomBytes;
   readonly now?: () => number;
-  readonly onStatus?: (status: "connecting" | "online" | "offline") => void;
+  readonly onStatus?: (status: RemoteBridgeStatus) => void;
 }
+
+export type RemoteBridgeStatus = "connecting" | "online" | "offline";
 
 export interface RunningRemoteBridge {
   readonly runtimeId: string;
-  readonly pairing: PairingDescriptor;
-  readonly pairingUri: string;
+  createPairingUri(): string;
   close(): Promise<void>;
 }
 
@@ -118,20 +119,18 @@ export async function startRemoteBridge(
   const bridge = await RemoteBridge.create(options);
   bridge.start();
   return {
-    runtimeId: bridge.pairing.runtimeId,
-    pairing: bridge.pairing,
-    pairingUri: buildPairingUri(bridge.pairing),
+    runtimeId: bridge.runtimeId,
+    createPairingUri: () => bridge.createPairingUri(),
     close: () => bridge.close(),
   };
 }
 
 class RemoteBridge {
-  readonly pairing: PairingDescriptor;
+  readonly runtimeId: string;
   readonly #options: RemoteBridgeOptions;
   readonly #randomBytes: RandomBytes;
   readonly #now: () => number;
   readonly #state: BridgeState;
-  readonly #pairingToken: string;
   readonly #localSockets = new Map<string, WebSocket>();
   readonly #seenPacketIds = new Map<string, Set<string>>();
 
@@ -139,7 +138,7 @@ class RemoteBridge {
   #desired = false;
   #reconnectTimer?: ReturnType<typeof setTimeout>;
   #saveQueue: Promise<void> = Promise.resolve();
-  #pairingConsumed = false;
+  #pairing?: { descriptor: PairingDescriptor; consumed: boolean };
 
   private constructor(
     options: RemoteBridgeOptions,
@@ -151,15 +150,20 @@ class RemoteBridge {
     this.#state = state;
     this.#randomBytes = randomBytes;
     this.#now = now;
-    this.#pairingToken = randomToken(randomBytes);
-    this.pairing = {
-      relayUrl: options.relayUrl,
-      runtimeId: state.runtimeId,
-      runtimeName: options.runtimeName,
-      runtimePublicKey: state.publicKey,
-      token: this.#pairingToken,
-      expiresAt: now() + PAIRING_LIFETIME_MS,
+    this.runtimeId = state.runtimeId;
+  }
+
+  createPairingUri(): string {
+    const descriptor: PairingDescriptor = {
+      relayUrl: this.#options.relayUrl,
+      runtimeId: this.#state.runtimeId,
+      runtimeName: this.#options.runtimeName,
+      runtimePublicKey: this.#state.publicKey,
+      token: randomToken(this.#randomBytes),
+      expiresAt: this.#now() + PAIRING_LIFETIME_MS,
     };
+    this.#pairing = { descriptor, consumed: false };
+    return buildPairingUri(descriptor);
   }
 
   static async create(options: RemoteBridgeOptions): Promise<RemoteBridge> {
@@ -275,15 +279,17 @@ class RemoteBridge {
   }
 
   async #pair(frame: RelayDataFrame, packet: RemotePacket): Promise<void> {
+    const pairing = this.#pairing;
     if (
       packet.type !== "pair.request" ||
-      this.#pairingConsumed ||
-      packet.token !== this.#pairingToken ||
-      this.#now() > this.pairing.expiresAt
+      pairing === undefined ||
+      pairing.consumed ||
+      packet.token !== pairing.descriptor.token ||
+      this.#now() > pairing.descriptor.expiresAt
     ) {
       return;
     }
-    this.#pairingConsumed = true;
+    pairing.consumed = true;
     const device: StoredDevice = {
       deviceId: frame.deviceId,
       deviceName: packet.deviceName,

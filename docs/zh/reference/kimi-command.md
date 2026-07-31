@@ -214,12 +214,14 @@ kimi web --port 58628    # 指定绑定端口
 
 ### `kimi remote`
 
-通过端到端加密的 relay 将当前 Runtime 连接到原生客户端。relay 只转发密文，无法读取提示词或回复。命令会优先复用正在运行的本地 server；没有可用实例时会启动一个，然后打印二维码和配对 URI。客户端连接期间需保持命令运行；按 `Ctrl-C` 停止远程访问。
+通过端到端加密的 relay 将当前 Runtime 连接到原生客户端。relay 只转发密文，无法读取提示词或回复。命令会优先复用正在运行的本地 server；没有可用实例时会启动一个。客户端连接期间需保持命令运行；按 `Ctrl-C` 停止远程访问。
 
 ```sh
-kimi remote
-kimi remote --relay wss://relay.example.test --name "Workstation"
+kimi remote start
+kimi remote pair --relay wss://relay.example.test --name "Workstation"
 ```
+
+`start` 是默认动作，只会让已配对设备重新连接，不会创建或显示配对凭据。添加新设备时运行一次 `pair`；它会启动 bridge，并打印二维码及一条 10 分钟有效、只能使用一次的配对 URI。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -227,7 +229,7 @@ kimi remote --relay wss://relay.example.test --name "Workstation"
 | `--server <url>` | 已有本地 server 地址；省略时复用或启动本地 server |
 | `--name <name>` | 配对设备上显示的 Runtime 名称；默认使用机器主机名 |
 
-在 Android 客户端中扫描命令显示的二维码。配对身份保存在 Android 安全存储中，之后重启 bridge 时无需再次配对。
+配对后，Android 客户端与 Runtime 都会保存设备身份。之后运行 `remote start` 时会自动重连，无需再次扫码。停止 remote 不会撤销已配对设备。
 
 ### `kimi doctor`
 
