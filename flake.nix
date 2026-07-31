@@ -1,5 +1,5 @@
 {
-  description = "Kimi Code CLI";
+  description = "k-3720 coding agent";
 
   inputs = {
     # Pinned to the 25.11 release channel because nixpkgs-unstable currently
@@ -42,7 +42,7 @@
           node
         else
           throw ''
-            Kimi Code requires Node.js >= ${minNodeVersion},
+            k-3720 requires Node.js >= ${minNodeVersion},
             but nixpkgs only offers ${node.version}.
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
@@ -73,6 +73,7 @@
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol
+        ./packages/remote
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
@@ -80,6 +81,8 @@
         ./apps/vscode
         ./apps/kimi-inspect
         ./apps/kimi-web
+        ./apps/mobile
+        ./apps/relay
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -98,6 +101,7 @@
         "@moonshot-ai/klient"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
+        "@k-3720/remote"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/transcript"
         "@moonshot-ai/tree-sitter-bash"
@@ -105,6 +109,8 @@
         "kimi-code"
         "@moonshot-ai/kimi-inspect"
         "@moonshot-ai/kimi-web"
+        "@k-3720/mobile"
+        "@k-3720/relay"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"
@@ -128,7 +134,7 @@
             else if pkgs.stdenv.hostPlatform.isDarwin then
               "darwin-x64"
             else
-              throw "Unsupported Kimi Code native target for ${pkgs.stdenv.hostPlatform.system}";
+              throw "Unsupported k-3720 native target for ${pkgs.stdenv.hostPlatform.system}";
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code";
@@ -220,8 +226,8 @@
             '';
 
             meta = {
-              description = "Kimi Code CLI";
-              homepage = "https://github.com/MoonshotAI/kimi-code";
+              description = "k-3720 coding agent";
+              homepage = "https://github.com/zzj3720/k-3720";
               license = lib.licenses.mit;
               mainProgram = "kimi";
               platforms = systems;

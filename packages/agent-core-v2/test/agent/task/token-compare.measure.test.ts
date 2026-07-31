@@ -5,7 +5,7 @@
  * Run:
  *   pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/agent/task/token-compare.measure.test.ts
  */
-import { afterEach, beforeEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -22,7 +22,7 @@ import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
-const LABEL = process.env.MEASURE_LABEL ?? 'worktree';
+const LABEL = process.env['MEASURE_LABEL'] ?? 'worktree';
 
 class ControllableTool implements ExecutableTool<{ readonly query: string }> {
   readonly name: string;
@@ -164,6 +164,8 @@ describe('token compare measure', () => {
         const notificationApprox =
           (afterComplete.perCall[1]?.history ?? 0) - (afterComplete.perCall[0]?.history ?? 0);
 
+        expect(afterComplete.llmCalls).toBeGreaterThan(afterDetach.llmCalls);
+
         console.log(
           JSON.stringify(
             {
@@ -223,6 +225,8 @@ describe('token compare measure', () => {
       );
       const tasks = ctx.get(IAgentTaskService).list(false);
       const task = tasks.find((t) => t.kind === 'tool');
+
+      expect(summary.llmCalls).toBeGreaterThanOrEqual(2);
 
       console.log(
         JSON.stringify(

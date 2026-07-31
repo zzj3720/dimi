@@ -11,7 +11,7 @@
  *   MEASURE_LABEL=worktree pnpm --filter @moonshot-ai/agent-core-v2 \
  *     exec vitest run test/agent/task/token-compare-complex.measure.test.ts
  */
-import { afterEach, beforeEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -28,7 +28,7 @@ import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
-const LABEL = process.env.MEASURE_LABEL ?? 'worktree';
+const LABEL = process.env['MEASURE_LABEL'] ?? 'worktree';
 
 class ControllableTool implements ExecutableTool<{ readonly query: string }> {
   readonly name: string;
@@ -244,6 +244,8 @@ describe('token compare complex (worktree async)', () => {
         phases.push(snapshot(ctx, 'wave2_after_scan_notification'));
 
         const final = phases.at(-1)!;
+        expect(phases).toHaveLength(5);
+        expect(final.llmCalls).toBeGreaterThan(0);
         console.log(
           JSON.stringify(
             {

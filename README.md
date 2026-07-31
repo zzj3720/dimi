@@ -1,126 +1,59 @@
-# Kimi Code CLI
+# k-3720
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
-[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [中文](README.zh-CN.md)
 
-![Demo of using Kimi Code](./docs/media/intro.gif)
+k-3720 is an independent, multi-model coding agent runtime and client project. It is forked from [Kimi Code](https://github.com/MoonshotAI/kimi-code) and retains substantial portions of that codebase. Its terminal interface and related interaction code also make extensive use of [Pi](https://github.com/earendil-works/pi), especially `pi-tui`.
 
-## What is Kimi Code CLI
+This project is not an official Moonshot AI, Kimi, Pi, or Earendil project and is not endorsed by or affiliated with those projects or their maintainers.
 
-Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI’s Kimi models and can also be configured to use other compatible providers.
+## Status
 
-## Install
+k-3720 is under active development. It currently provides:
 
-Install with the official script. No Node.js required.
+- a terminal UI for local agent sessions;
+- asynchronous tool execution and wait/resume behavior;
+- a native Android client;
+- an end-to-end encrypted bridge between a local runtime and mobile clients; and
+- an opaque WebSocket relay that forwards encrypted traffic without reading prompts or responses.
 
-- **macOS or Linux**:
+The runtime is designed to work with multiple model providers. Provider availability and authentication depend on local configuration.
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+## Development
 
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-Then, run it with a new shell session:
+Requirements: Node.js 24.15.0 or newer and pnpm 10.33.0. This repository also supports the `vp` command wrapper.
 
 ```sh
-kimi --version
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
+vp run dev:cli
 ```
 
-For npm install, upgrade, uninstall, see [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
-
-## Quick Start
-
-Open a project and start the interactive UI:
+Common repository tasks:
 
 ```sh
-cd your-project
-kimi
+vp run typecheck
+vp lint
+vp test
+vp build
 ```
 
-On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Moonshot AI Open Platform API key. After login, try your first task:
+The Android client and relay setup are documented in [apps/mobile/README.md](apps/mobile/README.md).
 
-```
-Take a look at this project and explain its main directories.
-```
+## Upstream documentation
 
-## Key Features
-
-- **Single-binary distribution.** Install with one command: no Node.js setup, PATH gymnastics, or global module conflicts.
-- **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
-- **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
-- **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
-- **AI-native MCP configuration.** Add, edit, and authenticate Model Context Protocol servers conversationally with `/mcp-config`, without hand-editing JSON.
-- **Rich plugin ecosystem.** Install skills, MCP servers, and data sources from the marketplace or any GitHub repo, with each install's trust level surfaced up front.
-- **Subagents for focused, parallel work.** Dispatch built-in `coder`, `explore`, and `plan` subagents in isolated contexts while keeping the main conversation clean.
-- **Lifecycle hooks.** Run local commands at key points to gate risky tool calls, audit decisions, trigger desktop notifications, or connect to your own automation.
-- **Editor & IDE integration (ACP).** Drive a Kimi Code CLI session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `kimi acp`.
-
-## Use it in your editor (ACP)
-
-Kimi Code CLI speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
-
-For Zed, add this to `~/.config/zed/settings.json`:
-
-```json
-{
-  "agent_servers": {
-    "Kimi Code CLI": {
-      "type": "custom",
-      "command": "kimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://moonshotai.github.io/kimi-code/en/guides/ides) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp) for the full capability matrix.
-
-## Docs
-
-- [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started)
-- [Interaction and approvals](https://moonshotai.github.io/kimi-code/en/guides/interaction)
-- [Sessions](https://moonshotai.github.io/kimi-code/en/guides/sessions)
-- [Using in IDEs (ACP)](https://moonshotai.github.io/kimi-code/en/guides/ides)
-- [Configuration](https://moonshotai.github.io/kimi-code/en/configuration/config-files)
-- [Command reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-command)
-
-## Develop
-
-Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
-
-```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
-pnpm install
-```
-
-```sh
-pnpm dev:cli    # run the CLI in dev mode
-pnpm test       # run tests
-pnpm typecheck  # TypeScript check
-pnpm lint       # oxlint
-pnpm build      # build all packages
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
-
-## Community
-
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
-- For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+Much of the original CLI behavior and configuration comes from Kimi Code. Its [upstream documentation](https://moonshotai.github.io/kimi-code/en/) remains useful for inherited features, but names, commands, defaults, and supported integrations may differ in k-3720.
 
 ## Acknowledgements
 
-Our TUI is built on top of [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui). We thank the authors of `pi-tui` for their valuable work.
+- [Kimi Code](https://github.com/MoonshotAI/kimi-code), by Moonshot AI, is the upstream project from which k-3720 was forked. This repository retains and modifies substantial portions of its agent runtime, CLI, server, protocol, and supporting packages.
+- [Pi](https://github.com/earendil-works/pi), by Mario Zechner and its contributors, is the source of substantial TUI and terminal interaction code used by this project. The vendored `packages/pi-tui` package originated from `@earendil-works/pi-tui`.
+- The project also depends on many other open-source packages. Their licenses remain applicable to their respective components and distributions.
+
+These acknowledgements describe source lineage only; they do not imply sponsorship, endorsement, or affiliation.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+k-3720 is distributed under the [MIT License](LICENSE). The original Moonshot AI notice is retained, and the k-3720 notice applies to subsequent modifications.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the retained Kimi Code and Pi license notices.
