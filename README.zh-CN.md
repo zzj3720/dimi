@@ -1,8 +1,6 @@
 # Kimi Code CLI
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/zh/)
-
-[Documentation](https://moonshotai.github.io/kimi-code/zh/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [English](README.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [文档](docs/zh/guides/getting-started.md) · [Issues](https://github.com/zzj3720/k-3720/issues) · [English](README.md)
 
 
 ![Kimi Code 的使用演示](./docs/media/intro.gif)
@@ -10,44 +8,31 @@
 
 ## 什么是 Kimi Code CLI
 
-Kimi Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你读写代码、执行 shell 命令、检索文件、抓取网页，并根据反馈自主决定下一步动作。开箱即用对接 Moonshot AI 的 Kimi 模型，也可指向其他兼容厂商。
+Kimi Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你读写代码、执行 shell 命令、检索文件、抓取网页，并根据反馈自主决定下一步动作。它使用同一套供应商运行时连接 Kimi、Codex、Grok、Claude、Gemini、云服务和兼容的自定义端点。
 
 ## 安装
 
-推荐使用官方安装脚本，不需要提前安装 Node.js。
-
-- **macOS / Linux**：
+这是没有独立发布通道的源码构建。请 clone 本仓库，不要使用旧 Kimi Code 安装脚本或 npm 的 `latest` 包：
 
 ```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
+vp run dev:cli
 ```
 
-- **Windows（PowerShell）**：
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Kimi Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
-
-随后在新的终端会话中运行：
-
-```sh
-kimi --version
-```
-
-npm 安装、升级、卸载方式，见[快速上手](https://moonshotai.github.io/kimi-code/zh/guides/getting-started)。
+更新时运行 `git pull --ff-only && vp install`。`kimi upgrade` 会安全提示本构建未配置自动升级。详见[快速上手](docs/zh/guides/getting-started.md)。
 
 ## 快速开始
 
-进入项目目录并启动交互界面：
+在 clone 得到的 checkout 中启动交互界面：
 
 ```sh
-cd your-project
-kimi
+cd k-3720
+vp run dev:cli
 ```
 
-首次启动时，在 Kimi Code CLI 里输入 `/login`，选择 Kimi Code OAuth 或 Moonshot AI Open Platform API 密钥登录。登录完成后，可以先让它熟悉项目：
+首次启动时，在 Kimi Code CLI 里输入 `/login`，选择供应商及其支持的 OAuth、API 密钥或云身份登录方式。兼容端点可以在 `~/.kimi-code/models.json` 中添加或覆盖；详见[供应商与模型](docs/zh/configuration/providers.md)。登录完成后，可以先让它熟悉项目：
 
 ```
 帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的
@@ -85,40 +70,40 @@ Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)�
 }
 ```
 
-随后在 Zed 的 Agent 面板新建对话即可。JetBrains 配置与排障见[在 IDE 中使用](https://moonshotai.github.io/kimi-code/zh/guides/ides)，完整能力矩阵见 [`kimi acp` 参考](https://moonshotai.github.io/kimi-code/zh/reference/kimi-acp)。
+随后在 Zed 的 Agent 面板新建对话即可。JetBrains 配置与排障见[在 IDE 中使用](docs/zh/guides/ides.md)，完整能力矩阵见 [`kimi acp` 参考](docs/zh/reference/kimi-acp.md)。
 
 ## 文档
 
-- [快速上手](https://moonshotai.github.io/kimi-code/zh/guides/getting-started)
-- [交互与审批](https://moonshotai.github.io/kimi-code/zh/guides/interaction)
-- [会话](https://moonshotai.github.io/kimi-code/zh/guides/sessions)
-- [在 IDE 中使用（ACP）](https://moonshotai.github.io/kimi-code/zh/guides/ides)
-- [配置](https://moonshotai.github.io/kimi-code/zh/configuration/config-files)
-- [命令参考](https://moonshotai.github.io/kimi-code/zh/reference/kimi-command)
+- [快速上手](docs/zh/guides/getting-started.md)
+- [交互与审批](docs/zh/guides/interaction.md)
+- [会话](docs/zh/guides/sessions.md)
+- [在 IDE 中使用（ACP）](docs/zh/guides/ides.md)
+- [配置](docs/zh/configuration/config-files.md)
+- [命令参考](docs/zh/reference/kimi-command.md)
 
 ## 本地开发
 
 环境要求：Node.js ≥ 24.15.0，pnpm 10.33.0。
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
-pnpm install
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
 ```
 
 ```sh
-pnpm dev:cli    # 以开发模式运行 CLI
-pnpm test       # 运行测试
-pnpm typecheck  # TypeScript 检查
-pnpm lint       # 运行 oxlint
-pnpm build      # 构建所有包
+vp run dev:cli  # 以开发模式运行 CLI
+vp test         # 运行测试
+vp run typecheck # TypeScript 检查
+vp run lint     # 运行 oxlint
+vp run build    # 构建所有包
 ```
 
 完整贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 社区
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
+- [Issues](https://github.com/zzj3720/k-3720/issues)
 - 安全漏洞反馈，请见 [SECURITY.md](SECURITY.md)。
 
 ## 致谢

@@ -14,6 +14,11 @@ import type {
   Model,
 } from "#/app/providerRuntime/types";
 
+function requestJson(init: RequestInit | undefined): Record<string, unknown> {
+  if (typeof init?.body !== "string") throw new TypeError("Expected a JSON request body");
+  return JSON.parse(init.body) as Record<string, unknown>;
+}
+
 const model: Model = {
   id: "responses-model",
   name: "Responses model",
@@ -325,5 +330,196 @@ describe("OpenAI Responses streaming", () => {
       stopReason: "stop",
       content: [{ type: "text", text: "continued" }],
     });
+  });
+
+  it("replays encrypted reasoning and sends the full Responses request intent", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = requestJson(init);
+        return sse([{ type: "response.completed", response: { status: "completed" } }]);
+      }),
+    );
+    await collect(
+      streamProvider(
+        model,
+        context([
+          {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "summary", itemId: "rs_1", thinkingSignature: "encrypted" }],
+            api: model.api,
+            provider: model.provider,
+            model: model.id,
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: "stop",
+            timestamp: 1,
+          },
+        ]),
+        auth,
+        {
+          topP: 0.3,
+          cacheKey: "session-cache",
+          responseFormat: { type: "json_object" },
+        },
+      ),
+    );
+    expect(body).toMatchObject({
+      top_p: 0.3,
+      prompt_cache_key: "session-cache",
+      include: ["reasoning.encrypted_content"],
+      text: { format: { type: "json_object" } },
+      input: [
+        {
+          type: "reasoning",
+          id: "rs_1",
+          encrypted_content: "encrypted",
+          summary: [{ type: "summary_text", text: "summary" }],
+        },
+      ],
+    });
+  });
+
+  it("retains and replays the completed Responses reasoning item without reconstructing it", async () => {
+    let request = 0;
+    let replay: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        request += 1;
+        if (request === 2) replay = requestJson(init);
+        return request === 1
+          ? sse([
+              { type: "response.output_item.added", item: { type: "reasoning", id: "rs_full" } },
+              { type: "response.reasoning_summary_text.delta", item_id: "rs_full", delta: "summary" },
+              {
+                type: "response.output_item.done",
+                item: {
+                  type: "reasoning",
+                  id: "rs_full",
+                  encrypted_content: "encrypted-full",
+                  summary: [{ type: "summary_text", text: "summary" }],
+                  provider_extension: { preserved: true },
+                },
+              },
+              { type: "response.completed", response: { status: "completed" } },
+            ])
+          : sse([{ type: "response.completed", response: { status: "completed" } }]);
+      }),
+    );
+    const first = await collect(streamProvider(model, context(), auth));
+    const terminal = first.events.at(-1);
+    if (terminal?.type !== "done") throw new Error("first Responses stream did not finish");
+
+    await collect(streamProvider(model, context([terminal.message]), auth));
+
+    const thinking = terminal.message.content.find((part) => part.type === "thinking");
+    expect(thinking).toMatchObject({
+      itemId: "rs_full",
+      thinkingSignature: "encrypted-full",
+      reasoningItem: { provider_extension: { preserved: true } },
+    });
+    expect(replay?.["input"]).toEqual([
+      {
+        type: "reasoning",
+        id: "rs_full",
+        encrypted_content: "encrypted-full",
+        summary: [{ type: "summary_text", text: "summary" }],
+        provider_extension: { preserved: true },
+      },
+    ]);
+  });
+
+  it("normalizes Azure v1 endpoints, preserves proxy query parameters, and uses only api-key authentication", async () => {
+    const urls: string[] = [];
+    let headers: Headers | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        urls.push(url);
+        headers = new Headers(init?.headers);
+        return sse([{ type: "response.completed", response: { status: "completed" } }]);
+      }),
+    );
+    await collect(
+      streamProvider(
+        { ...model, api: "azure-openai-responses", baseUrl: "https://resource.openai.azure.com" },
+        context(),
+        auth,
+      ),
+    );
+    await collect(
+      streamProvider(
+        { ...model, api: "azure-openai-responses", baseUrl: "https://gateway.example.test/v1?custom=true" },
+        context(),
+        auth,
+      ),
+    );
+    expect(urls).toEqual([
+      "https://resource.openai.azure.com/openai/v1/responses",
+      "https://gateway.example.test/v1/responses?custom=true",
+    ]);
+    expect(headers?.get("api-key")).toBe("test-key");
+    expect(headers?.get("authorization")).toBeNull();
+  });
+
+  it("keeps an always-thinking Grok Responses model on and maps max to its supported effort", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        bodies.push(requestJson(init));
+        return sse([{ type: "response.completed", response: { status: "completed" } }]);
+      }),
+    );
+    const grok = {
+      ...model,
+      provider: "xai",
+      thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high" },
+      defaultThinkingLevel: "medium",
+    };
+
+    await collect(streamProvider(grok, context(), auth, { reasoning: "max" }));
+    await collect(streamProvider(grok, context(), auth, { reasoning: "off" }));
+
+    expect(bodies).toEqual([
+      expect.objectContaining({ reasoning: { effort: "high", summary: "auto" } }),
+      expect.objectContaining({ reasoning: { effort: "medium", summary: "auto" } }),
+    ]);
+  });
+
+  it("sends the custom model's explicit off wire value instead of omitting reasoning", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = requestJson(init);
+      return sse([{ type: "response.completed", response: { status: "completed" } }]);
+    }));
+
+    await collect(streamProvider({
+      ...model,
+      provider: "custom-responses",
+      thinkingLevelMap: { off: "none", high: "high" },
+      defaultThinkingLevel: "high",
+    }, context(), auth, { reasoning: "off" }));
+
+    expect(body).toMatchObject({ reasoning: { effort: "none", summary: "auto" } });
+  });
+
+  it("uses only the configured Pi Responses session-affinity wire format", async () => {
+    let headers: Headers | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      headers = new Headers(init?.headers);
+      return sse([{ type: "response.completed", response: { status: "completed" } }]);
+    }));
+
+    await collect(streamProvider({
+      ...model,
+      compat: { sessionAffinityFormat: "openai" },
+    }, context(), auth, { sessionId: "session-example" }));
+
+    expect(headers?.get("session_id")).toBe("session-example");
+    expect(headers?.get("x-client-request-id")).toBe("session-example");
+    expect(headers?.get("x-session-affinity")).toBeNull();
+    expect(headers?.get("session-id")).toBeNull();
   });
 });

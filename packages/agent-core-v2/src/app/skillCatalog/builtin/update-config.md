@@ -30,7 +30,7 @@ The "read → copy → Edit → validate → back up → overwrite" flow below a
 Before touching any config, use **FetchURL** to fetch the official config docs as the one authoritative reference for fields (key names, types, allowed values, owning section):
 
 ```
-https://moonshotai.github.io/kimi-code/en/configuration/config-files.html
+https://github.com/zzj3720/k-3720/blob/main/docs/en/configuration/config-files.md
 ```
 
 - Use the **snake_case key names and sections exactly as documented** — don't invent them, don't guess camelCase.

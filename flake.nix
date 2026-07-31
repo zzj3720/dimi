@@ -219,7 +219,7 @@
 
             meta = {
               description = "Kimi Code CLI";
-              homepage = "https://github.com/MoonshotAI/kimi-code";
+              homepage = "https://github.com/zzj3720/k-3720";
               license = lib.licenses.mit;
               mainProgram = "kimi";
               platforms = systems;

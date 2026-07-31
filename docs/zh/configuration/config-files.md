@@ -1,6 +1,6 @@
 # 配置文件
 
-Kimi Code CLI 把长期运行时偏好写进 TOML（一种结构清晰的纯文本配置格式）文件，例如使用哪个已连接的供应商与模型、请求多少推理，以及 Agent 每轮最多运行几步。供应商凭据由 provider runtime 单独保存。Agent 与运行时设置放在 `config.toml`，终端界面与客户端偏好（主题、编辑器、通知、自动更新）放在配套的 `tui.toml`。
+Kimi Code CLI 把长期运行时偏好写进 TOML（一种结构清晰的纯文本配置格式）文件，例如使用哪个已连接的供应商与模型、请求多少推理，以及 Agent 每轮最多运行几步。供应商凭据由 provider runtime 单独保存。Agent 与运行时设置放在 `config.toml`，终端界面与客户端偏好（主题、编辑器、通知、自动更新）放在配套的 `tui.toml`；用户拥有的供应商定义和覆盖层使用 `models.json`。
 
 默认位置：`~/.kimi-code/config.toml`，首次运行时自动创建。
 
@@ -99,11 +99,11 @@ timeout = 5
 | `permission`                 | `table`         | —        | 初始权限规则 → [`permission`](#permission)                                                                                                    |
 | `hooks`                      | `array<table>`  | —        | 生命周期 hook，详见 [Hooks](../customization/hooks.md)                                                                                        |
 
-供应商凭据与模型元数据不是配置小节。使用 `kimi login` 连接供应商，使用 `kimi provider models` 查看模型；详见[供应商与模型](./providers.md)。
+供应商凭据不是配置小节。使用 `vp run dev:cli -- login` 连接供应商，使用 `vp run dev:cli -- provider models` 查看模型。用 `$KIMI_CODE_HOME/models.json` 添加自定义供应商或覆盖内置模型；它是 JSONC 层，不是 `config.toml` 表。详见[供应商与模型](./providers.md#使用-modelsjson-添加或覆盖供应商)。
 
 ## `model_catalog`
 
-`model_catalog` 控制长期运行 server 的后台刷新。provider runtime 还会保留最近一次成功的缓存，并遵守各上游目录自身的刷新间隔。
+`model_catalog` 控制长期运行 server 对拥有远程模型端点的已认证供应商进行后台刷新。provider runtime 还会保留最近一次成功的缓存，并遵守上游返回的新鲜度信息。它不会改变本地 `models.json` 声明的限制或能力。
 
 | 字段                  | 类型      | 默认值     | 说明                                              |
 | --------------------- | --------- | ---------- | ------------------------------------------------- |
@@ -152,8 +152,8 @@ default_effort = "low"
 
 | 字段      | 类型      | 默认值  | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------- | --------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled` | `boolean` | `true`  | 新会话是否默认开启 Thinking，设为 `false` 可强制关闭                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `effort`  | `string`  | —       | Thinking 强度（例如 `low`、`medium`、`high`、`xhigh`、`max`）。非 Kimi provider 在上游协议接受具体 effort 值时不会改写该值；如果上游拒绝，请改成该模型支持的档位。协议仅提供等级或 token budget 时，仍需做格式转换。对于带 `support_efforts` 的 Kimi 模型，若该配置值不在列表中，会回落到模型默认档位；没有该列表的 Kimi 模型会把任意开启值视为布尔 `on`                                                                                                                     |
+| `enabled` | `boolean` | `true`  | 新会话是否默认开启 Thinking，设为 `false` 会在所选模型支持时请求关闭。没有 `reasoning` 能力的模型会忽略该偏好；始终 Thinking 且 `thinkingLevelMap.off` 为 `null` 的模型会保留其声明的默认档位。 |
+| `effort`  | `string`  | —       | 首选 Thinking 档位（如 `low`、`medium`、`high`、`xhigh`、`max`）。所选模型的 `thinkingLevelMap` 是权威来源：已映射档位会转换为供应商 wire 值；映射为 `null` 代表不可用；推理模型没有映射时只有开/关。配置档位不可用时，运行时优先使用模型声明的默认档位，否则采用其正常支持模式。 |
 | `keep`    | `string`  | `"all"` | 保留思考透传。在 `kimi` 上以 `thinking.keep` 发送；在 `anthropic`（Claude 以及 Kimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API；关值可禁用 keep 并回到标准端点）。`"all"` 会保留历史轮次的思考内容（`reasoning_content` / Anthropic thinking blocks）；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用。可被 `KIMI_MODEL_THINKING_KEEP` 覆盖；仅在 Thinking 开启时注入 |
 
 ### 已废弃字段
@@ -322,7 +322,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[editor].command`                       | `string`             | `""`        | 编写长输入用的外部编辑器命令；留空则回退到 `$VISUAL` / `$EDITOR`                                                                                                                                               |
 | `[notifications].enabled`                | `boolean`            | `true`      | 是否发送桌面通知                                                                                                                                                                                               |
 | `[notifications].notification_condition` | `string`             | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是）                                                                                                                                                   |
-| `[upgrade].auto_install`                 | `boolean`            | `true`      | 是否自动安装新版本                                                                                                                                                                                             |
+| `[upgrade].auto_install`                 | `boolean`            | `true`      | 保存的更新器偏好。此源码构建没有配置更新通道，因此该项不生效。                                                                                                                                                  |
 | `[status_line].items`                    | `string[]`           | `[]`        | 底部状态栏第一行展示哪些内置槽位及其顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`。缺省保持默认布局；未知 id 跳过并告警                                                                         |
 | `[status_line].command`                  | `string`             | `""`        | 自定义状态栏命令。其 stdout 第一行替换状态栏第一行，stdin 会收到 JSON 快照（model、cwd、git 分支、permission 模式、plan 模式、上下文用量、session id、版本）。运行上限 300ms、每秒最多一次；失败时回退内置布局 |
 
@@ -340,6 +340,7 @@ enabled = true
 notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
+# 此源码构建只保存该偏好；请用 git pull 更新 checkout。
 auto_install = true
 
 # [status_line]

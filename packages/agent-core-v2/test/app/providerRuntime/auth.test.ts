@@ -5,8 +5,22 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { kimiCodingOAuth, openaiCodexOAuth, xaiOAuth } from "#/app/providerRuntime/auth";
+import {
+  anthropicApiKeyAuth,
+  anthropicOAuth,
+  bedrockAuth,
+  cloudflareAIGatewayAuth,
+  cloudflareWorkersAIAuth,
+  createRadiusOAuth,
+  githubCopilotOAuth,
+  googleVertexAuth,
+  kimiCodingOAuth,
+  openRouterOAuth,
+  openaiCodexOAuth,
+  xaiOAuth,
+} from "#/app/providerRuntime/auth";
 import type { AuthEvent, AuthInteraction, OAuthCredential } from "#/app/providerRuntime/types";
+import { streamProvider } from "#/app/providerRuntime/stream";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -485,5 +499,332 @@ describe("OpenAI Codex OAuth", () => {
     ).rejects.toThrow("invalid_grant");
 
     expect(stderr).not.toHaveBeenCalled();
+  });
+});
+
+describe("loopback OAuth login", () => {
+  it("accepts an OpenRouter browser callback without requiring a pasted redirect URL", async () => {
+    const nativeFetch = globalThis.fetch;
+    const events: AuthEvent[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        expect(requestUrl(input)).toBe("https://openrouter.ai/api/v1/auth/keys");
+        expect(jsonBody(init)).toMatchObject({ code: "browser-code", code_challenge_method: "S256" });
+        return json({ key: "openrouter-key" });
+      }),
+    );
+    const login = openRouterOAuth.login({
+      prompt: async (prompt) => new Promise<string>((_resolve, reject) => {
+        prompt.signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")), { once: true });
+      }),
+      notify: (event) => events.push(event),
+    });
+
+    await vi.waitFor(() => expect(events.find((event) => event.type === "auth_url")).toBeDefined());
+    const event = events.find((entry): entry is Extract<AuthEvent, { type: "auth_url" }> => entry.type === "auth_url")!;
+    const callback = new URL(new URL(event.url).searchParams.get("callback_url")!);
+    callback.searchParams.set("code", "browser-code");
+    const response = await nativeFetch(callback);
+    expect(await response.text()).toContain("Signed in");
+
+    await expect(login).resolves.toMatchObject({ type: "oauth", access: "openrouter-key" });
+  });
+
+  it("cancels the OpenRouter loopback listener after manual code entry wins the race", async () => {
+    const nativeFetch = globalThis.fetch;
+    const events: AuthEvent[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        expect(requestUrl(input)).toBe("https://openrouter.ai/api/v1/auth/keys");
+        return json({ key: "manual-openrouter-key" });
+      }),
+    );
+    await expect(
+      openRouterOAuth.login({
+        prompt: async () => "manual-code",
+        notify: (event) => events.push(event),
+      }),
+    ).resolves.toMatchObject({ access: "manual-openrouter-key" });
+    const event = events.find((entry): entry is Extract<AuthEvent, { type: "auth_url" }> => entry.type === "auth_url")!;
+    const callback = new URL(new URL(event.url).searchParams.get("callback_url")!);
+    await expect(nativeFetch(callback)).rejects.toThrow();
+  });
+
+  it("discovers Radius browser OAuth and exchanges its state-bound loopback callback", async () => {
+    const nativeFetch = globalThis.fetch;
+    const events: AuthEvent[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (url === "https://radius.example.test/v1/oauth") {
+          return json({ authorizationEndpoint: "https://auth.radius.example.test/authorize" });
+        }
+        if (url === "https://radius.example.test/v1/oauth/token") {
+          expect(form(init).get("grant_type")).toBe("authorization_code");
+          expect(form(init).get("code")).toBe("radius-code");
+          return json({ access_token: "radius-access", refresh_token: "radius-refresh", expires_in: 3600 });
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+    const radius = createRadiusOAuth("https://radius.example.test", "Example Radius");
+    const login = radius.login({
+      prompt: async (prompt) => prompt.type === "select" ? "browser" : "",
+      notify: (event) => events.push(event),
+    });
+
+    await vi.waitFor(() => expect(events.find((event) => event.type === "auth_url")).toBeDefined());
+    const event = events.find((entry): entry is Extract<AuthEvent, { type: "auth_url" }> => entry.type === "auth_url")!;
+    const authorize = new URL(event.url);
+    const callback = new URL(authorize.searchParams.get("redirect_uri")!);
+    expect(authorize.searchParams.get("state")).not.toBeNull();
+    callback.searchParams.set("state", authorize.searchParams.get("state")!);
+    callback.searchParams.set("code", "radius-code");
+    const response = await nativeFetch(callback);
+    expect(await response.text()).toContain("Signed in");
+
+    await expect(login).resolves.toMatchObject({ type: "oauth", access: "radius-access", refresh: "radius-refresh" });
+  });
+});
+
+describe("provider-native authentication", () => {
+  it("requires and materializes Cloudflare Workers AI account credentials", async () => {
+    const auth = cloudflareWorkersAIAuth();
+    const missing = await auth.resolve({
+      ctx: { env: async (name) => name === "CLOUDFLARE_API_KEY" ? "example-key" : undefined, fileExists: async () => false },
+    });
+    expect(missing).toBeUndefined();
+
+    await expect(auth.resolve({
+      ctx: {
+        env: async (name) => ({ CLOUDFLARE_API_KEY: "example-key", CLOUDFLARE_ACCOUNT_ID: "example-account" })[name],
+        fileExists: async () => false,
+      },
+    })).resolves.toEqual({
+      auth: {
+        apiKey: "example-key",
+        baseUrl: "https://api.cloudflare.com/client/v4/accounts/example-account/ai/v1",
+      },
+      env: { CLOUDFLARE_ACCOUNT_ID: "example-account" },
+      source: "CLOUDFLARE_API_KEY",
+    });
+  });
+
+  it("uses Cloudflare AI Gateway's scoped endpoint and gateway auth header", async () => {
+    const auth = cloudflareAIGatewayAuth();
+    await expect(auth.resolve({
+      credential: {
+        type: "api_key",
+        key: "example-key",
+        env: { CLOUDFLARE_ACCOUNT_ID: "example-account", CLOUDFLARE_GATEWAY_ID: "example-gateway" },
+      },
+      ctx: { env: async () => undefined, fileExists: async () => false },
+    })).resolves.toEqual({
+      auth: {
+        baseUrl: "https://gateway.ai.cloudflare.com/v1/example-account/example-gateway/compat",
+        headers: {
+          "cf-aig-authorization": "Bearer example-key",
+          Authorization: null,
+          "x-api-key": null,
+        },
+      },
+      env: { CLOUDFLARE_ACCOUNT_ID: "example-account", CLOUDFLARE_GATEWAY_ID: "example-gateway" },
+      source: "Stored Cloudflare API key",
+    });
+  });
+
+  it("sends Cloudflare AI Gateway credentials without an upstream Authorization header", async () => {
+    let url: string | undefined;
+    let headers: Headers | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      url = requestUrl(input);
+      headers = new Headers(init?.headers);
+      return new Response("data: [DONE]\\n\\n", { status: 200 });
+    }));
+    const model = {
+      id: "workers-ai/example-model",
+      name: "Example model",
+      api: "openai-completions" as const,
+      provider: "cloudflare-ai-gateway",
+      baseUrl: "https://gateway.ai.cloudflare.com/v1",
+      reasoning: false,
+      input: ["text"] as const,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128_000,
+      maxTokens: 8_192,
+    };
+    const resolved = await cloudflareAIGatewayAuth().resolve({
+      credential: {
+        type: "api_key",
+        key: "example-key",
+        env: { CLOUDFLARE_ACCOUNT_ID: "example-account", CLOUDFLARE_GATEWAY_ID: "example-gateway" },
+      },
+      ctx: { env: async () => undefined, fileExists: async () => false },
+    });
+    if (resolved === undefined) throw new Error("expected Cloudflare authentication");
+    for await (const _event of streamProvider(model, { messages: [] }, resolved)) {
+      // The request URL and headers are the public wire contract.
+    }
+    expect(url).toBe("https://gateway.ai.cloudflare.com/v1/example-account/example-gateway/compat/chat/completions");
+    expect(headers?.get("cf-aig-authorization")).toBe("Bearer example-key");
+    expect(headers?.get("authorization")).toBeNull();
+    expect(headers?.get("x-api-key")).toBeNull();
+  });
+
+  it("resolves the Anthropic gateway token ahead of OAuth and API-key environment values", async () => {
+    const auth = await anthropicApiKeyAuth().resolve({
+      ctx: {
+        env: async (name) => ({
+          ANTHROPIC_AUTH_TOKEN: "gateway-token",
+          ANTHROPIC_OAUTH_TOKEN: "oauth-token",
+          ANTHROPIC_API_KEY: "api-key",
+        })[name],
+        fileExists: async () => false,
+      },
+    });
+
+    expect(auth).toEqual({
+      auth: { headers: { Authorization: "Bearer gateway-token" } },
+      source: "ANTHROPIC_AUTH_TOKEN",
+    });
+  });
+
+  it("projects Anthropic subscription credentials with the OAuth beta protocol header", async () => {
+    await expect(
+      anthropicOAuth.toAuth({ type: "oauth", access: "oauth-access", refresh: "refresh", expires: 1 }),
+    ).resolves.toEqual({
+      headers: {
+        Authorization: "Bearer oauth-access",
+        "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+        "user-agent": "kimi-code",
+        "x-app": "cli",
+      },
+    });
+  });
+
+  it("sends an Anthropic OAuth credential as bearer auth rather than x-api-key", async () => {
+    let headers: Headers | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      headers = new Headers(init?.headers);
+      return new Response("data: {\"type\":\"message_stop\"}\n\n", { status: 200 });
+    }));
+    const model = {
+      id: "claude-test",
+      name: "Claude test",
+      api: "anthropic-messages" as const,
+      provider: "anthropic",
+      baseUrl: "https://anthropic.example.test/v1",
+      reasoning: false,
+      input: ["text"] as const,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 8_192,
+    };
+
+    for await (const _event of streamProvider(model, { messages: [] }, await anthropicOAuth.toAuth({ type: "oauth", access: "oauth-access", refresh: "refresh", expires: 1 }).then((auth) => ({ auth })))) {
+      // The request headers are the observable contract.
+    }
+    expect(headers?.get("authorization")).toBe("Bearer oauth-access");
+    expect(headers?.get("x-api-key")).toBeNull();
+    expect(headers?.get("anthropic-beta")).toContain("oauth-2025-04-20");
+    expect(headers?.get("user-agent")).toBe("kimi-code");
+    expect(headers?.get("x-app")).toBe("cli");
+  });
+
+  it("does not add the Anthropic OAuth identity headers to a normal API key", async () => {
+    await expect(
+      anthropicApiKeyAuth().resolve({
+        credential: { type: "api_key", key: "sk-ant-api" },
+        ctx: { env: async () => undefined, fileExists: async () => false },
+      }),
+    ).resolves.toEqual({ auth: { apiKey: "sk-ant-api" }, env: undefined, source: "Stored API key" });
+  });
+
+  it("selects a persisted AWS profile without treating it as an API key", async () => {
+    const auth = await bedrockAuth.resolve({
+      credential: { type: "api_key", env: { AWS_PROFILE: "engineering" } },
+      ctx: { env: async () => undefined, fileExists: async () => false },
+    });
+
+    expect(auth).toEqual({ auth: {}, env: { AWS_PROFILE: "engineering" }, source: "Stored AWS profile" });
+  });
+
+  it("keeps a saved AWS credential-chain selection available for request-time resolution", async () => {
+    await expect(
+      bedrockAuth.resolve({
+        credential: { type: "api_key" },
+        ctx: { env: async () => undefined, fileExists: async () => false },
+      }),
+    ).resolves.toEqual({ auth: {}, env: undefined, source: "Stored AWS credential-chain selection" });
+  });
+
+  it("recognizes the shared AWS credentials file without probing the network", async () => {
+    await expect(
+      bedrockAuth.resolve({
+        ctx: {
+          env: async () => undefined,
+          fileExists: async (path) => path === "~/.aws/credentials",
+        },
+      }),
+    ).resolves.toEqual({ auth: {}, source: "~/.aws/credentials" });
+  });
+
+  it("resolves the standard gcloud ADC path through the authority supplied file lookup", async () => {
+    await expect(
+      googleVertexAuth.resolve({
+        ctx: {
+          env: async (name) => ({ GOOGLE_CLOUD_PROJECT: "example-project", GOOGLE_CLOUD_LOCATION: "us-central1" })[name],
+          fileExists: async (path) => path === "~/.config/gcloud/application_default_credentials.json",
+        },
+      }),
+    ).resolves.toEqual({
+      auth: {},
+      env: { GOOGLE_CLOUD_PROJECT: "example-project", GOOGLE_CLOUD_LOCATION: "us-central1" },
+      source: "Google Application Default Credentials",
+    });
+  });
+
+  it("keeps OpenRouter keys issued by OAuth permanently usable without a fake refresh", async () => {
+    const credential = { type: "oauth" as const, access: "sk-or-issued", refresh: "", expires: Number.MAX_SAFE_INTEGER };
+    await expect(openRouterOAuth.refresh(credential)).resolves.toEqual(credential);
+    await expect(openRouterOAuth.toAuth(credential)).resolves.toEqual({ apiKey: "sk-or-issued" });
+  });
+
+  it("uses the Copilot access-token endpoint and preserves its discovered proxy endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url === "https://copilot-api.example.test/copilot_internal/v2/token") {
+          return json({ token: "tid=x;proxy-ep=proxy.example.test;", expires_at: 1_800_000_000 });
+        }
+        expect(url).toBe("https://api.example.test/models");
+        return json({ data: [{ id: "claude", model_picker_enabled: true, policy: { state: "enabled" }, capabilities: { supports: { tool_calls: true } } }] });
+      }),
+    );
+
+    const credential = await githubCopilotOAuth.refresh({
+      type: "oauth",
+      access: "old",
+      refresh: "refresh-token",
+      expires: 0,
+      enterpriseUrl: "https://example.test",
+    });
+
+    await expect(githubCopilotOAuth.toAuth(credential)).resolves.toEqual({
+      apiKey: "tid=x;proxy-ep=proxy.example.test;",
+      baseUrl: "https://api.example.test",
+    });
+  });
+
+  it("builds Radius OAuth auth against the configured gateway rather than an API-key surrogate", async () => {
+    const radius = createRadiusOAuth("https://radius.example.test", "Example Radius");
+    await expect(
+      radius.toAuth({ type: "oauth", access: "radius-access", refresh: "radius-refresh", expires: 1 }),
+    ).resolves.toEqual({ apiKey: "radius-access" });
+    expect(radius.loginLabel).toBe("Sign in with Example Radius");
   });
 });

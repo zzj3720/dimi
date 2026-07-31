@@ -2,13 +2,18 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import lockfile from "proper-lockfile";
+import { parse, printParseErrorCode } from "jsonc-parser";
 
 import { atomicWrite } from "#/_base/utils/fs";
+import { Error2 } from "#/_base/errors/errors";
+
+import { ProviderRuntimeErrors } from "./errors";
 
 import type {
   Credential,
   CredentialInfo,
   CredentialStore,
+  CustomProviderDefinition,
   ModelsStore,
   ModelsStoreEntry,
 } from "./types";
@@ -18,6 +23,24 @@ const DIRECTORY_MODE = 0o700;
 
 type CredentialDocument = Record<string, Credential>;
 type ModelsDocument = Record<string, ModelsStoreEntry>;
+interface CustomProvidersDocument {
+  providers: Record<string, Omit<CustomProviderDefinition, "id">>;
+}
+
+/** Shared JSONC parser for models.json and provider import entry points. */
+export function parseJsonc(input: string): unknown {
+  const errors: import("jsonc-parser").ParseError[] = [];
+  const value = parse(input, errors, { allowTrailingComma: true, disallowComments: false });
+  if (errors.length > 0) {
+    throw new SyntaxError(errors.map((error) => printParseErrorCode(error.error)).join("; "));
+  }
+  return value;
+}
+
+export interface CustomProvidersLoadResult {
+  providers: readonly CustomProviderDefinition[];
+  error?: Error;
+}
 
 export class InMemoryCredentialStore implements CredentialStore {
   private readonly credentials = new Map<string, Credential>();
@@ -106,7 +129,9 @@ class LockedJsonFile<T extends object> {
 
   private async parse(): Promise<T> {
     const source = await readFile(this.path, "utf8");
-    return source.trim().length === 0 ? structuredClone(this.empty) : (JSON.parse(source) as T);
+    return source.trim().length === 0
+      ? structuredClone(this.empty)
+      : (parseJsonc(source) as T);
   }
 
   async read(): Promise<T> {
@@ -224,4 +249,91 @@ export class FileModelsStore implements ModelsStore {
       return { result: undefined, next };
     });
   }
+}
+
+export class FileCustomProvidersStore {
+  private readonly file: LockedJsonFile<CustomProvidersDocument>;
+
+  constructor(path: string) {
+    this.file = new LockedJsonFile(path, { providers: {} });
+  }
+
+  async list(): Promise<readonly CustomProviderDefinition[]> {
+    return Object.entries(this.validated(await this.file.read()).providers).map(([id, definition]) => ({
+      ...definition,
+      id,
+    }));
+  }
+
+  /**
+   * ModelConfig-style read for product boot: an invalid user-editable file is
+   * reported to the caller but never makes the built-in catalog unavailable.
+   * Mutations deliberately keep using `list`/`validated`, so a damaged file is
+   * neither overwritten nor silently repaired.
+   */
+  async load(): Promise<CustomProvidersLoadResult> {
+    try {
+      return { providers: await this.list() };
+    } catch (error) {
+      return {
+        providers: [],
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  async set(
+    definition: CustomProviderDefinition,
+    validate?: (definitions: readonly CustomProviderDefinition[]) => void,
+  ): Promise<void> {
+    await this.file.update(async (current) => {
+      const document = this.validated(current);
+      const providers = {
+        ...document.providers,
+        [definition.id]: withoutId(definition),
+      };
+      validate?.(Object.entries(providers).map(([id, value]) => ({ ...value, id })));
+      return {
+        result: undefined,
+        next: {
+          ...document,
+          providers,
+        },
+      };
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.file.update(async (current) => {
+      const document = this.validated(current);
+      if (!(id in document.providers)) return { result: undefined };
+      const providers = { ...document.providers };
+      delete providers[id];
+      return { result: undefined, next: { ...document, providers } };
+    });
+  }
+
+  private validated(value: unknown): CustomProvidersDocument {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.keys(value).some((key) => key !== "providers") ||
+      !("providers" in value) ||
+      typeof value.providers !== "object" ||
+      value.providers === null ||
+      Array.isArray(value.providers)
+    ) {
+      throw new Error2(
+        ProviderRuntimeErrors.codes.PROVIDER_DEFINITION_STORE_INVALID,
+        "models.json must contain { providers: { ... } }",
+      );
+    }
+    return value as CustomProvidersDocument;
+  }
+}
+
+function withoutId(definition: CustomProviderDefinition): Omit<CustomProviderDefinition, "id"> {
+  const { id: _id, ...stored } = definition;
+  return structuredClone(stored);
 }

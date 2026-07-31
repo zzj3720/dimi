@@ -14,6 +14,18 @@ const MANIFEST: UpdateManifest = {
 };
 
 describe('refreshUpdateCache', () => {
+  it('returns an empty cache without contacting the former product channel', async () => {
+    const writeCache = vi.fn(async () => {});
+
+    await expect(refreshUpdateCache({ writeCache })).resolves.toEqual({
+      source: 'cdn',
+      checkedAt: null,
+      latest: null,
+      manifest: null,
+    });
+    expect(writeCache).not.toHaveBeenCalled();
+  });
+
   it('writes a fresh cache carrying the manifest on successful fetch', async () => {
     const writeCache = vi.fn(async () => {});
     const result = await refreshUpdateCache({

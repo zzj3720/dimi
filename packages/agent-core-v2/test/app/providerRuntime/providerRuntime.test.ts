@@ -5,6 +5,7 @@ import { createProvider, hasApi } from "#/app/providerRuntime/createProvider";
 import { createModels, ProviderModels } from "#/app/providerRuntime/models";
 import type {
   AssistantMessage,
+  AssistantMessageEvent,
   Credential,
   CredentialInfo,
   CredentialStore,
@@ -90,6 +91,56 @@ function provider(id: string, refreshModels?: Provider["refreshModels"]): Provid
 }
 
 describe("ProviderModels", () => {
+  it("creates optional-base-url providers with headers and API-keyed stream dispatch", async () => {
+    const chat = model("mixed", "chat");
+    const responses = { ...model("mixed", "responses"), api: "openai-responses" as const };
+    const seen: string[] = [];
+    const done = (entry: Model): AssistantMessageEvent => ({
+      type: "done",
+      reason: "stop",
+      message: {
+        role: "assistant",
+        content: [],
+        api: entry.api,
+        provider: entry.provider,
+        model: entry.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop",
+        timestamp: 1,
+      },
+    });
+    const provider = createProvider({
+      id: "mixed",
+      headers: { "x-provider": "mixed" },
+      auth: { apiKey: envApiKeyAuth("mixed key", ["MIXED_API_KEY"]) },
+      models: [chat, responses],
+      api: {
+        "openai-completions": {
+          stream: async function* (entry) {
+            seen.push(entry.api);
+            yield done(entry);
+          },
+        },
+        "openai-responses": {
+          stream: async function* (entry) {
+            seen.push(entry.api);
+            yield done(entry);
+          },
+        },
+      },
+    });
+
+    expect(provider.baseUrl).toBeUndefined();
+    expect(provider.headers).toEqual({ "x-provider": "mixed" });
+    for await (const _event of provider.stream(chat, { messages: [] }, { auth: {} })) {
+      // Dispatch is the behaviour under test; terminal payload is irrelevant here.
+    }
+    for await (const _event of provider.stream(responses, { messages: [] }, { auth: {} })) {
+      // Dispatch is the behaviour under test; terminal payload is irrelevant here.
+    }
+    expect(seen).toEqual(["openai-completions", "openai-responses"]);
+  });
+
   it("supports providers whose API id is unknown to the core runtime", () => {
     const custom = model("custom", "custom-model") as Model<"vendor-chat-v1">;
     custom.api = "vendor-chat-v1";
@@ -100,7 +151,7 @@ describe("ProviderModels", () => {
           baseUrl: custom.baseUrl,
           auth: { apiKey: envApiKeyAuth("custom key", ["CUSTOM_API_KEY"]) },
           models: [custom],
-          stream: async function* () {},
+          api: { stream: async function* () {} },
         }),
       ],
     });
@@ -130,7 +181,7 @@ describe("ProviderModels", () => {
       auth: { apiKey: envApiKeyAuth("dynamic key", ["DYNAMIC_API_KEY"]) },
       models: [model("dynamic", "baseline")],
       fetchModels,
-      stream: async function* () {},
+      api: { stream: async function* () {} },
     });
     const runtime = new ProviderModels([dynamic], new MemoryCredentialStore(), catalogs, {
       env: async () => "key",
@@ -138,7 +189,7 @@ describe("ProviderModels", () => {
     });
 
     await runtime.refresh({ provider: "dynamic", allowNetwork: false });
-    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["baseline", "cached"]);
+    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["cached"]);
 
     const first = runtime.refresh({ provider: "dynamic", force: true });
     const second = runtime.refresh({ provider: "dynamic", force: true });
@@ -148,7 +199,7 @@ describe("ProviderModels", () => {
     release();
     await Promise.all([first, second]);
 
-    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["baseline", "live"]);
+    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["live"]);
     await expect(catalogs.read("dynamic")).resolves.toMatchObject({
       models: [expect.objectContaining({ id: "live" })],
       checkedAt: expect.any(Number),
@@ -169,7 +220,7 @@ describe("ProviderModels", () => {
       fetchModels: async () => {
         throw new Error("catalog unavailable");
       },
-      stream: async function* () {},
+      api: { stream: async function* () {} },
     });
     const runtime = new ProviderModels([dynamic], new MemoryCredentialStore(), catalogs, {
       env: async () => "key",
@@ -179,7 +230,7 @@ describe("ProviderModels", () => {
     const result = await runtime.refresh({ provider: "dynamic", force: true });
 
     expect(result.errors.get("dynamic")?.message).toBe("catalog unavailable");
-    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["baseline", "cached"]);
+    expect(runtime.getModels("dynamic").map((entry) => entry.id)).toEqual(["cached"]);
   });
 
   it("registers and replaces providers by id", () => {

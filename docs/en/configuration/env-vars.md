@@ -1,6 +1,6 @@
 # Environment variables
 
-Kimi Code CLI uses environment variables for provider API keys, model selection, runtime switches, and relocating its data directory. Provider credentials are never written to `config.toml`: use `kimi login <provider>` to store a key securely, or export the provider's standard API-key variable for the current process.
+Kimi Code CLI uses environment variables for provider API keys, model selection, runtime switches, and relocating its data directory. Provider credentials are never written to `config.toml`: use `vp run dev:cli -- login <provider>` from the checkout to store a key securely, or export the provider's standard API-key variable for the current process.
 
 ## Core paths
 
@@ -26,32 +26,55 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` family
 
-Select a built-in provider and one of its models without modifying `config.toml`. See [Select a model from environment variables](#select-a-model-from-environment-variables).
+Select a built-in or `models.json` provider and one of its models without modifying `config.toml`. See [Select a model from environment variables](#select-a-model-from-environment-variables).
 
-## Provider API keys
+## Provider credentials and cloud identity
 
-The provider runtime reads these standard shell environment variables. A key saved with `kimi login <provider> --method api-key` has priority over an environment variable.
+The provider runtime reads the following standard shell variables. An API key saved with `vp run dev:cli -- login <provider> --method api-key` takes priority over a matching environment variable. For a custom `models.json` provider, use its `apiKey` value as a `$VARIABLE` or `${VARIABLE}` template; it can name any environment variable you control.
 
-| Variable             | Provider                                   |
-| -------------------- | ------------------------------------------ |
-| `KIMI_API_KEY`       | Kimi Code; also a fallback for Moonshot AI |
-| `MOONSHOT_API_KEY`   | Moonshot AI                                |
-| `OPENAI_API_KEY`     | OpenAI                                     |
-| `XAI_API_KEY`        | xAI                                        |
-| `ANTHROPIC_API_KEY`  | Anthropic                                  |
-| `OPENROUTER_API_KEY` | OpenRouter                                 |
-| `DEEPSEEK_API_KEY`   | DeepSeek                                   |
-| `GROQ_API_KEY`       | Groq                                       |
-| `MISTRAL_API_KEY`    | Mistral                                    |
-| `TOGETHER_API_KEY`   | Together AI                                |
-| `CEREBRAS_API_KEY`   | Cerebras                                   |
-| `FIREWORKS_API_KEY`  | Fireworks AI                               |
-| `ZAI_API_KEY`        | Z.AI                                       |
-| `DASHSCOPE_API_KEY`  | Alibaba Cloud Model Studio                 |
+| Variable | Provider |
+| --- | --- |
+| `ANT_LING_API_KEY` | `ant-ling` |
+| `ANTHROPIC_API_KEY` | `anthropic` |
+| `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
+| `CEREBRAS_API_KEY` | `cerebras` |
+| `CLOUDFLARE_API_KEY` | `cloudflare-workers-ai`, `cloudflare-ai-gateway` |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account scope for both Cloudflare providers |
+| `CLOUDFLARE_GATEWAY_ID` | Gateway scope for `cloudflare-ai-gateway` |
+| `COPILOT_GITHUB_TOKEN` | `github-copilot` token alternative to OAuth |
+| `DEEPSEEK_API_KEY` | `deepseek` |
+| `FIREWORKS_API_KEY` | `fireworks` |
+| `GEMINI_API_KEY` | `google` |
+| `GOOGLE_CLOUD_API_KEY` | `google-vertex` |
+| `GROQ_API_KEY` | `groq` |
+| `HF_TOKEN` | `huggingface` |
+| `KIMI_API_KEY` | `kimi-coding`; fallback for `moonshotai` |
+| `MINIMAX_API_KEY` | `minimax` |
+| `MINIMAX_CN_API_KEY` | `minimax-cn` |
+| `MISTRAL_API_KEY` | `mistral` |
+| `MOONSHOT_API_KEY` | `moonshotai`, `moonshotai-cn` |
+| `NVIDIA_API_KEY` | `nvidia` |
+| `OPENAI_API_KEY` | `openai` |
+| `OPENCODE_API_KEY` | `opencode`, `opencode-go` |
+| `OPENROUTER_API_KEY` | `openrouter` |
+| `QWEN_TOKEN_PLAN_API_KEY` | `qwen-token-plan` |
+| `QWEN_TOKEN_PLAN_CN_API_KEY` | `qwen-token-plan-cn` |
+| `RADIUS_API_KEY` | `radius` |
+| `TOGETHER_API_KEY` | `together` |
+| `AI_GATEWAY_API_KEY` | `vercel-ai-gateway` |
+| `XAI_API_KEY` | `xai` |
+| `XIAOMI_API_KEY` | `xiaomi` |
+| `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `xiaomi-token-plan-ams` |
+| `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `xiaomi-token-plan-cn` |
+| `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `xiaomi-token-plan-sgp` |
+| `ZAI_API_KEY` | `zai` |
+| `ZAI_CODING_CN_API_KEY` | `zai-coding-cn` |
 
-OpenAI Codex uses OAuth and does not read `OPENAI_API_KEY`. Kimi Code and xAI accept either OAuth or an API key; use `kimi login <provider>` to choose explicitly.
+`openai-codex` is OAuth-only. `kimi-coding`, `xai`, `anthropic`, `openrouter`, `github-copilot`, and `radius` can use OAuth when their login flow offers it. Anthropic also recognizes `ANTHROPIC_AUTH_TOKEN` (bearer gateway token) and `ANTHROPIC_OAUTH_TOKEN` (OAuth token); prefer `vp run dev:cli -- login` for managed OAuth credentials.
 
-For the full built-in provider list, see [Providers and models](./providers.md).
+Amazon Bedrock discovers AWS credentials from `AWS_PROFILE`, `AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY`, container credentials, web identity, or the normal AWS config files. `AWS_BEARER_TOKEN_BEDROCK` is a bearer-token alternative. Vertex uses `GOOGLE_CLOUD_PROJECT` (or `GCLOUD_PROJECT`), `GOOGLE_CLOUD_LOCATION`, and optionally `GOOGLE_APPLICATION_CREDENTIALS`; when no credentials file path is set it uses Google Application Default Credentials. These variables are part of the identity chain, not model metadata.
+
+For the full built-in provider list and their login modes, see [Providers and models](./providers.md#built-in-providers).
 
 ## OAuth and managed services
 
@@ -76,8 +99,8 @@ kimi
 
 | Variable              | Purpose                                       |
 | --------------------- | --------------------------------------------- |
-| `KIMI_MODEL_PROVIDER` | Built-in provider ID, for example `anthropic` |
-| `KIMI_MODEL_NAME`     | Model ID within that provider                 |
+| `KIMI_MODEL_PROVIDER` | Provider ID from the built-in, SDK, or `models.json` catalog, for example `anthropic` |
+| `KIMI_MODEL_NAME`     | Model ID within that provider |
 
 If either value is missing or the pair is not in the catalog, startup reports that the selected model cannot be resolved.
 
@@ -113,7 +136,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_MODEL_TOP_P`                       | Global nucleus-sampling value; overrides `[model_overrides] top_p`                                                                                                                                                                                                                                                               | Number, e.g. `0.95`                                                                                                 |
 | `KIMI_MODEL_THINKING_EFFORT`             | Force a thinking effort for the selected model; overrides `[thinking] forced_effort`                                                                                                                                                                                                                                             | An effort value supported by the selected model                                                                     |
 | `KIMI_MODEL_THINKING_KEEP`               | Global preserved-thinking setting; overrides `[model_overrides] thinking_keep`                                                                                                                                                                                                                                                   | A provider-supported value, e.g. `all`                                                                              |
-| `KIMI_CODE_NO_AUTO_UPDATE`               | Fully disable the update preflight — no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` is also honored                                                                                                                                                                                             | Truthy: `1`/`true`/`yes`/`on`                                                                                       |
+| `KIMI_CODE_NO_AUTO_UPDATE`               | Disable update preflight in a distribution that configures an update channel. This source build has no channel by default. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` is also honored.                                                                                                                                                     | Truthy: `1`/`true`/`yes`/`on`                                                                                       |
 | `KIMI_DISABLE_CRON`                      | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire)                                                                                                                                                                                                                                 | `1` to disable                                                                                                      |
 
 ## Diagnostic logs

@@ -30,6 +30,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── config.toml             # 用户配置
 ├── tui.toml                # 终端界面偏好（含自动更新开关）
 ├── auth.json               # 已保存的供应商 OAuth/API 密钥凭证（文件 0600）
+├── models.json             # 用户拥有的 JSONC 供应商定义与覆盖层（文件 0600）
 ├── models-store.json       # 动态供应商模型目录缓存
 ├── AGENTS.md               # 全局 Kimi 专属 Agent 指令（可选）
 ├── mcp.json                # 用户级 MCP server 声明（可选）
@@ -67,9 +68,10 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 数据根下的顶层文件各有用途，大部分由 CLI 自动管理：
 
 - **`config.toml`**：主运行时配置，存放默认供应商/模型、循环控制等偏好，不保存供应商凭证。详见[配置文件](./config-files.md)。
-- **`tui.toml`**：终端界面客户端偏好，包括 `[upgrade].auto_install`（自动更新，默认开启）。可在 `/settings` 关闭，或手动设为 `auto_install = false`。
-- **`auth.json`**：通过 `kimi login` 保存的供应商 OAuth token 与 API 密钥。运行时以 `0o600` 权限原子写入；请只通过 `kimi login` 和 `kimi logout` 修改。
-- **`models-store.json`**：内置供应商返回的动态模型目录缓存，包含新鲜度与 ETag 元数据。`kimi provider refresh` 会更新它；离线时运行时仍可使用内置备用模型。
+- **`tui.toml`**：终端界面客户端偏好，包括保存的 `[upgrade].auto_install` 偏好。此源码构建没有配置更新通道；除非发行方提供通道，该设置不生效。
+- **`auth.json`**：通过 `vp run dev:cli -- login` 保存的供应商 OAuth token 与 API 密钥。运行时以 `0o600` 权限原子写入；请只通过 `vp run dev:cli -- login` 和 `vp run dev:cli -- logout` 修改。
+- **`models.json`**：用户拥有的 JSONC 供应商层（`{ "providers": { … } }`）。它可添加完整供应商，或覆盖内置/SDK 供应商，并支持注释和尾随逗号。运行时会在模型选择和读取目录前重新加载它。`apiKey` 请优先使用 `$ENVIRONMENT_VARIABLE` 或 `!command`，不要把生产密钥写成字面量。详见[供应商与模型](./providers.md#使用-modelsjson-添加或覆盖供应商)。
+- **`models-store.json`**：已认证供应商返回的动态模型目录缓存，包含新鲜度与 ETag 元数据。`vp run dev:cli -- provider refresh` 会更新它；离线使用要求缓存元数据不早于随包目录。
 - **`AGENTS.md`**：全局 Kimi 专属 Agent 指令。该文件会随 `KIMI_CODE_HOME` 移动；跨工具通用指令仍可放在 `~/.agents/AGENTS.md`。
 - **`mcp.json`**：用户级 MCP server 声明，启动时与项目内的 `.kimi-code/mcp.json` 合并加载。详见 [MCP](../customization/mcp.md)。
 - **`skills/`**：Kimi 专属用户级 Skills。该目录会随 `KIMI_CODE_HOME` 移动；跨工具通用 Skills 仍可放在 `~/.agents/skills/`。详见 [Agent Skills](../customization/skills.md)。
@@ -106,7 +108,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 
 报 bug 时，优先用 `kimi export` 导出相关会话（详见 [kimi 命令](../reference/kimi-command.md)）；会话日志默认包含在导出包里。不想分享全局日志时加 `--no-include-global-log`。
 
-`updates/` 下的文件（`latest.json`、`install.json`、`install.lock`、`rollout.log`）由自动更新机制维护，通常无需手动编辑。`rollout.log` 记录每次更新检查命中的灰度分批情况，可用于排查设备何时能收到新版本。
+`updates/` 目录可能遗留其他发行版写入的数据。此源码构建不会读取它，也不会联系更新服务；请使用 `git pull --ff-only` 更新 checkout。
 
 ## 输入历史
 
@@ -123,10 +125,10 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 | 清理所有会话                  | 删除 `~/.kimi-code/sessions/`                                       |
 | 清理诊断日志                  | 删除 `~/.kimi-code/logs/`                                           |
 | 清理输入历史                  | 删除 `~/.kimi-code/user-history/`                                   |
-| 重置更新状态                  | 删除 `~/.kimi-code/updates/latest.json`                             |
 | 强制重新下载托管 `rg` 和 `fd` | 删除 `~/.kimi-code/bin/`                                            |
-| 清除单个供应商登录态          | 运行 `kimi logout <provider>` 或 TUI `/logout`                      |
+| 清除单个供应商登录态          | 运行 `vp run dev:cli -- logout <provider>` 或 TUI `/logout`                      |
 | 清除全部已保存的供应商凭证    | 删除 `$KIMI_CODE_HOME/auth.json`                                    |
+| 移除自定义供应商和本地覆盖层  | 删除 `$KIMI_CODE_HOME/models.json`                                  |
 | 清除动态模型缓存              | 删除 `$KIMI_CODE_HOME/models-store.json`；刷新或启动后会重建        |
 | 清除 MCP server OAuth 登录态  | 删除 `credentials/mcp/`（供应商 logout 不会清理 MCP 凭据）          |
 | 移除用户级 MCP 声明           | 删除 `$KIMI_CODE_HOME/mcp.json`（默认为 `~/.kimi-code/mcp.json`）   |

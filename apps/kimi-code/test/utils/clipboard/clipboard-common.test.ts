@@ -4,13 +4,19 @@ import { runCommandAsync } from '#/utils/clipboard/clipboard-common';
 
 describe('runCommandAsync', () => {
   it('resolves with stdout for a successful command', async () => {
-    const result = await runCommandAsync(process.execPath, ['-e', 'process.stdout.write("hello")']);
+    const result = await runCommandAsync(
+      process.execPath,
+      ['-e', 'process.stdout.write("hello")'],
+      { timeoutMs: 5000 },
+    );
     expect(result.ok).toBe(true);
     expect(result.stdout.toString('utf-8')).toBe('hello');
   });
 
   it('resolves ok:false for a non-zero exit', async () => {
-    const result = await runCommandAsync(process.execPath, ['-e', 'process.exit(3)']);
+    const result = await runCommandAsync(process.execPath, ['-e', 'process.exit(3)'], {
+      timeoutMs: 5000,
+    });
     expect(result.ok).toBe(false);
   });
 

@@ -12,6 +12,7 @@ export * from './dialogs/model-selector';
 export * from './dialogs/permission-selector';
 export * from './dialogs/provider-auth-selector';
 export * from './dialogs/provider-login-dialog';
+export * from './dialogs/custom-provider-dialog';
 export * from './dialogs/question-dialog';
 export * from './dialogs/session-picker';
 export * from './dialogs/settings-selector';

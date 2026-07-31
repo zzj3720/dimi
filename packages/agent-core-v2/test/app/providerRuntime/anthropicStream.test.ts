@@ -6,6 +6,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { streamProvider } from "#/app/providerRuntime/stream";
+import { composeProvider } from "#/app/providerRuntime/customProviders";
+import { createModels } from "#/app/providerRuntime/models";
+import { builtinProviders } from "#/app/providerRuntime/providers";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
@@ -70,6 +73,33 @@ afterEach(() => {
 });
 
 describe("Anthropic Messages streaming", () => {
+  it("keeps Anthropic's provider-owned API-key wire header when models.json supplies the key", async () => {
+    let capturedHeaders: Headers | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      capturedHeaders = new Headers(init?.headers);
+      return sse([{ type: "message_delta", delta: { stop_reason: "end_turn" } }]);
+    }));
+    const base = builtinProviders().find((provider) => provider.id === "anthropic");
+    if (base === undefined) throw new Error("missing Anthropic provider");
+    const provider = composeProvider({ id: "anthropic", apiKey: "$OVERLAY_ANTHROPIC_KEY" }, base);
+    const models = createModels({
+      providers: [provider],
+      authContext: {
+        env: async (name) => name === "OVERLAY_ANTHROPIC_KEY" ? "overlay-key" : undefined,
+        fileExists: async () => false,
+      },
+    });
+    const configuredModel = models.getModels("anthropic")[0];
+    if (configuredModel === undefined) throw new Error("missing Anthropic model");
+    const configuredAuth = await models.getAuth(configuredModel);
+    if (configuredAuth === undefined) throw new Error("missing Anthropic auth");
+
+    await collect(streamProvider(configuredModel, context(), configuredAuth));
+
+    expect(capturedHeaders?.get("x-api-key")).toBe("overlay-key");
+    expect(capturedHeaders?.get("authorization")).toBeNull();
+  });
+
   it("sends the baseline Anthropic version header and omits unsupported tool extensions without tools", async () => {
     let capturedHeaders: Headers | undefined;
     let capturedBody: Record<string, unknown> | undefined;
@@ -96,6 +126,20 @@ describe("Anthropic Messages streaming", () => {
     });
     expect(capturedBody).not.toHaveProperty("tools");
     expect(capturedBody).not.toHaveProperty("thinking");
+  });
+
+  it("omits temperature when a configured Anthropic-compatible endpoint rejects it", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      capturedBody = jsonBody(init);
+      return sse([{ type: "message_delta", delta: { stop_reason: "end_turn" } }]);
+    }));
+
+    await collect(streamProvider({ ...model, compat: { supportsTemperature: false } }, context(), auth(), {
+      temperature: 0.7,
+    }));
+
+    expect(capturedBody).not.toHaveProperty("temperature");
   });
 
   it("serializes tools with the current basic schema contract, without beta or strict extensions", async () => {

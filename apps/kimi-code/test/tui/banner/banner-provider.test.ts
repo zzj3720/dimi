@@ -1,11 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
+  BannerProvider,
   selectBannerState,
   selectDisplayableBanner,
   shouldDisplayBanner,
 } from '#/tui/banner/banner-provider';
 import type { BannerState } from '#/tui/types';
+
+describe('BannerProvider', () => {
+  it('does not fetch the former product banner endpoint by default', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(new BannerProvider('0.1.0').load(fetchImpl)).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
 
 describe('selectBannerState', () => {
   const now = new Date('2026-06-15T12:00:00+08:00');

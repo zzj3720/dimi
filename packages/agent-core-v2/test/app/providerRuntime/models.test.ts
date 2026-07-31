@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ProviderRuntimeErrors } from "#/app/providerRuntime/errors";
 import { ProviderModels } from "#/app/providerRuntime/models";
+import { APIStatusError } from "#/llmProtocol/errors";
 import type {
   ApiKeyAuth,
   AuthContext,
@@ -214,6 +215,125 @@ describe("ProviderModels model and authentication contracts", () => {
       model("subscription", "subscription-model"),
     ]);
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes OAuth once and replays an unauthorized request before emitting its start", async () => {
+    const credentials = new MemoryCredentials();
+    await credentials.modify("oauth", async () => ({
+      type: "oauth",
+      access: "stale",
+      refresh: "refresh-token",
+      expires: Date.now() + 60 * 60_000,
+    }));
+    const refresh = vi.fn<OAuthAuth["refresh"]>(async (credential) => ({
+      ...credential,
+      access: "fresh",
+      expires: Date.now() + 60 * 60_000,
+    }));
+    const target = model("oauth", "oauth-model");
+    const stream = vi.fn<Provider["stream"]>(async function* (_model, _context, resolved) {
+      const message = {
+        role: "assistant" as const,
+        content: [],
+        api: target.api,
+        provider: target.provider,
+        model: target.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "pending" as const,
+        timestamp: 1,
+      };
+      yield { type: "start" as const, partial: message };
+      if (resolved.auth.apiKey === "stale") {
+        yield {
+          type: "error" as const,
+          reason: "error" as const,
+          error: { ...message, stopReason: "error" as const, errorMessage: "unauthorized" },
+          cause: new APIStatusError(401, "unauthorized"),
+        };
+        return;
+      }
+      yield { type: "done" as const, reason: "stop" as const, message: { ...message, stopReason: "stop" as const } };
+    });
+    const providerEntry = provider({
+      id: "oauth",
+      models: [target],
+      auth: {
+        oauth: {
+          name: "OAuth",
+          login: async () => {
+            throw new Error("not used");
+          },
+          refresh,
+          toAuth: async (credential) => ({ apiKey: credential.access }),
+        },
+      },
+    });
+    providerEntry.stream = stream;
+    const models = runtime([providerEntry], credentials);
+    const events = [];
+    for await (const event of models.streamSimple(target, { messages: [] })) events.push(event);
+
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(events.map((event) => event.type)).toEqual(["start", "done"]);
+  });
+
+  it("surfaces a second OAuth 401 without a third request or refresh", async () => {
+    const credentials = new MemoryCredentials();
+    await credentials.modify("oauth", async () => ({ type: "oauth", access: "stale", refresh: "refresh", expires: Date.now() + 60 * 60_000 }));
+    const refresh = vi.fn<OAuthAuth["refresh"]>(async (credential) => ({ ...credential, access: "fresh" }));
+    const target = model("oauth", "oauth-model");
+    const entry = provider({
+      id: "oauth",
+      models: [target],
+      auth: { oauth: { name: "OAuth", login: async () => { throw new Error("not used"); }, refresh, toAuth: async (credential) => ({ apiKey: credential.access }) } },
+    });
+    const stream = vi.fn<Provider["stream"]>(async function* () {
+      const message = { role: "assistant" as const, content: [], api: target.api, provider: target.provider, model: target.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "pending" as const, timestamp: 1 };
+      yield { type: "start" as const, partial: message };
+      yield { type: "error" as const, reason: "error" as const, error: { ...message, stopReason: "error" as const, errorMessage: "unauthorized" }, cause: new APIStatusError(401, "unauthorized") };
+    });
+    entry.stream = stream;
+    const events = [];
+    for await (const event of runtime([entry], credentials).streamSimple(target, { messages: [] })) events.push(event);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
+  });
+
+  it("does not replay an OAuth request after provider content has been emitted", async () => {
+    const credentials = new MemoryCredentials();
+    await credentials.modify("oauth", async () => ({ type: "oauth", access: "stale", refresh: "refresh", expires: Date.now() + 60 * 60_000 }));
+    const refresh = vi.fn<OAuthAuth["refresh"]>(async (credential) => ({ ...credential, access: "fresh" }));
+    const target = model("oauth", "oauth-model");
+    const entry = provider({ id: "oauth", models: [target], auth: { oauth: { name: "OAuth", login: async () => { throw new Error("not used"); }, refresh, toAuth: async (credential) => ({ apiKey: credential.access }) } } });
+    const stream = vi.fn<Provider["stream"]>(async function* () {
+      const message = { role: "assistant" as const, content: [], api: target.api, provider: target.provider, model: target.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "pending" as const, timestamp: 1 };
+      yield { type: "start" as const, partial: message };
+      yield { type: "text_delta" as const, delta: "partial", partial: message };
+      yield { type: "error" as const, reason: "error" as const, error: { ...message, stopReason: "error" as const, errorMessage: "unauthorized" }, cause: new APIStatusError(401, "unauthorized") };
+    });
+    entry.stream = stream;
+    const events = [];
+    for await (const event of runtime([entry], credentials).streamSimple(target, { messages: [] })) events.push(event);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(stream).toHaveBeenCalledOnce();
+    expect(events.map((event) => event.type)).toEqual(["start", "text_delta", "error"]);
+  });
+
+  it("does not refresh or replay an API-key 401", async () => {
+    const target = model("api", "api-model");
+    const entry = provider({ id: "api", models: [target] });
+    const stream = vi.fn<Provider["stream"]>(async function* () {
+      const message = { role: "assistant" as const, content: [], api: target.api, provider: target.provider, model: target.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "pending" as const, timestamp: 1 };
+      yield { type: "start" as const, partial: message };
+      yield { type: "error" as const, reason: "error" as const, error: { ...message, stopReason: "error" as const, errorMessage: "unauthorized" }, cause: new APIStatusError(401, "unauthorized") };
+    });
+    entry.stream = stream;
+    const events = [];
+    for await (const event of runtime([entry]).streamSimple(target, { messages: [] })) events.push(event);
+    expect(stream).toHaveBeenCalledOnce();
+    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
   });
 
   it("filters available models with the provider credential", async () => {

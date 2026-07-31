@@ -16,6 +16,7 @@ import type {
   GoalStatus,
   GoalToolResult,
   IProviderRuntime,
+  Provider,
   ITelemetryAppender,
   LoopControl,
   McpServerConfig as RuntimeMcpServerConfig,
@@ -81,6 +82,7 @@ export type {
   PluginMcpServerInfo,
   PluginSource,
   PluginSummary,
+  Provider,
   PromptOrigin,
   ReloadSummary,
   ResumedAgentState,
@@ -171,6 +173,12 @@ export interface KimiHarnessOptions {
   readonly sessionStartedProperties?: TelemetryProperties;
   /** Replaces the built-in provider runtime for custom hosts and deterministic tests. */
   readonly providerRuntime?: IProviderRuntime;
+  /**
+   * Additional runtime providers for this harness process. These use the core
+   * Provider contract (including API-key/OAuth auth and custom streaming) and
+   * are deliberately not persisted to models.json.
+   */
+  readonly providers?: readonly Provider[];
 }
 
 export interface CreateSessionOptions {

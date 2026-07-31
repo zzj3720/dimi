@@ -2,7 +2,10 @@ import type {
   AuthInteraction,
   AuthPrompt,
   AuthType,
+  CustomModelDefinition,
+  CustomProviderDefinition,
   IProviderRuntime,
+  Api,
   ProviderModel,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -34,6 +37,7 @@ export interface ProviderAuthState {
   readonly credentialType?: AuthType;
   readonly source?: string;
   readonly methods: readonly ProviderAuthMethod[];
+  readonly custom?: boolean;
 }
 
 export interface ProviderAuthStatus {
@@ -69,14 +73,24 @@ export type ProviderManagedUsageResult =
 
 export interface ProviderAuthFacadeOptions {
   readonly runtime: IProviderRuntime;
+  /** Includes process-lifetime SDK extensions once the persisted catalog has loaded. */
+  readonly ready?: Promise<void>;
 }
+
+export type CustomProviderInput = CustomProviderDefinition;
 
 /** SDK facade over the runtime's provider, authentication, and model contracts. */
 export class ProviderAuthFacade {
-  constructor(private readonly options: ProviderAuthFacadeOptions) {}
+  private readonly ready: Promise<void>;
+
+  constructor(private readonly options: ProviderAuthFacadeOptions) {
+    this.ready = options.ready ?? options.runtime.ready;
+  }
 
   async providers(): Promise<readonly ProviderAuthState[]> {
-    await this.options.runtime.ready;
+    await this.ready;
+    await this.options.runtime.refreshProviderDefinitions();
+    const customIds = new Set((await this.options.runtime.listCustomProviders()).map((item) => item.id));
     const credentials = new Map(
       (await this.options.runtime.listCredentials()).map((item) => [item.providerId, item.type]),
     );
@@ -105,6 +119,7 @@ export class ProviderAuthFacade {
           credentialType: credentials.get(provider.id) ?? check?.type,
           source: check?.source,
           methods,
+          custom: customIds.has(provider.id),
         };
       }),
     );
@@ -123,7 +138,8 @@ export class ProviderAuthFacade {
   }
 
   async models(providerId?: string): Promise<readonly ProviderModel[]> {
-    await this.options.runtime.ready;
+    await this.ready;
+    await this.options.runtime.refreshProviderDefinitions();
     return this.options.runtime.getAvailable(providerId);
   }
 
@@ -132,7 +148,7 @@ export class ProviderAuthFacade {
     type: AuthType,
     interaction: AuthInteraction,
   ): Promise<ProviderLoginResult> {
-    await this.options.runtime.ready;
+    await this.ready;
     await this.options.runtime.login(providerId, type, interaction);
     await this.options.runtime.refresh({
       provider: providerId,
@@ -157,12 +173,59 @@ export class ProviderAuthFacade {
     return { provider: providerId, ok: true };
   }
 
+  async customProviders(): Promise<readonly CustomProviderDefinition[]> {
+    await this.ready;
+    return this.options.runtime.listCustomProviders();
+  }
+
+  async providerDefinitionDiagnostic(): Promise<string | undefined> {
+    await this.ready;
+    await this.options.runtime.refreshProviderDefinitions();
+    return this.options.runtime.getProviderDefinitionDiagnostic();
+  }
+
+  /** Stream adapters accepted by the runtime that owns this harness. */
+  providerApis(): readonly Api[] {
+    return this.options.runtime.providerApis();
+  }
+
+  async upsertCustomProvider(definition: CustomProviderInput): Promise<void> {
+    await this.options.runtime.upsertCustomProvider(definition);
+  }
+
+  async deleteCustomProvider(providerId: string): Promise<void> {
+    await this.options.runtime.deleteCustomProvider(providerId);
+  }
+
+  async upsertCustomModel(providerId: string, model: CustomModelDefinition): Promise<void> {
+    const provider = await this.requireCustomProvider(providerId);
+    const models = new Map((provider.models ?? []).map((item) => [item.id, item]));
+    const existing = models.get(model.id);
+    // Public model update commands carry only the changed fields.  Preserve
+    // every existing capability/request field unless the caller explicitly
+    // supplies a new value; the runtime validates complete new models below.
+    models.set(model.id, existing === undefined ? model : mergeModelDefinition(existing, model));
+    await this.upsertCustomProvider({ ...provider, models: [...models.values()] });
+  }
+
+  async deleteCustomModel(providerId: string, modelId: string): Promise<void> {
+    const provider = await this.requireCustomProvider(providerId);
+    const existing = provider.models ?? [];
+    const models = existing.filter((model) => model.id !== modelId);
+    if (models.length === existing.length) return;
+    // A built-in overlay may legitimately remove its final custom model and
+    // fall back to the built-in catalog.  `upsertCustomProvider` is the sole
+    // authority for whether an independent provider still has enough shape.
+    await this.upsertCustomProvider({ ...provider, models });
+  }
+
   async refreshModels(options?: {
     readonly provider?: string;
     readonly force?: boolean;
     readonly signal?: AbortSignal;
   }) {
-    await this.options.runtime.ready;
+    await this.ready;
+    await this.options.runtime.refreshProviderDefinitions();
     return this.options.runtime.refresh({
       provider: options?.provider,
       allowNetwork: true,
@@ -191,6 +254,12 @@ export class ProviderAuthFacade {
       return token;
     },
   });
+
+  private async requireCustomProvider(providerId: string): Promise<CustomProviderDefinition> {
+    const provider = (await this.customProviders()).find((item) => item.id === providerId);
+    if (provider === undefined) throw new Error(`Custom provider does not exist: ${providerId}`);
+    return provider;
+  }
 
   async getManagedUsage(providerId: string = KIMI_PROVIDER): Promise<ProviderManagedUsageResult> {
     try {
@@ -277,6 +346,17 @@ export class ProviderAuthFacade {
     if (token === undefined) throw new Error(`Provider is not authenticated: ${providerId}`);
     return token;
   }
+}
+
+function mergeModelDefinition(
+  existing: CustomModelDefinition,
+  update: CustomModelDefinition,
+): CustomModelDefinition {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(update)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged as unknown as CustomModelDefinition;
 }
 
 export type ProviderAuthPrompt = AuthPrompt;

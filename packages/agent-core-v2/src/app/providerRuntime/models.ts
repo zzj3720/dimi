@@ -1,6 +1,9 @@
 import { access } from "node:fs/promises";
 
+import { APIStatusError } from "#/llmProtocol/errors";
+
 import { ProviderRuntimeErrors } from "./errors";
+import { resolveModelHeaders } from "./customProviders";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "./storage";
 import { Error2 } from "#/_base/errors/errors";
 import type {
@@ -208,6 +211,13 @@ export class ProviderModels implements MutableModels {
   getAuth(providerId: string): Promise<AuthResult | undefined>;
   getAuth(model: Model): Promise<AuthResult | undefined>;
   async getAuth(providerOrModel: string | Model): Promise<AuthResult | undefined> {
+    return this.resolveAuth(providerOrModel, false);
+  }
+
+  private async resolveAuth(
+    providerOrModel: string | Model,
+    forceOAuthRefresh: boolean,
+  ): Promise<AuthResult | undefined> {
     const providerId =
       typeof providerOrModel === "string" ? providerOrModel : providerOrModel.provider;
     const provider = this.providers.get(providerId);
@@ -217,11 +227,13 @@ export class ProviderModels implements MutableModels {
       if (credential.type === "oauth") {
         if (provider.auth.oauth === undefined) return undefined;
         let resolved: Credential | undefined = credential;
-        if (credential.expires <= Date.now() + OAUTH_REFRESH_SKEW_MS) {
+        if (forceOAuthRefresh || credential.expires <= Date.now() + OAUTH_REFRESH_SKEW_MS) {
           try {
             resolved = await this.credentials.modify(providerId, async (current) => {
               if (current?.type !== "oauth") return undefined;
-              if (current.expires > Date.now() + OAUTH_REFRESH_SKEW_MS) return undefined;
+              if (!forceOAuthRefresh && current.expires > Date.now() + OAUTH_REFRESH_SKEW_MS) {
+                return undefined;
+              }
               try {
                 return await provider.auth.oauth!.refresh(current);
               } catch (error) {
@@ -234,20 +246,21 @@ export class ProviderModels implements MutableModels {
         }
         if (resolved?.type !== "oauth") return undefined;
         try {
-          return {
+          return await this.withModelHeaders(providerOrModel, {
             auth: await provider.auth.oauth.toAuth(resolved),
+            env: resolved.env,
             source: "OAuth",
-          };
+          });
         } catch (error) {
           throw authError(`OAuth authentication failed for ${providerId}`, error);
         }
       }
       if (provider.auth.apiKey === undefined) return undefined;
-      return this.resolveApiKeyAuth(provider, credential);
+      return this.withModelHeaders(providerOrModel, await this.resolveApiKeyAuth(provider, credential));
     }
     const apiKey = provider.auth.apiKey;
     if (apiKey === undefined) return undefined;
-    return this.resolveApiKeyAuth(provider, undefined);
+    return this.withModelHeaders(providerOrModel, await this.resolveApiKeyAuth(provider, undefined));
   }
 
   private async resolveApiKeyAuth(
@@ -262,6 +275,22 @@ export class ProviderModels implements MutableModels {
     } catch (error) {
       throw authError(`API key authentication failed for ${provider.id}`, error);
     }
+  }
+
+  private async withModelHeaders(
+    providerOrModel: string | Model,
+    result: AuthResult | undefined,
+  ): Promise<AuthResult | undefined> {
+    if (result === undefined || typeof providerOrModel === "string") return result;
+    const headers = await resolveModelHeaders(providerOrModel.headers, result, this.authContext);
+    if (headers === undefined) return result;
+    return {
+      ...result,
+      auth: {
+        ...result.auth,
+        headers: mergeResolvedHeaders(result.auth.headers, headers),
+      },
+    };
   }
 
   private async readCredential(providerId: string): Promise<Credential | undefined> {
@@ -322,15 +351,55 @@ export class ProviderModels implements MutableModels {
         `Unknown provider: ${model.provider}`,
       );
     }
-    const auth = await this.getAuth(model);
-    if (auth === undefined) {
+    const initialAuth = await this.getAuth(model);
+    if (initialAuth === undefined) {
       throw new Error2(
         ProviderRuntimeErrors.codes.AUTH_LOGIN_REQUIRED,
         `Provider ${model.provider} is not authenticated`,
         { details: { provider_id: model.provider, model_id: model.id } },
       );
     }
-    yield* provider.stream(model, context, auth, options);
+    let auth = initialAuth;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let pendingStart: Extract<AssistantMessageEvent, { type: "start" }> | undefined;
+      let emittedContent = false;
+      let retry = false;
+      for await (const event of provider.stream(model, context, auth, options)) {
+        if (event.type === "start") {
+          pendingStart = event;
+          continue;
+        }
+        if (
+          event.type === "error" &&
+          !emittedContent &&
+          attempt === 0 &&
+          isUnauthorized(event.cause) &&
+          (await this.hasRefreshableOAuth(provider.id))
+        ) {
+          const refreshed = await this.resolveAuth(model, true);
+          if (refreshed === undefined) yield event;
+          else {
+            auth = refreshed;
+            retry = true;
+          }
+          break;
+        }
+        if (pendingStart !== undefined) {
+          yield pendingStart;
+          pendingStart = undefined;
+        }
+        if (event.type === "text_delta" || event.type === "thinking_delta" || event.type === "toolcall_start") {
+          emittedContent = true;
+        }
+        yield event;
+      }
+      if (!retry) return;
+    }
+  }
+
+  private async hasRefreshableOAuth(providerId: string): Promise<boolean> {
+    const credential = await this.readCredential(providerId);
+    return credential?.type === "oauth" && this.providers.get(providerId)?.auth.oauth !== undefined;
   }
 
   async completeSimple(
@@ -346,6 +415,26 @@ export class ProviderModels implements MutableModels {
     if (final === undefined) throw new Error("Provider stream ended without a final message");
     return final;
   }
+}
+
+/** Model config is the final request layer; preserve HTTP header semantics. */
+function mergeResolvedHeaders(
+  ...sources: (import("./types").ProviderHeaders | undefined)[]
+): import("./types").ProviderHeaders | undefined {
+  const result: import("./types").ProviderHeaders = {};
+  for (const source of sources) {
+    for (const [name, value] of Object.entries(source ?? {})) {
+      for (const existing of Object.keys(result)) {
+        if (existing.toLowerCase() === name.toLowerCase()) delete result[existing];
+      }
+      result[name] = value;
+    }
+  }
+  return Object.keys(result).length === 0 ? undefined : result;
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof APIStatusError && error.statusCode === 401;
 }
 
 function authError(message: string, cause: unknown): Error2 {

@@ -23,15 +23,12 @@ import { ModelRequesterImpl } from "./modelRequesterImpl";
 export class ModelCatalog implements IModelCatalog {
   declare readonly _serviceBrand: undefined;
 
-  private readonly requesters = new Map<string, ModelRequester>();
-
   constructor(
     @IProviderRuntime private readonly runtime: IProviderRuntime,
     @IConfigService private readonly config: IConfigService,
   ) {}
 
   notifyConfigChanged(): void {
-    this.requesters.clear();
   }
 
   get(reference: string): Model {
@@ -45,12 +42,7 @@ export class ModelCatalog implements IModelCatalog {
 
   getRequester(reference: string): ModelRequester {
     const model = this.get(reference);
-    const key = modelReference(model);
-    const existing = this.requesters.get(key);
-    if (existing !== undefined) return existing;
-    const requester = new ModelRequesterImpl(model, this.runtime);
-    this.requesters.set(key, requester);
-    return requester;
+    return new ModelRequesterImpl(model, this.runtime);
   }
 
   findByName(name: string): readonly string[] {

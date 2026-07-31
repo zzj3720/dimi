@@ -73,6 +73,23 @@ function createDeps(overrides: {
 }
 
 describe('handleUpgrade', () => {
+  it('does not read a legacy update cache or install when no authority is configured', async () => {
+    const { stdout, writable } = captureOutput();
+    const refreshUpdateCache = vi.fn();
+    const installUpdate = vi.fn();
+
+    await expect(handleUpgrade('0.1.0', {
+      ...writable,
+      refreshUpdateCache,
+      installUpdate,
+      updatesEnabled: false,
+    })).resolves.toBe(0);
+
+    expect(refreshUpdateCache).not.toHaveBeenCalled();
+    expect(installUpdate).not.toHaveBeenCalled();
+    expect(stdout.join('')).toBe('Automatic upgrades are not configured for this build.\n');
+  });
+
   it('prompts before installing the latest version when the install source supports it', async () => {
     const { stdout, stderr, writable } = captureOutput();
     const deps = createDeps({ latest: '0.5.0', source: 'npm-global' });

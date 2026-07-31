@@ -10,88 +10,58 @@ Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开
 - **理解项目**：探索陌生的代码库，解答架构和实现层面的问题
 - **自动化任务**：批量处理文件、运行构建与测试、串联多个脚本
 
-整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Node.js 之上。
+整套 CLI 以 TypeScript 编写，运行在 Node.js 之上。本仓库是源码构建，目前没有独立的软件包仓库或发布通道。
 
 ## 安装
 
-提供两种安装方式：官方安装脚本（推荐，无需预装 Node.js）和 npm 全局安装。
+请克隆本仓库并运行开发版 CLI。不要使用旧 Kimi Code 安装脚本或 `@moonshot-ai/kimi-code@latest`，它们指向的是另一份产品发布。
 
 ::: tip 安装之前
 Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
 :::
 
-### 脚本安装（推荐）
-
-- **macOS / Linux**：
+需要 Node.js 24.15.0 或更高版本以及 pnpm 10.33.0：
 
 ```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
-
-- **Windows（PowerShell）**：
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Kimi Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
-
-脚本会自动下载最新版本、校验 checksum，并把 `kimi` 可执行文件放到你的 `PATH` 中。
-
-### npm 安装
-
-需要 Node.js 22.19.0 或更高版本：
-
-```sh
-node --version
-npm install -g @moonshot-ai/kimi-code
-```
-
-或用 pnpm：
-
-```sh
-pnpm add -g @moonshot-ai/kimi-code
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
+vp run dev:cli
 ```
 
 ## 升级与卸载
 
-安装完成后，验证可执行文件是否就绪：
+**升级**：更新源码 checkout；依赖有变化时重新安装：
 
 ```sh
-kimi --version
+git pull --ff-only
+vp install
+vp run dev:cli
 ```
 
-**升级**：运行 `kimi upgrade`，CLI 会检查最新版本并展示更新选项。选择 `Install update now` 后根据当前安装来源执行升级；也可以直接用包管理器：
+`kimi upgrade` / `kimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的 Kimi Code 发布版。
 
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**卸载**：脚本安装的用户删除 `kimi` 可执行文件即可；npm 安装的用户：
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+**卸载**：删除 clone 出来的目录即可。`~/.kimi-code/` 下的本地数据独立保存；只有同时希望删除会话和凭据时才删除它。
 
 ## 第一次启动
 
-进入项目目录后直接运行 `kimi` 启动交互界面：
+在 clone 得到的源码 checkout 中启动交互界面：
 
 ```sh
-cd your-project
-kimi
+cd k-3720
+vp run dev:cli
 ```
 
 只想执行一条指令而不进入交互界面时，使用 `-p`：
 
 ```sh
-kimi -p "帮我看一下这个项目的目录结构"
+vp run dev:cli -- -p "帮我看一下这个项目的目录结构"
 ```
 
 继续上一次会话加 `-c`：
 
 ```sh
-kimi -c
+vp run dev:cli -- -c
 ```
 
 首次启动时需要连接一个供应商。在交互界面中输入 `/login`：
@@ -100,16 +70,17 @@ kimi -c
 /login
 ```
 
-`/login` 会先询问使用账号还是 API 密钥，再列出支持该认证方式的内置供应商。目录包括 Kimi Code、OpenAI Codex、xAI、OpenAI、Anthropic 以及其他 API 服务：
+`/login` 会先询问支持的认证方式，再列出匹配的内置供应商。生成的目录包括 Kimi Code、OpenAI Codex、xAI/Grok、OpenAI、Anthropic、Gemini、云供应商和其他 API 服务：
 
-- **OAuth** — Kimi Code、OpenAI Codex 与 xAI 支持
+- **OAuth** — 选择账号流程时，Kimi Code、OpenAI Codex、xAI、Anthropic、GitHub Copilot、OpenRouter 和 Radius 支持
 - **API 密钥** — 输入并安全保存所选供应商的密钥
+- **云身份** — Amazon Bedrock 可使用 AWS 凭据链；Vertex 可使用 Google Cloud ADC 或 service account
 
 登录后，从该供应商当前可用的模型中选择一个。如果已经知道供应商，可以运行 `/login <provider>` 跳过前两个选择器，例如 `/login openai`。
 
 需要退出登录时，输入 `/logout` 清除当前凭证。
 
-也可以在 shell 中运行 `kimi login <provider>`，或使用供应商的标准 API 密钥环境变量。完整目录与模型选择流程见[供应商与模型](../configuration/providers.md)。
+也可以在 checkout 中运行 `vp run dev:cli -- login <provider>`，或使用供应商的标准 API 密钥环境变量。未内置的兼容端点可在 `models.json` 中添加，但必须显式写出上下文窗口和输出限制。完整目录、自定义供应商和模型选择流程见[供应商与模型](../configuration/providers.md)。
 
 ## 第一个对话
 
@@ -161,7 +132,7 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 
 ## 数据存放在哪里
 
-Kimi Code CLI 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录、日志和更新缓存。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
+Kimi Code CLI 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录和日志。本源码构建没有启用更新通道。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
 
 ## 下一步
 

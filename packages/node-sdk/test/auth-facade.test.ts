@@ -17,6 +17,8 @@ function runtime() {
   } as const;
   return {
     ready: Promise.resolve(),
+    refreshProviderDefinitions: vi.fn(async () => {}),
+    listCustomProviders: vi.fn(async () => []),
     listCredentials: vi.fn(async () => [{ providerId: 'openai-codex', type: 'oauth' }]),
     getProviders: vi.fn(() => [
       {
@@ -64,5 +66,36 @@ describe('ProviderAuthFacade', () => {
     expect(backing.login).toHaveBeenCalledWith('openai-codex', 'oauth', interaction);
     expect(backing.refresh).toHaveBeenCalled();
     expect(result.models).toEqual([{ provider: 'openai-codex', id: 'gpt-5', name: 'GPT-5' }]);
+  });
+
+  it('patches a custom model without dropping its persisted request and capability fields', async () => {
+    const backing = runtime();
+    const existing = {
+      id: 'local-model',
+      name: 'Local',
+      api: 'openai-responses',
+      baseUrl: 'https://gateway.example.test/v1',
+      contextWindow: 64_000,
+      maxTokens: 8_000,
+      reasoning: true,
+      headers: { 'x-model': 'configured' },
+      compat: { supportsStrictMode: true },
+      thinkingLevelMap: { off: 'none', high: 'high' },
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+    };
+    const custom = { id: 'local', api: 'openai-responses', baseUrl: 'https://gateway.example.test/v1', models: [existing] };
+    const upsertCustomProvider = vi.fn(async () => {});
+    Object.assign(backing, {
+      listCustomProviders: vi.fn(async () => [custom]),
+      upsertCustomProvider,
+    });
+    const target = new ProviderAuthFacade({ runtime: backing as never });
+
+    await target.upsertCustomModel('local', { id: 'local-model', maxTokens: 16_000 });
+
+    expect(upsertCustomProvider).toHaveBeenCalledWith({
+      ...custom,
+      models: [{ ...existing, maxTokens: 16_000 }],
+    });
   });
 });

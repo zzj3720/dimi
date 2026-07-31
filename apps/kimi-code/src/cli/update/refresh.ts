@@ -1,6 +1,6 @@
 import { writeUpdateCache } from './cache';
-import { fetchLatestFromCdn, type FetchLatestResult } from './cdn';
-import { type UpdateCache } from './types';
+import { fetchLatestFromCdn, hasUpdateChannel, type FetchLatestResult } from './cdn';
+import { emptyUpdateCache, type UpdateCache } from './types';
 
 export interface RefreshUpdateCacheDeps {
   /** Resolves with the latest version + rollout manifest. **Throws** on any
@@ -16,6 +16,12 @@ export interface RefreshUpdateCacheDeps {
 export async function refreshUpdateCache(
   overrides: Partial<RefreshUpdateCacheDeps> = {},
 ): Promise<UpdateCache> {
+  // Test and embedding callers may supply their own authoritative fetcher.
+  // The product default must never look up a version on the former project's
+  // channel while this repository has no authority of its own.
+  if (overrides.fetchLatest === undefined && !hasUpdateChannel()) {
+    return emptyUpdateCache();
+  }
   const resolved: RefreshUpdateCacheDeps = {
     fetchLatest: overrides.fetchLatest ?? (() => fetchLatestFromCdn()),
     writeCache: overrides.writeCache ?? writeUpdateCache,

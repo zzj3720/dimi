@@ -120,7 +120,7 @@ kimi -p "Summarize the current repository status"
 临时切换模型：
 
 ```sh
-kimi -m kimi-code/kimi-for-coding -p "Explain the latest diff"
+kimi -m kimi-coding/kimi-for-coding -p "Explain the latest diff"
 ```
 
 需要结构化读取输出时，使用 `stream-json` 格式——stdout 每行都是一个 JSON 对象：
@@ -137,7 +137,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ### `kimi login`
 
-通过 OAuth 或 API 密钥连接一个内置 LLM 供应商。省略供应商时交互选择；供应商同时支持两种方式时，省略 `--method` 可交互选择登录方式。
+通过 OAuth 或 API 密钥连接一个内置或 `models.json` LLM 供应商。省略供应商时交互选择；供应商同时支持两种方式时，省略 `--method` 可交互选择登录方式。云供应商可能继续询问凭据链、account、project 或 location。
 
 ```sh
 kimi login
@@ -149,7 +149,7 @@ OAuth 登录会打印供应商的授权 URL 或设备码并等待完成。API �
 
 | 选项                | 说明                                         |
 | ------------------- | -------------------------------------------- |
-| `[provider]`        | 内置供应商 ID；省略时交互选择                |
+| `[provider]`        | 内置或 `models.json` 目录中的供应商 ID；省略时交互选择 |
 | `--method <method>` | `oauth` 或 `api-key`；需要跳过交互选择时指定 |
 
 ### `kimi logout`
@@ -269,13 +269,13 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi upgrade`
 
-立即检查最新版本并展示更新提示，选择操作后退出。也可以使用别名 `kimi update`。
+本源码构建未配置发布通道。`kimi upgrade` 会提示自动升级不可用后退出；`kimi update` 是它的别名。
 
 ```sh
 kimi upgrade
 ```
 
-对全局 npm、pnpm、yarn、bun 以及 macOS / Linux native 安装，`kimi upgrade` 会展示更新选项；选择 `Install update now` 后运行对应的前台安装命令。当前安装方式无法自动升级时（如 Windows native 安装），改为打印手动更新命令。
+它绝不会回退到上游 Kimi Code 安装源。请用 `git pull --ff-only` 更新此 checkout，再运行 `vp install` 和 `vp run dev:cli`。
 
 ### `kimi vis`
 
@@ -305,17 +305,23 @@ kimi vis --host 0.0.0.0 --port 8123 --no-open
 
 ### `kimi provider`
 
-查看内置供应商目录并刷新动态模型列表。供应商定义属于运行时；此命令不新增或删除自定义供应商。
+查看供应商和模型、刷新动态目录，并管理用户拥有的 `models.json` 供应商层。内置和 SDK 供应商定义仍归运行时所有；同 ID 的自定义定义是覆盖层，不是替换目录。
 
 ```sh
 kimi provider list [--json]
 kimi provider models [providerId]
 kimi provider refresh
+kimi provider add <id> [options]
+kimi provider update <id> [options]
+kimi provider remove <id>
+kimi provider model add <providerId> <modelId> [options]
+kimi provider model update <providerId> <modelId> [options]
+kimi provider model remove <providerId> <modelId>
 ```
 
 #### `kimi provider list`
 
-每行打印一个内置供应商、连接状态与当前可用模型数。加 `--json` 输出供应商认证状态与模型元数据。
+每行打印一个内置和已配置供应商、连接状态与当前可用模型数。加 `--json` 输出供应商认证状态与模型元数据。
 
 ```sh
 kimi provider list
@@ -337,6 +343,40 @@ kimi provider models openai-codex
 
 ```sh
 kimi provider refresh
+```
+
+#### `kimi provider add` 与 `update`
+
+创建或更新自定义供应商。`--from <path>` 导入单个供应商对象或 `{ "providers": { … } }` JSONC 文档，并选择请求的 ID。行内新建供应商时必须提供 `--base-url`、`--model`、`--context-window` 和 `--max-tokens`。`--api` 默认是 `openai-completions`；`--api-key-env` 会保存环境变量模板，而不是密钥。
+
+```sh
+kimi provider add example-gateway --from ./models.json
+kimi provider add example-gateway \
+  --base-url https://api.example.test/v1 --model example-chat \
+  --context-window 128000 --max-tokens 8192 \
+  --api-key-env EXAMPLE_GATEWAY_API_KEY --thinking --image
+kimi provider update example-gateway --model example-chat --max-tokens 16384
+```
+
+除了必填字段，行内选项还有 `--name`、`--model-name`、`--api`、`--api-key-env`、`--thinking` 和 `--image`。供应商 header、`compat`、OAuth 设置、模型覆盖、单模型 base URL 或多个模型请使用文件；完整 JSONC 形状见[供应商配置参考](../configuration/providers.md#使用-modelsjson-添加或覆盖供应商)。
+
+#### `kimi provider remove`
+
+移除用户拥有的供应商定义。若它是内置供应商的自定义覆盖层，底层内置供应商会重新出现。移除独立自定义供应商还会移除其保存的凭据。
+
+```sh
+kimi provider remove example-gateway
+```
+
+#### `kimi provider model`
+
+添加、更新或移除自定义供应商声明的模型。添加新模型必须提供 `--context-window` 与 `--max-tokens`；`--name`、`--thinking` 和 `--image` 可选。
+
+```sh
+kimi provider model add example-gateway example-reasoner \
+  --context-window 128000 --max-tokens 8192 --thinking
+kimi provider model update example-gateway example-reasoner --image
+kimi provider model remove example-gateway example-reasoner
 ```
 
 ## 下一步

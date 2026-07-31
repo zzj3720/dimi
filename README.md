@@ -1,50 +1,36 @@
 # Kimi Code CLI
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
-[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [Documentation](docs/en/guides/getting-started.md) · [Issues](https://github.com/zzj3720/k-3720/issues) · [中文](README.zh-CN.md)
 
 ![Demo of using Kimi Code](./docs/media/intro.gif)
 
 ## What is Kimi Code CLI
 
-Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI’s Kimi models and can also be configured to use other compatible providers.
+Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It has one provider runtime for Kimi, Codex, Grok, Claude, Gemini, cloud services, and compatible custom endpoints.
 
 ## Install
 
-Install with the official script. No Node.js required.
-
-- **macOS or Linux**:
+This is a source build with no separate release channel. Clone it instead of using an old Kimi Code installer or npm `latest` package:
 
 ```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
+vp run dev:cli
 ```
 
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-Then, run it with a new shell session:
-
-```sh
-kimi --version
-```
-
-For npm install, upgrade, uninstall, see [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
+To update, run `git pull --ff-only && vp install`. `kimi upgrade` safely reports that automatic upgrades are not configured for this build. See [Getting Started](docs/en/guides/getting-started.md).
 
 ## Quick Start
 
-Open a project and start the interactive UI:
+From the cloned checkout, start the interactive UI:
 
 ```sh
-cd your-project
-kimi
+cd k-3720
+vp run dev:cli
 ```
 
-On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Moonshot AI Open Platform API key. After login, try your first task:
+On first launch, run `/login` inside Kimi Code CLI and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.kimi-code/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
 
 ```
 Take a look at this project and explain its main directories.
@@ -52,7 +38,7 @@ Take a look at this project and explain its main directories.
 
 ## Key Features
 
-- **Single-binary distribution.** Install with one command: no Node.js setup, PATH gymnastics, or global module conflicts.
+- **Source-first development.** Run the current checkout with `vp run dev:cli`; provider and model behavior is verified from the same code you edit.
 - **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
 - **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
 - **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
@@ -81,40 +67,40 @@ For Zed, add this to `~/.config/zed/settings.json`:
 }
 ```
 
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://moonshotai.github.io/kimi-code/en/guides/ides) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp) for the full capability matrix.
+Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/guides/ides.md) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](docs/en/reference/kimi-acp.md) for the full capability matrix.
 
 ## Docs
 
-- [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started)
-- [Interaction and approvals](https://moonshotai.github.io/kimi-code/en/guides/interaction)
-- [Sessions](https://moonshotai.github.io/kimi-code/en/guides/sessions)
-- [Using in IDEs (ACP)](https://moonshotai.github.io/kimi-code/en/guides/ides)
-- [Configuration](https://moonshotai.github.io/kimi-code/en/configuration/config-files)
-- [Command reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-command)
+- [Getting Started](docs/en/guides/getting-started.md)
+- [Interaction and approvals](docs/en/guides/interaction.md)
+- [Sessions](docs/en/guides/sessions.md)
+- [Using in IDEs (ACP)](docs/en/guides/ides.md)
+- [Configuration](docs/en/configuration/config-files.md)
+- [Command reference](docs/en/reference/kimi-command.md)
 
 ## Develop
 
 Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
-pnpm install
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
 ```
 
 ```sh
-pnpm dev:cli    # run the CLI in dev mode
-pnpm test       # run tests
-pnpm typecheck  # TypeScript check
-pnpm lint       # oxlint
-pnpm build      # build all packages
+vp run dev:cli  # run the CLI in dev mode
+vp test         # run tests
+vp run typecheck # TypeScript check
+vp run lint     # oxlint
+vp run build    # build all packages
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
 ## Community
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
+- [Issues](https://github.com/zzj3720/k-3720/issues)
 - For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ## Acknowledgements

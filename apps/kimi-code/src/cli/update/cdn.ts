@@ -1,7 +1,7 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { KIMI_CODE_CDN_LATEST_JSON_URL, KIMI_CODE_CDN_LATEST_URL } from '#/constant/app';
+import { KIMI_CODE_UPDATE_CHANNEL_URL } from '#/constant/app';
 
 import type { UpdateManifest } from './types';
 
@@ -46,6 +46,22 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: string): Promise
 }
 
 /**
+ * A release authority is deliberately absent until this repository publishes
+ * one.  Keeping this guard at the HTTP boundary prevents direct callers from
+ * accidentally reviving the old product's update channel.
+ */
+export function hasUpdateChannel(): boolean {
+  return KIMI_CODE_UPDATE_CHANNEL_URL !== undefined;
+}
+
+function updateUrl(path: string, channelUrl: string | undefined): string {
+  if (channelUrl === undefined) {
+    throw new Error('Automatic updates are not configured for this build');
+  }
+  return new URL(path, channelUrl).toString();
+}
+
+/**
  * Fetch the latest published Kimi Code version from the CDN.
  *
  * **Throws** on any failure (network error, non-2xx, empty body, non-semver
@@ -57,8 +73,9 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: string): Promise
  */
 export async function fetchLatestVersionFromCdn(
   fetchImpl: typeof fetch = fetch,
+  channelUrl: string | undefined = KIMI_CODE_UPDATE_CHANNEL_URL,
 ): Promise<string> {
-  const response = await fetchWithTimeout(fetchImpl, KIMI_CODE_CDN_LATEST_URL);
+  const response = await fetchWithTimeout(fetchImpl, updateUrl('latest', channelUrl));
   if (!response.ok) {
     throw new Error(`CDN /latest returned HTTP ${response.status}`);
   }
@@ -69,8 +86,11 @@ export async function fetchLatestVersionFromCdn(
   return raw;
 }
 
-async function fetchUpdateManifestFromCdn(fetchImpl: typeof fetch): Promise<UpdateManifest> {
-  const response = await fetchWithTimeout(fetchImpl, KIMI_CODE_CDN_LATEST_JSON_URL);
+async function fetchUpdateManifestFromCdn(
+  fetchImpl: typeof fetch,
+  channelUrl: string | undefined,
+): Promise<UpdateManifest> {
+  const response = await fetchWithTimeout(fetchImpl, updateUrl('latest.json', channelUrl));
   if (!response.ok) {
     throw new Error(`CDN /latest.json returned HTTP ${response.status}`);
   }
@@ -87,11 +107,12 @@ async function fetchUpdateManifestFromCdn(fetchImpl: typeof fetch): Promise<Upda
  */
 export async function fetchLatestFromCdn(
   fetchImpl: typeof fetch = fetch,
+  channelUrl: string | undefined = KIMI_CODE_UPDATE_CHANNEL_URL,
 ): Promise<FetchLatestResult> {
-  const manifest = await fetchUpdateManifestFromCdn(fetchImpl).catch(() => null);
+  const manifest = await fetchUpdateManifestFromCdn(fetchImpl, channelUrl).catch(() => null);
   if (manifest !== null) {
     return { latest: manifest.version, manifest };
   }
-  const latest = await fetchLatestVersionFromCdn(fetchImpl);
+  const latest = await fetchLatestVersionFromCdn(fetchImpl, channelUrl);
   return { latest, manifest: null };
 }

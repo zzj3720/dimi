@@ -14,8 +14,9 @@
 | --------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
 | `/login [<provider>]`             | —               | 选择认证方式与供应商，或直接连接指定供应商；登录成功后打开该供应商的模型选择器                                                                                          | 否       |
 | `/logout`                         | —               | 选择供应商并删除其已保存凭证                                                                                                                                            | 否       |
-| `/provider [<provider>\|refresh]` | —               | 选择要连接的供应商、按 ID 直接连接，或刷新所有动态模型目录。详见[供应商与模型](../configuration/providers.md)                                                           | 是       |
-| `/model`                          | —               | 切换当前会话使用的 LLM 模型                                                                                                                                             | 是       |
+| `/provider [<provider>\|add\|import\|remove\|refresh]` | `/providers` | 连接供应商、添加/导入/移除 `models.json` 定义，或刷新动态目录。详见[供应商与模型](../configuration/providers.md) | 是 |
+| `/model`                          | —               | 切换当前会话使用的 LLM 模型；选择器使用模型声明的上下文限制和能力 | 是 |
+| `/effort [<level>]`               | `/thinking`      | 调整所选模型的 Thinking 档位，或打开 Thinking 选择器。仅显示声明的档位；没有档位映射的推理模型只有开/关 | 是 |
 | `/secondary_model`                | —               | 配置子 Agent 使用的第二模型（写入 [`[secondary_model]`](../configuration/config-files.md#secondary-model) 配置并在当前会话立即生效）。需开启 `secondary-model` 实验功能 | 是       |
 | `/settings`                       | `/config`       | 打开 TUI 内的设置面板                                                                                                                                                   | 是       |
 | `/experiments`                    | `/experimental` | 打开实验功能面板                                                                                                                                                        | 是       |

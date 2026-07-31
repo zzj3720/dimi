@@ -120,7 +120,7 @@ Output uses a transcript style: thinking content and Assistant text are both pre
 Temporarily switch the model:
 
 ```sh
-kimi -m kimi-code/kimi-for-coding -p "Explain the latest diff"
+kimi -m kimi-coding/kimi-for-coding -p "Explain the latest diff"
 ```
 
 When you need to parse output programmatically, use the `stream-json` format — each line on stdout is a JSON object:
@@ -137,7 +137,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ### `kimi login`
 
-Connect a built-in LLM provider with OAuth or an API key. Omit the provider to choose interactively. When a provider supports both methods, omit `--method` to choose one interactively.
+Connect a built-in or `models.json` LLM provider with OAuth or an API key. Omit the provider to choose interactively. When a provider supports both methods, omit `--method` to choose one interactively. Cloud providers can ask follow-up questions for a credential chain, account, project, or location.
 
 ```sh
 kimi login
@@ -149,7 +149,7 @@ OAuth login prints the provider's authorization URL or device code and waits for
 
 | Option              | Description                                                            |
 | ------------------- | ---------------------------------------------------------------------- |
-| `[provider]`        | Built-in provider ID; omit to choose                                   |
+| `[provider]`        | Provider ID from the built-in or `models.json` catalog; omit to choose |
 | `--method <method>` | `oauth` or `api-key`; specify it to skip the interactive method choice |
 
 ### `kimi logout`
@@ -269,13 +269,13 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi upgrade`
 
-Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.
+This source build has no configured release channel. `kimi upgrade` exits after reporting that automatic upgrades are unavailable; `kimi update` is an alias.
 
 ```sh
 kimi upgrade
 ```
 
-For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. When the current installation method cannot be upgraded automatically (e.g., Windows native installation), the manual update command is printed instead.
+It never falls back to an upstream Kimi Code install source. Update this checkout with `git pull --ff-only`, then run `vp install` and `vp run dev:cli`.
 
 ### `kimi vis`
 
@@ -305,17 +305,23 @@ kimi vis --host 0.0.0.0 --port 8123 --no-open
 
 ### `kimi provider`
 
-Inspect the built-in provider catalog and refresh dynamic model lists. Provider definitions are part of the runtime; this command does not add or remove custom providers.
+Inspect providers and models, refresh dynamic catalogs, and manage the user-owned `models.json` provider layer. Built-in and SDK provider definitions remain runtime-owned; a custom definition with the same ID is an overlay, not a replacement catalog.
 
 ```sh
 kimi provider list [--json]
 kimi provider models [providerId]
 kimi provider refresh
+kimi provider add <id> [options]
+kimi provider update <id> [options]
+kimi provider remove <id>
+kimi provider model add <providerId> <modelId> [options]
+kimi provider model update <providerId> <modelId> [options]
+kimi provider model remove <providerId> <modelId>
 ```
 
 #### `kimi provider list`
 
-Print every built-in provider, its connection state, and the number of currently available models. Add `--json` to output provider auth states and model metadata.
+Print every built-in and configured provider, its connection state, and the number of currently available models. Add `--json` to output provider auth states and model metadata.
 
 ```sh
 kimi provider list
@@ -337,6 +343,40 @@ Refresh the remote model endpoints for every authenticated provider. Refresh fai
 
 ```sh
 kimi provider refresh
+```
+
+#### `kimi provider add` and `update`
+
+Create or update a custom provider. `--from <path>` imports either one provider object or a `{ "providers": { … } }` JSONC document and selects the requested ID. For an inline new provider, `--base-url`, `--model`, `--context-window`, and `--max-tokens` are required. `--api` defaults to `openai-completions`; `--api-key-env` records an environment template instead of a secret.
+
+```sh
+kimi provider add example-gateway --from ./models.json
+kimi provider add example-gateway \
+  --base-url https://api.example.test/v1 --model example-chat \
+  --context-window 128000 --max-tokens 8192 \
+  --api-key-env EXAMPLE_GATEWAY_API_KEY --thinking --image
+kimi provider update example-gateway --model example-chat --max-tokens 16384
+```
+
+The inline options are `--name`, `--model-name`, `--api`, `--api-key-env`, `--thinking`, and `--image` in addition to the required fields. Use a file for provider headers, `compat`, OAuth settings, model overrides, per-model base URLs, or several models; the [provider configuration reference](../configuration/providers.md#add-or-overlay-a-provider-with-modelsjson) documents the full JSONC shape.
+
+#### `kimi provider remove`
+
+Remove a user-owned provider definition. If it is a custom overlay of a built-in provider, the underlying built-in provider becomes visible again. Removing a standalone custom provider also removes its saved credential.
+
+```sh
+kimi provider remove example-gateway
+```
+
+#### `kimi provider model`
+
+Add, update, or remove a model declared by a custom provider. Adding a new model requires `--context-window` and `--max-tokens`; `--name`, `--thinking`, and `--image` are optional.
+
+```sh
+kimi provider model add example-gateway example-reasoner \
+  --context-window 128000 --max-tokens 8192 --thinking
+kimi provider model update example-gateway example-reasoner --image
+kimi provider model remove example-gateway example-reasoner
 ```
 
 ## Next steps

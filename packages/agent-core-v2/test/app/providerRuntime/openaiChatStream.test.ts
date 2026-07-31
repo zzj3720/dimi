@@ -14,6 +14,11 @@ import type {
   Model,
 } from "#/app/providerRuntime/types";
 
+function requestJson(init: RequestInit | undefined): Record<string, unknown> {
+  if (typeof init?.body !== "string") throw new TypeError("Expected a JSON request body");
+  return JSON.parse(init.body) as Record<string, unknown>;
+}
+
 const model: Model = {
   id: "chat-model",
   name: "Chat model",
@@ -200,6 +205,24 @@ describe("OpenAI Chat streaming", () => {
     });
   });
 
+  it.each(["content_filter", "network_error", "unknown_finish"]) (
+    "returns OpenAI Chat finish_reason %s as a terminal error",
+    async (finishReason) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => sse([{ choices: [{ delta: {}, finish_reason: finishReason }] }])),
+      );
+
+      const result = await collect(streamProvider(model, context(), auth));
+
+      expect(result.message).toMatchObject({
+        stopReason: "error",
+        rawStopReason: finishReason,
+        errorMessage: `Provider finish_reason: ${finishReason}`,
+      });
+    },
+  );
+
   it("returns the HTTP status and structured error body in the terminal error", async () => {
     vi.stubGlobal(
       "fetch",
@@ -294,5 +317,237 @@ describe("OpenAI Chat streaming", () => {
       stopReason: "stop",
       content: [{ type: "text", text: "continued" }],
     });
+  });
+
+  it("sends sampling, prompt cache, structured output, reasoning and tool-result images", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = requestJson(init);
+        return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+      }),
+    );
+
+    await collect(
+      streamProvider(
+        model,
+        context([
+          {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "prior", thinkingSignature: "reasoning_content" }],
+            api: model.api,
+            provider: model.provider,
+            model: model.id,
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: "stop",
+            timestamp: 1,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "image",
+            content: [{ type: "image", mimeType: "image/png", data: "AA==" }],
+            isError: false,
+            timestamp: 2,
+          },
+        ]),
+        auth,
+        {
+          topP: 0.2,
+          cacheKey: "cache-key",
+          responseFormat: { type: "json_schema", jsonSchema: { name: "answer", schema: { type: "object" }, strict: true } },
+        },
+      ),
+    );
+
+    expect(body).toMatchObject({
+      top_p: 0.2,
+      prompt_cache_key: "cache-key",
+      response_format: { type: "json_schema", json_schema: { name: "answer", schema: { type: "object" }, strict: true } },
+    });
+    expect(body?.["messages"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "assistant", reasoning_content: "prior" }),
+        expect.objectContaining({ role: "tool", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,AA==" } }] }),
+      ]),
+    );
+  });
+
+  it("maps DeepSeek thinking levels and never turns an opaque signature into a JSON key", async () => {
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requests.push(requestJson(init));
+        return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+      }),
+    );
+    const deepSeek = {
+      ...model,
+      compat: { thinkingFormat: "deepseek", requiresReasoningContentOnAssistantMessages: true },
+      thinkingLevelMap: { high: "high" },
+      defaultThinkingLevel: "high",
+    };
+    const history: Context = {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "prior", thinkingSignature: "encrypted-responses-value" }],
+          api: "openai-responses",
+          provider: "other",
+          model: "other",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: "stop",
+          timestamp: 1,
+        },
+      ],
+    };
+
+    await collect(streamProvider(deepSeek, history, auth, { reasoning: "high" }));
+    await collect(streamProvider(deepSeek, history, auth, { reasoning: "max" }));
+
+    for (const body of requests) {
+      expect(body).toMatchObject({ thinking: { type: "enabled" } });
+      expect(body).not.toHaveProperty("reasoning_effort");
+    }
+    for (const body of requests) {
+      const assistant = (body["messages"] as Record<string, unknown>[]).find(
+        (message) => message["role"] === "assistant",
+      );
+      expect(assistant).toMatchObject({ reasoning_content: "prior" });
+      expect(assistant).not.toHaveProperty("encrypted-responses-value");
+    }
+  });
+
+  it("enables boolean OpenAI thinking with the protocol's default effort", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = requestJson(init);
+        return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+      }),
+    );
+
+    await collect(streamProvider({ ...model, thinkingLevelMap: undefined }, context(), auth, { reasoning: "medium" }));
+
+    expect(body).toMatchObject({ reasoning_effort: "medium" });
+  });
+
+  it("projects Pi-compatible OpenAI request and replay compatibility fields on the wire", async () => {
+    let body: Record<string, any> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = requestJson(init);
+      return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+    }));
+    const compatible = {
+      ...model,
+      compat: {
+        supportsStore: true,
+        supportsUsageInStreaming: false,
+        maxTokensField: "max_completion_tokens",
+        supportsDeveloperRole: true,
+        requiresToolResultName: true,
+        requiresAssistantAfterToolResult: true,
+        requiresThinkingAsText: true,
+        supportsStrictMode: false,
+        zaiToolStream: true,
+        vercelGatewayRouting: { only: ["example-upstream"] },
+      },
+    };
+    await collect(streamProvider(compatible, {
+      systemPrompt: "system",
+      tools: [{ name: "tool", description: "tool", parameters: { type: "object" } }],
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "private" }],
+          api: compatible.api, provider: compatible.provider, model: compatible.id,
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: "stop", timestamp: 1,
+        },
+        { role: "toolResult", toolCallId: "call-1", toolName: "tool", content: [{ type: "text", text: "result" }], isError: false, timestamp: 2 },
+        { role: "user", content: "continue", timestamp: 3 },
+      ],
+    }, auth, { maxTokens: 123 }));
+    expect(body).toMatchObject({
+      store: false,
+      max_completion_tokens: 123,
+      tool_stream: true,
+      providerOptions: { gateway: { only: ["example-upstream"] } },
+    });
+    expect(body).not.toHaveProperty("stream_options");
+    expect(body).not.toHaveProperty("max_tokens");
+    expect(body?.["tools"][0].function).not.toHaveProperty("strict");
+    expect(body?.["messages"]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "developer", content: "system" }),
+      expect.objectContaining({ role: "assistant", content: "private" }),
+      expect.objectContaining({ role: "tool", tool_call_id: "call-1", name: "tool" }),
+      expect.objectContaining({ role: "assistant", content: "I have processed the tool results." }),
+    ]));
+  });
+
+  it.each([
+    ["qwen", { enable_thinking: true }],
+    ["qwen-chat-template", { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } }],
+    ["together", { reasoning: { enabled: true } }],
+    ["zai", { thinking: { type: "enabled", clear_thinking: false } }],
+    ["string-thinking", { thinking: "high" }],
+    ["ant-ling", { reasoning: { effort: "high" } }],
+    ["chat-template", { chat_template_kwargs: { enabled: true, effort: "high" } }],
+  ] as const)("serializes Pi thinking format %s", async (thinkingFormat, expected) => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = requestJson(init);
+      return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+    }));
+    await collect(streamProvider({
+      ...model,
+      compat: {
+        thinkingFormat,
+        supportsReasoningEffort: true,
+        ...(thinkingFormat === "chat-template" ? { chatTemplateKwargs: { enabled: { $var: "thinking.enabled" }, effort: { $var: "thinking.effort" } } } : undefined),
+      },
+      thinkingLevelMap: { high: "high" },
+    }, context(), auth, { reasoning: "high" }));
+    expect(body).toMatchObject(expected);
+  });
+
+  it("honors Pi chat-template omitWhenOff variables", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = requestJson(init);
+      return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+    }));
+    await collect(streamProvider({
+      ...model,
+      compat: {
+        thinkingFormat: "chat-template",
+        chatTemplateKwargs: {
+          enabled: { $var: "thinking.enabled" },
+          effort: { $var: "thinking.effort", omitWhenOff: true },
+        },
+      },
+      thinkingLevelMap: undefined,
+    }, context(), auth, { reasoning: "off" }));
+    expect(body).toMatchObject({ chat_template_kwargs: { enabled: false } });
+    expect((body?.["chat_template_kwargs"] as Record<string, unknown>)?.["effort"]).toBeUndefined();
+  });
+
+  it("sends OpenAI-completions affinity only when Pi compat enables it", async () => {
+    let headers: Headers | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      headers = new Headers(init?.headers);
+      return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+    }));
+    await collect(streamProvider({
+      ...model,
+      compat: { sendSessionAffinityHeaders: true, sessionAffinityFormat: "openai-nosession" },
+    }, context(), auth, { sessionId: "session-example" }));
+    expect(headers?.get("x-client-request-id")).toBe("session-example");
+    expect(headers?.get("x-session-affinity")).toBe("session-example");
+    expect(headers?.get("session_id")).toBeNull();
+    expect(headers?.get("session-id")).toBeNull();
   });
 });

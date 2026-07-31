@@ -10,88 +10,58 @@ It fits scenarios such as:
 - **Understanding a project**: exploring an unfamiliar codebase and answering questions about architecture and implementation
 - **Automating tasks**: batch-processing files, running builds and tests, chaining multiple scripts together
 
-The CLI is written in TypeScript, distributed via npm, and runs on Node.js.
+The CLI is written in TypeScript and runs on Node.js. This repository is a source build and does not yet have an independent package registry or release channel.
 
 ## Installation
 
-Two installation options are available: the official install script (recommended, no pre-installed Node.js required) and a global npm install.
+Clone this repository and run the development CLI. Do not use an old Kimi Code install script or `@moonshot-ai/kimi-code@latest`: those point to a different product release.
 
 ::: tip Before you install
 Kimi Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::
 
-### Install script (recommended)
-
-- **macOS / Linux**:
+Requires Node.js 24.15.0 or later and pnpm 10.33.0:
 
 ```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
-
-- **Windows (PowerShell)**:
-
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
-
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch. Kimi Code CLI uses the bundled Git Bash as its shell environment; if Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-The script automatically downloads the latest release, verifies the checksum, and places the `kimi` executable on your `PATH`.
-
-### npm installation
-
-Requires Node.js 22.19.0 or later:
-
-```sh
-node --version
-npm install -g @moonshot-ai/kimi-code
-```
-
-Or with pnpm:
-
-```sh
-pnpm add -g @moonshot-ai/kimi-code
+git clone https://github.com/zzj3720/k-3720.git
+cd k-3720
+vp install
+vp run dev:cli
 ```
 
 ## Upgrade and uninstall
 
-After installation, verify that the executable is ready:
+**Upgrade**: update the source checkout, then reinstall dependencies if they changed:
 
 ```sh
-kimi --version
+git pull --ff-only
+vp install
+vp run dev:cli
 ```
 
-**Upgrade**: run `kimi upgrade` — the CLI checks for the latest version and presents update options. Choose `Install update now` to upgrade based on your current install source. You can also upgrade directly via the package manager:
+`kimi upgrade` / `kimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Kimi Code release.
 
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**Uninstall**: if you installed via the script, delete the `kimi` executable. If you installed via npm:
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+**Uninstall**: remove the cloned checkout. Your local data under `~/.kimi-code/` is separate; remove it only if you also intend to delete sessions and credentials.
 
 ## First launch
 
-Move into your project directory and run `kimi` to start the interactive UI:
+From the cloned checkout, start the source CLI:
 
 ```sh
-cd your-project
-kimi
+cd k-3720
+vp run dev:cli
 ```
 
 To run a single instruction without entering the interactive UI, use `-p`:
 
 ```sh
-kimi -p "Take a look at this project's directory structure"
+vp run dev:cli -- -p "Take a look at this project's directory structure"
 ```
 
 To resume the previous session, add `-c`:
 
 ```sh
-kimi -c
+vp run dev:cli -- -c
 ```
 
 On first launch, connect a provider. In the interactive UI, enter `/login`:
@@ -100,16 +70,17 @@ On first launch, connect a provider. In the interactive UI, enter `/login`:
 /login
 ```
 
-`/login` first asks whether you want to use an account or an API key, then lists the built-in providers that support that method. The catalog includes Kimi Code, OpenAI Codex, xAI, OpenAI, Anthropic, and other API services:
+`/login` first asks for a supported authentication method, then lists the matching built-in providers. The generated catalog includes Kimi Code, OpenAI Codex, xAI/Grok, OpenAI, Anthropic, Gemini, cloud providers, and other API services:
 
-- **OAuth** — available for Kimi Code, OpenAI Codex, and xAI
+- **OAuth** — available for Kimi Code, OpenAI Codex, xAI, Anthropic, GitHub Copilot, OpenRouter, and Radius when their account flow is selected
 - **API key** — enter and securely save the selected provider's key
+- **Cloud identity** — Amazon Bedrock can use an AWS credential chain; Vertex can use Google Cloud ADC or a service account
 
 After login, choose one of that provider's currently available models. To skip the two selectors when you already know the provider, run `/login <provider>`, for example `/login openai`.
 
 To sign out, enter `/logout` to clear the current credentials.
 
-You can also connect from the shell with `kimi login <provider>`, or use a provider's standard API-key environment variable. See [Providers and models](../configuration/providers.md) for the full catalog and model-selection flow.
+You can also connect from the checkout with `vp run dev:cli -- login <provider>`, or use a provider's standard API-key environment variable. To connect a compatible endpoint that is not built in, add it to `models.json` with an explicit context window and output limit. See [Providers and models](../configuration/providers.md) for the full catalog, custom-provider, and model-selection flow.
 
 ## Your first conversation
 
@@ -161,7 +132,7 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 ## Where data is stored
 
-Kimi Code CLI stores its local data under `~/.kimi-code/` by default — config files, session records, logs, and the update cache. To move it elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+Kimi Code CLI stores its local data under `~/.kimi-code/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
 ## Next steps
 

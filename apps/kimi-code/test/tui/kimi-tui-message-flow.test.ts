@@ -333,6 +333,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
           : models.filter((model) => model.provider === providerId);
       }),
       refreshModels: vi.fn(async () => ({ aborted: false, errors: new Map() })),
+      providerDefinitionDiagnostic: vi.fn(async () => undefined),
       login: vi.fn(),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),

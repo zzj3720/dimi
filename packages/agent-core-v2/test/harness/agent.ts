@@ -2559,6 +2559,30 @@ class ScriptedProviderRuntime implements IProviderRuntime {
     );
   }
 
+  providerApis() {
+    return ["openai-completions"] as const;
+  }
+
+  listCustomProviders() {
+    return Promise.resolve([]);
+  }
+
+  getProviderDefinitionDiagnostic(): string | undefined {
+    return undefined;
+  }
+
+  refreshProviderDefinitions(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  upsertCustomProvider(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  deleteCustomProvider(): Promise<void> {
+    return Promise.resolve();
+  }
+
   getProviders(): readonly Provider[] {
     const providers = new Map<string, Provider>();
     if (!this.configuredProvidersCleared) {
@@ -2706,7 +2730,7 @@ class ScriptedProviderRuntime implements IProviderRuntime {
       {
         signal: options.signal,
         auth: toGenerateAuth((await this.getAuth(model))?.auth),
-        cacheKey: options.sessionId,
+        cacheKey: options.cacheKey,
         sampling: { temperature: options.temperature },
         thinking: options.reasoning === undefined ? undefined : { effort: options.reasoning },
         maxCompletionTokens: options.maxTokens,

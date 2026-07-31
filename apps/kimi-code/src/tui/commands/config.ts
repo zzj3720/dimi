@@ -257,6 +257,8 @@ export async function handleThemeCommand(host: SlashCommandHost, args: string): 
 export async function handleModelCommand(host: SlashCommandHost, args: string): Promise<void> {
   const reference = args.trim();
   await refreshModelsForPicker(host);
+  const diagnostic = await host.harness.auth.providerDefinitionDiagnostic();
+  if (diagnostic !== undefined) host.showError(diagnostic);
   if (reference.length === 0) {
     showModelPicker(host);
     return;

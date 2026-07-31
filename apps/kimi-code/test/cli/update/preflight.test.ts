@@ -177,10 +177,11 @@ function disableAutoInstall(): void {
 function captureOutput(): {
   stdout: string[];
   stderr: string[];
-  options: {
-    stdout: { write(chunk: string): boolean };
-    stderr: { write(chunk: string): boolean };
-    isTTY: boolean;
+    options: {
+      stdout: { write(chunk: string): boolean };
+      stderr: { write(chunk: string): boolean };
+      isTTY: boolean;
+      updatesEnabled: boolean;
   };
 } {
   const stdout: string[] = [];
@@ -192,6 +193,7 @@ function captureOutput(): {
       stdout: { write: (chunk: string) => { stdout.push(chunk); return true; } },
       stderr: { write: (chunk: string) => { stderr.push(chunk); return true; } },
       isTTY: true,
+      updatesEnabled: true,
     },
   };
 }
@@ -813,9 +815,7 @@ describe('runUpdatePreflight', () => {
 
     const rendered = stdout.join('');
     expect(rendered).toContain('Kimi Code updated to v0.5.0');
-    expect(rendered).toContain(
-      'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html',
-    );
+    expect(rendered).toContain('https://github.com/zzj3720/k-3720/releases');
     expect(track).toHaveBeenCalledWith('update_success_notice_shown', expect.objectContaining({
       version: '0.5.0',
       inferred_from_active: false,

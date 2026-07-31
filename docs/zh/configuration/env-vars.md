@@ -1,6 +1,6 @@
 # 环境变量
 
-Kimi Code CLI 通过环境变量提供供应商 API 密钥、选择模型、控制运行时开关，以及迁移数据目录。供应商凭证不再写入 `config.toml`：可用 `kimi login <provider>` 安全保存密钥，也可为当前进程导出供应商的标准 API 密钥变量。
+Kimi Code CLI 通过环境变量提供供应商 API 密钥、选择模型、控制运行时开关，以及迁移数据目录。供应商凭证不再写入 `config.toml`：可在 checkout 中用 `vp run dev:cli -- login <provider>` 安全保存密钥，也可为当前进程导出供应商的标准 API 密钥变量。
 
 ## 核心路径
 
@@ -26,32 +26,55 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` 系列
 
-不修改 `config.toml`，直接选择一个内置供应商及其模型。详见[用环境变量选择模型](#用环境变量选择模型)。
+不修改 `config.toml`，直接选择一个内置或 `models.json` 供应商及其模型。详见[用环境变量选择模型](#用环境变量选择模型)。
 
-## 供应商 API 密钥
+## 供应商凭据与云身份
 
-供应商运行时会读取下列标准 shell 环境变量。通过 `kimi login <provider> --method api-key` 保存的密钥优先于环境变量。
+供应商运行时会读取下列标准 shell 环境变量。通过 `vp run dev:cli -- login <provider> --method api-key` 保存的 API 密钥优先于对应的环境变量。自定义 `models.json` 供应商请在 `apiKey` 中使用 `$VARIABLE` 或 `${VARIABLE}` 模板；它可以引用你控制的任何环境变量。
 
-| 环境变量             | 供应商                                     |
-| -------------------- | ------------------------------------------ |
-| `KIMI_API_KEY`       | Kimi Code；同时作为 Moonshot AI 的备用变量 |
-| `MOONSHOT_API_KEY`   | Moonshot AI                                |
-| `OPENAI_API_KEY`     | OpenAI                                     |
-| `XAI_API_KEY`        | xAI                                        |
-| `ANTHROPIC_API_KEY`  | Anthropic                                  |
-| `OPENROUTER_API_KEY` | OpenRouter                                 |
-| `DEEPSEEK_API_KEY`   | DeepSeek                                   |
-| `GROQ_API_KEY`       | Groq                                       |
-| `MISTRAL_API_KEY`    | Mistral                                    |
-| `TOGETHER_API_KEY`   | Together AI                                |
-| `CEREBRAS_API_KEY`   | Cerebras                                   |
-| `FIREWORKS_API_KEY`  | Fireworks AI                               |
-| `ZAI_API_KEY`        | Z.AI                                       |
-| `DASHSCOPE_API_KEY`  | 阿里云百炼                                 |
+| 环境变量 | 供应商 |
+| --- | --- |
+| `ANT_LING_API_KEY` | `ant-ling` |
+| `ANTHROPIC_API_KEY` | `anthropic` |
+| `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
+| `CEREBRAS_API_KEY` | `cerebras` |
+| `CLOUDFLARE_API_KEY` | `cloudflare-workers-ai`、`cloudflare-ai-gateway` |
+| `CLOUDFLARE_ACCOUNT_ID` | 两个 Cloudflare 供应商的 account 范围 |
+| `CLOUDFLARE_GATEWAY_ID` | `cloudflare-ai-gateway` 的 gateway 范围 |
+| `COPILOT_GITHUB_TOKEN` | `github-copilot` 的 token 替代 OAuth |
+| `DEEPSEEK_API_KEY` | `deepseek` |
+| `FIREWORKS_API_KEY` | `fireworks` |
+| `GEMINI_API_KEY` | `google` |
+| `GOOGLE_CLOUD_API_KEY` | `google-vertex` |
+| `GROQ_API_KEY` | `groq` |
+| `HF_TOKEN` | `huggingface` |
+| `KIMI_API_KEY` | `kimi-coding`；`moonshotai` 的备用变量 |
+| `MINIMAX_API_KEY` | `minimax` |
+| `MINIMAX_CN_API_KEY` | `minimax-cn` |
+| `MISTRAL_API_KEY` | `mistral` |
+| `MOONSHOT_API_KEY` | `moonshotai`、`moonshotai-cn` |
+| `NVIDIA_API_KEY` | `nvidia` |
+| `OPENAI_API_KEY` | `openai` |
+| `OPENCODE_API_KEY` | `opencode`、`opencode-go` |
+| `OPENROUTER_API_KEY` | `openrouter` |
+| `QWEN_TOKEN_PLAN_API_KEY` | `qwen-token-plan` |
+| `QWEN_TOKEN_PLAN_CN_API_KEY` | `qwen-token-plan-cn` |
+| `RADIUS_API_KEY` | `radius` |
+| `TOGETHER_API_KEY` | `together` |
+| `AI_GATEWAY_API_KEY` | `vercel-ai-gateway` |
+| `XAI_API_KEY` | `xai` |
+| `XIAOMI_API_KEY` | `xiaomi` |
+| `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `xiaomi-token-plan-ams` |
+| `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `xiaomi-token-plan-cn` |
+| `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `xiaomi-token-plan-sgp` |
+| `ZAI_API_KEY` | `zai` |
+| `ZAI_CODING_CN_API_KEY` | `zai-coding-cn` |
 
-OpenAI Codex 只使用 OAuth，不读取 `OPENAI_API_KEY`。Kimi Code 和 xAI 同时支持 OAuth 与 API 密钥，可用 `kimi login <provider>` 明确选择。
+`openai-codex` 只支持 OAuth。`kimi-coding`、`xai`、`anthropic`、`openrouter`、`github-copilot` 和 `radius` 在登录流程提供时可使用 OAuth。Anthropic 还识别 `ANTHROPIC_AUTH_TOKEN`（bearer gateway token）和 `ANTHROPIC_OAUTH_TOKEN`（OAuth token）；托管 OAuth 凭据优先使用 `vp run dev:cli -- login`。
 
-内置供应商完整列表见[供应商与模型](./providers.md)。
+Amazon Bedrock 从 `AWS_PROFILE`、`AWS_ACCESS_KEY_ID` 与 `AWS_SECRET_ACCESS_KEY`、容器凭据、web identity 或普通 AWS 配置文件发现 AWS 凭据。`AWS_BEARER_TOKEN_BEDROCK` 是 bearer token 替代方式。Vertex 使用 `GOOGLE_CLOUD_PROJECT`（或 `GCLOUD_PROJECT`）、`GOOGLE_CLOUD_LOCATION` 和可选的 `GOOGLE_APPLICATION_CREDENTIALS`；未设置凭据文件路径时使用 Google Application Default Credentials。这些变量属于身份链，不是模型元数据。
+
+内置供应商完整列表和登录方式见[供应商与模型](./providers.md#内置供应商)。
 
 ## OAuth 与托管端点
 
@@ -76,8 +99,8 @@ kimi
 
 | 环境变量              | 用途                            |
 | --------------------- | ------------------------------- |
-| `KIMI_MODEL_PROVIDER` | 内置供应商 ID，例如 `anthropic` |
-| `KIMI_MODEL_NAME`     | 该供应商下的模型 ID             |
+| `KIMI_MODEL_PROVIDER` | 内置、SDK 或 `models.json` 目录中的供应商 ID，例如 `anthropic` |
+| `KIMI_MODEL_NAME`     | 该供应商下的模型 ID |
 
 任一值缺失或该组合不在目录中时，启动会报告所选模型无法解析。
 
@@ -113,7 +136,7 @@ kimi
 | `KIMI_MODEL_TOP_P`                       | 全局核采样值；覆盖 `[model_overrides] top_p`                                                                                                                                                                                                            | 数字，如 `0.95`                                                                                        |
 | `KIMI_MODEL_THINKING_EFFORT`             | 强制所选模型使用指定 thinking effort；覆盖 `[thinking] forced_effort`                                                                                                                                                                                   | 所选模型支持的 effort                                                                                  |
 | `KIMI_MODEL_THINKING_KEEP`               | 全局保留 thinking 设置；覆盖 `[model_overrides] thinking_keep`                                                                                                                                                                                          | 供应商支持的值，例如 `all`                                                                             |
-| `KIMI_CODE_NO_AUTO_UPDATE`               | 完全禁用更新预检——不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE`                                                                                                                                                                    | 真值：`1`/`true`/`yes`/`on`                                                                            |
+| `KIMI_CODE_NO_AUTO_UPDATE`               | 在配置了更新通道的发行版中禁用更新预检。此源码构建默认没有更新通道。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE`                                                                                                                                                   | 真值：`1`/`true`/`yes`/`on`                                                                            |
 | `KIMI_DISABLE_CRON`                      | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发）                                                                                                                                                                                             | `1` 表示禁用                                                                                           |
 
 ## 诊断日志

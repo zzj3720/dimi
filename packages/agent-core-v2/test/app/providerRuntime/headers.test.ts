@@ -142,7 +142,7 @@ describe("provider runtime request headers", () => {
   it("isolates catalog host headers to first-party Kimi and Moonshot endpoints", async () => {
     const credentials = new MemoryCredentials();
     await credentials.modify("kimi-coding", async () => ({ type: "api_key", key: "kimi-key" }));
-    await credentials.modify("moonshot", async () => ({ type: "api_key", key: "moonshot-key" }));
+    await credentials.modify("moonshotai", async () => ({ type: "api_key", key: "moonshot-key" }));
     await credentials.modify("openai", async () => ({ type: "api_key", key: "openai-key" }));
     const captured = new Map<string, Headers>();
     vi.stubGlobal(
@@ -159,7 +159,7 @@ describe("provider runtime request headers", () => {
     );
 
     await models.refresh({ provider: "kimi-coding", force: true });
-    await models.refresh({ provider: "moonshot", force: true });
+    await models.refresh({ provider: "moonshotai", force: true });
     await models.refresh({ provider: "openai", force: true });
 
     const kimi = captured.get("https://api.kimi.com/coding/v1/models")!;
@@ -191,7 +191,7 @@ describe("provider runtime request headers", () => {
         auth: { headers: { Authorization: "Bearer kimi-token" } },
       }),
     );
-    await consume(streamProvider(modelFor("moonshot"), context, auth()));
+    await consume(streamProvider(modelFor("moonshotai"), context, auth()));
     await consume(streamProvider(modelFor("openai"), context, auth()));
 
     const kimi = captured.get("https://api.kimi.com/coding/v1/messages")!;
@@ -264,5 +264,47 @@ describe("provider runtime request headers", () => {
     expect(captured?.get("openai-beta")).toBe("responses=experimental");
     expect(captured?.get("session-id")).toBe("session-test");
     expect(captured?.get("x-client-request-id")).toBe("session-test");
+  });
+
+  it("projects Copilot's editor, intent, continuation and vision headers for every compatible API", async () => {
+    const captured: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        captured.push(headers(init));
+        return sse();
+      }),
+    );
+    const context: Context = {
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image", mimeType: "image/png", url: "https://image.example.test/input.png" }],
+          timestamp: 1,
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "inspect",
+          content: [{ type: "image", mimeType: "image/png", data: "AA==" }],
+          isError: false,
+          timestamp: 2,
+        },
+      ],
+    };
+
+    for (const api of ["openai-completions", "openai-responses", "anthropic-messages"] as const) {
+      await consume(streamProvider({ ...model("github-copilot"), api }, context, auth()));
+    }
+
+    expect(captured).toHaveLength(3);
+    for (const request of captured) {
+      expect(request.get("editor-version")).toBe("vscode/1.107.0");
+      expect(request.get("editor-plugin-version")).toBe("copilot-chat/0.35.0");
+      expect(request.get("copilot-integration-id")).toBe("vscode-chat");
+      expect(request.get("openai-intent")).toBe("conversation-edits");
+      expect(request.get("x-initiator")).toBe("agent");
+      expect(request.get("copilot-vision-request")).toBe("true");
+    }
   });
 });

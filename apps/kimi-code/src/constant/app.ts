@@ -61,7 +61,7 @@ export const DEFAULT_OAUTH_PROVIDER_NAME = "kimi-coding";
 // auto-propagates instead of silently breaking the startup recovery path.
 export const AUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
-export const FEEDBACK_ISSUE_URL = "https://github.com/MoonshotAI/kimi-code/issues";
+export const FEEDBACK_ISSUE_URL = "https://github.com/zzj3720/k-3720/issues";
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.
@@ -70,14 +70,16 @@ export const FEEDBACK_VERSION_PREFIX = "kimi-code-";
 // Telemetry event name; keep stable for dashboard queries.
 export const FEEDBACK_TELEMETRY_EVENT = "feedback_submitted";
 
-// CDN source of truth: all version checks and native install scripts pull from here.
+// Legacy CDN used by the pre-fork installer and plugin marketplace.
+//
+// This repository intentionally has no release channel yet.  In particular,
+// do not derive an update endpoint from this legacy base: doing so would let a
+// fresh 0.1.x build install an unrelated pre-fork release.
 export const KIMI_CODE_CDN_BASE = "https://code.kimi.com/kimi-code";
-export const KIMI_CODE_CDN_LATEST_URL = `${KIMI_CODE_CDN_BASE}/latest`;
-// Rollout manifest consumed by update checks; the plain-text `/latest` above
-// stays unchanged forever — already-shipped clients hard-fail on non-semver
-// bodies, and the CDN install scripts read it for fresh installs.
-export const KIMI_CODE_CDN_LATEST_JSON_URL = `${KIMI_CODE_CDN_BASE}/latest.json`;
-export const KIMI_CODE_TIPS_BANNER_URL = "https://cdn.kimi.com/kimi-code-tips/tips.json";
+/** No update authority is configured for the new repository. */
+export const KIMI_CODE_UPDATE_CHANNEL_URL: string | undefined = undefined;
+/** The old product's remotely controlled banner must not be shown by this build. */
+export const KIMI_CODE_TIPS_BANNER_URL: string | undefined = undefined;
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL = `${KIMI_CODE_CDN_BASE}/plugins/marketplace.json`;
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = "KIMI_CODE_PLUGIN_MARKETPLACE_URL";
 // Official plugins whose usage bills against the user's plan quota. Installing

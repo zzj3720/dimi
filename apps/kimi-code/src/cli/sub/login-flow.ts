@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
 import { createKimiHarness, type AuthInteraction, type AuthType } from "@moonshot-ai/kimi-code-sdk";
@@ -35,7 +37,10 @@ export async function runLoginFlow(
   process.once("SIGINT", () => {
     controller.abort();
   });
-  const readline = createInterface({ input: process.stdin, output: process.stderr });
+  // Secret prompts install their own raw-input listener. Keeping readline in
+  // non-terminal mode prevents its keypress renderer from echoing those bytes
+  // through a PTY while normal question prompts still use the same input.
+  const readline = createInterface({ input: process.stdin, output: process.stderr, terminal: false });
   const interaction: AuthInteraction = {
     signal: controller.signal,
     prompt: async (prompt) => {
@@ -47,7 +52,9 @@ export async function runLoginFlow(
         const selected = prompt.options[Number(answer) - 1];
         return selected?.id ?? answer;
       }
-      return readline.question(`${prompt.message} `, { signal: prompt.signal });
+      return prompt.type === "secret"
+        ? promptSecret(readline, `${prompt.message} `, prompt.signal)
+        : readline.question(`${prompt.message} `, { signal: prompt.signal });
     },
     notify: (event) => {
       if (event.type === "device_code") {
@@ -82,6 +89,91 @@ export async function runLoginFlow(
   } finally {
     readline.close();
     await harness.close();
+  }
+}
+
+/** Keep API keys out of terminal scrollback while preserving piped CLI input. */
+async function promptSecret(
+  readline: ReturnType<typeof createInterface>,
+  message: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (process.stdin.isTTY === true) {
+    return promptTtySecret(readline, message, signal);
+  }
+  // Pipes have no terminal echo, so readline does not need a private output
+  // hook here. This is also the supported path for scripts and E2E harnesses.
+  return readline.question(message, { signal });
+}
+
+async function promptTtySecret(
+  readline: ReturnType<typeof createInterface>,
+  message: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const input = process.stdin;
+  readline.pause();
+  // The interface was created with `terminal: false`, so it never redraws raw
+  // keypresses while this dedicated listener owns the TTY.
+  input.setRawMode?.(true);
+  setTerminalEcho(false);
+  input.resume();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  process.stderr.write(message);
+  return new Promise<string>((resolve, reject) => {
+    let value = "";
+    const cleanup = (): void => {
+      input.off("data", onData);
+      signal?.removeEventListener("abort", onAbort);
+      input.setRawMode?.(false);
+      setTerminalEcho(true);
+      readline.resume();
+    };
+    const finish = (result: { value: string } | { error: Error }): void => {
+      cleanup();
+      process.stderr.write("\n");
+      if ("value" in result) resolve(result.value);
+      else reject(result.error);
+    };
+    const onAbort = (): void => finish({ error: new Error("Login cancelled") });
+    const onData = (chunk: Buffer | string): void => {
+      for (const char of String(chunk)) {
+        if (char === "\r" || char === "\n") {
+          finish({ value });
+          return;
+        }
+        if (char === "\u0003") {
+          finish({ error: new Error("Login cancelled") });
+          return;
+        }
+        if (char === "\u007f" || char === "\b") {
+          value = value.slice(0, -1);
+          process.stderr.write("\b \b");
+          continue;
+        }
+        value += char;
+        process.stderr.write("*");
+      }
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    input.on("data", onData);
+    if (signal?.aborted) onAbort();
+  });
+}
+
+function setTerminalEcho(enabled: boolean): void {
+  if (process.platform === "win32") return;
+  try {
+    const terminal = openSync("/dev/tty", "r+");
+    try {
+      execFileSync("stty", [enabled ? "echo" : "-echo"], {
+        stdio: [terminal, terminal, "ignore"],
+      });
+    } finally {
+      closeSync(terminal);
+    }
+  } catch {
+    // Raw mode still protects terminals where stty is unavailable.
   }
 }
 

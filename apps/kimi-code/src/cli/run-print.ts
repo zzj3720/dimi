@@ -130,6 +130,19 @@ export function configuredModel(...models: readonly (string | undefined)[]): str
   return models.find((model) => model !== undefined && model.trim().length > 0);
 }
 
+/** Config stores provider and model separately; print mode needs the runtime alias. */
+export function qualifiedDefaultModel(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (model === undefined || provider === undefined || provider.length === 0) return model;
+  // Model ids are provider-owned and may themselves contain slashes (for
+  // example OpenRouter's `anthropic/...` ids).  The only already-qualified
+  // form is the exact configured provider prefix.
+  if (model.startsWith(`${provider}/`)) return model;
+  return `${provider}/${model}`;
+}
+
 export function installPromptTerminationCleanup(
   promptProcess: PromptProcess,
   cleanup: () => Promise<void>,
@@ -219,7 +232,10 @@ export async function runPrint(
   // timeout → unbounded) before anything resolves a session; only keys the
   // user left unset are filled, in the memory layer.
   await applyPrintModeConfigDefaults(configService);
-  const defaultModel = configService.get<string>("defaultModel") ?? undefined;
+  const defaultModel = qualifiedDefaultModel(
+    configService.get<string>("defaultProvider") ?? undefined,
+    configService.get<string>("defaultModel") ?? undefined,
+  );
   let telemetryEnabled = true;
   try {
     telemetryEnabled = configService.get("telemetry") !== false;

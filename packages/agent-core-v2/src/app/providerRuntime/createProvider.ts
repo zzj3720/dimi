@@ -1,18 +1,18 @@
 import type {
   Api,
-  AuthResult,
-  Context,
   Credential,
   Model,
-  ModelsSimpleStreamOptions,
   Provider,
+  ProviderHeaders,
+  ProviderStreams,
   RefreshModelsContext,
 } from "./types";
 
 export interface CreateProviderOptions<TApi extends Api = Api> {
   id: string;
   name?: string;
-  baseUrl: string;
+  baseUrl?: string;
+  headers?: ProviderHeaders;
   auth: Provider["auth"];
   models: readonly Model<TApi>[];
   fetchModels?: (context: RefreshModelsContext) => Promise<readonly Model<TApi>[]>;
@@ -20,36 +20,33 @@ export interface CreateProviderOptions<TApi extends Api = Api> {
     models: readonly Model<TApi>[],
     credential: Credential | undefined,
   ) => readonly Model<TApi>[];
-  stream(
-    model: Model<TApi>,
-    context: Context,
-    auth: AuthResult,
-    options?: ModelsSimpleStreamOptions,
-  ): AsyncIterable<import("./types").AssistantMessageEvent>;
+  /** One protocol implementation, or an API-keyed map for mixed providers. */
+  api: ProviderStreams<TApi> | Partial<Record<TApi, ProviderStreams<TApi>>>;
 }
 
 /**
  * Builds a runtime provider from project-owned contracts. Static models remain
- * available before the first refresh; a dynamic model with the same id
- * replaces its baseline entry.
+ * available before the first refresh. Once a dynamic source has supplied a
+ * catalog snapshot, that snapshot is authoritative, including an empty list.
  */
 export function createProvider<TApi extends Api = Api>(
   input: CreateProviderOptions<TApi>,
 ): Provider {
   const baseline = input.models;
-  let dynamic: readonly Model<TApi>[] = [];
+  let dynamic: readonly Model<TApi>[] | undefined;
   let inflight: Promise<void> | undefined;
 
-  const getModels = (): readonly Model<TApi>[] => {
-    const models = new Map(baseline.map((model) => [model.id, model]));
-    for (const model of dynamic) models.set(model.id, model);
-    return [...models.values()];
-  };
+  const getModels = (): readonly Model<TApi>[] => dynamic ?? baseline;
+
+  const single = isProviderStreams(input.api) ? input.api : undefined;
+  const byApi: Partial<Record<TApi, ProviderStreams<TApi>>> | undefined =
+    single === undefined ? (input.api as Partial<Record<TApi, ProviderStreams<TApi>>>) : undefined;
 
   return {
     id: input.id,
     name: input.name ?? input.id,
     baseUrl: input.baseUrl,
+    headers: input.headers,
     auth: input.auth,
     getModels,
     filterModels: input.filterModels,
@@ -64,9 +61,43 @@ export function createProvider<TApi extends Api = Api>(
             });
             return inflight;
           },
-    stream: (model, context, auth, options) =>
-      input.stream(model as Model<TApi>, context, auth, options),
+    stream: (model, context, auth, options) => {
+      const streams = single ?? byApi?.[model.api as TApi];
+      return streams?.stream(model as Model<TApi>, context, auth, options) ??
+        missingApiStream(model, input.id);
+    },
   };
+}
+
+function isProviderStreams<TApi extends Api>(
+  value: ProviderStreams<TApi> | Partial<Record<TApi, ProviderStreams<TApi>>>,
+): value is ProviderStreams<TApi> {
+  return typeof (value as ProviderStreams<TApi>).stream === "function";
+}
+
+async function* missingApiStream(
+  model: Model,
+  providerId: string,
+): AsyncIterable<import("./types").AssistantMessageEvent> {
+  const output = {
+    role: "assistant" as const,
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "error" as const,
+    errorMessage: `Provider ${providerId} has no API implementation for ${model.api}`,
+    timestamp: Date.now(),
+  };
+  yield { type: "error", reason: "error", error: output };
 }
 
 export function hasApi<TApi extends Api>(model: Model, api: TApi): model is Model<TApi> {
@@ -76,13 +107,13 @@ export function hasApi<TApi extends Api>(model: Model, api: TApi): model is Mode
 async function refreshDynamicModels<TApi extends Api>(
   input: CreateProviderOptions<TApi>,
   context: RefreshModelsContext,
-  update: (models: readonly Model<TApi>[]) => void,
+  update: (models: readonly Model<TApi>[] | undefined) => void,
 ): Promise<void> {
   const stored = await context.store.read();
-  const models = (stored?.models ?? []).filter(
+  const models = stored?.models.filter(
     (model): model is Model<TApi> => model.provider === input.id,
   );
-  update(models);
+  if (models !== undefined) update(models);
   if (!context.allowNetwork || context.signal?.aborted) return;
 
   const refreshed = await input.fetchModels!(context);

@@ -24,7 +24,7 @@ describe("Session.setThinking", () => {
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({
-        model: { reasoning: true },
+        model: { reasoning: true, thinkingLevelMap: { off: null, low: "low" } },
       }),
     });
 

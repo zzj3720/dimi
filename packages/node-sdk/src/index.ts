@@ -31,7 +31,17 @@ export { parseAgentFileText, resolveAgentPath } from "@moonshot-ai/agent-core-v2
 // Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
 // outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
 export { installGlobalProxyDispatcher } from "@moonshot-ai/agent-core-v2";
-export type { AuthInteraction, AuthType, ProviderModel } from "@moonshot-ai/agent-core-v2";
+export type {
+  AuthInteraction,
+  AuthType,
+  CreateProviderOptions,
+  CustomModelDefinition,
+  CustomProviderDefinition,
+  Provider,
+  ProviderModel,
+} from "@moonshot-ai/agent-core-v2";
+export { createModels, createProvider } from "@moonshot-ai/agent-core-v2";
+export { parseJsonc } from "@moonshot-ai/agent-core-v2";
 
 // Image compression — ingestion sites (e.g. the CLI's clipboard paste, the ACP
 // adapter) shrink oversized images while constructing the content part, before
@@ -82,6 +92,7 @@ export type {
   ProviderAuthMethod,
   ProviderAuthPrompt,
   ProviderAuthState,
+  CustomProviderInput,
   ProviderAuthStatus,
   ProviderAuthSubmitFeedbackInput,
   ProviderLoginResult,

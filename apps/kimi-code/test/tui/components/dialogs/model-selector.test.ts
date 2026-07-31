@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ModelSelectorComponent } from "#/tui/components/dialogs/model-selector";
 import { currentTheme } from "#/tui/theme";
 import { darkColors } from "#/tui/theme/colors";
+import { providerModelToAlias } from "#/tui/utils/provider-model";
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, "");
@@ -46,6 +47,30 @@ function text(component: ModelSelectorComponent, width = 120): string {
 }
 
 describe("ModelSelectorComponent", () => {
+  it("does not invent effort levels for boolean reasoning, but honors provider mapped defaults", () => {
+    const base = {
+      provider: "local",
+      id: "local-chat",
+      name: "Local chat",
+      api: "openai-completions",
+      baseUrl: "https://api.example.test/v1",
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32_000,
+      maxTokens: 4_096,
+    } as const;
+    expect(providerModelToAlias({ ...base, reasoning: true })).toMatchObject({
+      supportEfforts: [],
+      defaultEffort: undefined,
+    });
+    expect(providerModelToAlias({
+      ...base,
+      reasoning: true,
+      thinkingLevelMap: { low: "low", high: "high", off: null },
+      defaultThinkingLevel: "high",
+    })).toMatchObject({ supportEfforts: ["low", "high"], defaultEffort: "high" });
+  });
+
   it("lays out the provider as a right column and marks the current model", () => {
     const picker = new ModelSelectorComponent({
       models: { kimi: model("Kimi K2") },

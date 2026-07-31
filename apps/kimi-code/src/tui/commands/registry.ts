@@ -215,9 +215,9 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'provider',
     aliases: ['providers'],
-    description: 'Connect or refresh AI providers',
+    description: 'Connect, refresh, or manage AI providers',
     priority: 95,
-    argumentHint: '[provider|refresh]',
+    argumentHint: '[provider|add|import|remove|refresh]',
     availability: 'always',
   },
   {

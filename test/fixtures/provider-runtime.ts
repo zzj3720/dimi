@@ -75,6 +75,30 @@ class TestProviderRuntime extends ProviderModels implements IProviderRuntime {
       provider === undefined ? [] : [{ providerId: provider.id, type: "api_key" }],
     );
   }
+
+  listCustomProviders() {
+    return Promise.resolve([]);
+  }
+
+  getProviderDefinitionDiagnostic(): string | undefined {
+    return undefined;
+  }
+
+  providerApis() {
+    return ["openai-completions"] as const;
+  }
+
+  refreshProviderDefinitions(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  upsertCustomProvider(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  deleteCustomProvider(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 function testCredentialStore(apiKey: string): CredentialStore {

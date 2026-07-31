@@ -3,7 +3,8 @@
 Kimi Code CLI 把长期偏好、供应商凭证和一次性运行参数放在不同通道：
 
 - **`config.toml`** 保存默认供应商/模型、thinking 设置、循环限制等偏好，不保存供应商凭证。
-- **`auth.json`** 保存通过 `kimi login` 写入的凭证。
+- **`auth.json`** 保存通过 `vp run dev:cli -- login` 写入的凭证。
+- **`models.json`** 是用户拥有的 JSONC 供应商层，可添加自定义供应商，或覆盖内置/SDK 供应商的模型元数据和请求设置。
 - **环境变量**可提供供应商 API 密钥、选择供应商/模型组合、迁移数据目录，或覆盖文档明确列出的运行参数。
 - **命令行选项**仅影响本次启动。
 
@@ -15,7 +16,7 @@ Kimi Code CLI 把长期偏好、供应商凭证和一次性运行参数放在不
 2. 同时设置的 `KIMI_MODEL_PROVIDER` 与 `KIMI_MODEL_NAME`
 3. `config.toml` 中的 `default_provider` 与 `default_model`
 
-所选组合必须存在于运行时模型目录。供应商支持远程发现时，`kimi provider refresh` 会更新目录，缓存结果写入 `models-store.json`。
+所选组合必须存在于运行时模型目录。该目录会组合内置或 SDK 供应商与 `models.json` 层。供应商支持远程发现时，`vp run dev:cli -- provider refresh` 会更新目录，缓存结果写入 `models-store.json`；只有完整的远程元数据才能改变模型的上下文、输出或 Thinking 能力。
 
 CLI 当前只读取一个用户级配置文件，没有项目级配置机制。需要隔离配置时，将 `KIMI_CODE_HOME` 指向不同的数据目录。
 
@@ -23,18 +24,19 @@ CLI 当前只读取一个用户级配置文件，没有项目级配置机制。�
 
 供应商认证独立于模型选择，按以下顺序解析：
 
-1. 通过 `kimi login <provider>` 保存的凭证
-2. 供应商支持 API 密钥时，对应的标准环境变量
+1. 通过 `vp run dev:cli -- login <provider>` 保存的凭证
+2. 该供应商在 `models.json` 中配置的 API 密钥模板或命令
+3. 供应商支持 API 密钥时，对应的标准环境变量
 
-用 `kimi logout <provider>` 删除已保存凭证。shell 中导出的环境变量会继续生效，直到取消设置或退出 shell。
+用 `vp run dev:cli -- logout <provider>` 删除已保存凭证。shell 中导出的环境变量会继续生效，直到取消设置或退出 shell。
 
 例如，下列命令使用一次性的 Anthropic 密钥，不修改任何本机文件：
 
 ```sh
-ANTHROPIC_API_KEY="YOUR_API_KEY" kimi -m anthropic/claude-sonnet-4-6
+ANTHROPIC_API_KEY="YOUR_API_KEY" vp run dev:cli -- -m anthropic/claude-sonnet-4-6
 ```
 
-OpenAI Codex 使用 OAuth；Kimi Code 和 xAI 同时支持 OAuth 与 API 密钥。内置供应商及登录方式见[平台与模型](./providers.md)。
+OpenAI Codex 使用 OAuth；Kimi Code、xAI、Anthropic、OpenRouter、GitHub Copilot 和 Radius 可以提供 OAuth；云供应商可使用各自的凭据链。内置供应商及登录方式见[供应商与模型](./providers.md)。
 
 ## 其他运行参数
 
@@ -79,4 +81,4 @@ kimi --plan
 
 - [配置文件](./config-files.md) — 长期偏好字段
 - [环境变量](./env-vars.md) — 供应商密钥与运行时覆盖
-- [数据路径](./data-locations.md) — 凭证与模型缓存文件
+- [数据位置](./data-locations.md) — 凭据、供应商定义与模型缓存文件

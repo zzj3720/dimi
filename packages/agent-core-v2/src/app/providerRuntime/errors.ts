@@ -9,6 +9,9 @@ export const ProviderRuntimeErrors = {
     PROVIDER_RATE_LIMIT: "provider.rate_limit",
     PROVIDER_AUTH_ERROR: "provider.auth_error",
     PROVIDER_CONNECTION_ERROR: "provider.connection_error",
+    PROVIDER_INVALID_DEFINITION: "provider.invalid_definition",
+    PROVIDER_CONFLICT: "provider.conflict",
+    PROVIDER_DEFINITION_STORE_INVALID: "provider.definition_store_invalid",
     PROVIDER_OVERLOADED: "provider.overloaded",
     CONTEXT_OVERFLOW: "context.overflow",
   },
@@ -60,7 +63,7 @@ export const ProviderRuntimeErrors = {
 
 registerErrorDomain(ProviderRuntimeErrors);
 
-export function providerRuntimeError(message: string, metadata?: unknown): Error2 {
+export function providerRuntimeError(message: string, metadata?: unknown, cause?: unknown): Error2 {
   const normalized = message.toLowerCase();
   const statusCode = Number(/\bHTTP\s+(\d{3})\b/iu.exec(message)?.[1]);
   const traceId =
@@ -81,6 +84,7 @@ export function providerRuntimeError(message: string, metadata?: unknown): Error
             ? ProviderRuntimeErrors.codes.PROVIDER_CONNECTION_ERROR
             : ProviderRuntimeErrors.codes.PROVIDER_API_ERROR;
   return new Error2(code, message, {
+    cause,
     details: {
       statusCode: Number.isFinite(statusCode) ? statusCode : undefined,
       traceId,

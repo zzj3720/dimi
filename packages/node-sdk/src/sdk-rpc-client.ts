@@ -153,6 +153,7 @@ import type {
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
+  Provider,
   ReloadSummary,
   RenameSessionInput,
   ResumeSessionInput,
@@ -198,6 +199,8 @@ export interface SDKRpcClientOptions {
   readonly uiMode?: string;
   /** Replaces the built-in provider runtime for custom hosts and deterministic tests. */
   readonly providerRuntime?: IProviderRuntime;
+  /** Process-lifetime providers registered on the harness runtime. */
+  readonly providers?: readonly Provider[];
 }
 
 /**
@@ -311,9 +314,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
       this.imageLimits.setConfig(config.get<ImageLimitsConfig>("image"));
     });
     const providerRuntime = app.accessor.get(IProviderRuntime);
-    this.auth = new ProviderAuthFacade({ runtime: providerRuntime });
+    const providerReady = providerRuntime.ready.then(() => {
+      for (const provider of options.providers ?? []) providerRuntime.setProvider(provider);
+    });
+    this.auth = new ProviderAuthFacade({ runtime: providerRuntime, ready: providerReady });
     this.installEngineTelemetry(options.telemetry);
-    this.modelReady = Promise.all([this.configReady, providerRuntime.ready]).then(() => undefined);
+    this.modelReady = Promise.all([this.configReady, providerReady]).then(() => undefined);
     this.appSubscriptions.push(
       config.onDidSectionChange((event) => {
         if (event.domain === "image") {

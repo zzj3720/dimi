@@ -7,8 +7,6 @@ export function providerModelToAlias(model: ProviderModel): ModelAlias {
   const efforts =
     configuredEfforts.length > 0
       ? configuredEfforts
-      : model.reasoning
-      ? ['low', 'medium', 'high']
       : [];
   return {
     provider: model.provider,
@@ -26,6 +24,8 @@ export function providerModelToAlias(model: ProviderModel): ModelAlias {
       'tool_use',
     ].filter((value): value is string => value !== undefined),
     supportEfforts: efforts,
-    defaultEffort: efforts[Math.floor(efforts.length / 2)],
+    defaultEffort: efforts.includes(model.defaultThinkingLevel ?? '')
+      ? model.defaultThinkingLevel
+      : efforts[Math.floor(efforts.length / 2)],
   };
 }

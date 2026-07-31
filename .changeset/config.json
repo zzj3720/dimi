@@ -1,5 +1,5 @@
 {
-  "changelog": ["@changesets/changelog-github", { "repo": "MoonshotAI/kimi-code" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "zzj3720/k-3720" }],
   "commit": false,
   "fixed": [],
   "linked": [],

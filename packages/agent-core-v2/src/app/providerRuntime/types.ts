@@ -1,10 +1,17 @@
 export type KnownApi =
   | "openai-completions"
+  | "mistral-conversations"
   | "openai-responses"
+  | "azure-openai-responses"
   | "openai-codex-responses"
   | "anthropic-messages"
-  | "google-generative-ai";
+  | "bedrock-converse-stream"
+  | "google-generative-ai"
+  | "google-vertex"
+  | "pi-messages";
 export type Api = KnownApi | (string & {});
+/** The provider runtime can serialize only text and image user content. */
+export type ModelInput = "text" | "image";
 
 export type ProviderHeaders = Record<string, string | null>;
 export type ProviderEnv = Record<string, string>;
@@ -27,6 +34,8 @@ export interface OAuthCredential {
   access: string;
   refresh: string;
   expires: number;
+  /** Provider-owned values used by request and header templates after OAuth. */
+  env?: ProviderEnv;
   [key: string]: unknown;
 }
 
@@ -118,6 +127,18 @@ export interface OAuthAuth {
   toAuth(credential: OAuthCredential): Promise<ModelAuth>;
 }
 
+export interface ModelCostTier extends ModelCost {
+  inputTokensAbove: number;
+}
+
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  tiers?: readonly ModelCostTier[];
+}
+
 export interface Model<TApi extends Api = Api> {
   id: string;
   name: string;
@@ -125,21 +146,56 @@ export interface Model<TApi extends Api = Api> {
   provider: string;
   baseUrl: string;
   reasoning: boolean;
-  input: readonly ("text" | "image")[];
-  cost: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-  };
+  input: readonly ModelInput[];
+  cost: ModelCost;
   contextWindow: number;
   maxTokens: number;
   dynamicTools?: boolean;
   headers?: ProviderHeaders;
-  compat?: Record<string, unknown>;
+  compat?: Readonly<Record<string, unknown>>;
   thinkingLevelMap?: Readonly<Record<string, string | number | null>>;
   defaultThinkingLevel?: string;
 }
+
+/**
+ * A user-owned `models.json` provider layer. Its fields are deliberately
+ * optional: an entry may overlay a built-in provider, add models to one, or
+ * define a complete new provider. Credentials are never persisted here.
+ */
+export interface CustomProviderDefinition {
+  id: string;
+  name?: string;
+  api?: Api;
+  baseUrl?: string;
+  /** A literal key, `$ENVIRONMENT_VARIABLE` template, or `!command`. */
+  apiKey?: string;
+  oauth?: "radius";
+  authHeader?: boolean;
+  headers?: ProviderHeaders;
+  compat?: Record<string, unknown>;
+  models?: readonly CustomModelDefinition[];
+  modelOverrides?: Readonly<Record<string, CustomModelOverride>>;
+}
+
+export interface CustomModelDefinition {
+  id: string;
+  name?: string;
+  api?: Api;
+  baseUrl?: string;
+  reasoning?: boolean;
+  input?: readonly ModelInput[];
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: ModelCost;
+  headers?: ProviderHeaders;
+  compat?: Record<string, unknown>;
+  thinkingLevelMap?: Readonly<Record<string, string | number | null>>;
+}
+
+/** Pi-compatible model override: cost fields are independently overridable. */
+export type CustomModelOverride = Omit<Partial<CustomModelDefinition>, "id" | "cost"> & {
+  cost?: Partial<ModelCost>;
+};
 
 export interface ModelsStoreEntry {
   models: readonly Model[];
@@ -182,6 +238,9 @@ export interface ThinkingContent {
   type: "thinking";
   thinking: string;
   thinkingSignature?: string;
+  itemId?: string;
+  /** The provider's completed reasoning item, retained for lossless replay. */
+  reasoningItem?: Readonly<Record<string, unknown>>;
 }
 
 export interface ToolCall {
@@ -260,9 +319,19 @@ export type ModelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" |
 export interface ModelsSimpleStreamOptions {
   signal?: AbortSignal;
   temperature?: number;
+  topP?: number;
   maxTokens?: number;
+  /** A stable request key used for prompt caching and session affinity. */
+  cacheKey?: string;
+  /** Kept for callers which only need transport session affinity. */
   sessionId?: string;
-  reasoning?: Exclude<ModelThinkingLevel, "off">;
+  /** `off` is kept through transport so adapters can distinguish it from an unspecified request. */
+  reasoning?: ModelThinkingLevel;
+  thinkingKeep?: string;
+  responseFormat?: {
+    type: "text" | "json_object" | "json_schema";
+    jsonSchema?: { name?: string; schema: Record<string, unknown>; strict?: boolean };
+  };
   onResponse?: (response: { headers: Record<string, string> }) => void;
 }
 
@@ -293,25 +362,35 @@ export type AssistantMessageEvent =
       type: "error";
       reason: "aborted" | "error";
       error: AssistantMessage;
+      cause?: unknown;
     };
 
-export interface Provider {
-  id: string;
-  name: string;
-  baseUrl: string;
-  auth: {
-    apiKey?: ApiKeyAuth;
-    oauth?: OAuthAuth;
-  };
-  getModels(): readonly Model[];
-  filterModels?(models: readonly Model[], credential: Credential | undefined): readonly Model[];
-  refreshModels?(context: RefreshModelsContext): Promise<void>;
+export interface ProviderStreams<TApi extends Api = Api> {
   stream(
-    model: Model,
+    model: Model<TApi>,
     context: Context,
     auth: AuthResult,
     options?: ModelsSimpleStreamOptions,
   ): AsyncIterable<AssistantMessageEvent>;
+}
+
+export interface Provider<TApi extends Api = Api> extends ProviderStreams<TApi> {
+  id: string;
+  name: string;
+  baseUrl?: string;
+  headers?: ProviderHeaders;
+  auth: {
+    apiKey?: ApiKeyAuth;
+    oauth?: OAuthAuth;
+  };
+  getModels(): readonly Model<TApi>[];
+  filterModels?(
+    models: readonly Model<TApi>[],
+    credential: Credential | undefined,
+  ): readonly Model<TApi>[];
+  /** Recreate a provider-owned dynamic catalog with a persisted endpoint overlay. */
+  withBaseUrl?(baseUrl: string): Provider<TApi>;
+  refreshModels?(context: RefreshModelsContext): Promise<void>;
 }
 
 export interface ModelsRefreshOptions {

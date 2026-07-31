@@ -36,7 +36,7 @@ export function modelThinkingLevels(model: Model): readonly string[] {
   const configured = Object.entries(model.thinkingLevelMap ?? {})
     .filter(([level, value]) => level !== "off" && value !== null)
     .map(([level]) => level);
-  return configured.length > 0 ? configured : model.reasoning ? ["low", "medium", "high"] : [];
+  return configured;
 }
 
 export function modelDefaultThinkingLevel(model: Model): string | undefined {
@@ -96,6 +96,8 @@ export function toProtocolModel(model: Model): ModelCatalogItem {
   const capabilities = modelCapabilities(model);
   const capabilityNames = [
     capabilities.image_in ? "image_in" : undefined,
+    capabilities.video_in ? "video_in" : undefined,
+    capabilities.audio_in ? "audio_in" : undefined,
     capabilities.thinking ? "thinking" : undefined,
     capabilities.tool_use ? "tool_use" : undefined,
   ].filter((value): value is string => value !== undefined);

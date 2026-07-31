@@ -32,7 +32,7 @@ import type {
 export class ModelRequesterImpl implements ModelRequester {
   constructor(
     readonly model: Model,
-    private readonly runtime: IProviderRuntime,
+    private readonly runtime: Pick<IProviderRuntime, "streamSimple">,
   ) {}
 
   request(
@@ -73,9 +73,12 @@ export class ModelRequesterImpl implements ModelRequester {
     const stream = this.runtime.streamSimple(this.model, context, {
       signal,
       temperature: params?.sampling?.temperature,
-      maxTokens: params?.maxCompletionTokens,
-      sessionId: params?.cacheKey,
+      topP: params?.sampling?.topP,
+      maxTokens: clampOutputTokens(params),
+      cacheKey: params?.cacheKey,
       reasoning: toThinkingLevel(params?.thinkingEffort),
+      thinkingKeep: params?.thinkingKeep,
+      responseFormat: toResponseFormat(input.responseFormat),
       onResponse: (response) => {
         params?.onTraceId?.(response.headers["x-trace-id"] ?? null);
       },
@@ -113,6 +116,7 @@ export class ModelRequesterImpl implements ModelRequester {
         throw providerRuntimeError(
           event.error.errorMessage ?? `Provider ${event.reason}`,
           event.error,
+          event.cause,
         );
       }
     }
@@ -127,6 +131,33 @@ export class ModelRequesterImpl implements ModelRequester {
     }
     void emittedToolCalls;
   }
+}
+
+function clampOutputTokens(params: ModelRequestParams | undefined): number | undefined {
+  const requested = params?.maxCompletionTokens;
+  if (requested === undefined) return undefined;
+  const context = params?.maxContextTokens;
+  const used = params?.usedContextTokens;
+  if (context === undefined || used === undefined) return requested;
+  return Math.max(1, Math.min(requested, context - used));
+}
+
+function toResponseFormat(
+  responseFormat: ModelRequestInput["responseFormat"],
+): import("#/app/providerRuntime/types").ModelsSimpleStreamOptions["responseFormat"] {
+  if (responseFormat === undefined) return undefined;
+  if (responseFormat.type === "json_object") return { type: "json_object" };
+  if (responseFormat.type === "json_schema") {
+    return {
+      type: "json_schema",
+      jsonSchema: {
+        name: responseFormat.jsonSchema.name,
+        schema: responseFormat.jsonSchema.schema,
+        strict: responseFormat.jsonSchema.strict,
+      },
+    };
+  }
+  return { type: "text" };
 }
 
 function toRuntimeTool(tool: ModelRequestInput["tools"][number]): RuntimeTool {
@@ -344,10 +375,9 @@ function emptyRuntimeUsage(): Usage {
   };
 }
 
-function toThinkingLevel(
-  effort: string | undefined,
-): Exclude<ModelThinkingLevel, "off"> | undefined {
-  if (effort === undefined || effort === "off") return undefined;
+function toThinkingLevel(effort: string | undefined): ModelThinkingLevel | undefined {
+  if (effort === undefined) return undefined;
+  if (effort === "off") return "off";
   if (effort === "on") return "medium";
   if (
     effort === "minimal" ||

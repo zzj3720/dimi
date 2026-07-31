@@ -1,8 +1,13 @@
 import { createDecorator, type ServiceIdentifier } from "#/_base/di/instantiation";
 
-import type { Api, CredentialInfo, Model, MutableModels } from "./types";
+import type {
+  Api,
+  CredentialInfo,
+  CustomProviderDefinition,
+  Model,
+  MutableModels,
+} from "./types";
 
-export { createProvider, hasApi, type CreateProviderOptions } from "./createProvider";
 export type {
   Api,
   ApiKeyCredential,
@@ -19,8 +24,13 @@ export type {
   Credential,
   CredentialInfo,
   CredentialStore,
+  CustomModelDefinition,
+  CustomProviderDefinition,
   Context,
   ModelAuth,
+  ModelCost,
+  ModelCostTier,
+  ModelInput,
   KnownApi,
   Models,
   ModelsRefreshOptions,
@@ -31,10 +41,9 @@ export type {
   OAuthCredential,
   Provider,
   ProviderHeaders,
+  ProviderStreams,
   RefreshModelsContext,
 } from "./types";
-export { createModels, ProviderModels, type CreateModelsOptions } from "./models";
-export { InMemoryCredentialStore, InMemoryModelsStore } from "./storage";
 export type ProviderModel<TApi extends Api = Api> = Model<TApi>;
 
 /**
@@ -45,6 +54,14 @@ export interface IProviderRuntime extends MutableModels {
   readonly _serviceBrand: undefined;
   readonly ready: Promise<void>;
   listCredentials(): Promise<readonly CredentialInfo[]>;
+  providerApis(): readonly Api[];
+  listCustomProviders(): Promise<readonly CustomProviderDefinition[]>;
+  /** The latest recoverable models.json load failure, if any. */
+  getProviderDefinitionDiagnostic(): string | undefined;
+  /** Reload the user-owned models.json layer before presenting a catalog. */
+  refreshProviderDefinitions(): Promise<void>;
+  upsertCustomProvider(definition: CustomProviderDefinition): Promise<void>;
+  deleteCustomProvider(id: string): Promise<void>;
 }
 
 export const IProviderRuntime: ServiceIdentifier<IProviderRuntime> =
