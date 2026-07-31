@@ -3,4 +3,4 @@
 "@moonshot-ai/kimi-code-sdk": major
 ---
 
-Replace custom provider configuration with built-in account connections and dynamic model catalogs. Run `kimi login <provider>` and `kimi provider models` to connect and inspect models; in the TUI, `/login` now selects an authentication type and provider before opening that provider's model picker.
+Replace custom provider configuration with built-in account connections and dynamic model catalogs, while keeping startup usable when a saved model disappears. Use `kimi login <provider>` or `/login` to connect and choose a model.

@@ -1,6 +1,7 @@
 /**
- * Scenario: a user connects a provider through the production interactive TUI.
- * Responsibilities: accept /login, collect a secret, select a runtime model, and persist both.
+ * Scenario: a user starts and connects a provider through the production interactive TUI.
+ * Responsibilities: tolerate unavailable environment defaults, accept /login, collect a secret,
+ * select a runtime model, and persist both.
  * Wiring: production main entry with an isolated home and documented paste-burst setting.
  * Run: vp exec vitest run test/e2e/interactive-provider-login.e2e.test.ts
  */
@@ -57,51 +58,22 @@ describe('interactive provider login', () => {
       const home = await mkdtemp(join(tmpdir(), 'kimi-provider-tui-e2e-'));
       tempHomes.push(home);
       await writeFile(join(home, 'tui.toml'), 'disable_paste_burst = true\n', 'utf8');
-      const env = { ...process.env };
-      delete env['OPENAI_API_KEY'];
-      const command = [
-        process.execPath,
-        tsxCli,
-        '--tsconfig',
-        join(appRoot, 'tsconfig.dev.json'),
-        '--import',
-        rawTextLoader,
-        main,
-      ];
-      const terminal = spawn('python3', ['-u', '-c', PTY_BRIDGE, ...command], {
-        cwd: appRoot,
-        env: {
-          ...env,
-          TERM: 'xterm-256color',
-          KIMI_CODE_HOME: home,
-          KIMI_LOG_LEVEL: 'off',
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      let output = '';
-      terminal.stdout.setEncoding('utf8');
-      terminal.stderr.setEncoding('utf8');
-      terminal.stdout.on('data', (chunk: string) => {
-        output += chunk;
-      });
-      terminal.stderr.on('data', (chunk: string) => {
-        output += chunk;
-      });
+      const { terminal, read } = startTui(home);
 
       try {
-        await waitForText(terminal, () => output, 'Run /login to connect a provider.');
-        await writeCommand(terminal, () => output, '/login openai');
-        await waitForText(terminal, () => output, 'Connect to OpenAI');
-        await waitForText(terminal, () => output, 'Enter OpenAI API key:');
-        await writeLine(terminal, () => output, 'YOUR_API_KEY');
-        await waitForText(terminal, () => output, 'Select a model');
+        await waitForText(terminal, read, 'Run /login to connect a provider.');
+        await writeCommand(terminal, read, '/login openai');
+        await waitForText(terminal, read, 'Connect to OpenAI');
+        await waitForText(terminal, read, 'Enter OpenAI API key:');
+        await writeLine(terminal, read, 'YOUR_API_KEY');
+        await waitForText(terminal, read, 'Select a model');
         terminal.stdin.write('\r');
-        await waitForText(terminal, () => output, 'Connected to OpenAI');
-        await writeCommand(terminal, () => output, '/exit');
+        await waitForText(terminal, read, 'Connected to OpenAI');
+        await writeCommand(terminal, read, '/exit');
         await waitForExit(terminal);
       } catch (error) {
         throw new Error(
-          `${String(error)}\nTUI output:\n${stripTerminalControls(output).slice(-12_000)}`,
+          `${String(error)}\nTUI output:\n${stripTerminalControls(read()).slice(-12_000)}`,
           { cause: error },
         );
       } finally {
@@ -117,7 +89,72 @@ describe('interactive provider login', () => {
     },
     60_000,
   );
+
+  it.skipIf(process.platform === 'win32')(
+    'starts the production TUI when an environment default is absent from the dynamic catalog',
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), 'kimi-retired-model-tui-e2e-'));
+      tempHomes.push(home);
+      await writeFile(join(home, 'tui.toml'), 'disable_paste_burst = true\n', 'utf8');
+      const { terminal, read } = startTui(home, { KIMI_MODEL_NAME: 'retired-model' });
+
+      try {
+        await waitForText(terminal, read, 'Run /login to connect a provider.');
+        expect(stripTerminalControls(read())).toContain('Run /login to connect a provider.');
+        await writeCommand(terminal, read, '/exit');
+        await waitForExit(terminal);
+      } catch (error) {
+        throw new Error(
+          `${String(error)}\nTUI output:\n${stripTerminalControls(read()).slice(-12_000)}`,
+          { cause: error },
+        );
+      } finally {
+        if (terminal.exitCode === null) terminal.kill();
+      }
+    },
+    60_000,
+  );
 });
+
+function startTui(
+  home: string,
+  envOverrides: Readonly<Record<string, string>> = {},
+): { terminal: ChildProcessWithoutNullStreams; read: () => string } {
+  const env = { ...process.env };
+  delete env['KIMI_MODEL_NAME'];
+  delete env['KIMI_MODEL_PROVIDER'];
+  delete env['OPENAI_API_KEY'];
+  const command = [
+    process.execPath,
+    tsxCli,
+    '--tsconfig',
+    join(appRoot, 'tsconfig.dev.json'),
+    '--import',
+    rawTextLoader,
+    main,
+  ];
+  const terminal = spawn('python3', ['-u', '-c', PTY_BRIDGE, ...command], {
+    cwd: appRoot,
+    env: {
+      ...env,
+      ...envOverrides,
+      TERM: 'xterm-256color',
+      KIMI_CODE_HOME: home,
+      KIMI_LOG_LEVEL: 'off',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let output = '';
+  terminal.stdout.setEncoding('utf8');
+  terminal.stderr.setEncoding('utf8');
+  terminal.stdout.on('data', (chunk: string) => {
+    output += chunk;
+  });
+  terminal.stderr.on('data', (chunk: string) => {
+    output += chunk;
+  });
+  return { terminal, read: () => output };
+}
 
 async function writeLine(
   terminal: ChildProcessWithoutNullStreams,

@@ -222,6 +222,37 @@ describe("KimiHarness session lifecycle", () => {
     }
   });
 
+  it("reports an unbound session when the configured default model is absent from the catalog", async () => {
+    const homeDir = await makeTempDir();
+    await writeFile(
+      join(homeDir, "config.toml"),
+      `
+default_provider = "local"
+default_model = "retired-model"
+`,
+      "utf-8",
+    );
+    const harness = createKimiHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+      providerRuntime: createTestProviderRuntime({
+        providerId: "local",
+        modelId: "available-model",
+      }),
+    });
+    try {
+      const session = await harness.createSession({
+        id: "ses_retired_default_model",
+        workDir: await makeTempDir(),
+      });
+
+      const status = await session.getStatus();
+      expect(status.model).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("requires a non-empty workspace path", async () => {
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     try {
