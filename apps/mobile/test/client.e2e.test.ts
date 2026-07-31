@@ -34,7 +34,7 @@ vi.mock("../src/storage", () => ({
   }),
 }));
 
-const cleanups: (() => Promise<void>)[] = [];
+const cleanups: { name: string; run: () => Promise<void> }[] = [];
 
 beforeEach(() => {
   stored.value = undefined;
@@ -43,14 +43,18 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) {
+    console.log(`[mobile-e2e cleanup] ${cleanup.name}: start`);
+    await cleanup.run();
+    console.log(`[mobile-e2e cleanup] ${cleanup.name}: done`);
+  }
   Reflect.deleteProperty(globalThis, "__DEV__");
 });
 
 describe("Android client real remote path", () => {
   it("pairs with a real Kap server, completes a prompt, and resyncs after bridge restart", async () => {
     const provider = await createFakeProviderHarness();
-    cleanups.push(() => provider.close());
+    cleanups.push({ name: "provider", run: () => provider.close() });
     provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
       await reply.sseJson(200, [
         completionChunk({ content: "hello from the real mobile path" }),
@@ -59,7 +63,7 @@ describe("Android client real remote path", () => {
     });
 
     const home = await mkdtemp(join(tmpdir(), "mobile-client-e2e-"));
-    cleanups.push(() => rm(home, { recursive: true, force: true }));
+    cleanups.push({ name: "home", run: () => rm(home, { recursive: true, force: true }) });
     await writeFile(
       join(home, "config.toml"),
       [
@@ -84,7 +88,7 @@ describe("Android client real remote path", () => {
       homeDir: home,
       logLevel: "silent",
     });
-    cleanups.push(() => server.close());
+    cleanups.push({ name: "server", run: () => server.close() });
     const serverOrigin = `http://127.0.0.1:${server.port}`;
     const session = await server.core.accessor.get(ISessionLifecycleService).create({
       workDir: home,
@@ -93,7 +97,7 @@ describe("Android client real remote path", () => {
     const sessionId = session.id;
 
     const relay = await startRelay();
-    cleanups.push(() => relay.close());
+    cleanups.push({ name: "relay", run: () => relay.close() });
     const relayUrl = `ws://${relay.host}:${relay.port}`;
     const statePath = join(home, "remote-bridge.json");
     const bridgeOptions = {
@@ -104,13 +108,19 @@ describe("Android client real remote path", () => {
       statePath,
     };
     let bridge = await startRemoteBridge(bridgeOptions);
-    cleanups.push(async () => {
-      await bridge.close();
+    cleanups.push({
+      name: "bridge",
+      run: async () => {
+        await bridge.close();
+      },
     });
 
     const runtime = new MobileRuntime();
-    cleanups.push(async () => {
-      runtime.dispose();
+    cleanups.push({
+      name: "runtime",
+      run: async () => {
+        runtime.dispose();
+      },
     });
     await runtime.pair(bridge.pairingUri);
     await eventually(() => runtime.state.connection === "online");
