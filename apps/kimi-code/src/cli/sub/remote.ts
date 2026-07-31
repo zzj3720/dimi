@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getLiveServerInstance, startServer, type RunningServer } from "@moonshot-ai/kap-server";
 import { startRemoteBridge } from "@k-3720/remote/bridge";
 import type { Command } from "commander";
-import qrcode from "qrcode-terminal";
+import QRCode from "qrcode";
 
 import { getVersion } from "../version";
 import { getDataDir } from "../../utils/paths";
@@ -52,7 +52,9 @@ async function runRemoteCommand(options: RemoteCliOptions): Promise<void> {
 
   process.stdout.write(`Runtime: ${bridge.runtimeId}\n`);
   process.stdout.write("Scan with the mobile app:\n\n");
-  qrcode.generate(bridge.pairingUri, { small: true }, (code) => process.stdout.write(`${code}\n`));
+  process.stdout.write(
+    `${await QRCode.toString(bridge.pairingUri, { type: "terminal", small: true })}\n`,
+  );
   process.stdout.write(`${bridge.pairingUri}\n\n`);
   process.stdout.write("Press Ctrl+C to stop remote access.\n");
 
