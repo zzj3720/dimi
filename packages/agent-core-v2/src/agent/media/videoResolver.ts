@@ -8,9 +8,9 @@
  * never touches the wire. Bound at Agent scope.
  */
 
-import { createDecorator } from '#/_base/di/instantiation';
-import type { Message } from '#/kosong/contract/message';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Message } from "#/llmProtocol/message";
+import type { ModelRequester } from "#/app/modelCatalog/modelRequester";
 
 export interface IAgentVideoResolverService {
   readonly _serviceBrand: undefined;
@@ -23,5 +23,5 @@ export interface IAgentVideoResolverService {
 }
 
 export const IAgentVideoResolverService = createDecorator<IAgentVideoResolverService>(
-  'agentVideoResolverService',
+  "agentVideoResolverService",
 );

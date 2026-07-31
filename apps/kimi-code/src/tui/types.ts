@@ -3,24 +3,24 @@ import type {
   GoalSnapshot,
   ModelAlias,
   PermissionMode,
-  ProviderConfig,
+  ProviderAuthState,
   PromptPart,
   SessionUsage,
   ThinkingEffort,
   TokenUsage,
   ToolInputDisplay,
-} from '@moonshot-ai/kimi-code-sdk';
+} from "@moonshot-ai/kimi-code-sdk";
 
 import type {
   BusyInputMode,
   NotificationsConfig,
   StatusLineConfig,
   UpgradePreferences,
-} from './config';
-import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
-import type { ColorToken, ThemeName } from './theme';
+} from "./config";
+import type { PendingApproval, PendingQuestion } from "./reverse-rpc/types";
+import type { ColorToken, ThemeName } from "./theme";
 
-export type BannerDisplay = 'always' | 'once' | 'cooldown';
+export type BannerDisplay = "always" | "once" | "cooldown";
 
 export interface BannerState {
   key: string;
@@ -39,7 +39,7 @@ export interface AppState {
   permissionMode: PermissionMode;
   planMode: boolean;
   /** 'bash' when the editor is in `!` shell-command mode. */
-  inputMode: 'prompt' | 'bash';
+  inputMode: "prompt" | "bash";
   swarmMode: boolean;
   /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
    * mirrors the runtime. The single source of truth for the thinking state in
@@ -60,7 +60,7 @@ export interface AppState {
   latestPromptUsage?: TokenUsage | null;
   isCompacting: boolean;
   isReplaying: boolean;
-  streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
+  streamingPhase: "idle" | "waiting" | "thinking" | "composing" | "shell";
   streamingStartTime: number;
   theme: ThemeName;
   version: string;
@@ -77,7 +77,7 @@ export interface AppState {
   /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
   availableModels: Record<string, ModelAlias>;
-  availableProviders: Record<string, ProviderConfig>;
+  availableProviders: Record<string, ProviderAuthState>;
   sessionTitle: string | null;
   /** Current goal snapshot for the footer badge; null/undefined when no active goal. */
   goal?: GoalSnapshot | null;
@@ -133,7 +133,7 @@ export interface BackgroundAgentMetadata {
   readonly description?: string;
 }
 
-export type BackgroundAgentStatusPhase = 'started' | 'completed' | 'failed';
+export type BackgroundAgentStatusPhase = "started" | "completed" | "failed";
 
 export interface BackgroundAgentStatusData {
   readonly phase: BackgroundAgentStatusPhase;
@@ -142,7 +142,7 @@ export interface BackgroundAgentStatusData {
 }
 
 export interface CompactionTranscriptData {
-  readonly result?: 'cancelled';
+  readonly result?: "cancelled";
   readonly summary?: string;
   readonly tokensBefore?: number;
   readonly tokensAfter?: number;
@@ -159,36 +159,36 @@ export interface CronTranscriptData {
 }
 
 export type GoalTranscriptData =
-  | { readonly kind: 'created' }
-  | { readonly kind: 'lifecycle'; readonly change: GoalChange };
+  | { readonly kind: "created" }
+  | { readonly kind: "lifecycle"; readonly change: GoalChange };
 
 export type TranscriptEntryKind =
-  | 'welcome'
-  | 'user'
-  | 'assistant'
-  | 'tool_call'
-  | 'thinking'
-  | 'status'
-  | 'skill_activation'
-  | 'plugin_command'
-  | 'cron'
-  | 'goal';
+  | "welcome"
+  | "user"
+  | "assistant"
+  | "tool_call"
+  | "thinking"
+  | "status"
+  | "skill_activation"
+  | "plugin_command"
+  | "cron"
+  | "goal";
 
-export type SkillActivationTrigger = 'user-slash' | 'model-tool' | 'nested-skill';
+export type SkillActivationTrigger = "user-slash" | "model-tool" | "nested-skill";
 
 export interface PluginCommandTranscriptData {
   readonly activationId: string;
   readonly pluginId: string;
   readonly commandName: string;
   readonly args?: string;
-  readonly trigger: 'user-slash';
+  readonly trigger: "user-slash";
 }
 
 export interface TranscriptEntry {
   id: string;
   kind: TranscriptEntryKind;
   turnId?: string;
-  renderMode: 'markdown' | 'plain' | 'notice';
+  renderMode: "markdown" | "plain" | "notice";
   content: string;
   /**
    * True only for entries holding real model-authored text (created by the
@@ -214,12 +214,7 @@ export interface TranscriptEntry {
   pluginCommandData?: PluginCommandTranscriptData;
 }
 
-export type LivePaneMode =
-  | 'idle'
-  | 'waiting'
-  | 'thinking'
-  | 'tool'
-  | 'session';
+export type LivePaneMode = "idle" | "waiting" | "thinking" | "tool" | "session";
 
 export interface LivePaneState {
   mode: LivePaneMode;
@@ -234,7 +229,7 @@ export interface QueuedMessage {
   readonly imageAttachmentIds?: readonly number[];
   /** `bash` for a `!` shell command queued while another command is running;
    *  undefined (=`prompt`) for a normal message. */
-  readonly mode?: 'prompt' | 'bash';
+  readonly mode?: "prompt" | "bash";
 }
 
 /**
@@ -250,7 +245,7 @@ export interface SteerInputItem {
 }
 
 export const INITIAL_LIVE_PANE: LivePaneState = {
-  mode: 'idle',
+  mode: "idle",
   pendingApproval: null,
   pendingQuestion: null,
 };
@@ -273,7 +268,7 @@ export interface TUIStartupOptions {
   readonly startupNotice?: string;
 }
 
-export type TUIStartupState = 'pending' | 'ready' | 'picker';
+export type TUIStartupState = "pending" | "ready" | "picker";
 
 export interface KimiTUIOptions {
   initialAppState: AppState;
@@ -281,7 +276,7 @@ export interface KimiTUIOptions {
 }
 
 export interface PendingExit {
-  readonly kind: 'ctrl-c' | 'ctrl-d';
+  readonly kind: "ctrl-c" | "ctrl-d";
   readonly timer: ReturnType<typeof setTimeout>;
 }
 

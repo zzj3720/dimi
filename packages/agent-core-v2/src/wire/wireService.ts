@@ -11,20 +11,20 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { BugIndicatingError } from '#/_base/errors/errors';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
-import type { ContentPart } from '#/kosong/contract/message';
-import { OrderedHookSlot } from '#/hooks';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { StorageError, StorageErrors } from '#/persistence/interface/storage';
+import { BugIndicatingError } from "#/_base/errors/errors";
+import { onUnexpectedError } from "#/_base/errors/unexpectedError";
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { IAgentBlobService } from "#/agent/blob/agentBlobService";
+import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
+import { type DomainEvent, IEventBus } from "#/app/event/eventBus";
+import type { ContentPart } from "#/llmProtocol/message";
+import { OrderedHookSlot } from "#/hooks";
+import { IAppendLogStore } from "#/persistence/interface/appendLogStore";
+import { StorageError, StorageErrors } from "#/persistence/interface/storage";
 
-import { IWireService } from './wire';
-import { WireError, WireErrors } from './errors';
+import { IWireService } from "./wire";
+import { WireError, WireErrors } from "./errors";
 import {
   WIRE_PROTOCOL_VERSION,
   isNewerWireVersion,
@@ -32,11 +32,11 @@ import {
   migrateWireRecord,
   resolveWireMigrations,
   type WireMigration,
-} from './migration/migration';
-import type { DeepReadonly, ModelDef, PartsTransformer } from './model';
-import { MODEL_CROSS_REDUCERS } from './model';
-import type { Op } from './op';
-import { OP_REGISTRY } from './op';
+} from "./migration/migration";
+import type { DeepReadonly, ModelDef, PartsTransformer } from "./model";
+import { MODEL_CROSS_REDUCERS } from "./model";
+import type { Op } from "./op";
+import { OP_REGISTRY } from "./op";
 import {
   AGENT_WIRE_RECORD_KEY,
   createWireMetadataRecord,
@@ -45,18 +45,21 @@ import {
   opToWireRecord,
   wireRecordToPayload,
   type WireRecord,
-} from './record';
+} from "./record";
 
 const MAX_DRAIN = 100;
 
 export class CycleError extends WireError {
-  constructor(readonly depth: number, readonly opTypes: readonly string[]) {
+  constructor(
+    readonly depth: number,
+    readonly opTypes: readonly string[],
+  ) {
     super(
       WireErrors.codes.WIRE_CYCLE,
       `Wire dispatch cascade exceeded MAX_DRAIN (${depth}); possible op cycle`,
       { details: { depth, opTypes: opTypes.slice(0, 20) } },
     );
-    this.name = 'CycleError';
+    this.name = "CycleError";
   }
 }
 
@@ -69,19 +72,19 @@ interface OpGroup {
   readonly silent: boolean;
 }
 
-type RestorePhase = 'new' | 'restoring' | 'ready' | 'failed';
+type RestorePhase = "new" | "restoring" | "ready" | "failed";
 
 export class WireService extends Disposable implements IWireService {
   declare readonly _serviceBrand: undefined;
 
-  readonly hooks: IWireService['hooks'] = {
+  readonly hooks: IWireService["hooks"] = {
     onDidRestore: new OrderedHookSlot(),
   };
 
   private readonly models = new Map<ModelDef<any>, ModelInstance>();
   private readonly wireScope: string;
 
-  private restorePhase: RestorePhase = 'new';
+  private restorePhase: RestorePhase = "new";
   private dispatching = false;
   private queue: Op[] = [];
   private drainDepth = 0;
@@ -113,7 +116,10 @@ export class WireService extends Disposable implements IWireService {
       this.execute({ ops, silent: false });
       while (this.queue.length > 0) {
         if (++this.drainDepth > MAX_DRAIN) {
-          throw new CycleError(this.drainDepth, this.queue.map((op) => op.type));
+          throw new CycleError(
+            this.drainDepth,
+            this.queue.map((op) => op.type),
+          );
         }
         this.execute({ ops: this.queue.splice(0), silent: false });
       }
@@ -134,13 +140,13 @@ export class WireService extends Disposable implements IWireService {
 
   async restore(): Promise<void> {
     if (
-      this.restorePhase === 'restoring' ||
-      this.restorePhase === 'failed' ||
-      this.restorePhase === 'ready'
+      this.restorePhase === "restoring" ||
+      this.restorePhase === "failed" ||
+      this.restorePhase === "ready"
     ) {
       throw new BugIndicatingError(`Agent wire restore called while phase is ${this.restorePhase}`);
     }
-    this.restorePhase = 'restoring';
+    this.restorePhase = "restoring";
     try {
       const source = this.log.read<WireRecord>(this.wireScope, AGENT_WIRE_RECORD_KEY);
       let migrations: readonly WireMigration[] = [];
@@ -158,13 +164,13 @@ export class WireService extends Disposable implements IWireService {
         }
         if (!hasRecords) {
           hasRecords = true;
-          if (sourceRecord.type !== 'metadata') {
+          if (sourceRecord.type !== "metadata") {
             rewrittenRecords = [createWireMetadataRecord()];
             migrations = [migrateV1_4ToV1_5];
           } else if (!isWireMetadataRecord(sourceRecord)) {
             throw new StorageError(
               StorageErrors.codes.STORAGE_CORRUPTED,
-              'Agent wire metadata is malformed',
+              "Agent wire metadata is malformed",
               { details: { scope: this.wireScope, key: AGENT_WIRE_RECORD_KEY } },
             );
           } else if (isNewerWireVersion(sourceRecord.protocol_version)) {
@@ -179,11 +185,11 @@ export class WireService extends Disposable implements IWireService {
 
         const migratedRecord = migrateWireRecord(sourceRecord, migrations);
         const record =
-          !newerWireVersion && migratedRecord.type === 'metadata'
+          !newerWireVersion && migratedRecord.type === "metadata"
             ? { ...migratedRecord, protocol_version: WIRE_PROTOCOL_VERSION }
             : migratedRecord;
         rewrittenRecords?.push(record);
-        if (record.type === 'metadata') continue;
+        if (record.type === "metadata") continue;
 
         this.replayRecord(record, recordIndex);
         recordIndex++;
@@ -197,10 +203,10 @@ export class WireService extends Disposable implements IWireService {
       }
 
       await this.rehydrateModels();
-      this.restorePhase = 'ready';
+      this.restorePhase = "ready";
       await this.hooks.onDidRestore.run({});
     } catch (error) {
-      this.restorePhase = 'failed';
+      this.restorePhase = "failed";
       throw error;
     }
   }
@@ -232,7 +238,7 @@ export class WireService extends Disposable implements IWireService {
       new WireError(
         WireErrors.codes.WIRE_UNKNOWN_RECORD,
         type === undefined
-          ? 'Malformed wire record skipped during restore'
+          ? "Malformed wire record skipped during restore"
           : malformed
             ? `Malformed wire record type '${type}' skipped during restore`
             : `Unknown wire record type '${type}' skipped during restore`,
@@ -287,9 +293,7 @@ export class WireService extends Disposable implements IWireService {
       return;
     }
     const transform: PartsTransformer = (parts) =>
-      this.blobService.offloadParts(
-        parts as readonly ContentPart[],
-      ) as Promise<readonly unknown[]>;
+      this.blobService.offloadParts(parts as readonly ContentPart[]) as Promise<readonly unknown[]>;
     const queued = (this.persistQueue ?? Promise.resolve())
       .then(async () => {
         let output = record;
@@ -314,9 +318,7 @@ export class WireService extends Disposable implements IWireService {
 
   private async rehydrateModels(): Promise<void> {
     const transform: PartsTransformer = (parts) =>
-      this.blobService.loadParts(
-        parts as readonly ContentPart[],
-      ) as Promise<readonly unknown[]>;
+      this.blobService.loadParts(parts as readonly ContentPart[]) as Promise<readonly unknown[]>;
     for (const [def, inst] of this.models) {
       if (def.blobs?.rehydrate === undefined) continue;
       const result = def.blobs.rehydrate(inst.state, transform);
@@ -330,5 +332,5 @@ registerScopedService(
   IWireService,
   WireService,
   ScopeActivation.OnScopeCreated,
-  'wire',
+  "wire",
 );

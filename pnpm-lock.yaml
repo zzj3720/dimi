@@ -70,7 +70,7 @@ importers:
         version: 6.0.2
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   apps/kimi-code:
     devDependencies:
@@ -192,7 +192,7 @@ importers:
         version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   apps/kimi-web:
     dependencies:
@@ -253,7 +253,7 @@ importers:
         version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
       vue-tsc:
         specifier: ~3.2.0
         version: 3.2.9(typescript@6.0.2)
@@ -275,9 +275,6 @@ importers:
       '@moonshot-ai/agent-core-v2':
         specifier: workspace:^
         version: link:../../../packages/agent-core-v2
-      '@moonshot-ai/kosong':
-        specifier: workspace:^
-        version: link:../../../packages/kosong
       hono:
         specifier: ^4.7.7
         version: 4.12.14
@@ -296,7 +293,7 @@ importers:
         version: 4.21.0
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
       yazl:
         specifier: ^3.3.1
         version: 3.3.1
@@ -345,7 +342,7 @@ importers:
         version: 2.3.3(rollup@4.60.2)(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   apps/vscode:
     dependencies:
@@ -493,7 +490,7 @@ importers:
         version: 3.5.2(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
       vitest:
         specifier: 4.1.4
-        version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   docs:
     dependencies:
@@ -595,6 +592,9 @@ importers:
       picomatch:
         specifier: ^4.0.4
         version: 4.0.4
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
       retry:
         specifier: 0.13.1
         version: 0.13.1
@@ -632,6 +632,9 @@ importers:
       '@types/picomatch':
         specifier: ^4.0.3
         version: 4.0.3
+      '@types/proper-lockfile':
+        specifier: 4.1.4
+        version: 4.1.4
       '@types/react':
         specifier: ^19.1.2
         version: 19.2.14
@@ -765,31 +768,6 @@ importers:
         specifier: ^8.18.0
         version: 8.20.0
 
-  packages/kosong:
-    dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.95.2
-        version: 0.95.2(zod@4.3.6)
-      '@google/genai':
-        specifier: ^1.49.0
-        version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
-      openai:
-        specifier: ^6.34.0
-        version: 6.34.0(ws@8.20.0)(zod@4.3.6)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-      zod-to-json-schema:
-        specifier: ^3.25.2
-        version: 3.25.2(zod@4.3.6)
-    devDependencies:
-      ajv:
-        specifier: ^8.18.0
-        version: 8.18.0
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.18.0)
-
   packages/minidb: {}
 
   packages/node-sdk:
@@ -822,9 +800,6 @@ importers:
       '@moonshot-ai/klient':
         specifier: workspace:^
         version: link:../klient
-      '@moonshot-ai/kosong':
-        specifier: workspace:^
-        version: link:../kosong
       '@types/yazl':
         specifier: ^2.4.6
         version: 2.4.6
@@ -832,15 +807,7 @@ importers:
         specifier: ^1.6.1
         version: 1.6.1
 
-  packages/oauth:
-    dependencies:
-      proper-lockfile:
-        specifier: ^4.1.2
-        version: 4.1.2
-    devDependencies:
-      '@types/proper-lockfile':
-        specifier: ^4.1.4
-        version: 4.1.4
+  packages/oauth: {}
 
   packages/pi-tui:
     dependencies:
@@ -2487,6 +2454,10 @@ packages:
 
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
+
+  '@opentelemetry/api@1.9.0':
+    resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
+    engines: {node: '>=8.0.0'}
 
   '@oxc-project/types@0.122.0':
     resolution: {integrity: sha512-oLAl5kBpV4w69UtFZ9xqcmTi+GENWOcPF7FCrczTiBbmC0ibXxCwyvZGbO39rCVEuLGAZM84DH0pUIyyv/YJzA==}
@@ -11377,6 +11348,9 @@ snapshots:
 
   '@open-draft/until@2.1.0': {}
 
+  '@opentelemetry/api@1.9.0':
+    optional: true
+
   '@oxc-project/types@0.122.0':
     optional: true
 
@@ -13248,7 +13222,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.4':
     dependencies:
@@ -18642,7 +18616,7 @@ snapshots:
       - typescript
       - universal-cookie
 
-  vitest@4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
+  vitest@4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
       '@vitest/expect': 4.1.4
       '@vitest/mocker': 4.1.4(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
@@ -18665,13 +18639,14 @@ snapshots:
       vite: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@opentelemetry/api': 1.9.0
       '@types/node': 22.19.17
       '@vitest/coverage-v8': 4.1.4(vitest@4.1.4)
       jsdom: 25.0.1
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)):
+  vitest@4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
       '@vitest/expect': 4.1.4
       '@vitest/mocker': 4.1.4(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -18694,6 +18669,7 @@ snapshots:
       vite: 8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@opentelemetry/api': 1.9.0
       '@types/node': 22.19.17
       '@vitest/coverage-v8': 4.1.4(vitest@4.1.4)
       jsdom: 25.0.1

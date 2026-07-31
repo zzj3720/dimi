@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 
-import type { KimiHarness, ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import type { KimiHarness, ProviderModel } from "@moonshot-ai/kimi-code-sdk";
 
 import {
   deriveAlwaysThinking,
@@ -8,215 +8,81 @@ import {
   deriveSupportEfforts,
   deriveThinkingSupported,
   listModelsFromHarness,
-} from '../src/model-catalog';
+} from "../src/model-catalog";
 
-function alias(model: string, capabilities?: readonly string[]): ModelAlias {
+function model(overrides: Partial<ProviderModel> = {}): ProviderModel {
   return {
-    model,
-    ...(capabilities !== undefined ? { capabilities } : {}),
-  } as unknown as ModelAlias;
+    id: "model-a",
+    name: "Model A",
+    api: "openai-completions",
+    provider: "example",
+    baseUrl: "https://api.example.test/v1",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 32_000,
+    ...overrides,
+  };
 }
 
-describe('deriveThinkingSupported', () => {
-  it('treats a declared always_thinking capability as thinking-supported', () => {
-    expect(deriveThinkingSupported(alias('custom-model', ['always_thinking']))).toBe(true);
+describe("ACP runtime model projection", () => {
+  it("derives thinking support and the declared effort levels", () => {
+    const runtimeModel = model({
+      reasoning: true,
+      thinkingLevelMap: {
+        off: null,
+        low: "low",
+        high: "high",
+        max: "max",
+      },
+    });
+
+    expect(deriveThinkingSupported(runtimeModel)).toBe(true);
+    expect(deriveAlwaysThinking(runtimeModel)).toBe(true);
+    expect(deriveSupportEfforts(runtimeModel)).toEqual(["low", "high", "max"]);
+    expect(deriveDefaultThinkingEffort(runtimeModel)).toBe("high");
   });
 
-  it('keeps the existing thinking-capability and name-heuristic triggers', () => {
-    expect(deriveThinkingSupported(alias('custom-model', ['thinking']))).toBe(true);
-    expect(deriveThinkingSupported(alias('some-thinking-model'))).toBe(true);
-    expect(deriveThinkingSupported(alias('plain-model'))).toBe(false);
-  });
-});
+  it("uses the standard efforts for a reasoning model without an explicit map", () => {
+    const runtimeModel = model({ reasoning: true });
 
-describe('deriveAlwaysThinking', () => {
-  it('reads the declared always_thinking capability', () => {
-    expect(deriveAlwaysThinking(alias('custom-model', ['thinking', 'always_thinking']))).toBe(true);
-    expect(deriveAlwaysThinking(alias('custom-model', ['thinking']))).toBe(false);
+    expect(deriveSupportEfforts(runtimeModel)).toEqual(["low", "medium", "high"]);
+    expect(deriveDefaultThinkingEffort(runtimeModel)).toBe("medium");
   });
 
-  it('does not infer always-thinking from the model name', () => {
-    // Name heuristics keep working for thinkingSupported, but only the
-    // server-declared capability may lock the toggle to on.
-    expect(deriveAlwaysThinking(alias('some-thinking-model'))).toBe(false);
-  });
-});
+  it("does not infer thinking from a model name", () => {
+    const runtimeModel = model({ id: "custom-thinking-model", name: "Claude-like model" });
 
-describe('deriveDefaultThinkingEffort', () => {
-  it('uses overridden supportEfforts and defaultEffort', () => {
-    expect(
-      deriveDefaultThinkingEffort({
-        ...alias('custom-model', ['thinking']),
-        supportEfforts: ['low', 'high', 'max'],
-        defaultEffort: 'max',
-        overrides: { supportEfforts: ['low', 'high'], defaultEffort: 'high' },
-      }),
-    ).toBe('high');
-  });
-});
-
-describe('deriveSupportEfforts', () => {
-  it('returns the declared efforts after override resolution', () => {
-    expect(
-      deriveSupportEfforts({
-        ...alias('custom-model', ['thinking']),
-        supportEfforts: ['low', 'high', 'max'],
-        overrides: { supportEfforts: ['low', 'high'] },
-      }),
-    ).toEqual(['low', 'high']);
+    expect(deriveThinkingSupported(runtimeModel)).toBe(false);
+    expect(deriveAlwaysThinking(runtimeModel)).toBe(false);
+    expect(deriveSupportEfforts(runtimeModel)).toEqual([]);
+    expect(deriveDefaultThinkingEffort(runtimeModel)).toBe("on");
   });
 
-  it('drops blank entries and yields an empty list for boolean models', () => {
-    expect(
-      deriveSupportEfforts({ ...alias('custom-model', ['thinking']), supportEfforts: [''] }),
-    ).toEqual([]);
-    expect(deriveSupportEfforts(alias('custom-model', ['thinking']))).toEqual([]);
-  });
-});
-
-describe('listModelsFromHarness', () => {
-  it('advertises thinking with a high default for an unknown Claude-marked model using the Anthropic protocol', async () => {
+  it("lists the live authenticated runtime catalog", async () => {
     const harness = {
-      getConfig: async () => ({
-        providers: {
-          custom: { type: 'anthropic' },
-        },
-        models: {
-          custom: {
-            provider: 'custom',
-            model: 'custom-claude-model',
-            maxContextSize: 200000,
-            protocol: 'anthropic',
-          },
-        },
-      }),
+      auth: {
+        models: async () => [
+          model({
+            id: "model-b",
+            name: "Model B",
+            provider: "provider-b",
+            reasoning: true,
+            thinkingLevelMap: { low: "low", high: "high" },
+          }),
+        ],
+      },
     } as unknown as KimiHarness;
 
     await expect(listModelsFromHarness(harness)).resolves.toEqual([
       {
-        id: 'custom',
-        name: 'custom-claude-model',
+        id: "provider-b/model-b",
+        name: "Model B",
         thinkingSupported: true,
         alwaysThinking: false,
-        supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultThinkingEffort: 'high',
-      },
-    ]);
-  });
-
-  it('does not advertise thinking for a clearly non-Claude model using the Anthropic protocol', async () => {
-    const harness = {
-      getConfig: async () => ({
-        providers: {
-          custom: { type: 'anthropic' },
-        },
-        models: {
-          custom: {
-            provider: 'custom',
-            model: 'custom-anthropic-model',
-            maxContextSize: 200000,
-            protocol: 'anthropic',
-          },
-        },
-      }),
-    } as unknown as KimiHarness;
-
-    await expect(listModelsFromHarness(harness)).resolves.toEqual([
-      {
-        id: 'custom',
-        name: 'custom-anthropic-model',
-        thinkingSupported: false,
-        alwaysThinking: false,
-        supportEfforts: [],
-        defaultThinkingEffort: 'on',
-      },
-    ]);
-  });
-
-  it('advertises thinking for a flat providerless Claude-marked model using the Anthropic protocol', async () => {
-    const harness = {
-      getConfig: async () => ({
-        models: {
-          custom: {
-            model: 'custom-claude-model',
-            maxContextSize: 200000,
-            protocol: 'anthropic',
-          },
-        },
-      }),
-    } as unknown as KimiHarness;
-
-    await expect(listModelsFromHarness(harness)).resolves.toEqual([
-      {
-        id: 'custom',
-        name: 'custom-claude-model',
-        thinkingSupported: true,
-        alwaysThinking: false,
-        supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultThinkingEffort: 'high',
-      },
-    ]);
-  });
-
-  it('does not advertise thinking for an unknown model on a Kimi provider using the Anthropic protocol', async () => {
-    const harness = {
-      getConfig: async () => ({
-        providers: {
-          'managed:kimi-code': { type: 'kimi' },
-        },
-        models: {
-          custom: {
-            provider: 'managed:kimi-code',
-            model: 'custom-anthropic-model',
-            maxContextSize: 200000,
-            protocol: 'anthropic',
-          },
-        },
-      }),
-    } as unknown as KimiHarness;
-
-    await expect(listModelsFromHarness(harness)).resolves.toEqual([
-      {
-        id: 'custom',
-        name: 'custom-anthropic-model',
-        thinkingSupported: false,
-        alwaysThinking: false,
-        supportEfforts: [],
-        defaultThinkingEffort: 'on',
-      },
-    ]);
-  });
-
-  it('derives thinking support from the provider type when the alias omits protocol', async () => {
-    // Same shape the runtime sees for `[providers.compat] type = "anthropic"`
-    // + a Claude-marked custom model with no alias-level protocol: the
-    // provider context must make the catalog agree with ProviderManager,
-    // which infers the latest Anthropic profile (thinking-capable, default
-    // effort high). Clearly non-Claude names get no inferred profile.
-    const harness = {
-      getConfig: async () => ({
-        defaultProvider: 'compat',
-        providers: {
-          compat: { type: 'anthropic', apiKey: 'test-key', baseUrl: 'https://api.example.test' },
-        },
-        models: {
-          custom: {
-            provider: 'compat',
-            model: 'joint-claude-0714-vibe',
-            maxContextSize: 200000,
-          },
-        },
-      }),
-    } as unknown as KimiHarness;
-
-    await expect(listModelsFromHarness(harness)).resolves.toEqual([
-      {
-        id: 'custom',
-        name: 'joint-claude-0714-vibe',
-        thinkingSupported: true,
-        alwaysThinking: false,
-        supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultThinkingEffort: 'high',
+        supportEfforts: ["low", "high"],
+        defaultThinkingEffort: "high",
       },
     ]);
   });

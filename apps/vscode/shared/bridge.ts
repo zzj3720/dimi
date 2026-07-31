@@ -108,12 +108,20 @@ export function validateRpcMessage(value: unknown): RpcMessageValidation {
 
   const id = value["id"];
   if (!Object.hasOwn(value, "id") || typeof id !== "string" || id.trim().length === 0) {
-    return invalidMessage("", safeMethod(value["method"]), "Invalid bridge request: id must be a non-empty string.");
+    return invalidMessage(
+      "",
+      safeMethod(value["method"]),
+      "Invalid bridge request: id must be a non-empty string.",
+    );
   }
 
   const method = value["method"];
   if (!Object.hasOwn(value, "method") || typeof method !== "string" || method.trim().length === 0) {
-    return invalidMessage(id, "<invalid>", "Invalid bridge request: method must be a non-empty string.");
+    return invalidMessage(
+      id,
+      "<invalid>",
+      "Invalid bridge request: method must be a non-empty string.",
+    );
   }
   if (!rpcMethods.has(method)) {
     return invalidMessage(id, method, `Unknown bridge method: ${method}`);
@@ -132,7 +140,6 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
     case Methods.GetInputHistory:
     case Methods.GetSlashCommands:
     case Methods.CheckLoginStatus:
-    case Methods.Login:
     case Methods.Logout:
     case Methods.GetExtensionConfig:
     case Methods.OpenSettings:
@@ -150,14 +157,24 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
     case Methods.ReloadWebview:
       return params === undefined;
 
+    case Methods.Login:
+      return (
+        isPlainObject(params) &&
+        hasNonEmptyString(params, "providerId") &&
+        (params["method"] === "oauth" || params["method"] === "api_key") &&
+        isOptionalType(params["value"], "string")
+      );
+
     case Methods.AddInputHistory:
       return hasString(params, "text");
     case Methods.SaveConfig:
-      return isPlainObject(params)
-        && typeof params["model"] === "string"
-        && isOptionalType(params["thinking"], "boolean")
-        && isOptionalType(params["effort"], "string")
-        && isOptionalType(params["effortChanged"], "boolean");
+      return (
+        isPlainObject(params) &&
+        typeof params["model"] === "string" &&
+        isOptionalType(params["thinking"], "boolean") &&
+        isOptionalType(params["effort"], "string") &&
+        isOptionalType(params["effortChanged"], "boolean")
+      );
     case Methods.AddMCPServer:
       return isMcpServerConfig(params);
     case Methods.UpdateMCPServer:
@@ -170,42 +187,54 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
     case Methods.StreamChat:
       return isStreamChatParams(params);
     case Methods.RespondApproval:
-      return isPlainObject(params)
-        && isNonEmptyString(params["requestId"])
-        && (params["response"] === "approve"
-          || params["response"] === "approve_for_session"
-          || params["response"] === "reject");
+      return (
+        isPlainObject(params) &&
+        isNonEmptyString(params["requestId"]) &&
+        (params["response"] === "approve" ||
+          params["response"] === "approve_for_session" ||
+          params["response"] === "reject")
+      );
     case Methods.RespondQuestion:
-      return isPlainObject(params)
-        && isNonEmptyString(params["rpcRequestId"])
-        && isNonEmptyString(params["questionRequestId"])
-        && isStringRecord(params["answers"]);
+      return (
+        isPlainObject(params) &&
+        isNonEmptyString(params["rpcRequestId"]) &&
+        isNonEmptyString(params["questionRequestId"]) &&
+        isStringRecord(params["answers"])
+      );
     case Methods.SetPlanMode:
       return hasBoolean(params, "enabled");
     case Methods.SteerChat:
       return isPlainObject(params) && isContent(params["content"]);
     case Methods.GetProjectFiles:
-      return params === undefined || (
-        isPlainObject(params)
-        && isOptionalType(params["query"], "string")
-        && isOptionalType(params["directory"], "string")
+      return (
+        params === undefined ||
+        (isPlainObject(params) &&
+          isOptionalType(params["query"], "string") &&
+          isOptionalType(params["directory"], "string"))
       );
     case Methods.SetWorkDir:
-      return isPlainObject(params) && (params["workDir"] === null || typeof params["workDir"] === "string");
+      return (
+        isPlainObject(params) &&
+        (params["workDir"] === null || typeof params["workDir"] === "string")
+      );
     case Methods.LoadKimiSessionHistory:
       return hasNonEmptyString(params, "kimiSessionId");
     case Methods.DeleteKimiSession:
       return hasNonEmptyString(params, "sessionId");
     case Methods.ForkKimiSession:
-      return isPlainObject(params)
-        && isNonEmptyString(params["sessionId"])
-        && Number.isInteger(params["turnIndex"])
-        && (params["turnIndex"] as number) >= 0;
+      return (
+        isPlainObject(params) &&
+        isNonEmptyString(params["sessionId"]) &&
+        Number.isInteger(params["turnIndex"]) &&
+        (params["turnIndex"] as number) >= 0
+      );
     case Methods.PickMedia:
-      return isPlainObject(params)
-        && (params["maxCount"] === undefined
-          || (Number.isInteger(params["maxCount"]) && (params["maxCount"] as number) >= 0))
-        && isOptionalType(params["includeVideo"], "boolean");
+      return (
+        isPlainObject(params) &&
+        (params["maxCount"] === undefined ||
+          (Number.isInteger(params["maxCount"]) && (params["maxCount"] as number) >= 0)) &&
+        isOptionalType(params["includeVideo"], "boolean")
+      );
     case Methods.OpenFile:
     case Methods.OpenFileDiff:
     case Methods.CheckFileExists:
@@ -221,13 +250,15 @@ function validateParams(method: RpcMethod, params: unknown): boolean {
 }
 
 function isStreamChatParams(value: unknown): boolean {
-  return isPlainObject(value)
-    && isContent(value["content"])
-    && typeof value["model"] === "string"
-    && isOptionalType(value["effort"], "string")
-    && isOptionalType(value["thinking"], "boolean")
-    && isOptionalType(value["planMode"], "boolean")
-    && isOptionalType(value["sessionId"], "string");
+  return (
+    isPlainObject(value) &&
+    isContent(value["content"]) &&
+    typeof value["model"] === "string" &&
+    isOptionalType(value["effort"], "string") &&
+    isOptionalType(value["thinking"], "boolean") &&
+    isOptionalType(value["planMode"], "boolean") &&
+    isOptionalType(value["sessionId"], "string")
+  );
 }
 
 function isContent(value: unknown): boolean {
@@ -240,17 +271,21 @@ function isContentPart(value: unknown): boolean {
     case "text":
       return typeof value["text"] === "string";
     case "think":
-      return typeof value["think"] === "string"
-        && (value["encrypted"] === undefined
-          || value["encrypted"] === null
-          || typeof value["encrypted"] === "string");
+      return (
+        typeof value["think"] === "string" &&
+        (value["encrypted"] === undefined ||
+          value["encrypted"] === null ||
+          typeof value["encrypted"] === "string")
+      );
     case "image_url":
     case "audio_url":
     case "video_url": {
       const media = value[value["type"]];
-      return isPlainObject(media)
-        && typeof media["url"] === "string"
-        && (media["id"] === undefined || media["id"] === null || typeof media["id"] === "string");
+      return (
+        isPlainObject(media) &&
+        typeof media["url"] === "string" &&
+        (media["id"] === undefined || media["id"] === null || typeof media["id"] === "string")
+      );
     }
     default:
       return false;
@@ -266,16 +301,18 @@ function isMcpUpdate(value: unknown): boolean {
 }
 
 function isMcpServerConfig(value: unknown): boolean {
-  return isPlainObject(value)
-    && isNonEmptyString(value["name"])
-    && (value["transport"] === "stdio" || value["transport"] === "http")
-    && isOptionalType(value["url"], "string")
-    && isOptionalType(value["command"], "string")
-    && (value["args"] === undefined || isStringArray(value["args"]))
-    && (value["env"] === undefined || isStringRecord(value["env"]))
-    && (value["headers"] === undefined || isStringRecord(value["headers"]))
-    && (value["auth"] === undefined || value["auth"] === "oauth")
-    && isOptionalType(value["bearerTokenEnvVar"], "string");
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value["name"]) &&
+    (value["transport"] === "stdio" || value["transport"] === "http") &&
+    isOptionalType(value["url"], "string") &&
+    isOptionalType(value["command"], "string") &&
+    (value["args"] === undefined || isStringArray(value["args"])) &&
+    (value["env"] === undefined || isStringRecord(value["env"])) &&
+    (value["headers"] === undefined || isStringRecord(value["headers"])) &&
+    (value["auth"] === undefined || value["auth"] === "oauth") &&
+    isOptionalType(value["bearerTokenEnvVar"], "string")
+  );
 }
 
 function hasString(value: unknown, key: string): boolean {

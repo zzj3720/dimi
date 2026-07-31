@@ -11,24 +11,24 @@
  * Agent scope.
  */
 
-import { randomUUID } from 'node:crypto';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { randomUUID } from "node:crypto";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from "#/llmProtocol/message";
 
-import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory/types';
-import { renderUserSlashSkillPrompt } from './prompt';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { Disposable } from '#/_base/di/lifecycle';
-import { ErrorCodes, Error2 } from '#/errors';
-import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { Turn } from '#/agent/loop/loop';
-import { IWireService } from '#/wire/wire';
-import { IAgentSkillService, type SkillActivationInput } from './skill';
-import { skillActivate } from './skillOps';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import type { ContextMessage, SkillActivationOrigin } from "#/agent/contextMemory/types";
+import { renderUserSlashSkillPrompt } from "./prompt";
+import { ISessionContext } from "#/session/sessionContext/sessionContext";
+import { Disposable } from "#/_base/di/lifecycle";
+import { ErrorCodes, Error2 } from "#/errors";
+import { isUserActivatableSkillType, type SkillDefinition } from "#/app/skillCatalog/types";
+import { IAgentPromptService } from "#/agent/prompt/prompt";
+import { ITelemetryService } from "#/app/telemetry/telemetry";
+import type { Turn } from "#/agent/loop/loop";
+import { IWireService } from "#/wire/wire";
+import { IAgentSkillService, type SkillActivationInput } from "./skill";
+import { skillActivate } from "./skillOps";
+import { ISessionSkillCatalog } from "#/session/sessionSkillCatalog/skillCatalog";
 
 export class AgentSkillService extends Disposable implements IAgentSkillService {
   declare readonly _serviceBrand: undefined;
@@ -56,11 +56,11 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
       );
     }
 
-    const skillArgs = input.args ?? '';
+    const skillArgs = input.args ?? "";
     const skillContent = this.renderSkillPrompt(skill, skillArgs);
     const content: ContentPart[] = [
       {
-        type: 'text',
+        type: "text",
         text: renderUserSlashSkillPrompt({
           skillName: skill.name,
           skillArgs,
@@ -73,10 +73,10 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
 
     const turn = await this.recordActivation(
       {
-        kind: 'skill_activation',
+        kind: "skill_activation",
         activationId: randomUUID(),
         skillName: skill.name,
-        trigger: 'user-slash',
+        trigger: "user-slash",
         skillType: skill.metadata.type,
         skillPath: skill.path,
         skillSource: skill.source,
@@ -87,7 +87,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     if (turn === undefined) {
       throw new Error2(
         ErrorCodes.TURN_AGENT_BUSY,
-        'Cannot activate skill while another turn is active',
+        "Cannot activate skill while another turn is active",
       );
     }
     return turn;
@@ -106,7 +106,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
 
     if (input === undefined) return undefined;
     const message: ContextMessage = {
-      role: 'user',
+      role: "user",
       content: [...input],
       toolCalls: [],
       origin,
@@ -121,12 +121,12 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   }
 
   private publishActivation(origin: SkillActivationOrigin): void {
-    this.telemetry.track2('skill_invoked', {
+    this.telemetry.track2("skill_invoked", {
       skill_name: origin.skillName,
       trigger: origin.trigger,
     });
-    if (origin.skillType === 'flow') {
-      this.telemetry.track2('flow_invoked', {
+    if (origin.skillType === "flow") {
+      this.telemetry.track2("flow_invoked", {
         flow_name: origin.skillName,
       });
     }
@@ -138,5 +138,5 @@ registerScopedService(
   IAgentSkillService,
   AgentSkillService,
   ScopeActivation.OnScopeCreated,
-  'skill',
+  "skill",
 );

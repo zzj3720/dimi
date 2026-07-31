@@ -74,6 +74,7 @@ function makeHarness(
   const harness = {
     auth: {
       status: async () => ({ providers: [{ providerName: 'kimi', hasToken: true }] }),
+      models: async () => [],
     },
     createSession: async (options: CapturedCall['options']) => {
       captured.push({ options });

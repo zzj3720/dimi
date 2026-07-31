@@ -58,7 +58,14 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
-  return argumentPrefix === '.' || argumentPrefix === '..' || argumentPrefix.startsWith('./') || argumentPrefix.startsWith('../') || argumentPrefix.startsWith('/') || argumentPrefix.startsWith('~');
+  return (
+    argumentPrefix === '.' ||
+    argumentPrefix === '..' ||
+    argumentPrefix.startsWith('./') ||
+    argumentPrefix.startsWith('../') ||
+    argumentPrefix.startsWith('/') ||
+    argumentPrefix.startsWith('~')
+  );
 }
 
 function completeAddDirPath(argumentPrefix: string): AutocompleteItem[] | null {
@@ -77,7 +84,8 @@ function completeAddDirPath(argumentPrefix: string): AutocompleteItem[] | null {
   const items: AutocompleteItem[] = [];
   for (const entry of entries) {
     if (entry.name === '.' || entry.name === '..' || entry.name.startsWith('.')) continue;
-    if (partialName.length > 0 && !entry.name.toLowerCase().startsWith(partialName.toLowerCase())) continue;
+    if (partialName.length > 0 && !entry.name.toLowerCase().startsWith(partialName.toLowerCase()))
+      continue;
     const absolutePath = join(parentDir, entry.name);
     if (!isDirectoryPath(absolutePath, entry.isDirectory(), entry.isSymbolicLink())) continue;
     const value = formatDirectoryCompletionValue(normalizedPrefix, parentInput, entry.name);
@@ -120,7 +128,11 @@ function isDirectoryPath(path: string, isDirectory: boolean, isSymlink: boolean)
   }
 }
 
-function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: string, entryName: string): string {
+function formatDirectoryCompletionValue(
+  argumentPrefix: string,
+  parentInput: string,
+  entryName: string,
+): string {
   if (argumentPrefix.startsWith('~/')) {
     const home = homedir();
     const homeRelative = relative(home, parentInput);
@@ -136,7 +148,8 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'yolo',
     aliases: ['yes'],
-    description: 'Toggle YOLO mode: auto-approve tool actions, but the agent may still ask questions.',
+    description:
+      'Toggle YOLO mode: auto-approve tool actions, but the agent may still ask questions.',
     priority: 101,
     availability: 'always',
   },
@@ -202,8 +215,9 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'provider',
     aliases: ['providers'],
-    description: 'Manage AI providers (add / delete / refresh)',
+    description: 'Connect or refresh AI providers',
     priority: 95,
+    argumentHint: '[provider|refresh]',
     availability: 'always',
   },
   {
@@ -377,8 +391,9 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'login',
     aliases: [],
-    description: 'Select a platform and authenticate',
+    description: 'Connect an AI provider with an account or API key',
     priority: 40,
+    argumentHint: '[provider]',
   },
   {
     name: 'export-md',

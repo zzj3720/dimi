@@ -48,12 +48,14 @@ Kimi Code CLI 内置三种子 Agent，开箱即用，分别面向不同任务形
 Kimi Code CLI 按作用域发现 Agent 文件，作用域越具体，优先级越高：**显式（`--agent-file`）> 项目 > 额外 > 用户 > Plugin > 内置**。两个文件定义了相同的 `name` 时，高优先级作用域胜出。每个目录都会递归扫描 `.md` 文件。
 
 **用户级**（对所有项目生效）：
+
 - `$KIMI_CODE_HOME/agents/`（默认：`~/.kimi-code/agents/`）
 - `~/.agents/agents/`
 
 Kimi 专属的用户 Agent 目录随 `KIMI_CODE_HOME` 移动，通用的 `~/.agents/agents/` 目录留在真实用户目录下，便于跨工具共享。
 
 **项目级**（项目根目录 = 从工作目录向上查找、最近的包含 `.git` 的目录）：
+
 - `.kimi-code/agents/`
 - `.agents/agents/`
 
@@ -94,16 +96,16 @@ disallowedTools:
 你是严格的代码审查者。阅读 diff 后，按严重度分级报告问题……
 ```
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `name` | 否 | kebab-case 唯一标识。缺省时取文件名（去掉扩展名，如 `review.md` → `review`）；解析后名字缺失或不是 kebab-case 的文件会被跳过并告警 |
-| `description` | 是 | Agent 的用途。主 Agent 挑选子 Agent 时会看到，请围绕委派决策来写 |
-| `whenToUse` | 否 | 补充说明何时应使用该 Agent |
-| `override` | 否 | 是否允许覆盖同名内置 Agent，默认 `false`。`--agent-file` 属于显式启动意图，无需设置此字段 |
-| `model_preference` | 否 | `Agent` 或 `AgentSwarm` 启动该 profile 时的符号默认值：`primary` 选择调用方的主模型，`secondary` 选择 `[secondary_model] model`。工具调用显式传入的 `model` 优先；两者均未设置时，已配置的次主力模型仍为默认值。未配置次主力模型时，子 Agent 继承调用方模型 |
-| `tools` | 否 | 工具名允许列表，如 `Read`、`Bash`；MCP 工具用 glob 匹配，如 `mcp__github__*`。支持 YAML 列表或逗号分隔字符串（`tools: Read, Grep`）两种写法。缺省表示允许全部工具；单独的 `*` 同样表示允许全部工具；空列表（`tools: []`）表示禁用全部工具 |
-| `disallowedTools` | 否 | 禁止列表，写法与匹配规则相同，在 `tools` 之后应用 |
-| `subagents` | 否 | 允许委派的子 Agent 名称列表，写法与 `tools` 相同（YAML 列表或逗号分隔字符串）。缺省表示可委派所有类型；单独的 `*` 同样表示全部 |
+| 字段               | 必填 | 说明                                                                                                                                                                                                                                                        |
+| ------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`             | 否   | kebab-case 唯一标识。缺省时取文件名（去掉扩展名，如 `review.md` → `review`）；解析后名字缺失或不是 kebab-case 的文件会被跳过并告警                                                                                                                          |
+| `description`      | 是   | Agent 的用途。主 Agent 挑选子 Agent 时会看到，请围绕委派决策来写                                                                                                                                                                                            |
+| `whenToUse`        | 否   | 补充说明何时应使用该 Agent                                                                                                                                                                                                                                  |
+| `override`         | 否   | 是否允许覆盖同名内置 Agent，默认 `false`。`--agent-file` 属于显式启动意图，无需设置此字段                                                                                                                                                                   |
+| `model_preference` | 否   | `Agent` 或 `AgentSwarm` 启动该 profile 时的符号默认值：`primary` 选择调用方的主模型，`secondary` 选择 `[secondary_model] model`。工具调用显式传入的 `model` 优先；两者均未设置时，已配置的次主力模型仍为默认值。未配置次主力模型时，子 Agent 继承调用方模型 |
+| `tools`            | 否   | 工具名允许列表，如 `Read`、`Bash`；MCP 工具用 glob 匹配，如 `mcp__github__*`。支持 YAML 列表或逗号分隔字符串（`tools: Read, Grep`）两种写法。缺省表示允许全部工具；单独的 `*` 同样表示允许全部工具；空列表（`tools: []`）表示禁用全部工具                   |
+| `disallowedTools`  | 否   | 禁止列表，写法与匹配规则相同，在 `tools` 之后应用                                                                                                                                                                                                           |
+| `subagents`        | 否   | 允许委派的子 Agent 名称列表，写法与 `tools` 相同（YAML 列表或逗号分隔字符串）。缺省表示可委派所有类型；单独的 `*` 同样表示全部                                                                                                                              |
 
 内置工具与用户工具按名称精确匹配（区分大小写）；以 `mcp__` 开头的条目按 glob 匹配 MCP 工具。有三种写法永远匹配不到任何工具，在 profile 生效时会给出警告：`mcp__` 模式之外使用通配符（`disallowedTools` 里单独的 `*` 什么也禁不掉）；不是完整 `mcp__<服务器>__<工具>` 形式的 `mcp__` 字面量（`mcp__github` 匹配不到任何工具 —— 匹配整个服务器要用 `mcp__github__*`）；以及任何已注册或内置工具都没有的名字（通常是笔误，如把 `Read` 写成 `read`）。
 
@@ -111,7 +113,7 @@ disallowedTools:
 
 未知字段会被忽略，新版本写的文件在旧版本上仍可读取。其他 Agent 工具的字段（如 Claude Code 的 `model`、OpenCode 的 `mode`）同样会被忽略；加上 `tools` 的逗号分隔写法和 `name` 缺省回退到文件名，Claude Code 与 OpenCode 风格的 Agent 文件一般可直接加载 —— 只含 `description` 和正文的最小文件可跨工具通用。
 
-`model_preference` 仅在次主力模型实验功能启用时对新启动的子 Agent 生效——设置 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`，或 master `KIMI_CODE_EXPERIMENTAL_FLAG=1`。它在包括交互式 TUI 在内的所有启动方式下生效。该字段不用于填写具体模型 alias，已恢复的子 Agent 也会保持原模型。主 Agent 会在 profile 描述中看到这项偏好，因此仍可在某项任务需要不同选择时显式传入 `model`。
+`model_preference` 仅在次主力模型实验功能启用时对新启动的子 Agent 生效——设置 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`，或 master `KIMI_CODE_EXPERIMENTAL_FLAG=1`。它在包括交互式 TUI 在内的所有启动方式下生效。该字段不用于填写具体的供应商/模型引用，已恢复的子 Agent 也会保持原模型。主 Agent 会在 profile 描述中看到这项偏好，因此仍可在某项任务需要不同选择时显式传入 `model`。
 
 目录中发现的非法文件会被跳过并告警，不影响其他文件。通过 `--agent-file` 显式传入的文件必须合法 —— 否则 CLI 会报错并退出。
 
@@ -149,18 +151,18 @@ SYSTEM.md 是纯 Markdown 正文，不需要也不读取 Frontmatter。文件缺
 
 与普通 Agent 文件的正文一样，SYSTEM.md 在每次构建提示词时作为模板渲染——正文中的 `${var}` 占位符会被替换为实时上下文：
 
-| 变量 | 内容 |
-| --- | --- |
-| `${skills}` | 合并后的 Agent Skills 注入内容；`Skill` 工具不可用时为空 |
-| `${agents_md}` | 工作区指令文件（如 `AGENTS.md`）的内容 |
-| `${cwd}` | 当前工作目录 |
-| `${cwd_listing}` | 工作目录的文件列表 |
-| `${os}` | 操作系统类型 |
-| `${shell}` | Shell 名称与路径，例如 `bash (\`/bin/bash\`)` |
-| `${now}` | 当前时间（ISO 格式） |
-| `${additional_dirs_info}` | 加入工作区的额外目录信息；没有时为空 |
-| `${base_prompt}` | 默认系统提示词。在 `SYSTEM.md` 中指内置默认提示词；在 Agent 文件中指有效默认提示词（内置默认，或存在时为你的 `SYSTEM.md` 覆盖） |
-| `${plugin_sections}` | 已启用 plugin 提供的完整 Plugin Instructions 块；没有已启用 plugin 提供指令时为空 |
+| 变量                      | 内容                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `${skills}`               | 合并后的 Agent Skills 注入内容；`Skill` 工具不可用时为空                                                                        |
+| `${agents_md}`            | 工作区指令文件（如 `AGENTS.md`）的内容                                                                                          |
+| `${cwd}`                  | 当前工作目录                                                                                                                    |
+| `${cwd_listing}`          | 工作目录的文件列表                                                                                                              |
+| `${os}`                   | 操作系统类型                                                                                                                    |
+| `${shell}`                | Shell 名称与路径，例如 `bash (\`/bin/bash\`)`                                                                                   |
+| `${now}`                  | 当前时间（ISO 格式）                                                                                                            |
+| `${additional_dirs_info}` | 加入工作区的额外目录信息；没有时为空                                                                                            |
+| `${base_prompt}`          | 默认系统提示词。在 `SYSTEM.md` 中指内置默认提示词；在 Agent 文件中指有效默认提示词（内置默认，或存在时为你的 `SYSTEM.md` 覆盖） |
+| `${plugin_sections}`      | 已启用 plugin 提供的完整 Plugin Instructions 块；没有已启用 plugin 提供指令时为空                                               |
 
 未知变量原样保留，单独的 `$` 没有特殊含义；上下文中缺失的变量渲染为空字符串。另有四个预组合块——`${windows_notes}`、`${additional_dirs_section}`、`${skills_section}`、`${plugin_sections}`——渲染对应的内置提示词段落，不适用时为空字符串。内置默认提示词已经包含 `${plugin_sections}`；当 `${base_prompt}` 已展开为该提示词时，不要再重复加入此变量。利用这些变量可以重建内置提示词的骨架，例如：
 

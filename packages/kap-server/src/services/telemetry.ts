@@ -14,18 +14,18 @@ import {
   IBootstrapService,
   IConfigService,
   type IDisposable,
-  IOAuthToolkit,
+  IProviderRuntime,
   ITelemetryService,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+} from "@moonshot-ai/agent-core-v2";
+import { createKimiDeviceId } from "@moonshot-ai/kimi-code-oauth";
 
 // Same product as the CLI; the surface is distinguished by ui_mode (v1
 // convention: CLI_USER_AGENT_PRODUCT / WEB_UI_MODE in apps/kimi-code).
-const SERVER_TELEMETRY_APP_NAME = 'kimi-code-cli';
-const SERVER_TELEMETRY_UI_MODE = 'web';
-const TELEMETRY_DISABLE_ENV = 'KIMI_DISABLE_TELEMETRY';
-const TELEMETRY_DISABLE_ENV_VALUES = new Set(['1', 'true', 't', 'yes', 'y']);
+const SERVER_TELEMETRY_APP_NAME = "kimi-code-cli";
+const SERVER_TELEMETRY_UI_MODE = "web";
+const TELEMETRY_DISABLE_ENV = "KIMI_DISABLE_TELEMETRY";
+const TELEMETRY_DISABLE_ENV_VALUES = new Set(["1", "true", "t", "yes", "y"]);
 
 /**
  * Cap on how long server close waits for its best-effort final flush. A wedged
@@ -51,16 +51,19 @@ export async function initializeServerTelemetry(
   const service = core.accessor.get(ITelemetryService);
   const config = core.accessor.get(IConfigService);
   await config.ready;
-  const enabled = config.get('telemetry') !== false;
+  const enabled = config.get("telemetry") !== false;
   if (!enabled || isTelemetryDisabledByEnv(core)) return {};
 
-  const auth = core.accessor.get(IOAuthToolkit);
+  const providers = core.accessor.get(IProviderRuntime);
   const appender = createCloudAppender(core.accessor, {
     deviceId: createKimiDeviceId(homeDir),
     appName: SERVER_TELEMETRY_APP_NAME,
     uiMode: SERVER_TELEMETRY_UI_MODE,
-    model: config.get<string>('defaultModel') ?? undefined,
-    getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
+    model: config.get<string>("defaultModel") ?? undefined,
+    getAccessToken: async () => {
+      const auth = await providers.getAuth("kimi-coding");
+      return auth?.auth.apiKey ?? null;
+    },
   });
   const registration = service.addAppender(appender);
   try {

@@ -94,22 +94,22 @@ To resume the previous session, add `-c`:
 kimi -c
 ```
 
-On first launch you need to configure an API source. In the interactive UI, enter `/login` to begin the login flow:
+On first launch, connect a provider. In the interactive UI, enter `/login`:
 
 ```
 /login
 ```
 
-`/login` opens a platform selector supporting two options:
+`/login` first asks whether you want to use an account or an API key, then lists the built-in providers that support that method. The catalog includes Kimi Code, OpenAI Codex, xAI, OpenAI, Anthropic, and other API services:
 
-- **Kimi Code (OAuth)** — device-code flow; open the link on any device, sign in, and enter the code to authorize
-- **Kimi Platform API key** — enter an API key from `platform.kimi.com` or `platform.kimi.ai`
+- **OAuth** — available for Kimi Code, OpenAI Codex, and xAI
+- **API key** — enter and securely save the selected provider's key
+
+After login, choose one of that provider's currently available models. To skip the two selectors when you already know the provider, run `/login <provider>`, for example `/login openai`.
 
 To sign out, enter `/logout` to clear the current credentials.
 
-::: tip Using other AI providers
-If you want to connect Anthropic, OpenAI, Google, or other providers, edit `~/.kimi-code/config.toml` directly to configure the API key. See [Providers and models](../configuration/providers.md) for details. For the full reference of all config options, see [Configuration files](../configuration/config-files.md), [Environment variables](../configuration/env-vars.md), and [Configuration overrides](../configuration/overrides.md).
-:::
+You can also connect from the shell with `kimi login <provider>`, or use a provider's standard API-key environment variable. See [Providers and models](../configuration/providers.md) for the full catalog and model-selection flow.
 
 ## Your first conversation
 
@@ -139,23 +139,23 @@ For a first-time user, the following is all you need to know:
 
 **Session commands**
 
-| Command | Description |
-| --- | --- |
-| `/new` | Start a new session, clearing the current context |
-| `/sessions` | Browse session history and choose one to resume |
-| `/model` | Switch the current model |
-| `/compact` | Manually compress the context to free up tokens |
-| `/fork` | Fork the current session, keeping history but continuing independently |
+| Command     | Description                                                            |
+| ----------- | ---------------------------------------------------------------------- |
+| `/new`      | Start a new session, clearing the current context                      |
+| `/sessions` | Browse session history and choose one to resume                        |
+| `/model`    | Switch the current model                                               |
+| `/compact`  | Manually compress the context to free up tokens                        |
+| `/fork`     | Fork the current session, keeping history but continuing independently |
 
 **Most-used keyboard shortcuts**
 
-| Shortcut | Description |
-| --- | --- |
-| `Esc` | Interrupt streaming output / close a popup |
-| `Ctrl-C` | Interrupt output; press twice while idle to exit |
-| `Shift-Tab` | Toggle Plan mode |
-| `Ctrl-S` | Inject a message mid-stream without waiting for the current response to finish |
-| `Ctrl-O` | Collapse / expand tool output and compaction summaries |
+| Shortcut    | Description                                                                    |
+| ----------- | ------------------------------------------------------------------------------ |
+| `Esc`       | Interrupt streaming output / close a popup                                     |
+| `Ctrl-C`    | Interrupt output; press twice while idle to exit                               |
+| `Shift-Tab` | Toggle Plan mode                                                               |
+| `Ctrl-S`    | Inject a message mid-stream without waiting for the current response to finish |
+| `Ctrl-O`    | Collapse / expand tool output and compaction summaries                         |
 
 For the full list, type `/help` or visit [Slash commands reference](../reference/slash-commands.md) and [Keyboard shortcuts](../reference/keyboard.md).
 

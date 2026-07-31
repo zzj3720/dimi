@@ -43,26 +43,26 @@
  * concurrent replays of different agent scopes never share fold state.
  */
 
-import type { FinishReason } from '#/kosong/contract/provider';
-import { createToolMessage, type ContentPart, type ToolCall } from '#/kosong/contract/message';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { FinishReason } from "#/llmProtocol/provider";
+import { createToolMessage, type ContentPart, type ToolCall } from "#/llmProtocol/message";
+import type { TokenUsage } from "#/llmProtocol/usage";
+import type { ToolInputDisplay } from "#/tool/toolInputDisplay";
 
-import type { ContextMessage } from './types';
-import { isVacuousContentPart } from './vacuousContent';
+import type { ContextMessage } from "./types";
+import { isVacuousContentPart } from "./vacuousContent";
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
-  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
+  "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.";
 
 export type LoopRecordedEvent =
   | {
-      readonly type: 'step.begin';
+      readonly type: "step.begin";
       readonly uuid: string;
       readonly turnId?: string;
       readonly step?: number;
     }
   | {
-      readonly type: 'step.end';
+      readonly type: "step.end";
       readonly uuid: string;
       readonly turnId?: string;
       readonly step?: number;
@@ -79,7 +79,7 @@ export type LoopRecordedEvent =
       readonly rawFinishReason?: string;
     }
   | {
-      readonly type: 'content.part';
+      readonly type: "content.part";
       readonly stepUuid: string;
       readonly part: ContentPart;
       readonly uuid?: string;
@@ -87,7 +87,7 @@ export type LoopRecordedEvent =
       readonly step?: number;
     }
   | {
-      readonly type: 'tool.call';
+      readonly type: "tool.call";
       readonly stepUuid: string;
       readonly toolCallId: string;
       readonly name: string;
@@ -99,7 +99,7 @@ export type LoopRecordedEvent =
       readonly step?: number;
     }
   | {
-      readonly type: 'tool.result';
+      readonly type: "tool.result";
       readonly toolCallId: string;
       readonly result: {
         readonly output: string | readonly ContentPart[];
@@ -149,49 +149,60 @@ export function foldLoopEvent(
 ): readonly ContextMessage[] {
   const ctx = ctxOf(state);
   switch (event.type) {
-    case 'step.begin': {
+    case "step.begin": {
       const settled = settleOpenStep(state, ctx);
-      const assistant: ContextMessage = { role: 'assistant', content: [], toolCalls: [], partial: true };
+      const assistant: ContextMessage = {
+        role: "assistant",
+        content: [],
+        toolCalls: [],
+        partial: true,
+      };
       ctx.openStepUuid = event.uuid;
       return bind([...settled, assistant], ctx);
     }
-    case 'step.end': {
+    case "step.end": {
       ctx.openStepUuid = undefined;
       const s = settleOpenStep(state, ctx);
       return bind(flushDeferred(s, ctx), ctx);
     }
-    case 'content.part':
-      return bind(appendToOpenAssistant(state, (message) => ({
-        ...message,
-        content: [...message.content, event.part],
-      })), ctx);
-    case 'tool.call': {
+    case "content.part":
+      return bind(
+        appendToOpenAssistant(state, (message) => ({
+          ...message,
+          content: [...message.content, event.part],
+        })),
+        ctx,
+      );
+    case "tool.call": {
       const call: ToolCall = {
-        type: 'function',
+        type: "function",
         id: event.toolCallId,
         name: event.name,
         arguments: event.args === undefined ? null : JSON.stringify(event.args),
         ...(event.extras !== undefined ? { extras: event.extras } : {}),
       };
       ctx.pending.add(event.toolCallId);
-      return bind(appendToOpenAssistant(state, (message) => ({
-        ...message,
-        toolCalls: [...message.toolCalls, call],
-        ...(event.display === undefined
-          ? {}
-          : {
-              toolCallDisplays: {
-                ...message.toolCallDisplays,
-                [event.toolCallId]: event.display,
-              },
-            }),
-      })), ctx);
+      return bind(
+        appendToOpenAssistant(state, (message) => ({
+          ...message,
+          toolCalls: [...message.toolCalls, call],
+          ...(event.display === undefined
+            ? {}
+            : {
+                toolCallDisplays: {
+                  ...message.toolCallDisplays,
+                  [event.toolCallId]: event.display,
+                },
+              }),
+        })),
+        ctx,
+      );
     }
-    case 'tool.result': {
+    case "tool.result": {
       if (!ctx.pending.has(event.toolCallId)) return state;
       const output = event.result.output;
       const toolMessage: ContextMessage = {
-        ...createToolMessage(event.toolCallId, typeof output === 'string' ? output : [...output]),
+        ...createToolMessage(event.toolCallId, typeof output === "string" ? output : [...output]),
         isError: event.result.isError,
         note: event.result.note,
       };
@@ -219,10 +230,7 @@ function appendToOpenAssistant(
   return next;
 }
 
-function settleOpenStep(
-  state: readonly ContextMessage[],
-  ctx: FoldCtx,
-): readonly ContextMessage[] {
+function settleOpenStep(state: readonly ContextMessage[], ctx: FoldCtx): readonly ContextMessage[] {
   const closed = closePending(state, ctx);
   const index = findOpenAssistantIndex(closed);
   if (index === -1) return closed;

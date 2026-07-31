@@ -23,20 +23,24 @@
  * reconnects, so this trade-off is accepted deliberately.
  */
 
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import { toErrorMessage } from '#/errors';
-import { isAbortError } from '#/_base/utils/abort';
+import type { Tool as LLMTool } from "#/llmProtocol/tool";
+import type { ITelemetryService } from "#/app/telemetry/telemetry";
+import { toErrorMessage } from "#/errors";
+import { isAbortError } from "#/_base/utils/abort";
 
-import type { ExecutableTool, ExecutableToolContext, ExecutableToolResult } from '#/tool/toolContract';
-import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
-import type { MCPClient, MCPToolResult } from '#/agent/mcp/types';
+import type {
+  ExecutableTool,
+  ExecutableToolContext,
+  ExecutableToolResult,
+} from "#/tool/toolContract";
+import { mcpResultToExecutableOutput } from "#/agent/mcp/output";
+import type { MCPClient, MCPToolResult } from "#/agent/mcp/types";
 import {
   isMcpConnectionClosedError,
   isMcpMalformedResultError,
   isMcpTransportFailure,
   probeMcpLiveness,
-} from '#/agent/mcp/client-shared';
+} from "#/agent/mcp/client-shared";
 
 interface McpToolOptions {
   readonly originalsDir?: string;
@@ -46,7 +50,7 @@ interface McpToolOptions {
 
 export function createMcpTool(
   qualifiedName: string,
-  tool: KosongTool,
+  tool: LLMTool,
   client: MCPClient,
   options: McpToolOptions = {},
 ): ExecutableTool {
@@ -80,7 +84,7 @@ async function retryAfterReconnect(
   error: unknown,
   client: MCPClient,
   args: unknown,
-  context: Pick<ExecutableToolContext, 'signal' | 'onUpdate'>,
+  context: Pick<ExecutableToolContext, "signal" | "onUpdate">,
   options: McpToolOptions,
   callTool: (client: MCPClient, args: unknown, signal: AbortSignal) => Promise<MCPToolResult>,
 ): Promise<MCPToolResult> {
@@ -121,7 +125,7 @@ async function retryAfterReconnect(
     }
   }
 
-  context.onUpdate?.({ kind: 'status', text: 'MCP connection lost — reconnecting…' });
+  context.onUpdate?.({ kind: "status", text: "MCP connection lost — reconnecting…" });
   let freshClient: MCPClient | undefined;
   try {
     freshClient = await reconnect(context.signal);
@@ -141,7 +145,7 @@ async function retryAfterReconnect(
 }
 
 function normalizeMcpToolResult(result: {
-  readonly output: ExecutableToolResult['output'];
+  readonly output: ExecutableToolResult["output"];
   readonly isError: boolean;
   readonly note?: string;
   readonly truncated?: true;

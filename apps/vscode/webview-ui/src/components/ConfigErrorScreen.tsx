@@ -52,7 +52,9 @@ function ErrorDetails({ message }: { message?: string | null }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs bg-background rounded px-3 py-2 font-mono text-foreground">{message}</pre>
+      <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs bg-background rounded px-3 py-2 font-mono text-foreground">
+        {message}
+      </pre>
     </div>
   );
 }
@@ -66,7 +68,8 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, "onRefresh" |
           <span className="text-sm font-medium">Model setup required</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Sign in with a Kimi account, or configure a provider and model in your shared Kimi Code <code className="bg-muted px-1 rounded">config.toml</code>.
+          Connect a supported provider here, in the Kimi Code terminal UI, or with the{" "}
+          <code className="bg-muted px-1 rounded">kimi login</code> command.
         </p>
       </div>
 
@@ -76,19 +79,30 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, "onRefresh" |
           Shared Kimi Code configuration
         </div>
         <p className="text-xs text-muted-foreground">
-          VS Code and the terminal UI use the same Kimi Code home, configuration, credentials, and sessions.
+          VS Code and the terminal UI use the same Kimi Code home, configuration, credentials, and
+          sessions.
         </p>
       </div>
 
       <div className="flex flex-col min-[400px]:flex-row min-[400px]:justify-between gap-2 w-full">
         {onBackToLogin && (
-          <Button onClick={onBackToLogin} variant="ghost" size="sm" className="gap-1 text-muted-foreground">
+          <Button
+            onClick={onBackToLogin}
+            variant="ghost"
+            size="sm"
+            className="gap-1 text-muted-foreground"
+          >
             <IconArrowLeft className="size-3" />
             Back to sign in
           </Button>
         )}
         {onRefresh && (
-          <Button onClick={onRefresh} variant="ghost" size="sm" className="gap-1 text-muted-foreground">
+          <Button
+            onClick={onRefresh}
+            variant="ghost"
+            size="sm"
+            className="gap-1 text-muted-foreground"
+          >
             <IconRefresh className="size-3" />
             Reload
           </Button>
@@ -159,7 +173,9 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
             <IconAlertTriangle className="size-5" />
             <span className="text-sm font-medium">Kimi Code could not start</span>
           </div>
-          <p className="text-xs text-muted-foreground">Check the error below. Full diagnostics are available in the Kimi Code output channel.</p>
+          <p className="text-xs text-muted-foreground">
+            Check the error below. Full diagnostics are available in the Kimi Code output channel.
+          </p>
         </div>
         <ErrorDetails message={errorMessage} />
         <div className="flex gap-2 justify-center">

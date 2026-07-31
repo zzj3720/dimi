@@ -12,17 +12,17 @@
  * which must never surface in transcripts.
  */
 
-import type { KimiErrorPayload } from '#/_base/errors/serialize';
-import type { PromptOrigin } from '#/agent/contextMemory/types';
-import type { FinishReason } from '#/kosong/contract/provider';
-import type { ContentPart, TextPart } from '#/kosong/contract/message';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { KimiErrorPayload } from "#/_base/errors/serialize";
+import type { PromptOrigin } from "#/agent/contextMemory/types";
+import type { FinishReason } from "#/llmProtocol/provider";
+import type { ContentPart, TextPart } from "#/llmProtocol/message";
+import type { TokenUsage } from "#/llmProtocol/usage";
 
 /** Why a turn ended. `blocked` folds into `failed` at the wire edge. */
-export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
+export type TurnEndReason = "completed" | "cancelled" | "failed" | "blocked";
 
 export interface TurnStartedEvent {
-  readonly type: 'turn.started';
+  readonly type: "turn.started";
   readonly turnId: number;
   readonly origin: PromptOrigin;
   readonly prompt?: string;
@@ -30,22 +30,22 @@ export interface TurnStartedEvent {
 
 export function turnPromptText(input: readonly ContentPart[]): string | undefined {
   const text = input
-    .filter((part): part is TextPart => part.type === 'text')
+    .filter((part): part is TextPart => part.type === "text")
     .map((part) => part.text)
-    .join('');
+    .join("");
   return text.length > 0 ? text : undefined;
 }
 
 export function isDisplayablePromptOrigin(origin: PromptOrigin): boolean {
-  if (origin.kind === 'user') return true;
+  if (origin.kind === "user") return true;
   return (
-    (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
-    origin.trigger === 'user-slash'
+    (origin.kind === "skill_activation" || origin.kind === "plugin_command") &&
+    origin.trigger === "user-slash"
   );
 }
 
 export interface TurnEndedEvent {
-  readonly type: 'turn.ended';
+  readonly type: "turn.ended";
   readonly turnId: number;
   readonly reason: TurnEndReason;
   readonly error?: KimiErrorPayload;
@@ -53,14 +53,14 @@ export interface TurnEndedEvent {
 }
 
 export interface TurnStepStartedEvent {
-  readonly type: 'turn.step.started';
+  readonly type: "turn.step.started";
   readonly turnId: number;
   readonly step: number;
   readonly stepId?: string;
 }
 
 export interface TurnStepCompletedEvent {
-  readonly type: 'turn.step.completed';
+  readonly type: "turn.step.completed";
   readonly turnId: number;
   readonly step: number;
   readonly stepId?: string;
@@ -87,7 +87,7 @@ export interface TurnStepCompletedEvent {
 }
 
 export interface TurnStepInterruptedEvent {
-  readonly type: 'turn.step.interrupted';
+  readonly type: "turn.step.interrupted";
   readonly turnId: number;
   readonly step: number;
   readonly stepId?: string;
@@ -96,34 +96,34 @@ export interface TurnStepInterruptedEvent {
 }
 
 export interface AssistantDeltaEvent {
-  readonly type: 'assistant.delta';
+  readonly type: "assistant.delta";
   readonly turnId: number;
   readonly delta: string;
 }
 
 export interface ThinkingDeltaEvent {
-  readonly type: 'thinking.delta';
+  readonly type: "thinking.delta";
   readonly turnId: number;
   readonly delta: string;
 }
 
 export interface ToolCallDeltaEvent {
-  readonly type: 'tool.call.delta';
+  readonly type: "tool.call.delta";
   readonly turnId: number;
   readonly toolCallId: string;
   readonly name?: string;
   readonly argumentsPart?: string;
 }
 
-declare module '#/app/event/eventBus' {
+declare module "#/app/event/eventBus" {
   interface DomainEventMap {
-    'turn.started': TurnStartedEvent;
-    'turn.ended': TurnEndedEvent;
-    'turn.step.started': TurnStepStartedEvent;
-    'turn.step.completed': TurnStepCompletedEvent;
-    'turn.step.interrupted': TurnStepInterruptedEvent;
-    'assistant.delta': AssistantDeltaEvent;
-    'thinking.delta': ThinkingDeltaEvent;
-    'tool.call.delta': ToolCallDeltaEvent;
+    "turn.started": TurnStartedEvent;
+    "turn.ended": TurnEndedEvent;
+    "turn.step.started": TurnStepStartedEvent;
+    "turn.step.completed": TurnStepCompletedEvent;
+    "turn.step.interrupted": TurnStepInterruptedEvent;
+    "assistant.delta": AssistantDeltaEvent;
+    "thinking.delta": ThinkingDeltaEvent;
+    "tool.call.delta": ToolCallDeltaEvent;
   }
 }

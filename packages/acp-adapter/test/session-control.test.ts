@@ -22,7 +22,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 /**
  * Captures every `session/update` notification the server pushes so
@@ -113,13 +113,13 @@ function makeFakeSession(
 
 function makeHarness(handle: FakeSessionHandle): KimiHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async (_options: unknown) => handle.session,
     // Phase 14: server.newSession reads these for configOptions assembly.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([{ id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: false }]),
+      defaultModel: 'test/kimi-coder',
+      models: makeProviderModels([{ id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: false }]),
     }),
   } as unknown as KimiHarness;
 }
@@ -245,9 +245,9 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const harness = makeHarness(handle);
     const { client, capturing, sessionId } = await openSession(harness);
 
-    await client.unstable_setSessionModel({ sessionId, modelId: 'kimi-v2-something' });
+    await client.unstable_setSessionModel({ sessionId, modelId: 'test/kimi-v2-something' });
 
-    expect(handle.setModelCalls).toEqual(['kimi-v2-something']);
+    expect(handle.setModelCalls).toEqual(['test/kimi-v2-something']);
     const updates = capturing.notifications.filter(
       (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
     );
@@ -259,7 +259,7 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     expect(modelOpt).toBeDefined();
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('kimi-v2-something');
+      expect(modelOpt.currentValue).toBe('test/kimi-v2-something');
     }
   });
 
@@ -268,13 +268,21 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     // This test needs a thinking-supported catalog row so the snapshot
     // includes the toggle (otherwise it would be omitted).
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({
+        models: makeProviderModels([
+          {
+            id: 'test/kimi-v2-something',
+            name: 'Kimi v2 something',
+            thinkingSupported: true,
+          },
+        ]),
+      }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-v2-something',
-        models: makeModelsMap([
-          { id: 'kimi-v2-something', name: 'Kimi v2 something', thinkingSupported: true },
+        defaultModel: 'test/kimi-v2-something',
+        models: makeProviderModels([
+          { id: 'test/kimi-v2-something', name: 'Kimi v2 something', thinkingSupported: true },
         ]),
       }),
     } as unknown as KimiHarness;
@@ -282,15 +290,15 @@ describe('AcpServer session/unstable_setSessionModel', () => {
 
     await client.unstable_setSessionModel({
       sessionId,
-      modelId: 'kimi-v2-something,thinking',
+      modelId: 'test/kimi-v2-something,thinking',
     });
 
     // SDK receives the bare model key for setModel and the model's default
     // thinking effort for setThinking — Phase 15 routes thinking through the
     // dedicated SDK channel instead of dropping the suffix on the floor. This
-    // fixture declares no support_efforts, so the default effort is 'on'.
-    expect(handle.setModelCalls).toEqual(['kimi-v2-something']);
-    expect(handle.setThinkingCalls).toEqual(['on']);
+    // A reasoning model without an explicit map uses the middle standard effort.
+    expect(handle.setModelCalls).toEqual(['test/kimi-v2-something']);
+    expect(handle.setThinkingCalls).toEqual(['medium']);
 
     // The model picker's currentValue is the bare id — thinking lives
     // on its own boolean toggle, and the snapshot reflects that.
@@ -302,11 +310,11 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('kimi-v2-something');
+      expect(modelOpt.currentValue).toBe('test/kimi-v2-something');
     }
     const toggle = update.configOptions.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected thinking toggle');
-    expect(toggle.currentValue).toBe('on');
+    expect(toggle.currentValue).toBe('medium');
   });
 
   it('rejects unknown sessionId with invalid_params and does not call setModel or emit notifications', async () => {

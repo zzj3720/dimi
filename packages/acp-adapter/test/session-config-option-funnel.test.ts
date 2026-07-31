@@ -22,7 +22,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 /**
  * Phase 14.3 funnel — three input paths converge on identical
@@ -80,13 +80,13 @@ function makeFakeSession(sessionId: string): Session {
 
 function makeHarness(session: Session): KimiHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async () => session,
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([
-        { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: false },
+      defaultModel: 'test/kimi-coder',
+      models: makeProviderModels([
+        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: false },
         { id: 'kimi-v2', name: 'Kimi v2', thinkingSupported: false },
       ]),
     }),
@@ -182,12 +182,12 @@ describe('config_option_update wire-shape funnel', () => {
     // (the harness's configured default).
     const session = makeFakeSession('sess-funnel-thinking');
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-coder',
-        models: makeModelsMap([{ id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true }]),
+        defaultModel: 'test/kimi-coder',
+        models: makeProviderModels([{ id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true }]),
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
@@ -203,7 +203,7 @@ describe('config_option_update wire-shape funnel', () => {
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const toggle = update.configOptions.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected select toggle');
-    expect(toggle.currentValue).toBe('on');
+    expect(toggle.currentValue).toBe('medium');
     expect(update.configOptions.map((o) => o.id)).toEqual(['model', 'thinking', 'mode']);
   });
 
@@ -237,7 +237,7 @@ describe('config_option_update wire-shape funnel', () => {
     }
 
     const viaModel = await envelopeFromPath((c, sid) =>
-      c.unstable_setSessionModel({ sessionId: sid, modelId: 'kimi-v2' }),
+      c.unstable_setSessionModel({ sessionId: sid, modelId: 'test/kimi-coder' }),
     );
     const viaMode = await envelopeFromPath((c, sid) =>
       c.setSessionMode({ sessionId: sid, modeId: 'plan' }),
@@ -249,8 +249,8 @@ describe('config_option_update wire-shape funnel', () => {
     expect(viaModel).toEqual(viaMode);
     expect(viaMode).toEqual(viaConfigOption);
     expect(viaModel.sessionUpdate).toBe('config_option_update');
-    expect(viaModel.configOptionIds).toEqual(['model', 'mode']);
-    expect(viaModel.configOptionTypes).toEqual(['select', 'select']);
-    expect(viaModel.configOptionCategories).toEqual(['model', 'mode']);
+    expect(viaModel.configOptionIds).toEqual(['model', 'thinking', 'mode']);
+    expect(viaModel.configOptionTypes).toEqual(['select', 'select', 'select']);
+    expect(viaModel.configOptionCategories).toEqual(['model', 'thought_level', 'mode']);
   });
 });

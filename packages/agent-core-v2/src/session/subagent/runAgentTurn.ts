@@ -16,28 +16,28 @@
  * flow.
  */
 
-import { APIProviderRateLimitError, isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
+import { APIProviderRateLimitError, isProviderRateLimitError } from "#/llmProtocol/errors";
+import { type TokenUsage } from "#/llmProtocol/usage";
 
-import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
-import { IAgentUsageService } from '#/agent/usage/usage';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { linkAbortSignal, userCancellationReason } from "#/_base/utils/abort";
+import type { IAgentScopeHandle } from "#/_base/di/scope";
+import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
+import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
+import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
+import { IAgentPromptService } from "#/agent/prompt/prompt";
+import { IAgentLoopService, type Turn, type TurnResult } from "#/agent/loop/loop";
+import { IAgentUsageService } from "#/agent/usage/usage";
+import type { AgentProfileSummaryPolicy } from "#/app/agentProfileCatalog/agentProfileCatalog";
 
-import type { AgentRunHandle, AgentRunRequest } from './subagent';
+import type { AgentRunHandle, AgentRunRequest } from "./subagent";
 
 export const AGENT_RUN_PROMPT_ORIGIN: PromptOrigin = {
-  kind: 'system_trigger',
-  name: 'subagent',
+  kind: "system_trigger",
+  name: "subagent",
 };
 
 const SUBAGENT_MAX_TOKENS_ERROR =
-  'Subagent turn failed before completing its final summary: reason=max_tokens';
+  "Subagent turn failed before completing its final summary: reason=max_tokens";
 
 export interface RunAgentTurnOptions {
   readonly summaryPolicy?: AgentProfileSummaryPolicy;
@@ -53,15 +53,19 @@ export async function runAgentTurn(
   options.signal.throwIfAborted();
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
-    request.kind === 'prompt'
-      ? await (await promptService.enqueue({ message: {
-          role: 'user',
-          content: [{ type: 'text', text: request.prompt }],
-          toolCalls: [],
-          origin: AGENT_RUN_PROMPT_ORIGIN,
-        } })).launched
+    request.kind === "prompt"
+      ? await (
+          await promptService.enqueue({
+            message: {
+              role: "user",
+              content: [{ type: "text", text: request.prompt }],
+              toolCalls: [],
+              origin: AGENT_RUN_PROMPT_ORIGIN,
+            },
+          })
+        ).launched
       : await promptService.retry();
-  if (turn === undefined) throw new Error('Agent turn could not be started');
+  if (turn === undefined) throw new Error("Agent turn could not be started");
 
   if (options.onReady !== undefined) {
     void turn.ready.then(() => options.onReady?.()).catch(() => {});
@@ -126,7 +130,7 @@ async function awaitTurn(
   const cancelOnAbort = (): void => {
     cancelTurn(turn, controller.signal.reason);
   };
-  controller.signal.addEventListener('abort', cancelOnAbort, { once: true });
+  controller.signal.addEventListener("abort", cancelOnAbort, { once: true });
   try {
     if (controller.signal.aborted) {
       cancelOnAbort();
@@ -138,7 +142,7 @@ async function awaitTurn(
     controller.signal.throwIfAborted();
     return result;
   } finally {
-    controller.signal.removeEventListener('abort', cancelOnAbort);
+    controller.signal.removeEventListener("abort", cancelOnAbort);
   }
 }
 
@@ -156,12 +160,16 @@ async function distillSummary(
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
-    const turn = await (await promptService.enqueue({ message: {
-      role: 'user',
-      content: [{ type: 'text', text: policy.continuationPrompt }],
-      toolCalls: [],
-      origin: AGENT_RUN_PROMPT_ORIGIN,
-    } })).launched;
+    const turn = await (
+      await promptService.enqueue({
+        message: {
+          role: "user",
+          content: [{ type: "text", text: policy.continuationPrompt }],
+          toolCalls: [],
+          origin: AGENT_RUN_PROMPT_ORIGIN,
+        },
+      })
+    ).launched;
     if (turn === undefined) break;
     setTurn(turn);
     const result = await awaitTurn(turn, controller, cancelTurn);
@@ -179,12 +187,12 @@ function isSummaryAdequate(summary: string, policy: AgentProfileSummaryPolicy): 
 
 function classifyTurnResult(result: TurnResult): void {
   switch (result.type) {
-    case 'completed':
+    case "completed":
       if (result.truncated) {
         throw new Error(SUBAGENT_MAX_TOKENS_ERROR);
       }
       return;
-    case 'failed': {
+    case "failed": {
       const error = result.error;
       if (isProviderRateLimitError(error)) throw error;
       const payload = toKimiErrorPayload(error);
@@ -193,41 +201,43 @@ function classifyTurnResult(result: TurnResult): void {
       }
       throw toRunError(error);
     }
-    case 'cancelled':
+    case "cancelled":
       throw toRunError(result.reason ?? userCancellationReason());
   }
 }
 
 function toRunError(error: unknown): Error {
   if (error instanceof Error) return error;
-  if (error === undefined || error === null) return new Error('Agent turn failed');
+  if (error === undefined || error === null) return new Error("Agent turn failed");
   return new Error(stringifyRunError(error));
 }
 
 function stringifyRunError(value: unknown): string {
-  if (typeof value === 'string') return value;
+  if (typeof value === "string") return value;
   return String(value);
 }
 
 function providerRateLimitErrorFromPayload(error: KimiErrorPayload): APIProviderRateLimitError {
   const requestId =
-    typeof error.details?.['requestId'] === 'string' ? error.details['requestId'] : null;
+    typeof error.details?.["requestId"] === "string" ? error.details["requestId"] : null;
   return new APIProviderRateLimitError(error.message, requestId);
 }
 
 function latestAssistantText(messages: readonly ContextMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!;
-    if (message.role !== 'assistant') continue;
+    if (message.role !== "assistant") continue;
     return contentText(message.content);
   }
-  return '';
+  return "";
 }
 
-function contentText(content: ContextMessage['content']): string {
-  if (typeof content === 'string') return content;
+function contentText(content: ContextMessage["content"]): string {
+  if (typeof content === "string") return content;
   return content
-    .filter((part): part is Extract<(typeof content)[number], { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<(typeof content)[number], { type: "text" }> => part.type === "text",
+    )
     .map((part) => part.text)
-    .join('');
+    .join("");
 }

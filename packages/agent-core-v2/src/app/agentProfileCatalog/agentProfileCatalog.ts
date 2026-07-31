@@ -10,7 +10,7 @@
  *
  * Every profile is self-contained: `systemPrompt(context)` returns the complete
  * prompt (base + role overlay are merged at definition time, not at spawn
- * time). Profiles stay independent of concrete model aliases, but may declare
+ * time). Profiles stay independent of concrete provider/model references, but may declare
  * a symbolic primary/secondary preference used as the default when spawned as
  * a subagent. The builtin {@link DEFAULT_AGENT_PROFILE_NAME} (`agent`) is the
  * default profile used when an Agent is bound to a Model without naming a
@@ -31,14 +31,14 @@
  * profile with the same name overrides an earlier one.
  */
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { createDecorator, type ServiceIdentifier } from "#/_base/di/instantiation";
 
-import type { ILogger } from '#/_base/log/log';
-import type { ISessionProcessRunner } from '#/session/process/processRunner';
+import type { ILogger } from "#/_base/log/log";
+import type { ISessionProcessRunner } from "#/session/process/processRunner";
 
-export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
+export const DEFAULT_AGENT_PROFILE_NAME = "agent";
 
-export type AgentModelPreference = 'primary' | 'secondary';
+export type AgentModelPreference = "primary" | "secondary";
 
 export interface AgentProfilePromptPrefixContext {
   readonly cwd: string;
@@ -92,4 +92,4 @@ export interface IAgentProfileCatalogService {
 }
 
 export const IAgentProfileCatalogService: ServiceIdentifier<IAgentProfileCatalogService> =
-  createDecorator<IAgentProfileCatalogService>('agentProfileCatalogService');
+  createDecorator<IAgentProfileCatalogService>("agentProfileCatalogService");

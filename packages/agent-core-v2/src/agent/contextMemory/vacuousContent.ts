@@ -9,10 +9,10 @@
  * carry content.
  */
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from "#/llmProtocol/message";
 
 export function isVacuousContentPart(part: ContentPart): boolean {
-  if (part.type === 'text') return part.text.trim().length === 0;
-  if (part.type === 'think') return part.encrypted === undefined && part.think.trim().length === 0;
+  if (part.type === "text") return part.text.trim().length === 0;
+  if (part.type === "think") return part.encrypted === undefined && part.think.trim().length === 0;
   return false;
 }

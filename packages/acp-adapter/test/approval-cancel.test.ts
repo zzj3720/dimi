@@ -54,7 +54,7 @@ import type {
 
 import { APPROVE_ONCE_OPTION_ID } from '../src/approval';
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { makeAuth } from './_helpers/harness-stubs';
 
 function makeInMemoryStreamPair(): {
   agentStream: ReturnType<typeof ndJsonStream>;
@@ -188,7 +188,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     const turnId = 11;
     const handle = makeCancellableApprovalSession(sessionId);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => handle.session,
     } as unknown as KimiHarness;
 
@@ -283,7 +283,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     const sessionId = 'sess-cancel-independent-approval';
     const handle = makeCancellableApprovalSession(sessionId);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => handle.session,
     } as unknown as KimiHarness;
 

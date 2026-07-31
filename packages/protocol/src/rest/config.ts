@@ -1,18 +1,8 @@
-import { z } from 'zod';
-
-export const providerConfigResponseSchema = z.object({
-  type: z.string(),
-  base_url: z.string().optional(),
-  default_model: z.string().optional(),
-  has_api_key: z.boolean(),
-});
-export type ProviderConfigResponse = z.infer<typeof providerConfigResponseSchema>;
+import { z } from "zod";
 
 export const configResponseSchema = z.object({
-  providers: z.record(z.string(), providerConfigResponseSchema).default({}),
   default_provider: z.string().optional(),
   default_model: z.string().optional(),
-  models: z.record(z.string(), z.unknown()).optional(),
   thinking: z.unknown().optional(),
   plan_mode: z.boolean().optional(),
   yolo: z.boolean().optional(),
@@ -32,10 +22,8 @@ export const configResponseSchema = z.object({
 export type ConfigResponse = z.infer<typeof configResponseSchema>;
 
 export const patchConfigRequestSchema = z.object({
-  providers: z.record(z.string(), z.unknown()).optional(),
   default_provider: z.string().optional(),
   default_model: z.string().optional(),
-  models: z.record(z.string(), z.unknown()).optional(),
   thinking: z.unknown().optional(),
   plan_mode: z.boolean().optional(),
   yolo: z.boolean().optional(),

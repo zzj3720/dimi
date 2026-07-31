@@ -1,15 +1,15 @@
 <!-- apps/kimi-web/src/components/dialogs/LoginDialog.vue -->
-<!-- Managed Kimi OAuth device-code login dialog. Built on the design-system -->
+<!-- Provider OAuth device-code login dialog. Built on the design-system -->
 <!-- Dialog primitive; the device code + countdown stay monospace. -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { useI18n } from 'vue-i18n';
-import { copyTextToClipboard } from '../../lib/clipboard';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
-import Spinner from '../ui/Spinner.vue';
-import Icon from '../ui/Icon.vue';
-import AuthStateIcon from '../ui/AuthStateIcon.vue';
+import { onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { copyTextToClipboard } from "../../lib/clipboard";
+import Dialog from "../ui/Dialog.vue";
+import Button from "../ui/Button.vue";
+import Spinner from "../ui/Spinner.vue";
+import Icon from "../ui/Icon.vue";
+import AuthStateIcon from "../ui/AuthStateIcon.vue";
 
 const { t } = useI18n();
 
@@ -33,11 +33,12 @@ const emit = defineEmits<{
 // -------------------------------------------------------------------------
 
 const props = defineProps<{
+  providerName: string;
   onStartOAuthLogin: () => Promise<
     | {
         flowId: string;
         provider: string;
-        status: 'pending';
+        status: "pending";
         verificationUri: string;
         verificationUriComplete: string;
         userCode: string;
@@ -48,13 +49,13 @@ const props = defineProps<{
     | {
         flowId: string;
         provider: string;
-        status: 'authenticated';
+        status: "authenticated";
       }
     | null
   >;
   onPollOAuthLogin: () => Promise<{
     flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
+    status: "pending" | "authenticated" | "expired" | "cancelled";
     resolvedAt?: string;
   } | null>;
   onCancelOAuthLogin: () => Promise<void>;
@@ -69,8 +70,8 @@ const props = defineProps<{
 // 'error'        → startOAuthLogin failed (endpoint missing)
 // -------------------------------------------------------------------------
 
-type Step = 'starting' | 'device-code' | 'success' | 'expired' | 'error';
-const step = ref<Step>('starting');
+type Step = "starting" | "device-code" | "success" | "expired" | "error";
+const step = ref<Step>("starting");
 // True when the error step came from repeated poll failures (daemon gone)
 // rather than startOAuthLogin failing (unsupported endpoint) — picks the copy.
 const pollError = ref(false);
@@ -117,23 +118,23 @@ async function startFlow(): Promise<void> {
   flow.value = null;
   pollError.value = false;
   consecutivePollFailures = 0;
-  step.value = 'starting';
+  step.value = "starting";
 
   const result = await props.onStartOAuthLogin();
   if (!result) {
-    step.value = 'error';
+    step.value = "error";
     return;
   }
 
   // Already-authenticated fast path: the server had a usable cached token and
   // did not issue a device code. Skip the device-code UI entirely and surface
   // the success state — the poller is irrelevant here.
-  if (result.status === 'authenticated') {
+  if (result.status === "authenticated") {
     stopTimers();
-    step.value = 'success';
+    step.value = "success";
     setTimeout(() => {
-      emit('success');
-      emit('close');
+      emit("success");
+      emit("close");
     }, 800);
     return;
   }
@@ -147,7 +148,7 @@ async function startFlow(): Promise<void> {
     interval: result.interval,
   };
   secondsLeft.value = result.expiresIn;
-  step.value = 'device-code';
+  step.value = "device-code";
   startCountdown();
   scheduleNextPoll(result.interval);
 }
@@ -175,23 +176,23 @@ function scheduleNextPoll(intervalSec: number): void {
       if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
         stopTimers();
         pollError.value = true;
-        step.value = 'error';
+        step.value = "error";
         return;
       }
       scheduleNextPoll(intervalSec);
       return;
     }
     consecutivePollFailures = 0;
-    if (result.status === 'authenticated') {
+    if (result.status === "authenticated") {
       stopTimers();
-      step.value = 'success';
+      step.value = "success";
       setTimeout(() => {
-        emit('success');
-        emit('close');
+        emit("success");
+        emit("close");
       }, 1200);
-    } else if (result.status === 'expired' || result.status === 'cancelled') {
+    } else if (result.status === "expired" || result.status === "cancelled") {
       stopTimers();
-      step.value = 'expired';
+      step.value = "expired";
     } else {
       // pending — keep polling
       scheduleNextPoll(intervalSec);
@@ -200,8 +201,14 @@ function scheduleNextPoll(intervalSec: number): void {
 }
 
 function stopTimers(): void {
-  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
 }
 
 async function retryFlow(): Promise<void> {
@@ -213,38 +220,44 @@ async function copyCode(): Promise<void> {
   const ok = await copyTextToClipboard(flow.value.userCode);
   if (!ok) return;
   copied.value = true;
-  setTimeout(() => { copied.value = false; }, 2000);
+  setTimeout(() => {
+    copied.value = false;
+  }, 2000);
 }
 
 async function close(): Promise<void> {
   stopTimers();
   // Best-effort cancel
-  if (step.value === 'device-code') {
+  if (step.value === "device-code") {
     void props.onCancelOAuthLogin();
   }
-  emit('close');
+  emit("close");
 }
 
 // Format seconds as mm:ss
 function formatSeconds(s: number): string {
   const m = Math.floor(s / 60);
   const sec = s % 60;
-  return `${m}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 </script>
 
 <template>
-  <Dialog v-model:open="open" :title="t('login.title')" :close-on-overlay="false" @close="close">
-
+  <Dialog
+    v-model:open="open"
+    :title="t('login.title', { provider: providerName })"
+    :close-on-overlay="false"
+    @close="close"
+  >
     <!-- Starting (brief spinner) -->
     <div v-if="step === 'starting'" class="center-body">
       <Spinner size="md" />
-      <span class="center-text">{{ t('login.starting') }}</span>
+      <span class="center-text">{{ t("login.starting") }}</span>
     </div>
 
     <!-- Device-code step -->
     <div v-else-if="step === 'device-code' && flow" class="nb">
-      <div class="nb-lead">{{ t('login.lead') }}</div>
+      <div class="nb-lead">{{ t("login.lead") }}</div>
 
       <!-- Primary path: open the complete URI (device code already embedded) -->
       <a
@@ -253,33 +266,41 @@ function formatSeconds(s: number): string {
         target="_blank"
         rel="noopener noreferrer"
       >
-        {{ t('login.authorizeInBrowser') }}
+        {{ t("login.authorizeInBrowser") }}
         <Icon name="external-link" size="sm" />
       </a>
 
       <!-- Divider -->
-      <div class="nb-or">{{ t('login.orDivider') }}</div>
+      <div class="nb-or">{{ t("login.orDivider") }}</div>
 
       <!-- Fallback path: open the plain URI and type the code manually -->
       <div class="nb-fallback">
         <div class="nb-fb-text">
-          {{ t('login.fallbackPrefix') }}<a
+          {{ t("login.fallbackPrefix")
+          }}<a
             class="nb-fb-link"
             :href="flow.verificationUri"
             target="_blank"
             rel="noopener noreferrer"
-          >{{ flow.verificationUri }}</a>{{ t('login.fallbackSuffix') }}
+            >{{ flow.verificationUri }}</a
+          >{{ t("login.fallbackSuffix") }}
         </div>
         <div class="nb-code-row">
           <span class="nb-code">{{ flow.userCode }}</span>
-          <Button class="nb-copy" :class="{ 'is-copied': copied }" variant="secondary" size="sm" @click="copyCode">
+          <Button
+            class="nb-copy"
+            :class="{ 'is-copied': copied }"
+            variant="secondary"
+            size="sm"
+            @click="copyCode"
+          >
             <template v-if="copied">
               <Icon name="check" size="sm" />
-              {{ t('login.copied') }}
+              {{ t("login.copied") }}
             </template>
             <template v-else>
               <Icon name="copy" size="sm" />
-              {{ t('login.copy') }}
+              {{ t("login.copy") }}
             </template>
           </Button>
         </div>
@@ -288,7 +309,7 @@ function formatSeconds(s: number): string {
       <!-- Status -->
       <div class="nb-status">
         <Spinner size="sm" :label="t('login.waitingAuth')" />
-        <span class="nb-status-text">{{ t('login.waitingAutoClose') }}</span>
+        <span class="nb-status-text">{{ t("login.waitingAutoClose") }}</span>
         <span class="nb-countdown">{{ formatSeconds(secondsLeft) }}</span>
       </div>
     </div>
@@ -296,20 +317,20 @@ function formatSeconds(s: number): string {
     <!-- Success -->
     <div v-else-if="step === 'success'" class="center-body">
       <AuthStateIcon kind="success" />
-      <span class="center-text success-text">{{ t('login.success') }}</span>
-      <span class="center-hint">{{ t('login.successHint') }}</span>
+      <span class="center-text success-text">{{ t("login.success") }}</span>
+      <span class="center-hint">{{ t("login.successHint") }}</span>
     </div>
 
     <!-- Expired / Cancelled -->
     <template v-else-if="step === 'expired'">
       <div class="center-body">
         <AuthStateIcon kind="expired" />
-        <span class="center-text err-text">{{ t('login.expiredTitle') }}</span>
-        <span class="center-hint">{{ t('login.expiredHint') }}</span>
+        <span class="center-text err-text">{{ t("login.expiredTitle") }}</span>
+        <span class="center-hint">{{ t("login.expiredHint") }}</span>
       </div>
       <div class="actions">
-        <Button variant="primary" @click="retryFlow">{{ t('login.retry') }}</Button>
-        <Button variant="secondary" @click="close">{{ t('login.closeBtn') }}</Button>
+        <Button variant="primary" @click="retryFlow">{{ t("login.retry") }}</Button>
+        <Button variant="secondary" @click="close">{{ t("login.closeBtn") }}</Button>
       </div>
     </template>
 
@@ -318,18 +339,17 @@ function formatSeconds(s: number): string {
       <div class="center-body">
         <AuthStateIcon kind="error" />
         <span class="center-text warn-text">
-          {{ pollError ? t('login.pollErrorTitle') : t('login.errorTitle') }}
+          {{ pollError ? t("login.pollErrorTitle") : t("login.errorTitle") }}
         </span>
         <span class="center-hint">
-          {{ pollError ? t('login.pollErrorHint') : t('login.errorHint') }}
+          {{ pollError ? t("login.pollErrorHint") : t("login.errorHint") }}
         </span>
       </div>
       <div class="actions">
-        <Button variant="primary" @click="retryFlow">{{ t('login.retry') }}</Button>
-        <Button variant="secondary" @click="close">{{ t('login.closeBtn') }}</Button>
+        <Button variant="primary" @click="retryFlow">{{ t("login.retry") }}</Button>
+        <Button variant="secondary" @click="close">{{ t("login.closeBtn") }}</Button>
       </div>
     </template>
-
   </Dialog>
 </template>
 
@@ -348,9 +368,16 @@ function formatSeconds(s: number): string {
   font-weight: var(--weight-medium);
   color: var(--color-text);
 }
-.success-text { color: var(--color-success); }
-.err-text { color: var(--color-danger); }
-.warn-text { color: var(--color-warning); font-size: var(--text-base); }
+.success-text {
+  color: var(--color-success);
+}
+.err-text {
+  color: var(--color-danger);
+}
+.warn-text {
+  color: var(--color-warning);
+  font-size: var(--text-base);
+}
 .center-hint {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
@@ -389,10 +416,14 @@ function formatSeconds(s: number): string {
   font-weight: var(--weight-medium);
   cursor: pointer;
   text-decoration: none;
-  transition: background var(--duration-fast) var(--ease-out),
+  transition:
+    background var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
 }
-.nb-primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.nb-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
 
 /* "or" divider */
 .nb-or {
@@ -427,7 +458,9 @@ function formatSeconds(s: number): string {
   text-decoration: none;
   border-bottom: 1px solid var(--color-accent-bd);
 }
-.nb-fb-link:hover { border-bottom-color: var(--color-accent); }
+.nb-fb-link:hover {
+  border-bottom-color: var(--color-accent);
+}
 .nb-code-row {
   display: flex;
   align-items: center;
@@ -446,7 +479,10 @@ function formatSeconds(s: number): string {
   letter-spacing: 0.14em;
 }
 /* Inline copy control: Button secondary + a success "copied" state. */
-.nb-copy.is-copied { color: var(--color-success); border-color: var(--color-success-bd); }
+.nb-copy.is-copied {
+  color: var(--color-success);
+  border-color: var(--color-success-bd);
+}
 
 /* Status */
 .nb-status {
@@ -456,7 +492,12 @@ function formatSeconds(s: number): string {
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-line);
 }
-.nb-status-text { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-muted); flex: 1; }
+.nb-status-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  flex: 1;
+}
 .nb-countdown {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

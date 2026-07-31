@@ -17,7 +17,7 @@ import { log, type KimiHarness, type Session } from '@moonshot-ai/kimi-code-sdk'
 import { Jimp } from 'jimp';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { makeAuth } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -67,7 +67,7 @@ describe('AcpServer cancel', () => {
       onEvent: () => () => undefined,
     } as unknown as Session;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => fakeSession,
     } as unknown as KimiHarness;
 
@@ -89,7 +89,7 @@ describe('AcpServer cancel', () => {
 
   it('does not throw and logs a warning when sessionId is unknown', async () => {
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => {
         throw new Error('createSession should not be called when no session is created');
       },
@@ -122,7 +122,7 @@ describe('AcpServer cancel', () => {
       onEvent: () => () => undefined,
     } as unknown as Session;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => fakeSession,
     } as unknown as KimiHarness;
 
@@ -153,7 +153,7 @@ describe('AcpServer cancel', () => {
       onEvent: () => () => undefined,
     } as unknown as Session;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => fakeSession,
     } as unknown as KimiHarness;
 
@@ -193,7 +193,7 @@ describe('AcpServer cancel', () => {
       onEvent: () => () => undefined,
     } as unknown as Session;
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => fakeSession,
     } as unknown as KimiHarness;
 

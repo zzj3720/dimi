@@ -94,22 +94,22 @@ kimi -p "帮我看一下这个项目的目录结构"
 kimi -c
 ```
 
-首次启动时需要配置 API 来源。在交互界面中输入 `/login` 进入登录流程：
+首次启动时需要连接一个供应商。在交互界面中输入 `/login`：
 
 ```
 /login
 ```
 
-`/login` 会弹出平台选择器，支持两种方式：
+`/login` 会先询问使用账号还是 API 密钥，再列出支持该认证方式的内置供应商。目录包括 Kimi Code、OpenAI Codex、xAI、OpenAI、Anthropic 以及其他 API 服务：
 
-- **Kimi Code（OAuth）** — 验证码流程，在任意设备打开链接、登录并输入验证码即可授权
-- **Kimi Platform API 密钥** — 输入来自 `platform.kimi.com` 或 `platform.kimi.ai` 的 API 密钥
+- **OAuth** — Kimi Code、OpenAI Codex 与 xAI 支持
+- **API 密钥** — 输入并安全保存所选供应商的密钥
+
+登录后，从该供应商当前可用的模型中选择一个。如果已经知道供应商，可以运行 `/login <provider>` 跳过前两个选择器，例如 `/login openai`。
 
 需要退出登录时，输入 `/logout` 清除当前凭证。
 
-::: tip 使用其他 AI 供应商
-如果你想接入 Anthropic、OpenAI、Google 等其他供应商，需要直接编辑 `~/.kimi-code/config.toml` 配置 API 密钥，详见[平台与模型](../configuration/providers.md)。配置项完整说明见[配置文件](../configuration/config-files.md)、[环境变量](../configuration/env-vars.md)和[配置覆盖](../configuration/overrides.md)。
-:::
+也可以在 shell 中运行 `kimi login <provider>`，或使用供应商的标准 API 密钥环境变量。完整目录与模型选择流程见[供应商与模型](../configuration/providers.md)。
 
 ## 第一个对话
 
@@ -139,23 +139,23 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 
 **会话相关命令**
 
-| 命令 | 说明 |
-| --- | --- |
-| `/new` | 开启新会话，清空当前上下文 |
-| `/sessions` | 浏览历史会话，选择恢复 |
-| `/model` | 切换当前使用的模型 |
-| `/compact` | 手动压缩上下文，释放 token |
-| `/fork` | 派生当前会话，保留历史独立继续 |
+| 命令        | 说明                           |
+| ----------- | ------------------------------ |
+| `/new`      | 开启新会话，清空当前上下文     |
+| `/sessions` | 浏览历史会话，选择恢复         |
+| `/model`    | 切换当前使用的模型             |
+| `/compact`  | 手动压缩上下文，释放 token     |
+| `/fork`     | 派生当前会话，保留历史独立继续 |
 
 **最常用快捷键**
 
-| 快捷键 | 说明 |
-| --- | --- |
-| `Esc` | 中断流式输出 / 关闭弹窗 |
-| `Ctrl-C` | 中断输出；空闲时连按两次退出 |
-| `Shift-Tab` | 切换 Plan 模式 |
-| `Ctrl-S` | 输出中途插入消息，无需等待结束 |
-| `Ctrl-O` | 折叠 / 展开工具输出和压缩摘要 |
+| 快捷键      | 说明                           |
+| ----------- | ------------------------------ |
+| `Esc`       | 中断流式输出 / 关闭弹窗        |
+| `Ctrl-C`    | 中断输出；空闲时连按两次退出   |
+| `Shift-Tab` | 切换 Plan 模式                 |
+| `Ctrl-S`    | 输出中途插入消息，无需等待结束 |
+| `Ctrl-O`    | 折叠 / 展开工具输出和压缩摘要  |
 
 想看完整列表，输入 `/help` 或访问[斜杠命令参考](../reference/slash-commands.md)和[键盘快捷键](../reference/keyboard.md)。
 

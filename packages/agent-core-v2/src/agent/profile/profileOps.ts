@@ -33,13 +33,13 @@
  * Consumed by the Agent-scope `profileService`.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
-import type { ThinkingEffort } from '#/kosong/contract/provider';
-import { defineModel } from '#/wire/model';
-import type { PayloadOf } from '#/wire/types';
+import type { ThinkingEffort } from "#/llmProtocol/provider";
+import { defineModel } from "#/wire/model";
+import type { PayloadOf } from "#/wire/types";
 
-import { ProfileError, ProfileErrors } from './profile';
+import { ProfileError, ProfileErrors } from "./profile";
 
 export interface ProfileModelState {
   readonly cwd?: string;
@@ -51,12 +51,12 @@ export interface ProfileModelState {
   readonly subagents?: readonly string[];
 }
 
-export const ProfileModel = defineModel<ProfileModelState>('profile', () => ({
-  thinkingLevel: 'off',
-  systemPrompt: '',
+export const ProfileModel = defineModel<ProfileModelState>("profile", () => ({
+  thinkingLevel: "off",
+  systemPrompt: "",
 }));
 
-export const profileBind = ProfileModel.defineOp('profile.bind', {
+export const profileBind = ProfileModel.defineOp("profile.bind", {
   schema: z.object({
     cwd: z.string().optional(),
     modelAlias: z.string().optional(),
@@ -78,7 +78,7 @@ export const profileBind = ProfileModel.defineOp('profile.bind', {
   }),
 });
 
-export const configUpdate = ProfileModel.defineOp('config.update', {
+export const configUpdate = ProfileModel.defineOp("config.update", {
   schema: z.object({
     cwd: z.string().optional(),
     modelAlias: z.string().optional(),
@@ -125,16 +125,14 @@ function stringArrayEqual(
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-function configUpdateThinkingLevel(
-  p: PayloadOf<typeof configUpdate>,
-): ThinkingEffort | undefined {
+function configUpdateThinkingLevel(p: PayloadOf<typeof configUpdate>): ThinkingEffort | undefined {
   if (p.thinkingEffort !== undefined && p.thinkingLevel !== undefined) {
     if (p.thinkingEffort !== p.thinkingLevel) {
       throw new ProfileError(
         ProfileErrors.codes.THINKING_ALIAS_CONFLICT,
         `config.update has conflicting thinkingEffort (${p.thinkingEffort}) and legacy thinkingLevel (${p.thinkingLevel})`,
         {
-          type: 'config.update',
+          type: "config.update",
           thinkingEffort: p.thinkingEffort,
           thinkingLevel: p.thinkingLevel,
         },
@@ -149,26 +147,26 @@ function configUpdateThinkingLevel(
 export type ActiveToolsState = readonly string[] | undefined;
 
 export const ActiveToolsModel = defineModel<ActiveToolsState>(
-  'profile.activeTools',
+  "profile.activeTools",
   () => undefined,
-  { reducers: { 'profile.bind': (_state, payload) => payload.activeToolNames } },
+  { reducers: { "profile.bind": (_state, payload) => payload.activeToolNames } },
 );
 
-declare module '#/wire/types' {
+declare module "#/wire/types" {
   interface PersistedOpMap {
-    'profile.bind': typeof profileBind;
-    'config.update': typeof configUpdate;
-    'tools.set_active_tools': typeof setActiveTools;
-    'tools.reset_active_tools': typeof resetActiveTools;
+    "profile.bind": typeof profileBind;
+    "config.update": typeof configUpdate;
+    "tools.set_active_tools": typeof setActiveTools;
+    "tools.reset_active_tools": typeof resetActiveTools;
   }
 }
 
-export const setActiveTools = ActiveToolsModel.defineOp('tools.set_active_tools', {
+export const setActiveTools = ActiveToolsModel.defineOp("tools.set_active_tools", {
   schema: z.object({ names: z.array(z.string()).readonly() }),
   apply: (s, p) => (p.names === s ? s : p.names),
 });
 
-export const resetActiveTools = ActiveToolsModel.defineOp('tools.reset_active_tools', {
+export const resetActiveTools = ActiveToolsModel.defineOp("tools.reset_active_tools", {
   schema: z.object({}),
   apply: (s) => (s === undefined ? s : undefined),
 });

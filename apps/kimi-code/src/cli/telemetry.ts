@@ -1,24 +1,24 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from "node:fs";
 
-import { createKimiDeviceId, KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import { ConfigRegistry } from '@moonshot-ai/agent-core-v2';
-import { transformTomlData } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { createKimiDeviceId } from "@moonshot-ai/kimi-code-oauth";
+import { ConfigRegistry } from "@moonshot-ai/agent-core-v2";
+import { transformTomlData } from "@moonshot-ai/agent-core-v2/app/config/toml";
 import {
   resolveConfigPath,
   resolveKimiHome,
   type KimiConfig,
   type KimiHarness,
   type TelemetryClient,
-} from '@moonshot-ai/kimi-code-sdk';
+} from "@moonshot-ai/kimi-code-sdk";
 import {
   initializeTelemetry,
   setTelemetryContext,
   track,
   withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
-import { parse as parseToml } from 'smol-toml';
+} from "@moonshot-ai/kimi-telemetry";
+import { parse as parseToml } from "smol-toml";
 
-import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
+import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from "#/constant/app";
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -27,9 +27,9 @@ export interface CliTelemetryBootstrap {
 }
 
 export interface InitializeCliTelemetryOptions {
-  readonly harness: Pick<KimiHarness, 'homeDir' | 'auth' | 'track'>;
+  readonly harness: Pick<KimiHarness, "homeDir" | "auth" | "track">;
   readonly bootstrap: CliTelemetryBootstrap;
-  readonly config: Pick<KimiConfig, 'defaultModel' | 'telemetry'>;
+  readonly config: Pick<KimiConfig, "defaultModel" | "telemetry">;
   readonly version: string;
   readonly uiMode: string;
   readonly model?: string;
@@ -57,11 +57,10 @@ export function initializeCliTelemetry(options: InitializeCliTelemetryOptions): 
     uiMode: options.uiMode,
     model: options.model ?? options.config.defaultModel,
     sessionId: options.sessionId,
-    getAccessToken: async () =>
-      (await options.harness.auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
+    getAccessToken: async () => (await options.harness.auth.getAccessToken("kimi-coding")) ?? null,
   });
   if (options.bootstrap.firstLaunch) {
-    options.harness.track('first_launch');
+    options.harness.track("first_launch");
   }
 }
 
@@ -110,16 +109,15 @@ export function initializeServerTelemetry(
 
 function readServerTelemetryConfig(
   configPath: string,
-): Pick<KimiConfig, 'telemetry' | 'defaultModel'> {
+): Pick<KimiConfig, "telemetry" | "defaultModel"> {
   try {
     const config = transformTomlData(
-      parseToml(readFileSync(configPath, 'utf8')),
+      parseToml(readFileSync(configPath, "utf8")),
       new ConfigRegistry(),
     );
     return {
-      telemetry: typeof config['telemetry'] === 'boolean' ? config['telemetry'] : undefined,
-      defaultModel:
-        typeof config['defaultModel'] === 'string' ? config['defaultModel'] : undefined,
+      telemetry: typeof config["telemetry"] === "boolean" ? config["telemetry"] : undefined,
+      defaultModel: typeof config["defaultModel"] === "string" ? config["defaultModel"] : undefined,
     };
   } catch {
     return {};

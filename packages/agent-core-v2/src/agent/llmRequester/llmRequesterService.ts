@@ -30,27 +30,24 @@
  * Agent scope.
  */
 
-import { createHash } from 'node:crypto';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { createHash } from "node:crypto";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { defineState } from "#/_base/state/stateRegistry";
+import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
-} from '#/agent/contextProjector/contextProjector';
-import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
-import {
-  IFaultInjectionService,
-  type FaultKind,
-} from '#/agent/faultInjection/faultInjection';
-import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
-import { IAgentUsageService } from '#/agent/usage/usage';
-import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
+} from "#/agent/contextProjector/contextProjector";
+import { IAgentContextSizeService } from "#/agent/contextSize/contextSize";
+import { IFaultInjectionService, type FaultKind } from "#/agent/faultInjection/faultInjection";
+import { IAgentProfileService, type ProfileModelContext } from "#/agent/profile/profile";
+import { IAgentStateService } from "#/agent/state/agentState";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { IAgentToolSelectService } from "#/agent/toolSelect/toolSelect";
+import { IAgentVideoResolverService } from "#/agent/media/videoResolver";
+import { IAgentUsageService } from "#/agent/usage/usage";
+import { IConfigService } from "#/app/config/config";
+import { IEventBus } from "#/app/event/eventBus";
 import {
   APIRequestTooLargeError,
   APIStatusError,
@@ -58,30 +55,35 @@ import {
   isImageFormatError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
-} from '#/kosong/contract/errors';
-import { type Message } from '#/kosong/contract/message';
-import { type ThinkingEffort } from '#/kosong/contract/provider';
-import { type Tool } from '#/kosong/contract/tool';
-import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
-import { ILogService, type LogContext } from '#/_base/log/log';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+} from "#/llmProtocol/errors";
+import { type Message } from "#/llmProtocol/message";
+import { type ThinkingEffort } from "#/llmProtocol/provider";
+import { type Tool } from "#/llmProtocol/tool";
+import { emptyUsage, inputTotal, type TokenUsage } from "#/llmProtocol/usage";
+import { ILogService, type LogContext } from "#/_base/log/log";
+import { IModelCatalog, type Model, modelThinkingLevels } from "#/app/modelCatalog/catalog";
 import {
   effectiveMaxCompletionTokens,
   type ModelRequestEvent,
   type ModelRequestParams,
   type ModelRequester,
   type ModelRequestTiming,
-} from '#/kosong/model/modelRequester';
-import type { ModelOverrides } from '#/kosong/model/model.types';
-import { IModelService } from '#/kosong/model/model';
-import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
-import { resolveThinkingKeep, type ThinkingConfig } from '#/kosong/model/thinking';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
-import type { Protocol } from '#/kosong/protocol/protocol';
-import type { ApiErrorEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWireService } from '#/wire/wire';
-import type { PayloadOf } from '#/wire/types';
+} from "#/app/modelCatalog/modelRequester";
+import {
+  MODEL_OVERRIDES_SECTION,
+  THINKING_SECTION,
+  type ModelOverrides,
+  type ThinkingConfig,
+} from "#/app/providerRuntime/configSection";
+import {
+  completionBudgetParams,
+  resolveCompletionBudget,
+} from "#/app/modelCatalog/completionBudget";
+import { resolveThinkingKeep } from "#/app/modelCatalog/thinking";
+import type { ApiErrorEvent } from "#/app/telemetry/events";
+import { ITelemetryService } from "#/app/telemetry/telemetry";
+import { IWireService } from "#/wire/wire";
+import type { PayloadOf } from "#/wire/types";
 
 import {
   IAgentLLMRequesterService,
@@ -92,20 +94,20 @@ import {
   type AgentLLMRequestSource,
   type AgentLLMRequestTask,
   type PreparedTurnRequestConfig,
-} from './llmRequester';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+} from "./llmRequester";
+import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
 import {
   LlmRequestTraceModel,
   llmRequest,
   llmToolsSnapshot,
   type LlmRequestToolSchema,
-} from './llmRequestOps';
-import { isAbortError } from '#/_base/utils/abort';
-import { unwrapErrorCause } from '#/errors';
-import { retryErrorFields } from '#/_base/utils/retry';
+} from "./llmRequestOps";
+import { isAbortError } from "#/_base/utils/abort";
+import { unwrapErrorCause } from "#/errors";
+import { retryErrorFields } from "#/_base/utils/retry";
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
-  type: 'object',
+  type: "object",
   properties: {},
 };
 
@@ -124,10 +126,10 @@ interface ResolvedLLMRequest {
   readonly logFields: AgentLLMRequestLogFields;
 }
 
-type RequestProjection = 'normal' | 'strict' | 'media-degraded' | 'media-stripped';
+type RequestProjection = "normal" | "strict" | "media-degraded" | "media-stripped";
 
 interface LLMRequestLogInput {
-  readonly protocol: Protocol;
+  readonly protocol: string;
   readonly providerType?: string;
   readonly modelName: string;
   readonly modelAlias?: string;
@@ -146,23 +148,23 @@ interface TurnRequestConfig {
 }
 
 export const llmRequesterLastConfigLogSignatureKey = defineState<string | undefined>(
-  'llmRequester.lastConfigLogSignature',
+  "llmRequester.lastConfigLogSignature",
   () => undefined as string | undefined,
 );
 export const llmRequesterTurnConfigsKey = defineState<Map<number, TurnRequestConfig>>(
-  'llmRequester.turnConfigs',
+  "llmRequester.turnConfigs",
   () => new Map(),
 );
 export const llmRequesterMediaDegradedTurnsKey = defineState<Set<number>>(
-  'llmRequester.mediaDegradedTurns',
+  "llmRequester.mediaDegradedTurns",
   () => new Set(),
 );
 export const llmRequesterMediaStrippedTurnsKey = defineState<Map<number, MediaStripSnapshot>>(
-  'llmRequester.mediaStrippedTurns',
+  "llmRequester.mediaStrippedTurns",
   () => new Map(),
 );
 export const llmRequesterEmittedThinkingEffortWarningsKey = defineState<Set<string>>(
-  'llmRequester.emittedThinkingEffortWarnings',
+  "llmRequester.emittedThinkingEffortWarnings",
   () => new Set(),
 );
 
@@ -179,7 +181,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @IConfigService private readonly config: IConfigService,
-    @IModelService private readonly modelService: IModelService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ILogService private readonly log: ILogService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -255,14 +256,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const startedAt = Date.now();
     trace.set(undefined);
     try {
-      return await this.runRequest(
-        this.resolveRequest(overrides),
-        onPart,
-        signal,
-        (traceId) => {
-          trace.set(traceId);
-        },
-      );
+      return await this.runRequest(this.resolveRequest(overrides), onPart, signal, (traceId) => {
+        trace.set(traceId);
+      });
     } catch (error) {
       this.logRequestFailure(error, overrides, signal);
       trace.set(this.trackApiError(error, startedAt, signal, overrides.source, trace.traceId));
@@ -278,10 +274,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     if (isAbortError(error) || signal?.aborted === true) return;
     const payload: LogContext = {
       ...logFieldsForSource(overrides.source),
-      model: this.profile.data().modelAlias ?? 'unknown',
+      model: this.profile.data().modelAlias ?? "unknown",
       ...retryErrorFields(error),
     };
-    this.log.warn('llm request failed', payload);
+    this.log.warn("llm request failed", payload);
   }
 
   private trackApiError(
@@ -298,24 +294,24 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const classification = classifyApiError(unwrapErrorCause(error));
     const properties: ApiErrorEvent = {
       error_type: classification.kind,
-      model: model?.id ?? modelAlias ?? 'unknown',
+      model: model?.id ?? modelAlias ?? "unknown",
       alias: modelAlias,
-      provider_type: model?.providerType ?? model?.protocol,
-      protocol: model?.protocol,
+      provider_type: model?.provider,
+      protocol: model?.api,
       retryable: isRetryableGenerateError(error),
       duration_ms: Math.max(0, Date.now() - startedAt),
       turn_id: source?.turnId,
       request_kind: requestKindForTelemetry(source),
       trace_id: traceId,
     };
-    if (source?.type === 'turn') {
-      if (source.step !== undefined) properties['step_no'] = source.step;
+    if (source?.type === "turn") {
+      if (source.step !== undefined) properties["step_no"] = source.step;
     }
     const statusCode = apiStatusCode(error);
-    if (statusCode !== undefined) properties['status_code'] = statusCode;
+    if (statusCode !== undefined) properties["status_code"] = statusCode;
     const currentTurn = this.usage.status().currentTurn;
-    if (currentTurn !== undefined) properties['input_tokens'] = inputTotal(currentTurn);
-    this.telemetry.track2('api_error', properties);
+    if (currentTurn !== undefined) properties["input_tokens"] = inputTotal(currentTurn);
+    this.telemetry.track2("api_error", properties);
     return traceId;
   }
 
@@ -342,15 +338,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         systemPrompt: request.systemPrompt,
         tools: request.tools,
         messages:
-          projection === 'strict'
+          projection === "strict"
             ? this.projector.projectStrict(shaped)
-            : projection === 'media-degraded'
+            : projection === "media-degraded"
               ? this.projector.projectMediaDegraded(shaped)
-              : projection === 'media-stripped'
+              : projection === "media-stripped"
                 ? this.projector.projectMediaStripped(
                     shaped,
-                    (mediaStripSnapshot ??=
-                      this.projector.captureMediaStripSnapshot(shaped)),
+                    (mediaStripSnapshot ??= this.projector.captureMediaStripSnapshot(shaped)),
                   )
                 : this.projector.project(shaped),
       };
@@ -361,20 +356,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       const projected = requestInput(projection);
       const input = {
         ...projected,
-        messages: await this.videoResolver.resolve(
-          projected.messages,
-          request.requester,
-          signal,
-        ),
+        messages: await this.videoResolver.resolve(projected.messages, request.requester, signal),
       };
       const fields =
-        projection === 'normal'
-          ? request.logFields
-          : { ...request.logFields, projection };
+        projection === "normal" ? request.logFields : { ...request.logFields, projection };
       this.warnAboutAnthropicThinkingEffort(request);
       const logInput: LLMRequestLogInput = {
-        protocol: request.model.protocol,
-        providerType: request.model.providerType,
+        protocol: request.model.api,
+        providerType: request.model.provider,
         modelName: request.model.name,
         modelAlias: request.modelAlias,
         thinkingEffort: request.thinkingEffort,
@@ -395,7 +384,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       let message: Message | undefined;
       let usage = emptyUsage();
       let timing: ModelRequestTiming | undefined;
-      let finish: Extract<ModelRequestEvent, { type: 'finish' }> | undefined;
+      let finish: Extract<ModelRequestEvent, { type: "finish" }> | undefined;
 
       const setTraceId = (traceId: string | null | undefined): void => {
         const normalized = traceId ?? undefined;
@@ -407,18 +396,18 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         onTraceId: setTraceId,
       })) {
         switch (event.type) {
-          case 'part':
+          case "part":
             await onPart(event.part);
             break;
-          case 'usage':
+          case "usage":
             usage = event.usage;
             break;
-          case 'finish':
+          case "finish":
             finish = event;
             message = event.message;
             setTraceId(event.traceId);
             break;
-          case 'timing': {
+          case "timing": {
             const { type: _type, ...streamTiming } = event;
             timing = streamTiming;
             break;
@@ -427,7 +416,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       }
 
       if (message === undefined || finish === undefined) {
-        throw new Error('LLM request stream ended without a finish event.');
+        throw new Error("LLM request stream ended without a finish event.");
       }
 
       this.usage.record(request.modelAlias, usage, request.source);
@@ -446,11 +435,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
     };
 
-    const initialProjection: RequestProjection = mediaStripSnapshot !== undefined
-      ? 'media-stripped'
-      : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
-        ? 'media-degraded'
-        : 'normal';
+    const initialProjection: RequestProjection =
+      mediaStripSnapshot !== undefined
+        ? "media-stripped"
+        : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
+          ? "media-degraded"
+          : "normal";
     let projection: RequestProjection = initialProjection;
     for (;;) {
       try {
@@ -460,22 +450,19 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         const raw = unwrapErrorCause(error);
         if (
           raw instanceof APIRequestTooLargeError &&
-          (projection === 'normal' || projection === 'media-degraded')
+          (projection === "normal" || projection === "media-degraded")
         ) {
           signal?.throwIfAborted();
-          if (projection === 'normal') {
-            this.log.warn(
-              'provider rejected request as too large; resending with degraded media',
-              {
-                model: request.model.name,
-                ...request.logFields,
-              },
-            );
+          if (projection === "normal") {
+            this.log.warn("provider rejected request as too large; resending with degraded media", {
+              model: request.model.name,
+              ...request.logFields,
+            });
             this.markRecoveryTurn(this.mediaDegradedTurns, request.source);
-            projection = 'media-degraded';
+            projection = "media-degraded";
           } else {
             this.log.warn(
-              'provider rejected degraded-media request as too large; resending with rejected media stripped',
+              "provider rejected degraded-media request as too large; resending with rejected media stripped",
               {
                 model: request.model.name,
                 ...request.logFields,
@@ -483,14 +470,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
             );
             mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
             this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
-            projection = 'media-stripped';
+            projection = "media-stripped";
           }
           continue;
         }
-        if (projection !== 'media-stripped' && isImageFormatError(raw)) {
+        if (projection !== "media-stripped" && isImageFormatError(raw)) {
           signal?.throwIfAborted();
           this.log.warn(
-            'provider rejected an image in the request; resending with rejected media stripped',
+            "provider rejected an image in the request; resending with rejected media stripped",
             {
               model: request.model.name,
               ...request.logFields,
@@ -498,16 +485,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           );
           mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
           this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
-          projection = 'media-stripped';
+          projection = "media-stripped";
           continue;
         }
-        if (projection === 'normal' && isRecoverableRequestStructureError(raw)) {
+        if (projection === "normal" && isRecoverableRequestStructureError(raw)) {
           signal?.throwIfAborted();
-          this.log.warn('provider rejected request structure; resending with strict projection', {
+          this.log.warn("provider rejected request structure; resending with strict projection", {
             model: request.model.name,
             ...request.logFields,
           });
-          projection = 'strict';
+          projection = "strict";
           continue;
         }
         throw error;
@@ -516,21 +503,21 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private warnAboutAnthropicThinkingEffort(request: ResolvedLLMRequest): void {
-    if (request.model.protocol !== 'anthropic') return;
+    if (request.model.api !== "anthropic-messages") return;
     const effort = request.thinkingEffort;
-    if (effort === 'on' || effort === 'off') return;
+    if (effort === "on" || effort === "off") return;
 
     let code: string;
     let message: string;
     let knownEfforts: string | undefined;
-    const supportEfforts = request.model.supportEfforts?.filter((value) => value.length > 0);
-    if (supportEfforts === undefined || supportEfforts.length === 0) return;
+    const supportEfforts = modelThinkingLevels(request.model).filter((value) => value.length > 0);
+    if (supportEfforts.length === 0) return;
     if (supportEfforts.includes(effort)) return;
-    code = 'anthropic-thinking-effort-not-listed';
-    knownEfforts = supportEfforts.join(',');
-    message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
+    code = "anthropic-thinking-effort-not-listed";
+    knownEfforts = supportEfforts.join(",");
+    message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(", ")}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
 
-    const key = [code, request.modelAlias, request.model.name, effort, knownEfforts].join('\u0000');
+    const key = [code, request.modelAlias, request.model.name, effort, knownEfforts].join("\u0000");
     if (this.emittedThinkingEffortWarnings.has(key)) return;
     this.emittedThinkingEffortWarnings.add(key);
     try {
@@ -540,23 +527,24 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         effort,
         knownEfforts,
       });
-    } catch {
-    }
+    } catch {}
     try {
-      this.eventBus.publish({ type: 'warning', code, message });
-    } catch {
-    }
+      this.eventBus.publish({ type: "warning", code, message });
+    } catch {}
   }
 
-  private isRecoveryTurn(set: ReadonlySet<number>, source: AgentLLMRequestSource | undefined): boolean {
-    if (source?.type !== 'turn') return false;
+  private isRecoveryTurn(
+    set: ReadonlySet<number>,
+    source: AgentLLMRequestSource | undefined,
+  ): boolean {
+    if (source?.type !== "turn") return false;
     return set.has(source.turnId);
   }
 
   private mediaStripSnapshotForTurn(
     source: AgentLLMRequestSource | undefined,
   ): MediaStripSnapshot | undefined {
-    if (source?.type !== 'turn') return undefined;
+    if (source?.type !== "turn") return undefined;
     return this.mediaStrippedTurns.get(source.turnId);
   }
 
@@ -564,7 +552,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     snapshot: MediaStripSnapshot,
     source: AgentLLMRequestSource | undefined,
   ): void {
-    if (source?.type !== 'turn') return;
+    if (source?.type !== "turn") return;
     for (const id of this.mediaStrippedTurns.keys()) {
       if (id < source.turnId) this.mediaStrippedTurns.delete(id);
     }
@@ -572,7 +560,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private markRecoveryTurn(set: Set<number>, source: AgentLLMRequestSource | undefined): void {
-    if (source?.type !== 'turn') return;
+    if (source?.type !== "turn") return;
     for (const id of set) {
       if (id < source.turnId) set.delete(id);
     }
@@ -588,13 +576,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         maxOutputSize: overrides.maxOutputSize ?? resolved.maxOutputSize,
         reservedContextSize: resolved.reservedContextSize,
         maxCompletionTokensCap:
-          this.config.get<ModelOverrides>('modelOverrides')?.maxCompletionTokens,
+          this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION)?.maxCompletionTokens,
       }),
       capability: resolved.modelCapabilities,
       usedContextTokens:
-        overrides.messages === undefined
-          ? this.contextSize.get().measured
-          : undefined,
+        overrides.messages === undefined ? this.contextSize.get().measured : undefined,
     });
     const requester = this.modelCatalog.getRequester(resolved.modelAlias);
 
@@ -605,7 +591,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       params: { ...baseParams, ...budgetParams },
       modelAlias: resolved.modelAlias,
       thinkingEffort: resolved.thinkingLevel,
-      systemPrompt: overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
+      systemPrompt:
+        overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
@@ -613,8 +600,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
   }
 
-  private resolveTurnConfig(source: AgentLLMRequestSource | undefined): TurnRequestConfig | undefined {
-    if (source?.type !== 'turn') return undefined;
+  private resolveTurnConfig(
+    source: AgentLLMRequestSource | undefined,
+  ): TurnRequestConfig | undefined {
+    if (source?.type !== "turn") return undefined;
     return this.getOrCreateTurnConfig(source.turnId);
   }
 
@@ -652,13 +641,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     });
     if (signature !== this.lastConfigLogSignature) {
       this.lastConfigLogSignature = signature;
-      this.log.info('llm config', { ...logFields, ...config });
+      this.log.info("llm config", { ...logFields, ...config });
     }
 
     const partialMessageCount = input.messages.filter((message) => message.partial === true).length;
     const requestFields: LogContext = { ...logFields };
-    if (partialMessageCount > 0) requestFields['partialMessageCount'] = partialMessageCount;
-    this.log.info('llm request', requestFields);
+    if (partialMessageCount > 0) requestFields["partialMessageCount"] = partialMessageCount;
+    this.log.info("llm request", requestFields);
   }
 
   private recordRequest(input: LLMRequestLogInput): void {
@@ -671,10 +660,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
 
     const systemPromptHash = fingerprint(input.systemPrompt);
-    const overrides = this.config.get<ModelOverrides>('modelOverrides');
+    const overrides = this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION);
     const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
     const modelConfig =
-      input.modelAlias === undefined ? undefined : this.modelService.get(input.modelAlias);
+      input.modelAlias === undefined ? undefined : this.modelCatalog.get(input.modelAlias);
     const payload: PayloadOf<typeof llmRequest> = {
       kind: requestKindForRecord(fields),
       provider: input.protocol,
@@ -684,24 +673,22 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       thinkingKeep: resolveThinkingKeep(
         overrides?.thinkingKeep,
         thinkingConfig?.keep,
-        input.thinkingEffort ?? 'off',
+        input.thinkingEffort ?? "off",
       ),
       temperature: overrides?.temperature,
       topP: overrides?.topP,
       maxTokens: input.maxTokens,
-      betaApi: modelConfig?.betaApi,
+      betaApi: modelConfig?.api === "anthropic-messages" || undefined,
       toolSelect: this.toolSelect.enabled(),
       systemPromptHash,
       systemPrompt:
-        input.systemPrompt === this.profile.data().systemPrompt
-          ? undefined
-          : input.systemPrompt,
+        input.systemPrompt === this.profile.data().systemPrompt ? undefined : input.systemPrompt,
       toolsHash,
       messageCount: input.messages.length,
-      turnStep: stringField(fields, 'turnStep'),
-      attempt: stringField(fields, 'attempt'),
+      turnStep: stringField(fields, "turnStep"),
+      attempt: stringField(fields, "attempt"),
       projection: projectionField(fields),
-      droppedCount: numberField(fields, 'droppedCount'),
+      droppedCount: numberField(fields, "droppedCount"),
     };
     this.wire.dispatch(llmRequest(payload));
   }
@@ -718,24 +705,22 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       streamDurationMs: timing.streamDurationMs,
       outputTokens: usage.output,
     };
-    if (timing.requestBuildMs !== undefined) payload['requestBuildMs'] = timing.requestBuildMs;
+    if (timing.requestBuildMs !== undefined) payload["requestBuildMs"] = timing.requestBuildMs;
     if (timing.serverFirstTokenMs !== undefined) {
-      payload['serverFirstTokenMs'] = timing.serverFirstTokenMs;
+      payload["serverFirstTokenMs"] = timing.serverFirstTokenMs;
     }
-    if (timing.serverDecodeMs !== undefined) payload['serverDecodeMs'] = timing.serverDecodeMs;
-    if (timing.clientConsumeMs !== undefined) payload['clientConsumeMs'] = timing.clientConsumeMs;
-    this.log.info('llm response', payload);
+    if (timing.serverDecodeMs !== undefined) payload["serverDecodeMs"] = timing.serverDecodeMs;
+    if (timing.clientConsumeMs !== undefined) payload["clientConsumeMs"] = timing.clientConsumeMs;
+    this.log.info("llm response", payload);
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect
-      .shapeTools(this.tools.list())
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-        deferred: tool.deferred,
-      }));
+    return this.toolSelect.shapeTools(this.tools.list()).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
+      deferred: tool.deferred,
+    }));
   }
 }
 
@@ -749,14 +734,14 @@ class MutableLLMRequestTrace implements LLMRequestTrace {
 
 function logFieldsForSource(source: AgentLLMRequestSource | undefined): AgentLLMRequestLogFields {
   switch (source?.type) {
-    case 'turn':
+    case "turn":
       return {
         ...source.logFields,
         ...(source.step === undefined
           ? {}
           : { turnStep: `${String(source.turnId)}.${String(source.step)}` }),
       };
-    case 'operation':
+    case "operation":
       return {
         ...source.logFields,
         ...(source.requestKind === undefined ? {} : { requestKind: source.requestKind }),
@@ -767,8 +752,8 @@ function logFieldsForSource(source: AgentLLMRequestSource | undefined): AgentLLM
 }
 
 function requestKindForTelemetry(source: AgentLLMRequestSource | undefined): string | undefined {
-  if (source?.type === 'turn') return 'turn';
-  if (source?.type === 'operation') return source.requestKind ?? 'operation';
+  if (source?.type === "turn") return "turn";
+  if (source?.type === "operation") return source.requestKind ?? "operation";
   return undefined;
 }
 
@@ -781,55 +766,57 @@ function toolSignature(tools: readonly Tool[]): readonly LlmRequestToolSchema[] 
   return tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 }
 
-function requestKindForRecord(fields: AgentLLMRequestLogFields): PayloadOf<typeof llmRequest>['kind'] {
-  if (fields['kind'] === 'compaction') return 'compaction';
-  if (fields['requestKind'] === 'full_compaction') return 'compaction';
-  return 'loop';
+function requestKindForRecord(
+  fields: AgentLLMRequestLogFields,
+): PayloadOf<typeof llmRequest>["kind"] {
+  if (fields["kind"] === "compaction") return "compaction";
+  if (fields["requestKind"] === "full_compaction") return "compaction";
+  return "loop";
 }
 
 function stringField(fields: AgentLLMRequestLogFields, key: string): string | undefined {
   const value = fields[key];
-  return typeof value === 'string' ? value : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 function numberField(fields: AgentLLMRequestLogFields, key: string): number | undefined {
   const value = fields[key];
-  return typeof value === 'number' ? value : undefined;
+  return typeof value === "number" ? value : undefined;
 }
 
 function projectionField(
   fields: AgentLLMRequestLogFields,
-): 'strict' | 'media-degraded' | 'media-stripped' | undefined {
-  const value = fields['projection'];
-  return value === 'strict' || value === 'media-degraded' || value === 'media-stripped'
+): "strict" | "media-degraded" | "media-stripped" | undefined {
+  const value = fields["projection"];
+  return value === "strict" || value === "media-degraded" || value === "media-stripped"
     ? value
     : undefined;
 }
 
 function faultToError(kind: FaultKind): Error {
-  return kind === 'request-too-large'
-    ? new APIRequestTooLargeError(413, 'Request Entity Too Large (fault injection)')
-    : new APIStatusError(400, 'unsupported image format: image/avif (fault injection)');
+  return kind === "request-too-large"
+    ? new APIRequestTooLargeError(413, "Request Entity Too Large (fault injection)")
+    : new APIStatusError(400, "unsupported image format: image/avif (fault injection)");
 }
 
 function fingerprint(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
+  return createHash("sha256").update(content).digest("hex");
 }
 
 function apiStatusCode(error: unknown): number | undefined {
   const raw = unwrapErrorCause(error);
   if (raw instanceof APIStatusError) return raw.statusCode;
-  if (typeof raw === 'object' && raw !== null) {
-    const statusCode = (raw as Record<string, unknown>)['statusCode'];
-    if (typeof statusCode === 'number') return statusCode;
-    const status = (raw as Record<string, unknown>)['status'];
-    if (typeof status === 'number') return status;
+  if (typeof raw === "object" && raw !== null) {
+    const statusCode = (raw as Record<string, unknown>)["statusCode"];
+    if (typeof statusCode === "number") return statusCode;
+    const status = (raw as Record<string, unknown>)["status"];
+    if (typeof status === "number") return status;
   }
-  if (typeof error === 'object' && error !== null) {
-    const details = (error as Record<string, unknown>)['details'];
-    if (typeof details === 'object' && details !== null) {
-      const statusCode = (details as Record<string, unknown>)['statusCode'];
-      if (typeof statusCode === 'number') return statusCode;
+  if (typeof error === "object" && error !== null) {
+    const details = (error as Record<string, unknown>)["details"];
+    if (typeof details === "object" && details !== null) {
+      const statusCode = (details as Record<string, unknown>)["statusCode"];
+      if (typeof statusCode === "number") return statusCode;
     }
   }
   return undefined;
@@ -838,11 +825,11 @@ function apiStatusCode(error: unknown): number | undefined {
 function apiTraceId(error: unknown): string | undefined {
   const raw = unwrapErrorCause(error);
   if (raw instanceof APIStatusError && raw.traceId !== null) return raw.traceId;
-  if (typeof error === 'object' && error !== null) {
-    const details = (error as Record<string, unknown>)['details'];
-    if (typeof details === 'object' && details !== null) {
-      const traceId = (details as Record<string, unknown>)['traceId'];
-      if (typeof traceId === 'string') return traceId;
+  if (typeof error === "object" && error !== null) {
+    const details = (error as Record<string, unknown>)["details"];
+    if (typeof details === "object" && details !== null) {
+      const traceId = (details as Record<string, unknown>)["traceId"];
+      if (typeof traceId === "string") return traceId;
     }
   }
   return undefined;
@@ -853,5 +840,5 @@ registerScopedService(
   IAgentLLMRequesterService,
   AgentLLMRequesterService,
   ScopeActivation.OnScopeCreated,
-  'llmRequester',
+  "llmRequester",
 );

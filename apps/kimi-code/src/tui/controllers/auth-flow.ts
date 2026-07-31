@@ -1,15 +1,15 @@
-import type { CreateSessionOptions, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
-
-import { createKimiCodeUserAgent } from '#/cli/version';
+import type {
+  CreateSessionOptions,
+  KimiHarness,
+  ProviderAuthFacade,
+  Session,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import type { SkillListSession } from '../commands';
 
-import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/kimi-tui';
-import {
-  refreshAllProviderModels,
-  type RefreshProviderScope,
-  type RefreshResult,
-} from '../utils/refresh-providers';
+import { AUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/kimi-tui';
+import type { RefreshResult } from '../utils/refresh-providers';
+import { providerModelToAlias } from '../utils/provider-model';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { SessionEventHandler } from './session-event-handler';
 import type { AppState, KimiTUIOptions } from '../types';
@@ -43,10 +43,13 @@ export class AuthFlowController {
   constructor(private readonly host: AuthFlowHost) {}
 
   async refreshAvailableModels(): Promise<void> {
-    const config = await this.host.harness.getConfig({ reload: true });
+    const models = await this.host.harness.auth.models();
+    const providers = await this.host.harness.auth.providers();
     this.host.setAppState({
-      availableModels: config.models ?? {},
-      availableProviders: config.providers ?? {},
+      availableModels: Object.fromEntries(
+        models.map((model) => [`${model.provider}/${model.id}`, providerModelToAlias(model)]),
+      ),
+      availableProviders: Object.fromEntries(providers.map((provider) => [provider.id, provider])),
     });
   }
 
@@ -63,7 +66,7 @@ export class AuthFlowController {
       latestPromptUsage: null,
       sessionTitle: null,
     });
-    this.host.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+    this.host.appendStartupNotice(AUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
     this.host.setStartupReady();
   }
 
@@ -84,8 +87,8 @@ export class AuthFlowController {
       permission: host.options.startup.auto
         ? 'auto'
         : host.options.startup.yolo
-          ? 'yolo'
-          : undefined,
+        ? 'yolo'
+        : undefined,
       planMode: host.state.appState.planMode ? true : undefined,
       // The post-login session is still the startup session: carry the
       // --agent/--agent-file binding resolved at launch.
@@ -126,9 +129,14 @@ export class AuthFlowController {
   async refreshConfigAfterLogin(): Promise<void> {
     const { host } = this;
     const config = await host.harness.getConfig({ reload: true });
-    const availableModels = config.models ?? {};
-    const availableProviders = config.providers ?? {};
-    const defaultModel = host.options.startup.model ?? config.defaultModel;
+    await this.refreshAvailableModels();
+    const availableModels = host.state.appState.availableModels;
+    const availableProviders = host.state.appState.availableProviders;
+    const configuredDefault =
+      config.defaultProvider !== undefined && config.defaultModel !== undefined
+        ? `${config.defaultProvider}/${config.defaultModel}`
+        : config.defaultModel;
+    const defaultModel = host.options.startup.model ?? configuredDefault;
     const selected = defaultModel !== undefined ? availableModels[defaultModel] : undefined;
 
     if (defaultModel === undefined || selected === undefined) {
@@ -147,10 +155,8 @@ export class AuthFlowController {
   }
 
   async refreshConfigAfterLogout(): Promise<void> {
-    const config = await this.host.harness.getConfig({ reload: true });
+    await this.refreshAvailableModels();
     this.host.setAppState({
-      availableModels: config.models ?? {},
-      availableProviders: config.providers ?? {},
       model: '',
       thinkingEffort: 'off',
       maxContextTokens: 0,
@@ -162,37 +168,56 @@ export class AuthFlowController {
   }
 
   /**
-   * Re-fetch model lists from every provider whose upstream supports it
-   * (managed OAuth, open platforms, custom registries) and update local
-   * config.  Runs best-effort: individual provider failures are collected
-   * and returned instead of thrown.
+   * Re-fetch model lists from every provider whose runtime source supports
+   * it, then update the local model projection. Runs best-effort: individual
+   * provider failures are collected and returned instead of thrown.
    */
   async refreshProviderModels(): Promise<RefreshResult> {
-    return this.refreshProviderModelsWithScope('all');
-  }
-
-  async refreshOAuthProviderModels(): Promise<RefreshResult> {
-    return this.refreshProviderModelsWithScope('oauth');
-  }
-
-  private async refreshProviderModelsWithScope(scope: RefreshProviderScope): Promise<RefreshResult> {
     const { host } = this;
-    const result = await refreshAllProviderModels(
-      {
-        getConfig: () => host.harness.getConfig({ reload: true }),
-        removeProvider: (id) => host.harness.removeProvider(id),
-        setConfig: (patch) => host.harness.setConfig(patch),
-        resolveOAuthToken: async (providerName, oauthRef) => {
-          const tokenProvider = host.harness.auth.resolveOAuthTokenProvider(providerName, oauthRef);
-          return tokenProvider.getAccessToken();
-        },
-        userAgent: createKimiCodeUserAgent(),
-      },
-      { scope },
-    );
-    if (result.changed.length > 0) {
-      await this.refreshAvailableModels();
+    const providers = await host.harness.auth.providers();
+    const included = new Set(providers.map((provider) => provider.id));
+    const before = groupModelIds(await host.harness.auth.models(), included);
+    const refresh = await host.harness.auth.refreshModels({ force: true });
+    const after = groupModelIds(await host.harness.auth.models(), included);
+    const changed: RefreshResult['changed'] = [];
+    const unchanged: string[] = [];
+    for (const provider of included) {
+      const previous = before.get(provider) ?? new Set();
+      const next = after.get(provider) ?? new Set();
+      const added = [...next].filter((id) => !previous.has(id)).length;
+      const removed = [...previous].filter((id) => !next.has(id)).length;
+      if (added === 0 && removed === 0) unchanged.push(provider);
+      else {
+        changed.push({
+          providerId: provider,
+          providerName: providers.find((item) => item.id === provider)?.name ?? provider,
+          added,
+          removed,
+        });
+      }
     }
-    return result;
+    await this.refreshAvailableModels();
+    return {
+      changed,
+      unchanged,
+      failed: [...refresh.errors].map(([provider, error]) => ({
+        provider,
+        reason: error.message,
+      })),
+    };
   }
+}
+
+function groupModelIds(
+  models: Awaited<ReturnType<ProviderAuthFacade['models']>>,
+  included: ReadonlySet<string>,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const model of models) {
+    if (!included.has(model.provider)) continue;
+    const ids = out.get(model.provider) ?? new Set<string>();
+    ids.add(model.id);
+    out.set(model.provider, ids);
+  }
+  return out;
 }

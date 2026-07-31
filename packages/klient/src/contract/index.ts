@@ -6,45 +6,36 @@
  * their payload schemas.
  */
 
-import type { KlientContract } from './types.js';
-import { agentActivityViewContract } from './agent/activity.js';
-import { agentRpcContract } from './agent/rpc.js';
+import type { KlientContract } from "./types.js";
+import { agentActivityViewContract } from "./agent/activity.js";
+import { agentRpcContract } from "./agent/rpc.js";
 import {
   agentPlanContract,
   agentProfileContract,
   agentShellCommandContract,
   agentTaskContract,
   agentUsageContract,
-} from './agent/services.js';
-import { authContract, authSummaryContract } from './global/auth.js';
-import { catalogContract } from './global/catalog.js';
-import { providerDiscoveryContract } from './global/providerDiscovery.js';
-import { configContract } from './global/config.js';
-import { envContract } from './global/env.js';
-import { flagsContract } from './global/flags.js';
-import { hostFsContract } from './global/hostFs.js';
-import { modelsContract } from './global/models.js';
-import { pluginsContract } from './global/plugins.js';
-import { providersContract } from './global/providers.js';
-import { sessionsContract } from './global/sessions.js';
-import { workspacesContract } from './global/workspaces.js';
-import { sessionApprovalContract } from './session/approval.js';
-import { sessionInteractionContract } from './session/interaction.js';
-import { sessionLifecycleContract } from './session/lifecycle.js';
-import { sessionMetadataContract } from './session/metadata.js';
-import { sessionQuestionContract } from './session/question.js';
+} from "./agent/services.js";
+import { catalogContract } from "./global/catalog.js";
+import { configContract } from "./global/config.js";
+import { envContract } from "./global/env.js";
+import { flagsContract } from "./global/flags.js";
+import { hostFsContract } from "./global/hostFs.js";
+import { pluginsContract } from "./global/plugins.js";
+import { sessionsContract } from "./global/sessions.js";
+import { workspacesContract } from "./global/workspaces.js";
+import { sessionApprovalContract } from "./session/approval.js";
+import { sessionInteractionContract } from "./session/interaction.js";
+import { sessionLifecycleContract } from "./session/lifecycle.js";
+import { sessionMetadataContract } from "./session/metadata.js";
+import { sessionQuestionContract } from "./session/question.js";
 
 export const globalContract: KlientContract = {
   // core (app scope)
   sessionIndex: sessionsContract,
   workspaceService: workspacesContract,
   configService: configContract,
-  providerService: providersContract,
-  modelService: modelsContract,
   modelResolver: catalogContract,
-  providerDiscovery: providerDiscoveryContract,
-  oauthService: authContract,
-  authSummaryService: authSummaryContract,
   flagService: flagsContract,
   pluginService: pluginsContract,
   hostFolderBrowser: hostFsContract,
@@ -65,5 +56,10 @@ export const globalContract: KlientContract = {
   agentTaskService: agentTaskContract,
 };
 
-export type { KlientContract, ProcedureContract, ServiceContract, StreamingProcedureContract } from './types.js';
-export { isStreamingContract } from './types.js';
+export type {
+  KlientContract,
+  ProcedureContract,
+  ServiceContract,
+  StreamingProcedureContract,
+} from "./types.js";
+export { isStreamingContract } from "./types.js";

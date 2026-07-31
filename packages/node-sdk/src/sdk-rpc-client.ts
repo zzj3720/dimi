@@ -3,9 +3,9 @@
  * through the klient memory transport, so calls use the same validated
  * contracts and serialization boundary as network clients.
  */
-import { randomUUID } from 'node:crypto';
-import { mkdir, open, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   ErrorCodes,
@@ -13,19 +13,19 @@ import {
   nullTelemetryAppender,
   type AgentContextData,
   type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core-v2';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/agent/mcp/configSection';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/agent/mcp/connection-manager';
+} from "@moonshot-ai/agent-core-v2";
+import { encodeWorkDirKey } from "@moonshot-ai/agent-core-v2/_base/utils/workdir-slug";
+import { MCP_SECTION, type McpSection } from "@moonshot-ai/agent-core-v2/agent/mcp/configSection";
+import { McpConnectionManager } from "@moonshot-ai/agent-core-v2/agent/mcp/connection-manager";
 import {
   AlreadyAuthorizedError,
   McpOAuthService,
   type BeginAuthorizationResult,
-} from '@moonshot-ai/agent-core-v2/agent/mcp/oauth/service';
-import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/agent/mcp/oauth/store';
-import { SECONDARY_MODEL_SECTION } from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
-import { IAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore';
-import { wrapSubagentModelError } from '@moonshot-ai/agent-core-v2/session/subagent/configSection';
+} from "@moonshot-ai/agent-core-v2/agent/mcp/oauth/service";
+import { createMcpOAuthStore } from "@moonshot-ai/agent-core-v2/agent/mcp/oauth/store";
+import { SECONDARY_MODEL_SECTION } from "@moonshot-ai/agent-core-v2/app/providerRuntime/configSection";
+import { IAtomicDocumentStore } from "@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore";
+import { wrapSubagentModelError } from "@moonshot-ai/agent-core-v2/session/subagent/configSection";
 import {
   applyPromptMetadataUpdate,
   bootstrap,
@@ -54,9 +54,8 @@ import {
   IHostEnvironment,
   IHostFileSystem,
   IModelCatalog,
-  IModelService,
+  IProviderRuntime,
   IProjectLocalConfigService,
-  IProviderService,
   ISessionBtwService,
   ISessionContext,
   ISessionCronService,
@@ -99,18 +98,15 @@ import {
   type Scope,
   type SecondaryModelConfig,
   type ServicesAccessor,
-} from '@moonshot-ai/agent-core-v2';
-import type { AgentHandle, Klient } from '@moonshot-ai/klient';
-import { createKlient } from '@moonshot-ai/klient/memory';
-import {
-  assertKimiHostIdentity,
-  createKimiDefaultHeaders,
-} from '@moonshot-ai/kimi-code-oauth';
+} from "@moonshot-ai/agent-core-v2";
+import type { AgentHandle, Klient } from "@moonshot-ai/klient";
+import { createKlient } from "@moonshot-ai/klient/memory";
+import { assertKimiHostIdentity, createKimiDefaultHeaders } from "@moonshot-ai/kimi-code-oauth";
 
-import { KimiAuthFacade, type SDKManagedConfig } from '#/auth';
-import { isKimiError, KimiError } from '#/errors';
-import { ImageLimits, type ImageLimitsConfig } from '#/image-limits';
-import { KimiHarness } from '#/kimi-harness';
+import { ProviderAuthFacade } from "#/auth";
+import { isKimiError, KimiError } from "#/errors";
+import { ImageLimits, type ImageLimitsConfig } from "#/image-limits";
+import { KimiHarness } from "#/kimi-harness";
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -128,7 +124,7 @@ import {
   type SetSessionSwarmModeRpcInput,
   type SetSessionThinkingRpcInput,
   type UpdateSessionMetadataRpcInput,
-} from '#/rpc';
+} from "#/rpc";
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -154,7 +150,6 @@ import type {
   McpServerInfo,
   McpStartupMetrics,
   McpTestResult,
-  OAuthRefreshOutcome,
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
@@ -169,27 +164,23 @@ import type {
   SessionUsage,
   SkillSummary,
   TelemetryClient,
-} from '#/types';
+} from "#/types";
 
 import {
   diagnosticsToConfigDiagnostics,
-  planProviderRemoval,
   resolvedConfigToKimiConfig,
-} from '#/runtime/config-mapper';
-import { translateGlobalEvent } from '#/runtime/event-mapper';
-import { assertImportFits, buildImportContextMessage } from '#/runtime/import-context';
+} from "#/runtime/config-mapper";
+import { translateGlobalEvent } from "#/runtime/event-mapper";
+import { assertImportFits, buildImportContextMessage } from "#/runtime/import-context";
 import {
   GlobalMcpConfigStore,
   mcpConfigWithoutName,
   requireOAuthMcpServer,
   requireRemoteMcpServer,
   standaloneMcpTestResult,
-} from '#/runtime/global-mcp';
-import {
-  normalizeWorkDir,
-  runtimeSummaryToSessionSummary,
-} from '#/runtime/session-mapper';
-import { SessionEventWiring } from '#/runtime/session-wiring';
+} from "#/runtime/global-mcp";
+import { normalizeWorkDir, runtimeSummaryToSessionSummary } from "#/runtime/session-mapper";
+import { SessionEventWiring } from "#/runtime/session-wiring";
 
 export interface SDKRpcClientOptions {
   readonly homeDir?: string;
@@ -204,8 +195,9 @@ export interface SDKRpcClientOptions {
    */
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient;
-  readonly onOAuthRefresh?: (outcome: OAuthRefreshOutcome) => void;
   readonly uiMode?: string;
+  /** Replaces the built-in provider runtime for custom hosts and deterministic tests. */
+  readonly providerRuntime?: IProviderRuntime;
 }
 
 /**
@@ -223,7 +215,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   readonly configPath: string;
   readonly identity: KimiHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
-  readonly auth: KimiAuthFacade;
+  readonly auth: ProviderAuthFacade;
   readonly klient: Klient;
   readonly imageLimits = new ImageLimits(process.env);
 
@@ -245,11 +237,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
    */
   private readonly printSteerStates = new Map<string, { deadline?: number; turns: number }>();
   /**
-   * The model/provider registries (`IModelService` / `IProviderService`)
-   * share the config service's ready trap: their `get`/`list` reads are
-   * synchronous over state that only exists after hydration, and every
-   * agent-side model operation (profile bind, `setModel`, capability reads)
-   * flows through them. Agent-interaction overrides await this before
+   * The provider runtime and resolved model catalog read hydrated state, and
+   * every agent-side model operation (profile bind, `setModel`, capability
+   * reads) flows through them. Agent-interaction overrides await this before
    * touching a profile.
    */
   private readonly modelReady: Promise<void>;
@@ -307,6 +297,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
         // `--skills-dir` (v1 parity): explicit skill dirs replace default
         // user / project discovery for every session this client hosts.
         ...skillCatalogRuntimeOptionsSeed(options.skillDirs),
+        ...(options.providerRuntime === undefined
+          ? []
+          : [[IProviderRuntime, options.providerRuntime] as const]),
       ],
     );
     this.app = app;
@@ -315,30 +308,15 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const config = app.accessor.get(IConfigService);
     this.configReady = config.ready;
     void this.configReady.then(() => {
-      this.imageLimits.setConfig(config.get<ImageLimitsConfig>('image'));
+      this.imageLimits.setConfig(config.get<ImageLimitsConfig>("image"));
     });
-    this.auth = new KimiAuthFacade({
-      homeDir: this.homeDir,
-      configPath: this.configPath,
-      identity: this.identity,
-      ready: this.configReady,
-      readConfig: () => resolvedConfigToKimiConfig(config.getAll()) as SDKManagedConfig,
-      writeConfig: async (next) => {
-        for (const domain of ['providers', 'models', 'defaultModel', 'thinking', 'services']) {
-          await config.replace(domain, next[domain]);
-        }
-      },
-      onRefresh: options.onOAuthRefresh,
-    });
+    const providerRuntime = app.accessor.get(IProviderRuntime);
+    this.auth = new ProviderAuthFacade({ runtime: providerRuntime });
     this.installEngineTelemetry(options.telemetry);
-    this.modelReady = Promise.all([
-      this.configReady,
-      app.accessor.get(IModelService).ready,
-      app.accessor.get(IProviderService).ready,
-    ]).then(() => undefined);
+    this.modelReady = Promise.all([this.configReady, providerRuntime.ready]).then(() => undefined);
     this.appSubscriptions.push(
       config.onDidSectionChange((event) => {
-        if (event.domain === 'image') {
+        if (event.domain === "image") {
           this.imageLimits.setConfig(event.value as ImageLimitsConfig | undefined);
         }
       }),
@@ -363,16 +341,17 @@ export class SDKRpcClient extends SDKRpcClientBase {
     await mkdir(this.homeDir, { recursive: true, mode: 0o700 });
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      handle = await open(this.configPath, 'wx', 0o600);
-      await handle.writeFile('# Kimi Code runtime settings.\n', 'utf-8');
+      handle = await open(this.configPath, "wx", 0o600);
+      await handle.writeFile("# Kimi Code runtime settings.\n", "utf-8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     } finally {
       await handle?.close();
     }
   }
 
   async close(): Promise<void> {
+    await this.modelReady.catch(() => undefined);
     for (const wiring of this.sessionWirings.values()) {
       wiring.dispose();
     }
@@ -399,7 +378,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const telemetry = this.app.accessor.get(ITelemetryService);
     telemetry.setAppender(client);
     void this.configReady.then(() => {
-      telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
+      telemetry.setEnabled(this.engineAccessor.get(IConfigService).get("telemetry") !== false);
     });
   }
 
@@ -433,13 +412,13 @@ export class SDKRpcClient extends SDKRpcClientBase {
    * implementation: plugin skills are not included.
    */
   override async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
-    const normalizedWorkDir = normalizeRequiredWorkDir('listWorkspaceSkills', workDir);
+    const normalizedWorkDir = normalizeRequiredWorkDir("listWorkspaceSkills", workDir);
     const bootstrapService = this.engineAccessor.get(IBootstrapService);
     const discovery = this.engineAccessor.get(ISkillDiscovery);
     const explicitDirs = this.engineAccessor.get(ISkillCatalogRuntimeOptions).explicitDirs ?? [];
     const roots =
       explicitDirs.length > 0
-        ? await configuredRoots(explicitDirs, normalizedWorkDir, bootstrapService.osHomeDir, 'user')
+        ? await configuredRoots(explicitDirs, normalizedWorkDir, bootstrapService.osHomeDir, "user")
         : [
             ...(await userRoots(bootstrapService.homeDir, bootstrapService.osHomeDir)),
             ...(await projectRoots(normalizedWorkDir)),
@@ -498,40 +477,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
       }
     } catch (error) {
       if (isKimiError(error)) throw error;
-      throw new KimiError(ErrorCodes.CONFIG_INVALID, 'Invalid config patch', { cause: error });
-    }
-    return this.getConfig();
-  }
-
-  /**
-   * v1's removal cascades: the provider entry, every model pointing at it,
-   * and the default pointers when they dangle. The engine's own
-   * `kosong.removeProvider` only clears the default-provider pointer, so
-   * the full v1 cascade is computed from the user-layer values and applied
-   * through the config facade (see `planProviderRemoval`).
-   */
-  override async removeProvider(providerId: string): Promise<KimiConfig> {
-    await this.configReady;
-    const [providers, models, defaultModel, defaultProvider] = await Promise.all([
-      this.klient.global.config.inspect<Record<string, unknown>>('providers'),
-      this.klient.global.config.inspect<Record<string, Record<string, unknown>>>('models'),
-      this.klient.global.config.inspect<string>('defaultModel'),
-      this.klient.global.config.inspect<string>('defaultProvider'),
-    ]);
-    const plan = planProviderRemoval({
-      providers: providers.userValue,
-      models: models.userValue,
-      defaultModel: defaultModel.userValue,
-      defaultProvider: defaultProvider.userValue,
-      providerId,
-    });
-    await this.klient.global.config.replace({ domain: 'providers', value: plan.providers });
-    await this.klient.global.config.replace({ domain: 'models', value: plan.models });
-    if (plan.clearDefaultModel) {
-      await this.klient.global.config.replace({ domain: 'defaultModel', value: undefined });
-    }
-    if (plan.clearDefaultProvider) {
-      await this.klient.global.config.replace({ domain: 'defaultProvider', value: undefined });
+      throw new KimiError(ErrorCodes.CONFIG_INVALID, "Invalid config patch", { cause: error });
     }
     return this.getConfig();
   }
@@ -685,11 +631,11 @@ export class SDKRpcClient extends SDKRpcClientBase {
     agents[MAIN_AGENT_ID] = await this.resumedAgentState(
       handle,
       main,
-      'main',
+      "main",
       replay?.replayTurnLimit,
     );
     if (replay?.includeSubagents === true) {
-      const agentsDir = join(handle.accessor.get(ISessionContext).sessionDir, 'agents');
+      const agentsDir = join(handle.accessor.get(ISessionContext).sessionDir, "agents");
       let subagentIds: readonly string[] = [];
       try {
         subagentIds = (await readdir(agentsDir, { withFileTypes: true }))
@@ -705,7 +651,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
           agents[agentId] = await this.resumedAgentState(
             handle,
             agent,
-            'sub',
+            "sub",
             replay.replayTurnLimit,
           );
         } catch {
@@ -730,7 +676,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   private async resumedAgentState(
     session: ISessionScopeHandle,
     agent: IAgentScopeHandle,
-    type: 'main' | 'sub',
+    type: "main" | "sub",
     replayTurnLimit?: number,
   ): Promise<ResumedAgentState> {
     const facade = this.klient.session(session.id).agent(agent.id);
@@ -754,18 +700,18 @@ export class SDKRpcClient extends SDKRpcClientBase {
       },
       context: context as AgentContextData,
       replay: limitAgentReplayByTurns(
-        context.history.map((message, time) => ({ type: 'message' as const, message, time })),
+        context.history.map((message, time) => ({ type: "message" as const, message, time })),
         replayTurnLimit,
       ),
       permission: {
         mode: agent.accessor.get(IAgentPermissionModeService).mode,
         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
-      } as ResumedAgentState['permission'],
-      plan: plan as ResumedAgentState['plan'],
+      } as ResumedAgentState["permission"],
+      plan: plan as ResumedAgentState["plan"],
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
-      usage: usage as ResumedAgentState['usage'],
-      tools: agent.accessor.get(IAgentRPCService).getTools({}) as ResumedAgentState['tools'],
-      tasks: tasks as ResumedAgentState['tasks'],
+      usage: usage as ResumedAgentState["usage"],
+      tools: agent.accessor.get(IAgentRPCService).getTools({}) as ResumedAgentState["tools"],
+      tasks: tasks as ResumedAgentState["tasks"],
       todos: session.accessor.get(ISessionTodoService).getTodos(),
     };
   }
@@ -789,7 +735,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const workspaceIds =
       input.workDir === undefined
         ? undefined
-        : await this.workspaceIdsFor(normalizeRequiredWorkDir('listSessions', input.workDir));
+        : await this.workspaceIdsFor(normalizeRequiredWorkDir("listSessions", input.workDir));
     const page = await this.klient.global.sessions.list({
       workspaceIds,
       sessionId: input.sessionId,
@@ -830,7 +776,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
    * default model → `model.not_configured`) are pinned in the parity tests.
    */
   override async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
-    const workDir = normalizeRequiredWorkDir('createSession', input.workDir);
+    const workDir = normalizeRequiredWorkDir("createSession", input.workDir);
     if (input.id !== undefined) {
       const existing =
         this.sessionLifecycle.get(input.id) ??
@@ -883,7 +829,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   override async renameSession(input: RenameSessionInput): Promise<void> {
     const title = input.title.trim();
     if (title.length === 0) {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session title cannot be empty');
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, "Session title cannot be empty");
     }
     if (this.sessionLifecycle.get(input.id) !== undefined) {
       await this.klient.session(input.id).setTitle(title);
@@ -1175,7 +1121,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     if (secondary?.model === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
-        'Cannot set the secondary model: persist its recipe before applying it to a session.',
+        "Cannot set the secondary model: persist its recipe before applying it to a session.",
       );
     }
     try {
@@ -1183,9 +1129,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     } catch (error) {
       throw wrapSubagentModelError(error, secondary.model, undefined);
     }
-    session.accessor
-      .get(ISessionSecondaryModelWarningService)
-      .recheckSecondaryModelWarning();
+    session.accessor.get(ISessionSecondaryModelWarningService).recheckSecondaryModelWarning();
   }
 
   override async setPermission(input: SetSessionPermissionRpcInput): Promise<void> {
@@ -1232,7 +1176,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   /**
    * The base class aggregates v1's per-agent `getConfig` / `getContext` /
    * `getPermission` / `getPlan` / `getSwarmMode` / `getUsage` RPCs. The v2
-   * rebuild reads the same six slices: the profile's bound model alias and
+   * rebuild reads the same six slices: the profile's bound provider/model reference and
    * resolved thinking level + capabilities (v1's agent `getConfig` — its
    * `provider?.model` fallback is unreachable without an alias), the
    * facade's context/plan/usage, and the permission-mode and swarm services.
@@ -1283,7 +1227,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   override async compact(input: SessionIdRpcInput & CompactOptions): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     agent.accessor.get(IAgentFullCompactionService).begin({
-      source: 'manual',
+      source: "manual",
       instruction: input.instruction,
     });
   }
@@ -1336,12 +1280,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
   override async importContext(input: ImportContextRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     if (
-      agent.accessor.get(IAgentLoopService).status().state === 'running' ||
+      agent.accessor.get(IAgentLoopService).status().state === "running" ||
       agent.accessor.get(IAgentFullCompactionService).compacting !== null
     ) {
       throw new KimiError(
         ErrorCodes.TURN_AGENT_BUSY,
-        'Cannot import context while the agent is busy',
+        "Cannot import context while the agent is busy",
       );
     }
     const message = buildImportContextMessage(input.content, input.source);
@@ -1501,15 +1445,15 @@ export class SDKRpcClient extends SDKRpcClientBase {
       );
       warning = prepared.agentsMdWarning;
     }
-    const warnings: { code: string; message: string; severity: 'warning' }[] =
+    const warnings: { code: string; message: string; severity: "warning" }[] =
       warning === undefined
         ? []
-        : [{ code: 'agents-md-oversized', message: warning, severity: 'warning' as const }];
+        : [{ code: "agents-md-oversized", message: warning, severity: "warning" as const }];
     const secondary = this.requireLiveSession(input.sessionId)
       .accessor.get(ISessionSecondaryModelWarningService)
       .getSecondaryModelWarning();
     if (secondary !== undefined) {
-      warnings.push({ code: secondary.code, message: secondary.message, severity: 'warning' });
+      warnings.push({ code: secondary.code, message: secondary.message, severity: "warning" });
     }
     return warnings;
   }
@@ -1570,7 +1514,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
 
   /** v1's `swarm()` composition: enter with the one-shot `task` trigger, then prompt. */
   override async swarm(input: SessionPromptRpcInput): Promise<void> {
-    await this.setSwarmMode({ sessionId: input.sessionId, enabled: true, trigger: 'task' });
+    await this.setSwarmMode({ sessionId: input.sessionId, enabled: true, trigger: "task" });
     return this.prompt(input);
   }
 
@@ -1720,7 +1664,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const session = this.requireLiveSession(input.sessionId);
     await this.configReady;
     const config = this.engineAccessor.get(IConfigService);
-    if (resolvePrintBackgroundMode(config) !== 'drain') return;
+    if (resolvePrintBackgroundMode(config) !== "drain") return;
     const ceilingS =
       resolveAgentTaskConfig(config)?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
     await this.drainBackgroundTasksOnPrint(session, ceilingS);
@@ -1737,17 +1681,17 @@ export class SDKRpcClient extends SDKRpcClientBase {
    */
   override async handlePrintMainTurnCompleted(
     input: SessionIdRpcInput,
-  ): Promise<'finish' | 'continue'> {
+  ): Promise<"finish" | "continue"> {
     const session = this.requireLiveSession(input.sessionId);
     await this.configReady;
     const config = this.engineAccessor.get(IConfigService);
     const taskConfig = resolveAgentTaskConfig(config);
     const ceilingS = taskConfig?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT;
     const mode = resolvePrintBackgroundMode(config);
-    if (mode === 'exit') return 'finish';
-    if (mode === 'drain') {
+    if (mode === "exit") return "finish";
+    if (mode === "drain") {
       await this.drainBackgroundTasksOnPrint(session, ceilingS);
-      return 'finish';
+      return "finish";
     }
     // 'steer'
     const maxTurns = taskConfig?.printMaxTurns ?? PRINT_MAX_TURNS_DEFAULT;
@@ -1756,10 +1700,10 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const now = Date.now();
     state.deadline ??= now + ceilingS * 1000;
     state.turns += 1;
-    if (now >= state.deadline) return 'finish';
-    if (state.turns > maxTurns) return 'finish';
-    if (this.countActiveBackgroundTasks(session) > 0) return 'continue';
-    return 'finish';
+    if (now >= state.deadline) return "finish";
+    if (state.turns > maxTurns) return "finish";
+    if (this.countActiveBackgroundTasks(session) > 0) return "continue";
+    return "finish";
   }
 
   /**
@@ -1838,9 +1782,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     return this.globalMcpConfig.list();
   }
 
-  override async addGlobalMcpServer(
-    server: McpServerConfig,
-  ): Promise<readonly McpServerConfig[]> {
+  override async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
     return this.globalMcpConfig.add(server);
   }
 
@@ -1869,13 +1811,13 @@ export class SDKRpcClient extends SDKRpcClientBase {
       const flowId = randomUUID();
       this.globalMcpOAuthFlows.set(flowId, { flow });
       return {
-        status: 'authorization-required',
+        status: "authorization-required",
         flowId,
         authorizationUrl: flow.authorizationUrl.toString(),
       };
     } catch (error) {
       if (error instanceof AlreadyAuthorizedError) {
-        return { status: 'already-authorized' };
+        return { status: "already-authorized" };
       }
       throw error;
     }
@@ -1927,7 +1869,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
     const server = await this.globalMcpConfig.get(name);
     const config = mcpConfigWithoutName(server);
     await this.configReady;
-    const section = this.engineAccessor.get(IConfigService).get<McpSection | undefined>(MCP_SECTION);
+    const section = this.engineAccessor
+      .get(IConfigService)
+      .get<McpSection | undefined>(MCP_SECTION);
     const manager = new McpConnectionManager({
       stdioCwd: options.cwd,
       oauthService: this.globalMcpOAuthService,
@@ -1991,7 +1935,7 @@ export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
 
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: string): string {
-  if (typeof workDir !== 'string' || workDir.trim() === '') {
+  if (typeof workDir !== "string" || workDir.trim() === "") {
     throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
   }
   return normalizeWorkDir(workDir);

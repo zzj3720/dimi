@@ -7,17 +7,13 @@
  * layout. Bound at Agent scope.
  */
 
-import { createHash } from 'node:crypto';
-import type { ContentPart } from '#/kosong/contract/message';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import {
-  BLOBREF_PROTOCOL,
-  IAgentBlobService,
-  MISSING_MEDIA_PLACEHOLDER,
-} from './agentBlobService';
-import { ByteLruCache } from './byteLruCache';
+import { createHash } from "node:crypto";
+import type { ContentPart } from "#/llmProtocol/message";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
+import { IBlobStore } from "#/persistence/interface/blobStore";
+import { BLOBREF_PROTOCOL, IAgentBlobService, MISSING_MEDIA_PLACEHOLDER } from "./agentBlobService";
+import { ByteLruCache } from "./byteLruCache";
 
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
@@ -33,7 +29,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
     @IBlobStore private readonly blobs: IBlobStore,
     @IAgentScopeContext agentCtx: IAgentScopeContext,
   ) {
-    this.storageScope = agentCtx.scope('blobs');
+    this.storageScope = agentCtx.scope("blobs");
   }
 
   protected get threshold(): number {
@@ -87,7 +83,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
       if (mediaObj === undefined) continue;
 
       const url = mediaObj.url;
-      if (typeof url !== 'string') continue;
+      if (typeof url !== "string") continue;
 
       const newUrl = await transformUrl(url);
       if (newUrl === url) continue;
@@ -134,8 +130,8 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
   }
 
   private async writeBlob(mimeType: string, base64Payload: string): Promise<string> {
-    const hash = createHash('sha256').update(base64Payload, 'utf8').digest('hex');
-    const binary = Buffer.from(base64Payload, 'base64');
+    const hash = createHash("sha256").update(base64Payload, "utf8").digest("hex");
+    const binary = Buffer.from(base64Payload, "base64");
     await this.blobs.put(this.storageScope, hash, binary);
     this.cache.set(hash, binary);
     return formatBlobRef(mimeType, hash);
@@ -149,7 +145,7 @@ function formatBlobRef(mimeType: string, hash: string): string {
 function parseBlobRef(url: string): { mimeType: string; hash: string } | undefined {
   if (!url.startsWith(BLOBREF_PROTOCOL)) return undefined;
   const rest = url.slice(BLOBREF_PROTOCOL.length);
-  const semiIdx = rest.indexOf(';');
+  const semiIdx = rest.indexOf(";");
   if (semiIdx === -1) return undefined;
   const hash = rest.slice(semiIdx + 1);
   if (hash.length === 0) return undefined;
@@ -157,15 +153,15 @@ function parseBlobRef(url: string): { mimeType: string; hash: string } | undefin
 }
 
 function formatDataUri(mimeType: string, payload: Buffer): string {
-  return `data:${mimeType};base64,${payload.toString('base64')}`;
+  return `data:${mimeType};base64,${payload.toString("base64")}`;
 }
 
 function asMediaContainer(value: unknown): { url: unknown } | undefined {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
   const obj = value as Record<string, unknown>;
-  return 'url' in obj ? (obj as { url: unknown }) : undefined;
+  return "url" in obj ? (obj as { url: unknown }) : undefined;
 }
 
 registerScopedService(
@@ -173,5 +169,5 @@ registerScopedService(
   IAgentBlobService,
   AgentBlobServiceImpl,
   ScopeActivation.OnScopeCreated,
-  'agentBlob',
+  "agentBlob",
 );

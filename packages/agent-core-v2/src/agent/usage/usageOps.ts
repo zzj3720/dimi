@@ -14,18 +14,18 @@
  * each dispatch (never on replay). Consumed by the Agent-scope `usageService`.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
-import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
-import { defineModel } from '#/wire/model';
+import { addUsage, type TokenUsage } from "#/llmProtocol/usage";
+import { defineModel } from "#/wire/model";
 
-import type { UsageStatus } from './usage';
+import type { UsageStatus } from "./usage";
 
-export type UsageRecordScope = 'session' | 'turn';
+export type UsageRecordScope = "session" | "turn";
 
-declare module '#/app/event/eventBus' {
+declare module "#/app/event/eventBus" {
   interface DomainEventMap {
-    'agent.status.updated': {
+    "agent.status.updated": {
       usage?: UsageStatus;
       swarmMode?: boolean;
       planMode?: boolean;
@@ -41,15 +41,15 @@ export interface UsageModelState {
   readonly byModel: Record<string, TokenUsage>;
 }
 
-export const UsageModel = defineModel<UsageModelState>('usage', () => ({ byModel: {} }));
+export const UsageModel = defineModel<UsageModelState>("usage", () => ({ byModel: {} }));
 
-declare module '#/wire/types' {
+declare module "#/wire/types" {
   interface PersistedOpMap {
-    'usage.record': typeof recordUsage;
+    "usage.record": typeof recordUsage;
   }
 }
 
-export const recordUsage = UsageModel.defineOp('usage.record', {
+export const recordUsage = UsageModel.defineOp("usage.record", {
   schema: z.object({
     model: z.string(),
     usage: z.custom<TokenUsage>(),

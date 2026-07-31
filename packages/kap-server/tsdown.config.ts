@@ -1,17 +1,9 @@
-import { defineConfig } from 'tsdown';
-
-import {
-  BUILT_IN_CATALOG_DEFINE,
-  builtInCatalogDefine,
-} from '../../apps/kimi-code/scripts/built-in-catalog.mjs';
+import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ['./src/index.ts'],
-  format: ['esm'],
+  entry: ["./src/index.ts"],
+  format: ["esm"],
   dts: true,
-  outDir: 'dist',
+  outDir: "dist",
   clean: true,
-  define: {
-    [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
-  },
 });

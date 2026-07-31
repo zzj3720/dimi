@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import {
-  effectiveModelAlias,
   type KimiConfig as SdkKimiConfig,
-  type ModelAlias,
+  type ProviderModel,
   type ThinkingEffort,
 } from "@moonshot-ai/kimi-code-sdk";
 
@@ -20,7 +19,11 @@ const SLASH_COMMANDS: SlashCommandInfo[] = [
   { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
   { name: "compact", aliases: [], description: "Compact the conversation context" },
   { name: "clear", aliases: ["reset"], description: "Clear the context" },
-  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
+  {
+    name: "yolo",
+    aliases: [],
+    description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)",
+  },
   {
     name: "auto",
     aliases: ["afk"],
@@ -40,19 +43,18 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   const effort = sessionConfigEffort(params);
   const effortChanged = params.effortChanged !== false;
   const config = await ctx.harness.getConfig({ reload: true });
-  const model = config.models?.[params.model];
-  const full = thinkingConfig(
-    effort,
-    model === undefined ? undefined : effectiveModelAlias(model).supportEfforts,
+  const model = (await ctx.harness.auth.models()).find(
+    (entry) => `${entry.provider}/${entry.id}` === params.model,
   );
+  const full = thinkingConfig(effort, model === undefined ? undefined : supportEfforts(model));
   // Re-confirming the effort already shown is not an explicit choice —
   // persist the model but leave the stored effort preference alone (the TUI's
   // persistModelSelection rule).
   const patch = effortChanged ? full : { enabled: full.enabled };
   if (
-    config.defaultModel !== params.model
-    || config.thinking?.enabled !== patch.enabled
-    || (effortChanged && config.thinking?.effort !== patch.effort)
+    config.defaultModel !== params.model ||
+    config.thinking?.enabled !== patch.enabled ||
+    (effortChanged && config.thinking?.effort !== patch.effort)
   ) {
     await ctx.harness.setConfig({
       defaultModel: params.model,
@@ -80,7 +82,7 @@ const openSettings: Handler<void, { ok: boolean }> = async () => {
 
 const getModels: Handler<void, WebviewKimiConfig> = async (_, ctx) => {
   const config = await ctx.harness.getConfig({ reload: true });
-  return toWebviewConfig(config);
+  return toWebviewConfig(config, await ctx.harness.auth.models());
 };
 
 const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
@@ -124,9 +126,12 @@ export const configHandlers = {
   [Methods.ReloadWebview]: reloadWebview,
 } as Record<string, Handler<any, any>>;
 
-export function toWebviewConfig(config: SdkKimiConfig): WebviewKimiConfig {
-  const models: ModelConfig[] = Object.entries(config.models ?? {})
-    .map(([id, model]) => toWebviewModel(id, model))
+export function toWebviewConfig(
+  config: SdkKimiConfig,
+  runtimeModels: readonly ProviderModel[] = [],
+): WebviewKimiConfig {
+  const models: ModelConfig[] = runtimeModels
+    .map((model) => toWebviewModel(model))
     .toSorted((left, right) => left.name.localeCompare(right.name));
   return {
     defaultModel: config.defaultModel ?? models[0]?.id ?? null,
@@ -136,18 +141,24 @@ export function toWebviewConfig(config: SdkKimiConfig): WebviewKimiConfig {
   };
 }
 
-function toWebviewModel(id: string, model: ModelAlias): ModelConfig {
-  const effective = effectiveModelAlias(model);
+function toWebviewModel(model: ProviderModel): ModelConfig {
+  const efforts = supportEfforts(model);
   return {
-    id,
-    name: effective.displayName ?? effective.model ?? id,
-    provider: effective.providerId ?? effective.provider ?? effective.protocol ?? "custom",
-    capabilities: [...(effective.capabilities ?? [])],
-    adaptive_thinking: effective.adaptiveThinking,
-    support_efforts:
-      effective.supportEfforts === undefined ? undefined : [...effective.supportEfforts],
-    default_effort: effective.defaultEffort,
+    id: `${model.provider}/${model.id}`,
+    name: model.name,
+    provider: model.provider,
+    capabilities: model.reasoning ? ["thinking", "tool_use"] : ["tool_use"],
+    adaptive_thinking: false,
+    support_efforts: efforts.length === 0 ? undefined : efforts,
+    default_effort: efforts[Math.floor(efforts.length / 2)],
   };
+}
+
+function supportEfforts(model: ProviderModel): string[] {
+  const configured = Object.entries(model.thinkingLevelMap ?? {})
+    .filter(([level, value]) => level !== "off" && value !== null)
+    .map(([level]) => level);
+  return configured.length > 0 ? configured : model.reasoning ? ["low", "medium", "high"] : [];
 }
 
 function sessionConfigEffort(config: SessionConfig): ThinkingEffort {

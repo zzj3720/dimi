@@ -1,7 +1,7 @@
-import type { Message } from '#/kosong/contract/message';
-import type { ProfileModelContext } from '#/agent/profile/profile';
-import type { CompactionSource } from './types';
-import { estimateTokensForMessage } from '#/kosong/contract/tokens';
+import type { Message } from "#/llmProtocol/message";
+import type { ProfileModelContext } from "#/agent/profile/profile";
+import type { CompactionSource } from "./types";
+import { estimateTokensForMessage } from "#/llmProtocol/tokens";
 
 export interface CompactionConfig {
   triggerRatio: number;
@@ -38,7 +38,7 @@ export interface CompactionStrategy {
 }
 
 export class RuntimeCompactionStrategy implements CompactionStrategy {
-  constructor(private readonly context: () => ProfileModelContext) { }
+  constructor(private readonly context: () => ProfileModelContext) {}
 
   shouldCompact(usedSize: number): boolean {
     return this.delegate().shouldCompact(usedSize);
@@ -78,7 +78,9 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
 
   private windowDelegate(): DefaultCompactionStrategy {
     return new DefaultCompactionStrategy(
-      () => this.context().modelCapabilities.max_input_tokens ?? this.context().modelCapabilities.max_context_tokens,
+      () =>
+        this.context().modelCapabilities.max_input_tokens ??
+        this.context().modelCapabilities.max_context_tokens,
       DEFAULT_COMPACTION_CONFIG,
     );
   }
@@ -96,12 +98,11 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   }
 }
 
-
 export class DefaultCompactionStrategy implements CompactionStrategy {
   constructor(
     protected readonly maxSizeProvider: () => number,
-    protected readonly config: CompactionConfig = DEFAULT_COMPACTION_CONFIG
-  ) { }
+    protected readonly config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
+  ) {}
 
   protected get maxSize(): number {
     return this.maxSizeProvider();
@@ -110,27 +111,26 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   shouldCompact(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.triggerRatio ||
-      this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.triggerRatio || this.shouldUseReservedContext(usedSize)
     );
   }
 
   shouldBlock(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.blockRatio ||
-      this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.blockRatio || this.shouldUseReservedContext(usedSize)
     );
   }
 
   private shouldUseReservedContext(usedSize: number): boolean {
     const reservedSize = this.config.reservedContextSize;
-    return reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize;
+    return (
+      reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize
+    );
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
-
-    if (source === 'manual') {
+    if (source === "manual") {
       for (let i = messages.length - 1; i > 0; i--) {
         if (canSplitAfter(messages, i)) {
           return this.fitCompactCountToWindow(messages, i + 1);
@@ -138,7 +138,6 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
       }
       return 0;
     }
-
 
     let recentMessages = 1;
     let recentUserMessages = 0;
@@ -149,7 +148,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
       const splitIndex = messages.length - recentMessages - 1;
       const m2 = messages[messages.length - recentMessages]!;
 
-      if (m2.role === 'user') {
+      if (m2.role === "user") {
         recentUserMessages++;
       }
       recentSize += estimateTokensForMessage(m2);
@@ -158,9 +157,10 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
         bestN = splitIndex + 1;
       }
 
-      const reachesMax = recentMessages >= this.config.maxRecentMessages
-        || recentUserMessages >= this.config.maxRecentUserMessages
-        || recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
+      const reachesMax =
+        recentMessages >= this.config.maxRecentMessages ||
+        recentUserMessages >= this.config.maxRecentUserMessages ||
+        recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
       if (reachesMax && bestN !== undefined) {
         break;
       }
@@ -189,10 +189,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
     return bestN ?? messages.length;
   }
 
-  private fitCompactCountToWindow(
-    messages: readonly Message[],
-    compactedCount: number,
-  ): number {
+  private fitCompactCountToWindow(messages: readonly Message[], compactedCount: number): number {
     if (this.maxSize <= 0 || compactedCount <= 0) {
       return compactedCount;
     }
@@ -236,25 +233,25 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
 function canSplitAfter(messages: readonly Message[], index: number): boolean {
   const m = messages[index];
   if (m === undefined) return false;
-  if (m.role === 'user') return false;
-  if (m.role === 'assistant' && m.toolCalls.length > 0) return false;
-  if (messages[index + 1]?.role === 'tool') return false;
+  if (m.role === "user") return false;
+  if (m.role === "assistant" && m.toolCalls.length > 0) return false;
+  if (messages[index + 1]?.role === "tool") return false;
   if (prefixEndsWithOpenToolExchange(messages, index)) return false;
   return true;
 }
 
 function prefixEndsWithOpenToolExchange(messages: readonly Message[], index: number): boolean {
-  if (messages[index]?.role !== 'tool') return false;
+  if (messages[index]?.role !== "tool") return false;
 
   let toolResultCount = 0;
   for (let i = index; i >= 0; i--) {
     const message = messages[i];
     if (message === undefined) return false;
-    if (message.role === 'tool') {
+    if (message.role === "tool") {
       toolResultCount++;
       continue;
     }
-    return message.role === 'assistant' && message.toolCalls.length > toolResultCount;
+    return message.role === "assistant" && message.toolCalls.length > toolResultCount;
   }
   return false;
 }

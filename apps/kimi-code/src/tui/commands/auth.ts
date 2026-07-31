@@ -1,242 +1,196 @@
-import {
-  applyOpenPlatformConfig,
-  fetchOpenPlatformModels,
-  filterModelsByPrefix,
-  getOpenPlatformById,
-  OpenPlatformApiError,
-  type ManagedKimiCodeModelInfo,
-  type ManagedKimiConfigShape,
-  type OpenPlatformDefinition,
-} from '@moonshot-ai/kimi-code-oauth';
+import type { ProviderAuthMethod, ProviderAuthState } from '@moonshot-ai/kimi-code-sdk';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
-import type { ChoiceOption } from '../components/dialogs/choice-picker';
-import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
+import { ProviderLoginDialogComponent } from '../components/dialogs/provider-login-dialog';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { LoginProgressSpinnerHandle } from '../types';
+import { openAuthEventUrl } from '../utils/provider-auth';
+import { providerModelToAlias } from '../utils/provider-model';
 import {
-  promptApiKey,
+  promptAuthTypeSelection,
   promptLogoutProviderSelection,
-  promptModelSelectionForOpenPlatform,
-  promptPlatformSelection,
+  promptProviderAuthSelection,
+  runModelSelector,
 } from './prompts';
 import type { SlashCommandHost } from './dispatch';
 
-// ---------------------------------------------------------------------------
-// Auth: login / logout
-// ---------------------------------------------------------------------------
-
-export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
-  const platformId = await promptPlatformSelection(host);
-  if (platformId === undefined) return;
-
-  if (platformId === 'kimi-code') {
-    await handleKimiCodeOAuthLogin(host);
-    return;
-  }
-
-  const platform = getOpenPlatformById(platformId);
-  if (platform === undefined) return;
-  await handleOpenPlatformLogin(host, platform);
+interface LoginTarget {
+  readonly provider: ProviderAuthState;
+  readonly method: ProviderAuthMethod;
 }
 
-async function handleKimiCodeOAuthLogin(host: SlashCommandHost): Promise<void> {
-  const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
-  );
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-  try {
-    await host.harness.auth.login(DEFAULT_OAUTH_PROVIDER_NAME, {
-      signal: controller.signal,
-      onDeviceCode: (data) => {
-        spinner = host.showLoginAuthorizationPrompt(data);
-      },
-    });
-    spinner?.stop({ ok: true, label: 'Logged in.' });
-    spinner = undefined;
-    try {
-      await host.authFlow.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      host.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return;
-    }
-    host.track('login', {
-      provider: DEFAULT_OAUTH_PROVIDER_NAME,
-      method: 'oauth',
-      already_logged_in: alreadyLoggedIn,
-    });
-    if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.');
-    }
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    spinner?.stop({
-      ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
-    });
-    spinner = undefined;
-    if (cancelled) return;
-    log.warn('login failed', {
-      providerName: DEFAULT_OAUTH_PROVIDER_NAME,
-      alreadyLoggedIn,
-      sessionId: host.session?.id,
-      error,
-    });
-    const message = formatErrorMessage(error);
-    host.showError(`Login failed: ${message}`);
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
-}
-
-async function handleOpenPlatformLogin(
+export async function handleLoginCommand(
   host: SlashCommandHost,
-  platform: OpenPlatformDefinition,
+  providerReference = '',
 ): Promise<void> {
-  const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0 ? `Kimi Platform (${consoleHost})` : 'Kimi Platform';
-  const subtitleLines = [
-    `${'base_url'.padEnd(12)}${platform.baseUrl}`,
-    `${'saved to'.padEnd(12)}~/.kimi-code/config.toml`,
-  ];
-  const apiKey = await promptApiKey(host, platformName, subtitleLines);
-  if (apiKey === undefined) return;
-
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-
-  let models: ManagedKimiCodeModelInfo[];
-  try {
-    models = await fetchOpenPlatformModels(platform, apiKey, fetch, controller.signal);
-    models = filterModelsByPrefix(models, platform);
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    const msg = formatErrorMessage(error);
-    host.showError(`Failed to verify API key: ${msg}`);
-    if (
-      error instanceof OpenPlatformApiError &&
-      error.status === 401
-    ) {
-      host.showStatus(
-        'Hint: If your API key was obtained from Kimi Code, please select "Kimi Code" instead.',
-      );
-    }
-    return;
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
-
-  if (models.length === 0) {
-    host.showError('No models available for this platform.');
-    return;
-  }
-
-  const selection = await promptModelSelectionForOpenPlatform(host, models, platform);
-  if (selection === undefined) return;
-
-  const existingConfig = await host.harness.getConfig();
-  if (existingConfig.providers[platform.id] !== undefined) {
-    await host.harness.removeProvider(platform.id);
-  }
-
-  const config = await host.harness.getConfig();
-  applyOpenPlatformConfig(config as ManagedKimiConfigShape, {
-    platform,
-    models,
-    selectedModel: selection.model,
-    thinking: selection.thinking !== 'off',
-    effort:
-      selection.thinking !== 'off' && selection.thinking !== 'on'
-        ? selection.thinking
-        : undefined,
-    apiKey,
-  });
-
-  await host.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  await host.authFlow.refreshConfigAfterLogin();
-  host.track('login', { provider: platform.id, method: 'api_key' });
-  host.showStatus(`Setup complete: ${platform.name} · ${selection.model.id}`);
+  const providers = (await host.harness.auth.providers()).filter(
+    (provider) => provider.methods.length > 0,
+  );
+  const target = await selectLoginTarget(host, providers, providerReference);
+  if (target === undefined) return;
+  await login(host, target);
 }
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {
-  const oauthStatus = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-  const hasOAuthToken = oauthStatus.providers.some(
-    (p) => p.providerName === DEFAULT_OAUTH_PROVIDER_NAME && p.hasToken,
-  );
-  const config = await host.harness.getConfig();
-  const hasManagedRemnant =
-    hasOAuthToken || config.providers[DEFAULT_OAUTH_PROVIDER_NAME] !== undefined;
-  const apiKeyProviderIds = Object.keys(config.providers ?? {})
-    .filter((id) => id !== DEFAULT_OAUTH_PROVIDER_NAME)
-    .toSorted();
-
-  const options: ChoiceOption[] = [];
-  if (hasManagedRemnant) {
-    options.push({
-      value: DEFAULT_OAUTH_PROVIDER_NAME,
-      label: PRODUCT_NAME,
-      description: 'OAuth login',
-    });
-  }
-  for (const id of apiKeyProviderIds) {
-    const baseUrl = config.providers[id]?.baseUrl;
-    options.push({
-      value: id,
-      label: id,
-      description: typeof baseUrl === 'string' && baseUrl.length > 0 ? baseUrl : undefined,
-    });
-  }
-
-  if (options.length === 0) {
-    host.showStatus('Nothing to logout.');
+  const providers = (await host.harness.auth.providers()).filter((provider) => provider.configured);
+  if (providers.length === 0) {
+    host.showStatus(
+      'No stored credentials to remove. Environment-provided credentials are unchanged.',
+    );
     return;
   }
 
-  const currentModel = host.state.appState.model.trim();
-  const currentProvider = host.state.appState.availableModels[currentModel]?.provider;
-
-  const target = await promptLogoutProviderSelection(host, options, currentProvider);
+  const currentAlias = host.state.appState.model;
+  const currentProvider = host.state.appState.availableModels[currentAlias]?.provider;
+  const target = await promptLogoutProviderSelection(
+    host,
+    providers.map((provider) => ({
+      value: provider.id,
+      label: provider.name,
+      description: [provider.credentialType === 'oauth' ? 'OAuth' : 'API key', provider.source]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+    currentProvider,
+  );
   if (target === undefined) return;
 
-  if (target === DEFAULT_OAUTH_PROVIDER_NAME) {
-    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
-  } else {
-    await host.harness.removeProvider(target);
-  }
-
+  await host.harness.auth.logout(target);
+  await host.authFlow.refreshAvailableModels();
   if (target === currentProvider) {
     await host.authFlow.refreshConfigAfterLogout();
     await host.authFlow.clearActiveSessionAfterLogout();
-  } else {
-    const updated = await host.harness.getConfig({ reload: true });
-    host.setAppState({
-      availableModels: updated.models ?? {},
-      availableProviders: updated.providers ?? {},
-    });
+  }
+  host.track('logout', { provider: target });
+  host.showStatus(
+    `Logged out from ${providers.find((provider) => provider.id === target)?.name ?? target}.`,
+  );
+}
+
+async function selectLoginTarget(
+  host: SlashCommandHost,
+  providers: readonly ProviderAuthState[],
+  providerReference: string,
+): Promise<LoginTarget | undefined> {
+  const reference = providerReference.trim().toLowerCase();
+  if (reference.length > 0) {
+    const provider = providers.find(
+      (entry) => entry.id.toLowerCase() === reference || entry.name.toLowerCase() === reference,
+    );
+    if (provider === undefined) {
+      host.showError(`Unknown provider: ${providerReference.trim()}`);
+      return undefined;
+    }
+    const method = await selectMethod(host, provider.methods, provider.name);
+    return method === undefined ? undefined : { provider, method };
   }
 
-  host.track('logout', { provider: target });
-  const label = target === DEFAULT_OAUTH_PROVIDER_NAME ? PRODUCT_NAME : target;
-  host.showStatus(`Logged out from ${label}.`);
+  const authType = await promptAuthTypeSelection(
+    host,
+    providers.flatMap((provider) => provider.methods),
+  );
+  if (authType === undefined) return undefined;
+  const providerId = await promptProviderAuthSelection(host, providers, authType);
+  if (providerId === undefined) return undefined;
+  const provider = providers.find((entry) => entry.id === providerId);
+  const method = provider?.methods.find((entry) => entry.type === authType);
+  return provider === undefined || method === undefined ? undefined : { provider, method };
+}
+
+async function selectMethod(
+  host: SlashCommandHost,
+  methods: readonly ProviderAuthMethod[],
+  providerName: string,
+): Promise<ProviderAuthMethod | undefined> {
+  if (methods.length === 1) return methods[0];
+  const authType = await promptAuthTypeSelection(host, methods, providerName);
+  return methods.find((method) => method.type === authType);
+}
+
+async function login(host: SlashCommandHost, target: LoginTarget): Promise<void> {
+  const { provider, method } = target;
+  const controller = new AbortController();
+  const cancelLogin = (): void => {
+    controller.abort();
+  };
+  host.cancelInFlight = cancelLogin;
+  let dialogMounted = true;
+  const dialog = new ProviderLoginDialogComponent({
+    providerName: provider.name,
+    methodLabel: method.label,
+    requestRender: () => {
+      host.state.ui.requestRender();
+    },
+    onCancel: cancelLogin,
+  });
+  host.mountEditorReplacement(dialog);
+
+  try {
+    await host.harness.auth.login(provider.id, method.type, {
+      signal: controller.signal,
+      prompt: (prompt) => dialog.prompt(prompt),
+      notify: (event) => {
+        openAuthEventUrl(event);
+        dialog.notify(event);
+      },
+    });
+    host.restoreEditor();
+    dialogMounted = false;
+    host.track('login', { provider: provider.id, method: method.type });
+
+    const models = await host.harness.auth.models(provider.id);
+    if (models.length === 0) {
+      host.showStatus(`Connected to ${provider.name}, but no models are currently available.`);
+      await host.authFlow.refreshAvailableModels();
+      return;
+    }
+    const modelDict = Object.fromEntries(
+      models.map((model) => [`${model.provider}/${model.id}`, providerModelToAlias(model)]),
+    );
+    const selection = await runModelSelector(host, modelDict);
+    if (selection === undefined) {
+      await host.authFlow.refreshAvailableModels();
+      host.showStatus(`Connected to ${provider.name}. Use /model to select a model.`);
+      return;
+    }
+    const selected = models.find((model) => `${model.provider}/${model.id}` === selection.alias);
+    if (selected === undefined) return;
+    await host.harness.setConfig({
+      defaultProvider: selected.provider,
+      defaultModel: selected.id,
+      thinking: {
+        enabled: selection.thinking !== 'off',
+        effort:
+          selection.thinking === 'off' || selection.thinking === 'on'
+            ? undefined
+            : selection.thinking,
+      },
+    });
+    await host.authFlow.refreshAvailableModels();
+    await host.authFlow.activateModelAfterLogin(selection.alias, selection.thinking);
+    host.setAppState({
+      model: selection.alias,
+      thinkingEffort: selection.thinking,
+      maxContextTokens: selected.contextWindow,
+    });
+    host.showStatus(`Connected to ${provider.name} · ${selected.name}.`);
+  } catch (error) {
+    if (dialogMounted) {
+      host.restoreEditor();
+      dialogMounted = false;
+    }
+    if (controller.signal.aborted) {
+      host.showStatus(`Login to ${provider.name} cancelled.`);
+      return;
+    }
+    log.warn('provider login failed', {
+      providerId: provider.id,
+      methodType: method.type,
+      sessionId: host.session?.id,
+      error,
+    });
+    host.showError(`Login failed: ${formatErrorMessage(error)}`);
+  } finally {
+    if (dialogMounted) host.restoreEditor();
+    if (host.cancelInFlight === cancelLogin) host.cancelInFlight = undefined;
+  }
 }

@@ -29,6 +29,8 @@ export KIMI_CODE_HOME="$HOME/.config/kimi-code"
 $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── config.toml             # 用户配置
 ├── tui.toml                # 终端界面偏好（含自动更新开关）
+├── auth.json               # 已保存的供应商 OAuth/API 密钥凭证（文件 0600）
+├── models-store.json       # 动态供应商模型目录缓存
 ├── AGENTS.md               # 全局 Kimi 专属 Agent 指令（可选）
 ├── mcp.json                # 用户级 MCP server 声明（可选）
 ├── skills/                 # Kimi 专属用户级 Skills（可选）
@@ -36,9 +38,8 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 │   ├── installed.json      # 已安装 plugin 记录与启用状态
 │   └── managed/            # zip/本地路径安装的 plugin 副本
 ├── workspaces.json         # 工作区目录
-├── credentials/            # OAuth 凭据（目录 0700，文件 0600）
-│   ├── <name>.json
-│   └── mcp/
+├── credentials/
+│   └── mcp/                # MCP server OAuth 凭据
 │       └── <key>-<suffix>.json
 ├── sessions/               # 会话数据（详见下文）
 │   └── <workspaceId>/<sessionId>/
@@ -65,14 +66,16 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 
 数据根下的顶层文件各有用途，大部分由 CLI 自动管理：
 
-- **`config.toml`**：主运行时配置，存放供应商、模型、循环控制等用户级设置。详见[配置文件](./config-files.md)。
+- **`config.toml`**：主运行时配置，存放默认供应商/模型、循环控制等偏好，不保存供应商凭证。详见[配置文件](./config-files.md)。
 - **`tui.toml`**：终端界面客户端偏好，包括 `[upgrade].auto_install`（自动更新，默认开启）。可在 `/settings` 关闭，或手动设为 `auto_install = false`。
+- **`auth.json`**：通过 `kimi login` 保存的供应商 OAuth token 与 API 密钥。运行时以 `0o600` 权限原子写入；请只通过 `kimi login` 和 `kimi logout` 修改。
+- **`models-store.json`**：内置供应商返回的动态模型目录缓存，包含新鲜度与 ETag 元数据。`kimi provider refresh` 会更新它；离线时运行时仍可使用内置备用模型。
 - **`AGENTS.md`**：全局 Kimi 专属 Agent 指令。该文件会随 `KIMI_CODE_HOME` 移动；跨工具通用指令仍可放在 `~/.agents/AGENTS.md`。
 - **`mcp.json`**：用户级 MCP server 声明，启动时与项目内的 `.kimi-code/mcp.json` 合并加载。详见 [MCP](../customization/mcp.md)。
 - **`skills/`**：Kimi 专属用户级 Skills。该目录会随 `KIMI_CODE_HOME` 移动；跨工具通用 Skills 仍可放在 `~/.agents/skills/`。详见 [Agent Skills](../customization/skills.md)。
 - **`plugins/installed.json`**：记录已安装的 plugin、每个 plugin 的启用状态，以及通过 `/plugins` 或 `/plugins mcp disable|enable` 修改的 MCP server 能力状态。本地路径和 zip URL 安装的文件会复制到 `plugins/managed/<id>/`。详见 [Plugins](../customization/plugins.md)。
 - **`workspaces.json`**：把稳定的 workspace ID 映射到工作区根目录和显示名称。会话目录使用该 ID，不再使用路径派生的桶名。
-- **`credentials/`**：OAuth 凭据目录，权限 `0o700`（目录）/ `0o600`（文件），仅当前用户可读写。托管供应商凭据存为 `credentials/<name>.json`，MCP server 凭据存在 `credentials/mcp/` 子目录下。凭据写入使用原子流程（tmp → fsync → rename）防止写损。
+- **`credentials/mcp/`**：MCP server OAuth 凭据。供应商凭证不再使用该目录。
 
 ## 会话数据
 
@@ -113,21 +116,23 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 
 删除数据根目录（`~/.kimi-code/` 或 `KIMI_CODE_HOME` 指定路径）可清除所有运行时数据。只需清理部分内容时：
 
-| 需求 | 操作 |
-| --- | --- |
-| 重置配置 | 删除 `~/.kimi-code/config.toml` |
-| 重置终端界面偏好 | 删除 `~/.kimi-code/tui.toml` |
-| 清理所有会话 | 删除 `~/.kimi-code/sessions/` |
-| 清理诊断日志 | 删除 `~/.kimi-code/logs/` |
-| 清理输入历史 | 删除 `~/.kimi-code/user-history/` |
-| 重置更新状态 | 删除 `~/.kimi-code/updates/latest.json` |
-| 强制重新下载托管 `rg` 和 `fd` | 删除 `~/.kimi-code/bin/` |
-| 清除供应商 OAuth 登录态 | 运行 `/logout`，或删除对应的 `credentials/<name>.json` |
-| 清除 MCP server OAuth 登录态 | 删除 `credentials/mcp/`（`/logout` 不会清理 MCP 凭据） |
-| 移除用户级 MCP 声明 | 删除 `$KIMI_CODE_HOME/mcp.json`（默认为 `~/.kimi-code/mcp.json`） |
+| 需求                          | 操作                                                                |
+| ----------------------------- | ------------------------------------------------------------------- |
+| 重置配置                      | 删除 `~/.kimi-code/config.toml`                                     |
+| 重置终端界面偏好              | 删除 `~/.kimi-code/tui.toml`                                        |
+| 清理所有会话                  | 删除 `~/.kimi-code/sessions/`                                       |
+| 清理诊断日志                  | 删除 `~/.kimi-code/logs/`                                           |
+| 清理输入历史                  | 删除 `~/.kimi-code/user-history/`                                   |
+| 重置更新状态                  | 删除 `~/.kimi-code/updates/latest.json`                             |
+| 强制重新下载托管 `rg` 和 `fd` | 删除 `~/.kimi-code/bin/`                                            |
+| 清除单个供应商登录态          | 运行 `kimi logout <provider>` 或 TUI `/logout`                      |
+| 清除全部已保存的供应商凭证    | 删除 `$KIMI_CODE_HOME/auth.json`                                    |
+| 清除动态模型缓存              | 删除 `$KIMI_CODE_HOME/models-store.json`；刷新或启动后会重建        |
+| 清除 MCP server OAuth 登录态  | 删除 `credentials/mcp/`（供应商 logout 不会清理 MCP 凭据）          |
+| 移除用户级 MCP 声明           | 删除 `$KIMI_CODE_HOME/mcp.json`（默认为 `~/.kimi-code/mcp.json`）   |
 | 清理全局 Kimi 专属 Agent 指令 | 删除 `$KIMI_CODE_HOME/AGENTS.md`（默认为 `~/.kimi-code/AGENTS.md`） |
-| 清理 plugin 安装记录 | 删除 `$KIMI_CODE_HOME/plugins/`（本地 plugin 源码不受影响） |
-| 清空 Kimi 专属用户级 Skills | 删除 `$KIMI_CODE_HOME/skills/`（默认为 `~/.kimi-code/skills/`） |
+| 清理 plugin 安装记录          | 删除 `$KIMI_CODE_HOME/plugins/`（本地 plugin 源码不受影响）         |
+| 清空 Kimi 专属用户级 Skills   | 删除 `$KIMI_CODE_HOME/skills/`（默认为 `~/.kimi-code/skills/`）     |
 
 ## 下一步
 

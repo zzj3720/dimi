@@ -7,57 +7,57 @@
  * test/app/config/config.test.ts`.
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ToolCall } from '#/kosong/contract/message';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ModelCapability } from "#/llmProtocol/capability";
+import type { ToolCall } from "#/llmProtocol/message";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
-import { Error2, ErrorCodes, toErrorPayload } from '#/errors';
-import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import { createTestAgent, type TestAgentContext } from '../../harness';
-import { DEFAULT_TEST_SYSTEM_PROMPT } from '../../harness/snapshots';
+import { IAgentProfileService, type ResolvedAgentProfile } from "#/agent/profile/profile";
+import { Error2, ErrorCodes, toErrorPayload } from "#/errors";
+import { WIRE_PROTOCOL_VERSION } from "#/wire/migration/migration";
+import { createTestAgent, type TestAgentContext } from "../../harness";
+import { DEFAULT_TEST_SYSTEM_PROMPT } from "../../harness/snapshots";
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
-import '#/app/cron/configSection';
-import type { CronConfig } from '#/app/cron/configSection';
-import '#/app/skillCatalog/configSection';
+import { SyncDescriptor } from "#/_base/di/descriptors";
+import { DisposableStore } from "#/_base/di/lifecycle";
+import { TestInstantiationService } from "#/_base/di/test";
+import { IBootstrapService } from "#/app/bootstrap/bootstrap";
+import { IConfigRegistry, IConfigService } from "#/app/config/config";
+import { ConfigRegistry, ConfigService } from "#/app/config/configService";
+import { SECONDARY_MODEL_FLAG_ID } from "#/session/subagent/flag";
+import "#/app/cron/configSection";
+import type { CronConfig } from "#/app/cron/configSection";
+import "#/app/skillCatalog/configSection";
 import {
   EXTRA_SKILL_DIRS_SECTION,
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
-} from '#/app/skillCatalog/configSection';
-import '#/agent/permissionMode/configSection';
-import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import '#/agent/media/configSection';
-import { IMAGE_SECTION, type ImageConfig } from '#/agent/media/configSection';
-import '#/agent/loop/configSection';
+} from "#/app/skillCatalog/configSection";
+import "#/agent/permissionMode/configSection";
+import { DEFAULT_PERMISSION_MODE_SECTION } from "#/agent/permissionMode/configSection";
+import "#/agent/media/configSection";
+import { IMAGE_SECTION, type ImageConfig } from "#/agent/media/configSection";
+import "#/agent/loop/configSection";
 import {
   LOOP_CONTROL_SECTION,
   LOOP_MAX_RETRIES_PER_STEP_ENV,
   LOOP_MAX_STEPS_PER_TURN_ENV,
   type LoopControl,
-} from '#/agent/loop/configSection';
+} from "#/agent/loop/configSection";
 import {
-  MODELS_SECTION,
   SECONDARY_MODEL_EFFORT_ENV,
   SECONDARY_MODEL_ENV,
   SECONDARY_MODEL_SECTION,
   THINKING_SECTION,
-} from '#/app/kosongConfig/configSection';
-import { type ThinkingConfig } from '#/kosong/model/thinking';
+  type SecondaryModelConfig,
+  type ThinkingConfig,
+} from "#/app/providerRuntime/configSection";
 import {
   MAX_RUNNING_TASKS_ENV,
   resolveAgentTaskConfig,
   resolvePrintBackgroundMode,
   type AgentTaskConfig,
-} from '#/agent/task/configSection';
-import { applyPrintModeConfigDefaults } from '#/agent/task/printDefaults';
-import '#/session/subagent/configSection';
+} from "#/agent/task/configSection";
+import { applyPrintModeConfigDefaults } from "#/agent/task/printDefaults";
+import "#/session/subagent/configSection";
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   resolveSecondaryModel,
@@ -67,7 +67,7 @@ import {
   SUBAGENT_TIMEOUT_ENV,
   type SubagentConfig,
   wrapSubagentModelError,
-} from '#/session/subagent/configSection';
+} from "#/session/subagent/configSection";
 import {
   SERVICES_SECTION,
   WEB_FETCH_API_KEY_ENV,
@@ -75,39 +75,37 @@ import {
   WEB_SEARCH_API_KEY_ENV,
   WEB_SEARCH_BASE_URL_ENV,
   type ServicesConfig,
-} from '#/app/auth/configSection';
-import { SECONDARY_DERIVED_MODEL_ID } from '#/app/kosongConfig/secondaryModelOverlay';
-import { type SecondaryModelConfig } from '#/app/kosongConfig/configSection';
-import '#/agent/mcp/configSection';
+} from "#/app/config/servicesConfig";
+import "#/agent/mcp/configSection";
 import {
   MCP_SECTION,
   MCP_STARTUP_TIMEOUT_ENV,
   MCP_TOOL_TIMEOUT_ENV,
   McpSectionSchema,
   type McpSection,
-} from '#/agent/mcp/configSection';
-import { ILogService } from '#/_base/log/log';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { stubBootstrap } from '../bootstrap/stubs';
-import { stubFlag } from '../flag/stubs';
-import { stubLog } from '../../_base/log/stubs';
+} from "#/agent/mcp/configSection";
+import { ILogService } from "#/_base/log/log";
+import { InMemoryStorageService } from "#/persistence/backends/memory/inMemoryStorageService";
+import { IFileSystemStorageService } from "#/persistence/interface/storage";
+import { IAtomicTomlDocumentStore } from "#/persistence/interface/atomicDocumentStore";
+import { TomlAtomicDocumentStore } from "#/persistence/backends/node-fs/atomicDocumentStore";
+import { stubBootstrap } from "../bootstrap/stubs";
+import { stubFlag } from "../flag/stubs";
+import { stubLog } from "../../_base/log/stubs";
 
 const TEST_OS_ENV = {
-  osKind: 'Linux',
-  osArch: 'x86_64',
-  osVersion: 'test',
-  shellName: 'bash',
-  shellPath: '/bin/bash',
+  osKind: "Linux",
+  osArch: "x86_64",
+  osVersion: "test",
+  shellName: "bash",
+  shellPath: "/bin/bash",
 } as const;
 
 function secondaryModelFlags(enabled = true) {
   return stubFlag((id) => enabled && id === SECONDARY_MODEL_FLAG_ID);
 }
 
-describe('Agent config', () => {
+describe("Agent config", () => {
   let ctx: TestAgentContext;
   let profile: IAgentProfileService;
 
@@ -124,7 +122,7 @@ describe('Agent config', () => {
     }
   });
 
-  it('exposes system prompt, thinking level, and model capability updates', async () => {
+  it("exposes system prompt, thinking level, and model capability updates", async () => {
     const initialCapability: ModelCapability = {
       image_in: true,
       video_in: false,
@@ -135,23 +133,23 @@ describe('Agent config', () => {
     };
     ctx.configureRuntimeModel(
       {
-        type: 'openai',
-        apiKey: 'sk-initial',
-        baseUrl: 'https://initial.example/v1',
-        model: 'gpt-initial',
+        type: "openai",
+        apiKey: "sk-initial",
+        baseUrl: "https://initial.example/v1",
+        model: "gpt-initial",
       },
       initialCapability,
     );
 
     await expect(ctx.rpc.getConfig({})).resolves.toMatchObject({
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
-      thinkingLevel: 'off',
+      thinkingLevel: "off",
       modelCapabilities: initialCapability,
     });
 
     const nextCapability: ModelCapability = {
       image_in: true,
-      video_in: true,
+      video_in: false,
       audio_in: false,
       thinking: true,
       tool_use: true,
@@ -159,30 +157,30 @@ describe('Agent config', () => {
     };
     ctx.configureRuntimeModel(
       {
-        type: 'kimi',
-        apiKey: 'sk-next',
-        baseUrl: 'https://next.example/v1',
-        model: 'kimi-next',
+        type: "kimi",
+        apiKey: "sk-next",
+        baseUrl: "https://next.example/v1",
+        model: "kimi-next",
       },
       nextCapability,
     );
     profile.update({
-      systemPrompt: 'Changed profile prompt.',
-      thinkingLevel: 'high',
+      systemPrompt: "Changed profile prompt.",
+      thinkingLevel: "high",
     });
 
     await expect(ctx.rpc.getConfig({})).resolves.toMatchObject({
-      systemPrompt: 'Changed profile prompt.',
-      thinkingLevel: 'on',
+      systemPrompt: "Changed profile prompt.",
+      thinkingLevel: "high",
       modelCapabilities: nextCapability,
     });
   });
 
-  it('useProfile emits the rendered system prompt and active tools', async () => {
+  it("useProfile emits the rendered system prompt and active tools", async () => {
     const resolvedProfile: ResolvedAgentProfile = {
-      name: 'test-profile',
-      systemPrompt: () => 'Profile system prompt.',
-      tools: ['Read'],
+      name: "test-profile",
+      systemPrompt: () => "Profile system prompt.",
+      tools: ["Read"],
     };
 
     profile.useProfile(resolvedProfile, {
@@ -197,24 +195,24 @@ describe('Agent config', () => {
     `);
   });
 
-  it('useProfile passes additionalDirsInfo to profile system prompts', async () => {
+  it("useProfile passes additionalDirsInfo to profile system prompts", async () => {
     const resolvedProfile: ResolvedAgentProfile = {
-      name: 'context-profile',
+      name: "context-profile",
       systemPrompt: (context) =>
-        `Prompt with additional dirs: ${context['additionalDirsInfo'] ?? 'none'}`,
-      tools: ['Read'],
+        `Prompt with additional dirs: ${context["additionalDirsInfo"] ?? "none"}`,
+      tools: ["Read"],
     };
 
     profile.useProfile(resolvedProfile, {
       osEnv: TEST_OS_ENV,
       cwd: process.cwd(),
-      cwdListing: 'cwd listing',
-      agentsMd: 'agents md',
-      additionalDirsInfo: '### /extra\nextra-file.txt',
+      cwdListing: "cwd listing",
+      agentsMd: "agents md",
+      additionalDirsInfo: "### /extra\nextra-file.txt",
     });
 
     expect(profile.data().systemPrompt).toBe(
-      'Prompt with additional dirs: ### /extra\nextra-file.txt',
+      "Prompt with additional dirs: ### /extra\nextra-file.txt",
     );
 
     profile.useProfile(resolvedProfile, {
@@ -222,71 +220,71 @@ describe('Agent config', () => {
       cwd: process.cwd(),
     });
 
-    expect(profile.data().systemPrompt).toBe('Prompt with additional dirs: none');
+    expect(profile.data().systemPrompt).toBe("Prompt with additional dirs: none");
   });
 
-  it('restores config and active tools through activated handlers', async () => {
+  it("restores config and active tools through activated handlers", async () => {
     await ctx.restore([
       {
-        type: 'metadata',
+        type: "metadata",
         protocol_version: WIRE_PROTOCOL_VERSION,
         created_at: 1,
       },
       {
-        type: 'config.update',
-        cwd: '/restored-cwd',
-        modelAlias: 'restored-model',
-        profileName: 'restored-profile',
-        systemPrompt: 'Restored prompt.',
+        type: "config.update",
+        cwd: "/restored-cwd",
+        modelAlias: "restored-model",
+        profileName: "restored-profile",
+        systemPrompt: "Restored prompt.",
       },
       {
-        type: 'tools.set_active_tools',
-        names: ['Read'],
+        type: "tools.set_active_tools",
+        names: ["Read"],
       },
     ]);
 
     expect(profile.data()).toMatchObject({
-      cwd: '/restored-cwd',
-      modelAlias: 'restored-model',
-      profileName: 'restored-profile',
-      systemPrompt: 'Restored prompt.',
-      activeToolNames: ['Read'],
+      cwd: "/restored-cwd",
+      modelAlias: "restored-model",
+      profileName: "restored-profile",
+      systemPrompt: "Restored prompt.",
+      activeToolNames: ["Read"],
     });
   });
 
-  it('config.update with cwd initializes builtin tools', async () => {
+  it("config.update with cwd initializes builtin tools", async () => {
     const tools = await ctx.rpc.getTools({});
 
     expect(toolNames(tools)).toEqual(
-      expect.arrayContaining(['Read', 'Write', 'Edit', 'Grep', 'Glob']),
+      expect.arrayContaining(["Read", "Write", "Edit", "Grep", "Glob"]),
     );
   });
 
-  it('keeps turn-start config for later steps and applies updates to the next turn', async () => {
+  it("keeps turn-start config for later steps and applies updates to the next turn", async () => {
     const lookupCall: ToolCall = {
-      type: 'function',
-      id: 'call_lookup',
-      name: 'Lookup',
+      type: "function",
+      id: "call_lookup",
+      name: "Lookup",
       arguments: '{"query":"original"}',
     };
-    profile.update({ activeToolNames: ['Lookup'] });
+    profile.update({ activeToolNames: ["Lookup"] });
     await ctx.rpc.registerTool({
-      name: 'Lookup',
-      description: 'Look up a short test value.',
+      name: "Lookup",
+      description: "Look up a short test value.",
       parameters: {
-        type: 'object',
+        type: "object",
         properties: {
-          query: { type: 'string' },
+          query: { type: "string" },
         },
-        required: ['query'],
+        required: ["query"],
         additionalProperties: false,
       },
     });
     ctx.newEvents();
 
-    ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
+    ctx.mockNextResponse({ type: "text", text: "I will look it up." }, lookupCall);
     await ctx.rpc.prompt({
-      input: [{ type: 'text', text: 'Look up before config changes' }],
+      input: [{ type: "text", text: "Look up before config changes" }],
     });
     expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
       [wire] turn.prompt                     { "input": [ { "type": "text", "text": "Look up before config changes" } ], "origin": { "kind": "user" }, "time": "<time>" }
@@ -298,10 +296,10 @@ describe('Agent config', () => {
       [emit] agent.activity.updated          { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] context.append_loop_event       { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [wire] llm.tools_snapshot              { "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
-      [wire] llm.request                     { "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
+      [wire] llm.request                     { "kind": "loop", "provider": "openai-completions", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 131072, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta                 { "turnId": 0, "delta": "I will look it up." }
       [emit] agent.activity.updated          { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
-      [emit] tool.call.delta                 { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"original\\"}" }
+      [emit] tool.call.delta                 { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup" }
       [emit] agent.activity.updated          { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "tool_call", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] usage.record                    { "model": "mock-model", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated            { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
@@ -319,19 +317,19 @@ describe('Agent config', () => {
     `);
 
     ctx.configureRuntimeModel({
-      type: 'kimi',
-      apiKey: 'test-key',
-      baseUrl: 'https://changed.example.test/v1',
-      model: 'changed-model',
+      type: "kimi",
+      apiKey: "test-key",
+      baseUrl: "https://changed.example.test/v1",
+      model: "changed-model",
     });
-    profile.update({ systemPrompt: 'Changed system prompt.' });
+    profile.update({ systemPrompt: "Changed system prompt." });
     await ctx.rpc.setActiveTools({ names: [] });
 
     const toolCallEvents = ctx.untilToolCall({
-      content: 'original-result',
-      output: 'original-result',
+      content: "original-result",
+      output: "original-result",
     });
-    ctx.mockNextResponse({ type: 'text', text: 'Still using the original turn config.' });
+    ctx.mockNextResponse({ type: "text", text: "Still using the original turn config." });
     await toolCallEvents;
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.append_loop_event   { "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
@@ -347,7 +345,7 @@ describe('Agent config', () => {
       [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
       [wire] llm.tools_snapshot          { "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "tools": [], "time": "<time>" }
-      [wire] llm.request                 { "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "openai-completions", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 131072, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "Still using the original turn config." }
       [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
@@ -367,8 +365,8 @@ describe('Agent config', () => {
         tool[call_lookup]: text "original-result"
     `);
 
-    ctx.mockNextResponse({ type: 'text', text: 'Now the changed config is active.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start a fresh turn' }] });
+    ctx.mockNextResponse({ type: "text", text: "Now the changed config is active." });
+    await ctx.rpc.prompt({ input: [{ type: "text", text: "Start a fresh turn" }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [emit] agent.activity.updated      { "lifecycle": "ready", "lastTurn": { "turnId": 0, "reason": "completed", "at": "<time>" }, "background": [] }
@@ -381,7 +379,7 @@ describe('Agent config', () => {
       [emit] turn.step.started           { "turnId": 1, "step": 1, "stepId": "<uuid-6>" }
       [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "1", "step": 1 }, "time": "<time>" }
-      [wire] llm.request                 { "kind": "loop", "provider": "openai", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 5, "turnStep": "1.1", "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "openai-completions", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 131072, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 5, "turnStep": "1.1", "time": "<time>" }
       [emit] assistant.delta             { "turnId": 1, "delta": "Now the changed config is active." }
       [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] usage.record                { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
@@ -403,13 +401,13 @@ describe('Agent config', () => {
   });
 });
 
-describe('ConfigService env overlay (live)', () => {
-  it('re-applies env bindings on every get()', async () => {
-    const env: Record<string, string> = { KIMI_DISABLE_CRON: '0' };
+describe("ConfigService env overlay (live)", () => {
+  it("re-applies env bindings on every get()", async () => {
+    const env: Record<string, string> = { KIMI_DISABLE_CRON: "0" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -417,42 +415,42 @@ describe('ConfigService env overlay (live)', () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    expect(config.get<CronConfig>('cron').disabled).toBe(false);
-    env['KIMI_DISABLE_CRON'] = '1';
-    expect(config.get<CronConfig>('cron').disabled).toBe(true);
-    env['KIMI_DISABLE_CRON'] = '0';
-    expect(config.get<CronConfig>('cron').disabled).toBe(false);
+    expect(config.get<CronConfig>("cron").disabled).toBe(false);
+    env["KIMI_DISABLE_CRON"] = "1";
+    expect(config.get<CronConfig>("cron").disabled).toBe(true);
+    env["KIMI_DISABLE_CRON"] = "0";
+    expect(config.get<CronConfig>("cron").disabled).toBe(false);
 
     disposables.dispose();
   });
 
-  it('keeps the Kimi effort force separate from the configured effort', async () => {
-    const env: Record<string, string> = { KIMI_MODEL_THINKING_EFFORT: 'max' };
+  it("keeps the Kimi effort force separate from the configured effort", async () => {
+    const env: Record<string, string> = { KIMI_MODEL_THINKING_EFFORT: "max" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     const config = ix.get(IConfigService);
     await config.ready;
-    await config.set(THINKING_SECTION, { effort: 'low' });
+    await config.set(THINKING_SECTION, { effort: "low" });
 
     expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({
-      effort: 'low',
-      forcedEffort: 'max',
+      effort: "low",
+      forcedEffort: "max",
     });
 
     disposables.dispose();
   });
 
-  it('strips the Kimi effort force before persisting thinking config', async () => {
+  it("strips the Kimi effort force before persisting thinking config", async () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg'));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg"));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -460,23 +458,23 @@ describe('ConfigService env overlay (live)', () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    await config.set(THINKING_SECTION, { effort: 'low', forcedEffort: 'max' });
+    await config.set(THINKING_SECTION, { effort: "low", forcedEffort: "max" });
 
     expect(config.inspect<ThinkingConfig>(THINKING_SECTION).userValue).toEqual({
-      effort: 'low',
+      effort: "low",
     });
 
     disposables.dispose();
   });
 
-  it('deletes a scalar section on replace(undefined) — set(undefined) cannot', async () => {
+  it("deletes a scalar section on replace(undefined) — set(undefined) cannot", async () => {
     // Contract the refresh host relies on: an explicit undefined in a refresh
     // patch must DELETE the section. `set()` deep-merges, so an undefined
     // scalar patch resolves back to the base value; only `replace()` deletes.
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg'));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg"));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -484,20 +482,20 @@ describe('ConfigService env overlay (live)', () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    await config.replace('defaultModel', 'kimi-code/kimi-k2');
-    expect(config.get<string>('defaultModel')).toBe('kimi-code/kimi-k2');
+    await config.replace("defaultModel", "kimi-code/kimi-k2");
+    expect(config.get<string>("defaultModel")).toBe("kimi-code/kimi-k2");
 
-    await config.set('defaultModel', undefined);
-    expect(config.get<string>('defaultModel')).toBe('kimi-code/kimi-k2');
+    await config.set("defaultModel", undefined);
+    expect(config.get<string>("defaultModel")).toBe("kimi-code/kimi-k2");
 
-    await config.replace('defaultModel', undefined);
-    expect(config.get<string>('defaultModel')).toBeUndefined();
+    await config.replace("defaultModel", undefined);
+    expect(config.get<string>("defaultModel")).toBeUndefined();
 
     disposables.dispose();
   });
 });
 
-describe('services config section env bindings', () => {
+describe("services config section env bindings", () => {
   function createConfig(env: Record<string, string>): {
     config: IConfigService;
     disposables: DisposableStore;
@@ -505,7 +503,7 @@ describe('services config section env bindings', () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -513,144 +511,144 @@ describe('services config section env bindings', () => {
     return { config: ix.get(IConfigService), disposables };
   }
 
-  it('resolves moonshot_search / moonshot_fetch fields from KIMI_WEB_* env vars', async () => {
+  it("resolves moonshot_search / moonshot_fetch fields from KIMI_WEB_* env vars", async () => {
     const { config, disposables } = createConfig({
-      [WEB_SEARCH_BASE_URL_ENV]: 'https://search-env.example/search',
-      [WEB_SEARCH_API_KEY_ENV]: 'env-search-key',
-      [WEB_FETCH_BASE_URL_ENV]: 'https://fetch-env.example/fetch',
-      [WEB_FETCH_API_KEY_ENV]: 'env-fetch-key',
+      [WEB_SEARCH_BASE_URL_ENV]: "https://search-env.example/search",
+      [WEB_SEARCH_API_KEY_ENV]: "env-search-key",
+      [WEB_FETCH_BASE_URL_ENV]: "https://fetch-env.example/fetch",
+      [WEB_FETCH_API_KEY_ENV]: "env-fetch-key",
     });
     await config.ready;
 
     expect(config.get<ServicesConfig>(SERVICES_SECTION)).toEqual({
-      moonshotSearch: { baseUrl: 'https://search-env.example/search', apiKey: 'env-search-key' },
-      moonshotFetch: { baseUrl: 'https://fetch-env.example/fetch', apiKey: 'env-fetch-key' },
+      moonshotSearch: { baseUrl: "https://search-env.example/search", apiKey: "env-search-key" },
+      moonshotFetch: { baseUrl: "https://fetch-env.example/fetch", apiKey: "env-fetch-key" },
     });
 
     disposables.dispose();
   });
 
-  it('does not inherit persisted credentials when env selects a service endpoint', async () => {
+  it("does not inherit persisted credentials when env selects a service endpoint", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = createConfig(env);
     await config.ready;
     await config.set(SERVICES_SECTION, {
       moonshotSearch: {
-        baseUrl: 'https://file.example/search',
-        apiKey: 'file-search-key',
-        oauth: { storage: 'file', key: 'oauth/search' },
-        customHeaders: { Authorization: 'Bearer configured-search-secret' },
+        baseUrl: "https://file.example/search",
+        apiKey: "file-search-key",
+        oauth: { storage: "file", key: "oauth/search" },
+        customHeaders: { Authorization: "Bearer configured-search-secret" },
       },
       moonshotFetch: {
-        baseUrl: 'https://file.example/fetch',
-        apiKey: 'file-fetch-key',
-        oauth: { storage: 'file', key: 'oauth/fetch' },
-        customHeaders: { Authorization: 'Bearer configured-fetch-secret' },
+        baseUrl: "https://file.example/fetch",
+        apiKey: "file-fetch-key",
+        oauth: { storage: "file", key: "oauth/fetch" },
+        customHeaders: { Authorization: "Bearer configured-fetch-secret" },
       },
     });
     Object.assign(env, {
-      [WEB_SEARCH_BASE_URL_ENV]: 'https://search-env.example/search',
-      [WEB_SEARCH_API_KEY_ENV]: 'env-search-key',
-      [WEB_FETCH_BASE_URL_ENV]: 'https://fetch-env.example/fetch',
-      [WEB_FETCH_API_KEY_ENV]: 'env-fetch-key',
+      [WEB_SEARCH_BASE_URL_ENV]: "https://search-env.example/search",
+      [WEB_SEARCH_API_KEY_ENV]: "env-search-key",
+      [WEB_FETCH_BASE_URL_ENV]: "https://fetch-env.example/fetch",
+      [WEB_FETCH_API_KEY_ENV]: "env-fetch-key",
     });
 
     expect(config.get<ServicesConfig>(SERVICES_SECTION)).toEqual({
       moonshotSearch: {
-        baseUrl: 'https://search-env.example/search',
-        apiKey: 'env-search-key',
+        baseUrl: "https://search-env.example/search",
+        apiKey: "env-search-key",
       },
       moonshotFetch: {
-        baseUrl: 'https://fetch-env.example/fetch',
-        apiKey: 'env-fetch-key',
+        baseUrl: "https://fetch-env.example/fetch",
+        apiKey: "env-fetch-key",
       },
     });
 
     disposables.dispose();
   });
 
-  it('uses an env API key instead of persisted OAuth for a configured endpoint', async () => {
+  it("uses an env API key instead of persisted OAuth for a configured endpoint", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = createConfig(env);
     await config.ready;
     await config.set(SERVICES_SECTION, {
       moonshotSearch: {
-        baseUrl: 'https://file.example/search',
-        oauth: { storage: 'file', key: 'oauth/search' },
-        customHeaders: { 'X-Service': 'search' },
+        baseUrl: "https://file.example/search",
+        oauth: { storage: "file", key: "oauth/search" },
+        customHeaders: { "X-Service": "search" },
       },
     });
-    env[WEB_SEARCH_API_KEY_ENV] = 'env-search-key';
+    env[WEB_SEARCH_API_KEY_ENV] = "env-search-key";
 
     expect(config.get<ServicesConfig>(SERVICES_SECTION)?.moonshotSearch).toEqual({
-      baseUrl: 'https://file.example/search',
-      apiKey: 'env-search-key',
-      customHeaders: { 'X-Service': 'search' },
+      baseUrl: "https://file.example/search",
+      apiKey: "env-search-key",
+      customHeaders: { "X-Service": "search" },
     });
 
     disposables.dispose();
   });
 
-  it('ignores blank env values instead of masking the file value', async () => {
-    const { config, disposables } = createConfig({ [WEB_SEARCH_BASE_URL_ENV]: '   ' });
+  it("ignores blank env values instead of masking the file value", async () => {
+    const { config, disposables } = createConfig({ [WEB_SEARCH_BASE_URL_ENV]: "   " });
     await config.ready;
     await config.set(SERVICES_SECTION, {
-      moonshotSearch: { baseUrl: 'https://file.example/search' },
+      moonshotSearch: { baseUrl: "https://file.example/search" },
     });
 
     expect(config.get<ServicesConfig>(SERVICES_SECTION)?.moonshotSearch).toEqual({
-      baseUrl: 'https://file.example/search',
+      baseUrl: "https://file.example/search",
     });
 
     disposables.dispose();
   });
 
-  it('strips env-derived fields before persisting a round-tripped effective value', async () => {
+  it("strips env-derived fields before persisting a round-tripped effective value", async () => {
     const { config, disposables } = createConfig({
-      [WEB_FETCH_BASE_URL_ENV]: 'https://fetch-env.example/fetch',
-      [WEB_FETCH_API_KEY_ENV]: 'env-fetch-key',
+      [WEB_FETCH_BASE_URL_ENV]: "https://fetch-env.example/fetch",
+      [WEB_FETCH_API_KEY_ENV]: "env-fetch-key",
     });
     await config.ready;
     await config.set(SERVICES_SECTION, {
-      moonshotSearch: { baseUrl: 'https://file.example/search' },
+      moonshotSearch: { baseUrl: "https://file.example/search" },
     });
 
     const effective = config.get<ServicesConfig>(SERVICES_SECTION);
     expect(effective?.moonshotFetch).toEqual({
-      baseUrl: 'https://fetch-env.example/fetch',
-      apiKey: 'env-fetch-key',
+      baseUrl: "https://fetch-env.example/fetch",
+      apiKey: "env-fetch-key",
     });
 
     await config.replace(SERVICES_SECTION, effective);
     expect(config.inspect<ServicesConfig>(SERVICES_SECTION).userValue).toEqual({
-      moonshotSearch: { baseUrl: 'https://file.example/search' },
+      moonshotSearch: { baseUrl: "https://file.example/search" },
     });
 
     disposables.dispose();
   });
 
-  it('clears the section on replace(undefined) even with env vars set', async () => {
+  it("clears the section on replace(undefined) even with env vars set", async () => {
     const { config, disposables } = createConfig({
-      [WEB_SEARCH_BASE_URL_ENV]: 'https://search-env.example/search',
+      [WEB_SEARCH_BASE_URL_ENV]: "https://search-env.example/search",
     });
     await config.ready;
     await config.set(SERVICES_SECTION, {
-      moonshotSearch: { baseUrl: 'https://file.example/search' },
+      moonshotSearch: { baseUrl: "https://file.example/search" },
     });
 
     await config.replace(SERVICES_SECTION, undefined);
 
     expect(config.inspect<ServicesConfig>(SERVICES_SECTION).userValue).toBeUndefined();
     expect(config.get<ServicesConfig>(SERVICES_SECTION)?.moonshotSearch?.baseUrl).toBe(
-      'https://search-env.example/search',
+      "https://search-env.example/search",
     );
 
     disposables.dispose();
   });
 });
 
-describe('skill config sections', () => {
-  it('registers defaults for extraSkillDirs and mergeAllAvailableSkills', () => {
+describe("skill config sections", () => {
+  it("registers defaults for extraSkillDirs and mergeAllAvailableSkills", () => {
     const registry = new ConfigRegistry();
 
     expect(registry.getSection(EXTRA_SKILL_DIRS_SECTION)?.defaultValue).toEqual([]);
@@ -658,22 +656,22 @@ describe('skill config sections', () => {
   });
 });
 
-describe('defaultPermissionMode config section', () => {
-  it('registers the defaultPermissionMode section and not a yolo domain', () => {
+describe("defaultPermissionMode config section", () => {
+  it("registers the defaultPermissionMode section and not a yolo domain", () => {
     const registry = new ConfigRegistry();
 
     const section = registry.getSection(DEFAULT_PERMISSION_MODE_SECTION);
     expect(section).toBeDefined();
-    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'auto')).toBe('auto');
-    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'yolo')).toBe('yolo');
-    expect(() => registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'bogus')).toThrow();
+    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, "auto")).toBe("auto");
+    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, "yolo")).toBe("yolo");
+    expect(() => registry.validate(DEFAULT_PERMISSION_MODE_SECTION, "bogus")).toThrow();
 
-    expect(registry.getSection('yolo')).toBeUndefined();
+    expect(registry.getSection("yolo")).toBeUndefined();
   });
 });
 
-describe('image config section', () => {
-  it('registers the image section with an empty default and a positive-int schema', () => {
+describe("image config section", () => {
+  it("registers the image section with an empty default and a positive-int schema", () => {
     const registry = new ConfigRegistry();
 
     const section = registry.getSection(IMAGE_SECTION);
@@ -681,20 +679,21 @@ describe('image config section', () => {
     expect(section?.defaultValue).toEqual({});
 
     expect(registry.validate(IMAGE_SECTION, {})).toEqual({});
-    expect(
-      registry.validate(IMAGE_SECTION, { maxEdgePx: 1500, readByteBudget: 131072 }),
-    ).toEqual({ maxEdgePx: 1500, readByteBudget: 131072 });
+    expect(registry.validate(IMAGE_SECTION, { maxEdgePx: 1500, readByteBudget: 131072 })).toEqual({
+      maxEdgePx: 1500,
+      readByteBudget: 131072,
+    });
     expect(registry.validate(IMAGE_SECTION, { maxEdgePx: 1500 })).toEqual({ maxEdgePx: 1500 });
     expect(() => registry.validate(IMAGE_SECTION, { maxEdgePx: 0 })).toThrow();
     expect(() => registry.validate(IMAGE_SECTION, { readByteBudget: 1.5 })).toThrow();
   });
 
-  it('re-applies image env bindings on every get() and ignores invalid env', async () => {
+  it("re-applies image env bindings on every get() and ignores invalid env", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -704,35 +703,35 @@ describe('image config section', () => {
 
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({});
 
-    env['KIMI_IMAGE_MAX_EDGE_PX'] = 'abc';
-    env['KIMI_IMAGE_READ_BYTE_BUDGET'] = '-1';
+    env["KIMI_IMAGE_MAX_EDGE_PX"] = "abc";
+    env["KIMI_IMAGE_READ_BYTE_BUDGET"] = "-1";
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({});
 
-    env['KIMI_IMAGE_MAX_EDGE_PX'] = '1500';
-    env['KIMI_IMAGE_READ_BYTE_BUDGET'] = '131072';
+    env["KIMI_IMAGE_MAX_EDGE_PX"] = "1500";
+    env["KIMI_IMAGE_READ_BYTE_BUDGET"] = "131072";
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({
       maxEdgePx: 1500,
       readByteBudget: 131072,
     });
 
-    env['KIMI_IMAGE_MAX_EDGE_PX'] = '2500';
+    env["KIMI_IMAGE_MAX_EDGE_PX"] = "2500";
     expect(config.get<ImageConfig>(IMAGE_SECTION).maxEdgePx).toBe(2500);
 
     disposables.dispose();
   });
 
-  it('restores env-owned fields to the raw value on set() while the env var is set', async () => {
-    const env: Record<string, string> = { 'KIMI_IMAGE_MAX_EDGE_PX': '1500' };
+  it("restores env-owned fields to the raw value on set() while the env var is set", async () => {
+    const env: Record<string, string> = { KIMI_IMAGE_MAX_EDGE_PX: "1500" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[image]\nread_byte_budget = 131072\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[image]\nread_byte_budget = 131072\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -757,8 +756,8 @@ describe('image config section', () => {
   });
 });
 
-describe('loopControl config section', () => {
-  it('registers the loopControl section with a non-negative-int schema', () => {
+describe("loopControl config section", () => {
+  it("registers the loopControl section with a non-negative-int schema", () => {
     const registry = new ConfigRegistry();
 
     const section = registry.getSection(LOOP_CONTROL_SECTION);
@@ -772,12 +771,12 @@ describe('loopControl config section', () => {
     expect(() => registry.validate(LOOP_CONTROL_SECTION, { maxRetriesPerStep: 1.5 })).toThrow();
   });
 
-  it('re-applies loopControl env bindings on every get() and ignores invalid env', async () => {
+  it("re-applies loopControl env bindings on every get() and ignores invalid env", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -787,38 +786,38 @@ describe('loopControl config section', () => {
 
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)).toEqual({});
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = 'abc';
-    env[LOOP_MAX_RETRIES_PER_STEP_ENV] = '-1';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "abc";
+    env[LOOP_MAX_RETRIES_PER_STEP_ENV] = "-1";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)).toEqual({});
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = '100';
-    env[LOOP_MAX_RETRIES_PER_STEP_ENV] = '3';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "100";
+    env[LOOP_MAX_RETRIES_PER_STEP_ENV] = "3";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)).toEqual({
       maxStepsPerTurn: 100,
       maxRetriesPerStep: 3,
     });
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = '50';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "50";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION).maxStepsPerTurn).toBe(50);
 
     disposables.dispose();
   });
 
-  it('restores env-owned fields to the raw value on set() while the env var is set', async () => {
+  it("restores env-owned fields to the raw value on set() while the env var is set", async () => {
     const env: Record<string, string> = {
-      [LOOP_MAX_STEPS_PER_TURN_ENV]: '7',
-      [LOOP_MAX_RETRIES_PER_STEP_ENV]: '2',
+      [LOOP_MAX_STEPS_PER_TURN_ENV]: "7",
+      [LOOP_MAX_RETRIES_PER_STEP_ENV]: "2",
     };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[loop_control]\nmax_steps_per_turn = 100\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -844,20 +843,20 @@ describe('loopControl config section', () => {
       maxStepsPerTurn: 100,
       reservedContextSize: 5000,
     });
-    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).toContain('max_steps_per_turn = 100');
-    expect(onDisk).toContain('reserved_context_size = 5000');
-    expect(onDisk).not.toContain('max_retries_per_step');
+    const onDisk = new TextDecoder().decode(await storage.read("", "config.toml"));
+    expect(onDisk).toContain("max_steps_per_turn = 100");
+    expect(onDisk).toContain("reserved_context_size = 5000");
+    expect(onDisk).not.toContain("max_retries_per_step");
 
     disposables.dispose();
   });
 
-  it('persists env-bound fields normally when no env var is set', async () => {
+  it("persists env-bound fields normally when no env var is set", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -874,12 +873,12 @@ describe('loopControl config section', () => {
     disposables.dispose();
   });
 
-  it('does not strip a field whose env value fails to parse', async () => {
-    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: 'abc' };
+  it("does not strip a field whose env value fails to parse", async () => {
+    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: "abc" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -898,18 +897,18 @@ describe('loopControl config section', () => {
     disposables.dispose();
   });
 
-  it('recomputes env bindings from the env-free base when the env value degrades or is unset', async () => {
+  it("recomputes env bindings from the env-free base when the env value degrades or is unset", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[loop_control]\nmax_steps_per_turn = 100\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -917,21 +916,21 @@ describe('loopControl config section', () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = '7';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "7";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION).maxStepsPerTurn).toBe(7);
 
     // A degraded env value falls back to the file, not to the previous override.
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = 'abc';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "abc";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION).maxStepsPerTurn).toBe(100);
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = '9';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "9";
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION).maxStepsPerTurn).toBe(9);
 
     // Unsetting falls back to the file as well, on both get() and getAll().
     delete env[LOOP_MAX_STEPS_PER_TURN_ENV];
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION).maxStepsPerTurn).toBe(100);
 
-    env[LOOP_MAX_STEPS_PER_TURN_ENV] = '7';
+    env[LOOP_MAX_STEPS_PER_TURN_ENV] = "7";
     expect(config.getAll()[LOOP_CONTROL_SECTION]).toEqual({ maxStepsPerTurn: 7 });
     delete env[LOOP_MAX_STEPS_PER_TURN_ENV];
     expect(config.getAll()[LOOP_CONTROL_SECTION]).toEqual({ maxStepsPerTurn: 100 });
@@ -939,18 +938,18 @@ describe('loopControl config section', () => {
     disposables.dispose();
   });
 
-  it('restores the env-owned field from the normalized raw base when the config uses the legacy key', async () => {
-    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: '7' };
+  it("restores the env-owned field from the normalized raw base when the config uses the legacy key", async () => {
+    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: "7" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[loop_control]\nmax_steps_per_run = 100\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[loop_control]\nmax_steps_per_run = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -969,18 +968,18 @@ describe('loopControl config section', () => {
     disposables.dispose();
   });
 
-  it('preserves unknown on-disk fields across repeated stripped writes', async () => {
-    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: '7' };
+  it("preserves unknown on-disk fields across repeated stripped writes", async () => {
+    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: "7" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[loop_control]\nfuture_field = 1\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[loop_control]\nfuture_field = 1\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -991,9 +990,9 @@ describe('loopControl config section', () => {
     await config.set(LOOP_CONTROL_SECTION, { maxStepsPerTurn: 7 });
     await config.set(LOOP_CONTROL_SECTION, { maxStepsPerTurn: 7 });
 
-    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).toContain('future_field = 1');
-    expect(onDisk).not.toContain('max_steps_per_turn');
+    const onDisk = new TextDecoder().decode(await storage.read("", "config.toml"));
+    expect(onDisk).toContain("future_field = 1");
+    expect(onDisk).not.toContain("max_steps_per_turn");
     expect(config.inspect<LoopControl>(LOOP_CONTROL_SECTION).userValue).toEqual({
       futureField: 1,
     });
@@ -1001,18 +1000,18 @@ describe('loopControl config section', () => {
     disposables.dispose();
   });
 
-  it('rejects the write when the env-masked on-disk value is invalid', async () => {
-    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: '7' };
+  it("rejects the write when the env-masked on-disk value is invalid", async () => {
+    const env: Record<string, string> = { [LOOP_MAX_STEPS_PER_TURN_ENV]: "7" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode('[loop_control]\nmax_steps_per_turn = -1\n'),
+      "",
+      "config.toml",
+      new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = -1\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1026,69 +1025,63 @@ describe('loopControl config section', () => {
 
     // Nothing is persisted: the invalid value stays quarantined on disk and
     // the accompanying valid edit is not written either.
-    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).toContain('max_steps_per_turn = -1');
-    expect(onDisk).not.toContain('reserved_context_size');
+    const onDisk = new TextDecoder().decode(await storage.read("", "config.toml"));
+    expect(onDisk).toContain("max_steps_per_turn = -1");
+    expect(onDisk).not.toContain("reserved_context_size");
 
     disposables.dispose();
   });
 });
 
-describe('task config section', () => {
-  it('re-applies the maxRunningTasks env binding on every get() and ignores invalid env', async () => {
+describe("task config section", () => {
+  it("re-applies the maxRunningTasks env binding on every get() and ignores invalid env", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createTaskConfig(env);
 
-    expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBeUndefined();
+    expect(config.get<AgentTaskConfig>("task")?.maxRunningTasks).toBeUndefined();
 
-    env[MAX_RUNNING_TASKS_ENV] = 'abc';
-    expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBeUndefined();
-    env[MAX_RUNNING_TASKS_ENV] = '0';
-    expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBeUndefined();
+    env[MAX_RUNNING_TASKS_ENV] = "abc";
+    expect(config.get<AgentTaskConfig>("task")?.maxRunningTasks).toBeUndefined();
+    env[MAX_RUNNING_TASKS_ENV] = "0";
+    expect(config.get<AgentTaskConfig>("task")?.maxRunningTasks).toBeUndefined();
 
-    env[MAX_RUNNING_TASKS_ENV] = '4';
-    expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBe(4);
+    env[MAX_RUNNING_TASKS_ENV] = "4";
+    expect(config.get<AgentTaskConfig>("task")?.maxRunningTasks).toBe(4);
 
-    env[MAX_RUNNING_TASKS_ENV] = '2';
-    expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBe(2);
+    env[MAX_RUNNING_TASKS_ENV] = "2";
+    expect(config.get<AgentTaskConfig>("task")?.maxRunningTasks).toBe(2);
 
     disposables.dispose();
   });
 
-  it('lets the maxRunningTasks env binding override the config value', async () => {
-    const env: Record<string, string> = { [MAX_RUNNING_TASKS_ENV]: '8' };
-    const { config, disposables } = await createTaskConfig(
-      env,
-      '[task]\nmax_running_tasks = 3\n',
-    );
+  it("lets the maxRunningTasks env binding override the config value", async () => {
+    const env: Record<string, string> = { [MAX_RUNNING_TASKS_ENV]: "8" };
+    const { config, disposables } = await createTaskConfig(env, "[task]\nmax_running_tasks = 3\n");
 
     expect(resolveAgentTaskConfig(config)?.maxRunningTasks).toBe(8);
 
     disposables.dispose();
   });
 
-  it('restores env-owned fields to the raw value on set() while the env var is set', async () => {
+  it("restores env-owned fields to the raw value on set() while the env var is set", async () => {
     const env: Record<string, string> = {
-      [MAX_RUNNING_TASKS_ENV]: '8',
+      [MAX_RUNNING_TASKS_ENV]: "8",
     };
-    const { config, disposables } = await createTaskConfig(
-      env,
-      '[task]\nmax_running_tasks = 3\n',
-    );
+    const { config, disposables } = await createTaskConfig(env, "[task]\nmax_running_tasks = 3\n");
 
     // A client echoing the env-overlaid section back (plus a genuine edit).
-    await config.set('task', {
+    await config.set("task", {
       maxRunningTasks: 8,
       killGracePeriodMs: 25,
     });
 
     // Runtime resolution still lets the env win…
-    expect(config.get<AgentTaskConfig>('task')).toEqual({
+    expect(config.get<AgentTaskConfig>("task")).toEqual({
       maxRunningTasks: 8,
       killGracePeriodMs: 25,
     });
     // …but persistence keeps the raw value and drops the env-only field.
-    expect(config.inspect<AgentTaskConfig>('task').userValue).toEqual({
+    expect(config.inspect<AgentTaskConfig>("task").userValue).toEqual({
       maxRunningTasks: 3,
       killGracePeriodMs: 25,
     });
@@ -1101,10 +1094,10 @@ describe('task config section', () => {
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     if (toml !== undefined) {
-      await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+      await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1114,14 +1107,14 @@ describe('task config section', () => {
     return { config, disposables };
   }
 
-  it('parses print policy fields', async () => {
+  it("parses print policy fields", async () => {
     const { config, disposables } = await createTaskConfig(
       {},
       '[task]\nprint_background_mode = "steer"\nprint_wait_ceiling_s = 60\nprint_max_turns = 5\n',
     );
 
     expect(resolveAgentTaskConfig(config)).toEqual({
-      printBackgroundMode: 'steer',
+      printBackgroundMode: "steer",
       printWaitCeilingS: 60,
       printMaxTurns: 5,
     });
@@ -1129,38 +1122,36 @@ describe('task config section', () => {
     disposables.dispose();
   });
 
-  it('drops the task section with a warning when a print policy value is invalid', async () => {
+  it("drops the task section with a warning when a print policy value is invalid", async () => {
     const { config, disposables } = await createTaskConfig(
       {},
       '[task]\nprint_background_mode = "wait"\n',
     );
-    expect(config.get<AgentTaskConfig>('task')?.printBackgroundMode).toBeUndefined();
+    expect(config.get<AgentTaskConfig>("task")?.printBackgroundMode).toBeUndefined();
     expect(
-      config
-        .diagnostics()
-        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+      config.diagnostics().some((d) => d.message.includes("Ignored invalid config section 'task'")),
     ).toBe(true);
     disposables.dispose();
   });
 
-  it('resolvePrintBackgroundMode defaults to steer', async () => {
+  it("resolvePrintBackgroundMode defaults to steer", async () => {
     const { config, disposables } = await createTaskConfig({});
 
-    expect(resolvePrintBackgroundMode(config)).toBe('steer');
+    expect(resolvePrintBackgroundMode(config)).toBe("steer");
     disposables.dispose();
   });
 });
 
-describe('applyPrintModeConfigDefaults', () => {
+describe("applyPrintModeConfigDefaults", () => {
   async function createConfig(env: Record<string, string>, toml?: string) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     if (toml !== undefined) {
-      await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+      await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1170,7 +1161,7 @@ describe('applyPrintModeConfigDefaults', () => {
     return { config, disposables };
   }
 
-  it('fills unset keys into the memory layer with effectively unbounded values', async () => {
+  it("fills unset keys into the memory layer with effectively unbounded values", async () => {
     const { config, disposables } = await createConfig({});
 
     await applyPrintModeConfigDefaults(config);
@@ -1178,21 +1169,21 @@ describe('applyPrintModeConfigDefaults', () => {
     expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(0);
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn).toBe(0);
     expect(resolveSubagentTimeoutMs(config)).toBe(0);
-    expect(config.inspect('task').memoryValue).toMatchObject({ bashTaskTimeoutS: 0 });
+    expect(config.inspect("task").memoryValue).toMatchObject({ bashTaskTimeoutS: 0 });
     expect(config.inspect(LOOP_CONTROL_SECTION).memoryValue).toMatchObject({
       maxStepsPerTurn: 0,
     });
-    expect(config.inspect('subagent').memoryValue).toMatchObject({ timeoutMs: 0 });
+    expect(config.inspect("subagent").memoryValue).toMatchObject({ timeoutMs: 0 });
 
     disposables.dispose();
   });
 
-  it('does not override keys the user set explicitly', async () => {
+  it("does not override keys the user set explicitly", async () => {
     const { config, disposables } = await createConfig(
       {},
-      '[task]\nbash_task_timeout_s = 30\n\n' +
-        '[loop_control]\nmax_steps_per_turn = 7\n\n' +
-        '[subagent]\ntimeout_ms = 5000\n',
+      "[task]\nbash_task_timeout_s = 30\n\n" +
+        "[loop_control]\nmax_steps_per_turn = 7\n\n" +
+        "[subagent]\ntimeout_ms = 5000\n",
     );
 
     await applyPrintModeConfigDefaults(config);
@@ -1200,14 +1191,14 @@ describe('applyPrintModeConfigDefaults', () => {
     expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(30);
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn).toBe(7);
     expect(resolveSubagentTimeoutMs(config)).toBe(5000);
-    expect(config.inspect('task').memoryValue).toBeUndefined();
+    expect(config.inspect("task").memoryValue).toBeUndefined();
     expect(config.inspect(LOOP_CONTROL_SECTION).memoryValue).toBeUndefined();
-    expect(config.inspect('subagent').memoryValue).toBeUndefined();
+    expect(config.inspect("subagent").memoryValue).toBeUndefined();
 
     disposables.dispose();
   });
 
-  it('keeps sibling user keys of a filled section visible', async () => {
+  it("keeps sibling user keys of a filled section visible", async () => {
     const { config, disposables } = await createConfig(
       {},
       '[task]\nprint_background_mode = "drain"\n\n[loop_control]\nmax_retries_per_step = 5\n',
@@ -1215,7 +1206,7 @@ describe('applyPrintModeConfigDefaults', () => {
 
     await applyPrintModeConfigDefaults(config);
 
-    expect(resolvePrintBackgroundMode(config)).toBe('drain');
+    expect(resolvePrintBackgroundMode(config)).toBe("drain");
     expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(0);
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)).toMatchObject({
       maxRetriesPerStep: 5,
@@ -1225,8 +1216,8 @@ describe('applyPrintModeConfigDefaults', () => {
     disposables.dispose();
   });
 
-  it('does not override the subagent timeout env override', async () => {
-    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: '3000' };
+  it("does not override the subagent timeout env override", async () => {
+    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: "3000" };
     const { config, disposables } = await createConfig(env);
 
     await applyPrintModeConfigDefaults(config);
@@ -1237,16 +1228,16 @@ describe('applyPrintModeConfigDefaults', () => {
   });
 });
 
-describe('subagent config section', () => {
+describe("subagent config section", () => {
   async function createConfig(env: Record<string, string>, toml?: string) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     if (toml !== undefined) {
-      await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+      await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1256,35 +1247,35 @@ describe('subagent config section', () => {
     return { config, disposables };
   }
 
-  it('defaults to two hours and honours the env override', async () => {
+  it("defaults to two hours and honours the env override", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(env);
 
     expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
 
-    env[SUBAGENT_TIMEOUT_ENV] = 'abc';
+    env[SUBAGENT_TIMEOUT_ENV] = "abc";
     expect(resolveSubagentTimeoutMs(config)).toBe(DEFAULT_SUBAGENT_TIMEOUT_MS);
 
-    env[SUBAGENT_TIMEOUT_ENV] = '3000';
+    env[SUBAGENT_TIMEOUT_ENV] = "3000";
     expect(resolveSubagentTimeoutMs(config)).toBe(3000);
 
     disposables.dispose();
   });
 
-  it('reads timeout_ms from config.toml and lets the env var win', async () => {
+  it("reads timeout_ms from config.toml and lets the env var win", async () => {
     const env: Record<string, string> = {};
-    const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
+    const { config, disposables } = await createConfig(env, "[subagent]\ntimeout_ms = 5000\n");
     expect(resolveSubagentTimeoutMs(config)).toBe(5000);
 
-    env[SUBAGENT_TIMEOUT_ENV] = '7000';
+    env[SUBAGENT_TIMEOUT_ENV] = "7000";
     expect(resolveSubagentTimeoutMs(config)).toBe(7000);
 
     disposables.dispose();
   });
 
-  it('restores the env-owned timeout to the raw value on set() while the env var is set', async () => {
-    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: '7000' };
-    const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
+  it("restores the env-owned timeout to the raw value on set() while the env var is set", async () => {
+    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: "7000" };
+    const { config, disposables } = await createConfig(env, "[subagent]\ntimeout_ms = 5000\n");
 
     // A client echoing the env-overlaid section back.
     await config.set(SUBAGENT_SECTION, { timeoutMs: 7000 });
@@ -1299,8 +1290,8 @@ describe('subagent config section', () => {
     disposables.dispose();
   });
 
-  it('clears the raw section when stripping removes the last persisted field', async () => {
-    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: '7000' };
+  it("clears the raw section when stripping removes the last persisted field", async () => {
+    const env: Record<string, string> = { [SUBAGENT_TIMEOUT_ENV]: "7000" };
     const { config, disposables } = await createConfig(env);
 
     // A client echoing the env-overlaid section back: nothing persistable
@@ -1319,131 +1310,133 @@ describe('subagent config section', () => {
     disposables.dispose();
   });
 
-  it('resolves the spawn binding: secondary by default, primary on request, inherit otherwise', async () => {
-    const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
+  it("resolves the spawn binding: secondary by default, primary on request, inherit otherwise", async () => {
+    const own = { modelAlias: "provider/main", thinkingLevel: "medium" };
 
     const noModel = await createConfig({});
     expect(resolveSubagentBinding(noModel.config, secondaryModelFlags(), own)).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
+      model: "provider/main",
+      thinking: "medium",
     });
-    expect(resolveSubagentBinding(noModel.config, secondaryModelFlags(), own, 'secondary')).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
-    });
+    expect(resolveSubagentBinding(noModel.config, secondaryModelFlags(), own, "secondary")).toEqual(
+      {
+        model: "provider/main",
+        thinking: "medium",
+      },
+    );
     noModel.disposables.dispose();
 
     const withModel = await createConfig({}, '[secondary_model]\nmodel = "provider/secondary"\n');
     // Pointer-only recipe: bind the pointed entry directly; thinking resolves
     // naturally (no inheriting the caller's level).
     expect(resolveSubagentBinding(withModel.config, secondaryModelFlags(), own)).toEqual({
-      model: 'provider/secondary',
+      model: "provider/secondary",
       thinking: undefined,
     });
-    expect(resolveSubagentBinding(withModel.config, secondaryModelFlags(), own, 'primary')).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
-    });
+    expect(resolveSubagentBinding(withModel.config, secondaryModelFlags(), own, "primary")).toEqual(
+      {
+        model: "provider/main",
+        thinking: "medium",
+      },
+    );
     withModel.disposables.dispose();
 
     const withEffort = await createConfig(
       {},
       '[secondary_model]\nmodel = "provider/secondary"\ndefault_effort = "low"\n',
     );
-    // Patch fields bind the synthesized derived entry; default_effort is the
+    // The canonical model reference stays stable; default_effort is the
     // explicit subagent thinking.
     expect(resolveSubagentBinding(withEffort.config, secondaryModelFlags(), own)).toEqual({
-      model: SECONDARY_DERIVED_MODEL_ID,
-      thinking: 'low',
+      model: "provider/secondary",
+      thinking: "low",
     });
     // default_effort only applies together with the secondary model.
-    expect(resolveSubagentBinding(withEffort.config, secondaryModelFlags(), own, 'primary')).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
+    expect(
+      resolveSubagentBinding(withEffort.config, secondaryModelFlags(), own, "primary"),
+    ).toEqual({
+      model: "provider/main",
+      thinking: "medium",
     });
     withEffort.disposables.dispose();
-
-    const withFactPatch = await createConfig(
-      {},
-      '[secondary_model]\nmodel = "provider/secondary"\nmax_output_size = 8192\n',
-    );
-    expect(resolveSubagentBinding(withFactPatch.config, secondaryModelFlags(), own)).toEqual({
-      model: SECONDARY_DERIVED_MODEL_ID,
-      thinking: undefined,
-    });
-    withFactPatch.disposables.dispose();
   });
 
-  it('inherits the caller binding when the secondary-model experiment is disabled', async () => {
-    const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
+  it("inherits the caller binding when the secondary-model experiment is disabled", async () => {
+    const own = { modelAlias: "provider/main", thinkingLevel: "medium" };
     const { config, disposables } = await createConfig(
       {},
       '[secondary_model]\nmodel = "provider/secondary"\ndefault_effort = "low"\n',
     );
 
     expect(resolveSubagentBinding(config, secondaryModelFlags(false), own)).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
+      model: "provider/main",
+      thinking: "medium",
     });
 
     disposables.dispose();
   });
 
-  it('preserves the coded error contract when adding secondary-model guidance', () => {
+  it("preserves the coded error contract when adding secondary-model guidance", () => {
     const cause = new Error2(
       ErrorCodes.CONFIG_INVALID,
       'Model "provider/bad" is not configured in config.toml.',
-      { details: { model: 'provider/bad' } },
+      { details: { model: "provider/bad" } },
     );
 
-    const result = wrapSubagentModelError(cause, 'provider/bad', 'provider/main');
+    const result = wrapSubagentModelError(cause, "provider/bad", "provider/main");
 
     expect(toErrorPayload(result)).toMatchObject({
       code: ErrorCodes.CONFIG_INVALID,
-      message: expect.stringContaining('comes from [secondary_model].model / KIMI_SECONDARY_MODEL'),
+      message: expect.stringContaining(
+        "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+      ),
       details: {
-        model: 'provider/bad',
-        secondaryModel: 'provider/bad',
+        model: "provider/bad",
+        secondaryModel: "provider/bad",
         secondaryModelConfig: {
-          section: 'secondaryModel.model',
+          section: "secondaryModel.model",
           environment: SECONDARY_MODEL_ENV,
         },
       },
       cause: {
         code: ErrorCodes.CONFIG_INVALID,
-        details: { model: 'provider/bad' },
+        details: { model: "provider/bad" },
       },
     });
   });
 
-  it('passes through config-invalid failures that are not a missing bound alias', () => {
+  it("passes through config-invalid failures that are not a missing bound alias", () => {
     // A malformed [models.*] entry fails without details.model.
     const malformed = new Error2(
       ErrorCodes.CONFIG_INVALID,
       'Model "provider/secondary" must declare a wire protocol (config: models.<id>.protocol).',
     );
-    expect(wrapSubagentModelError(malformed, 'provider/secondary', 'provider/main')).toBe(malformed);
+    expect(wrapSubagentModelError(malformed, "provider/secondary", "provider/main")).toBe(
+      malformed,
+    );
 
     // A missing alias that is not the bound model.
     const unrelated = new Error2(
       ErrorCodes.CONFIG_INVALID,
       'Model "provider/other" is not configured in config.toml.',
-      { details: { model: 'provider/other' } },
+      { details: { model: "provider/other" } },
     );
-    expect(wrapSubagentModelError(unrelated, 'provider/secondary', 'provider/main')).toBe(unrelated);
+    expect(wrapSubagentModelError(unrelated, "provider/secondary", "provider/main")).toBe(
+      unrelated,
+    );
   });
 });
 
-describe('secondaryModel config section', () => {
+describe("secondaryModel config section", () => {
   async function createConfig(env: Record<string, string>, toml?: string) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     if (toml !== undefined) {
-      await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+      await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1453,83 +1446,60 @@ describe('secondaryModel config section', () => {
     return { config, disposables };
   }
 
-  it('reads model/default_effort from config.toml and lets the env vars win', async () => {
+  it("reads model/default_effort from config.toml and lets the env vars win", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(
       env,
       '[secondary_model]\nmodel = "provider/secondary"\ndefault_effort = "low"\n',
     );
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe('provider/secondary');
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.defaultEffort).toBe('low');
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe("provider/secondary");
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.defaultEffort).toBe("low");
 
-    env[SECONDARY_MODEL_ENV] = 'provider/env-secondary';
-    env[SECONDARY_MODEL_EFFORT_ENV] = 'high';
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe('provider/env-secondary');
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.defaultEffort).toBe('high');
+    env[SECONDARY_MODEL_ENV] = "provider/env-secondary";
+    env[SECONDARY_MODEL_EFFORT_ENV] = "high";
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe(
+      "provider/env-secondary",
+    );
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.defaultEffort).toBe("high");
 
     // Blank env values are ignored.
-    env[SECONDARY_MODEL_ENV] = '  ';
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe('provider/secondary');
+    env[SECONDARY_MODEL_ENV] = "  ";
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe("provider/secondary");
 
     disposables.dispose();
   });
 
-  it('restores the env-owned model to the raw value on set() while the env var is set', async () => {
-    const env: Record<string, string> = { [SECONDARY_MODEL_ENV]: 'provider/env-secondary' };
+  it("restores the env-owned model to the raw value on set() while the env var is set", async () => {
+    const env: Record<string, string> = { [SECONDARY_MODEL_ENV]: "provider/env-secondary" };
     const { config, disposables } = await createConfig(
       env,
       '[secondary_model]\nmodel = "provider/raw-secondary"\n',
     );
 
     // A client echoing the env-overlaid section back.
-    await config.set(SECONDARY_MODEL_SECTION, { model: 'provider/env-secondary' });
+    await config.set(SECONDARY_MODEL_SECTION, { model: "provider/env-secondary" });
 
-    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe('provider/env-secondary');
-    expect(config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue).toEqual({
-      model: 'provider/raw-secondary',
-    });
-
-    disposables.dispose();
-  });
-
-  it('propagates overlay-induced models changes to section events on runtime set', async () => {
-    const { config, disposables } = await createConfig(
-      {},
-      '[models.k2]\nprovider = "kimi"\nmodel = "kimi-k2"\n',
+    expect(resolveSecondaryModel(config, secondaryModelFlags())?.model).toBe(
+      "provider/env-secondary",
     );
-    const domains: string[] = [];
-    config.onDidSectionChange((e) => domains.push(e.domain));
-
-    // Runtime set with patch fields: the derived entry appears in the
-    // effective models view AND the models section event fires — the
-    // persistence bridge re-hydrates the registry from that event.
-    await config.set(SECONDARY_MODEL_SECTION, { model: 'k2', maxOutputSize: 8192 });
-    const models = config.get<Record<string, unknown>>(MODELS_SECTION) ?? {};
-    expect(models[SECONDARY_DERIVED_MODEL_ID]).toBeDefined();
-    expect(domains).toContain(SECONDARY_MODEL_SECTION);
-    expect(domains).toContain(MODELS_SECTION);
-
-    // Removing the patch retracts the derived entry and fires again.
-    domains.length = 0;
-    await config.replace(SECONDARY_MODEL_SECTION, { model: 'k2' });
-    const after = config.get<Record<string, unknown>>(MODELS_SECTION) ?? {};
-    expect(after[SECONDARY_DERIVED_MODEL_ID]).toBeUndefined();
-    expect(domains).toContain(MODELS_SECTION);
+    expect(config.inspect<SecondaryModelConfig>(SECONDARY_MODEL_SECTION).userValue).toEqual({
+      model: "provider/raw-secondary",
+    });
 
     disposables.dispose();
   });
 });
 
-describe('mcp config section', () => {
+describe("mcp config section", () => {
   async function createConfig(env: Record<string, string>, toml?: string) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     if (toml !== undefined) {
-      await storage.write('', 'config.toml', new TextEncoder().encode(toml));
+      await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1539,22 +1509,22 @@ describe('mcp config section', () => {
     return { config, disposables };
   }
 
-  it('is unset by default and honours the env override', async () => {
+  it("is unset by default and honours the env override", async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(env);
 
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.startupTimeoutMs).toBeUndefined();
 
-    env[MCP_STARTUP_TIMEOUT_ENV] = 'abc';
+    env[MCP_STARTUP_TIMEOUT_ENV] = "abc";
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.startupTimeoutMs).toBeUndefined();
 
-    env[MCP_STARTUP_TIMEOUT_ENV] = '60000';
+    env[MCP_STARTUP_TIMEOUT_ENV] = "60000";
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.startupTimeoutMs).toBe(60000);
 
     disposables.dispose();
   });
 
-  it('accepts the Node.js timer upper boundary', () => {
+  it("accepts the Node.js timer upper boundary", () => {
     expect(
       McpSectionSchema.safeParse({
         startupTimeoutMs: 2_147_483_647,
@@ -1563,7 +1533,7 @@ describe('mcp config section', () => {
     ).toBe(true);
   });
 
-  it('rejects config timeouts above the Node.js timer limit', () => {
+  it("rejects config timeouts above the Node.js timer limit", () => {
     expect(
       McpSectionSchema.safeParse({
         startupTimeoutMs: 2_147_483_648,
@@ -1572,14 +1542,14 @@ describe('mcp config section', () => {
     ).toBe(false);
   });
 
-  it('falls back to config when env timeouts exceed the Node.js timer limit', async () => {
+  it("falls back to config when env timeouts exceed the Node.js timer limit", async () => {
     const env: Record<string, string> = {
-      [MCP_STARTUP_TIMEOUT_ENV]: '2147483648',
-      [MCP_TOOL_TIMEOUT_ENV]: '2147483648',
+      [MCP_STARTUP_TIMEOUT_ENV]: "2147483648",
+      [MCP_TOOL_TIMEOUT_ENV]: "2147483648",
     };
     const { config, disposables } = await createConfig(
       env,
-      '[mcp]\nstartup_timeout_ms = 5000\ntool_timeout_ms = 60000\n',
+      "[mcp]\nstartup_timeout_ms = 5000\ntool_timeout_ms = 60000\n",
     );
     try {
       expect(config.get<McpSection | undefined>(MCP_SECTION)).toEqual({
@@ -1591,34 +1561,34 @@ describe('mcp config section', () => {
     }
   });
 
-  it('reads startup_timeout_ms from config.toml and lets the env var win', async () => {
+  it("reads startup_timeout_ms from config.toml and lets the env var win", async () => {
     const env: Record<string, string> = {};
-    const { config, disposables } = await createConfig(env, '[mcp]\nstartup_timeout_ms = 5000\n');
+    const { config, disposables } = await createConfig(env, "[mcp]\nstartup_timeout_ms = 5000\n");
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.startupTimeoutMs).toBe(5000);
 
-    env[MCP_STARTUP_TIMEOUT_ENV] = '7000';
+    env[MCP_STARTUP_TIMEOUT_ENV] = "7000";
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.startupTimeoutMs).toBe(7000);
 
     disposables.dispose();
   });
 
-  it('reads tool_timeout_ms from config.toml and lets the env var win', async () => {
+  it("reads tool_timeout_ms from config.toml and lets the env var win", async () => {
     const env: Record<string, string> = {};
-    const { config, disposables } = await createConfig(env, '[mcp]\ntool_timeout_ms = 60000\n');
+    const { config, disposables } = await createConfig(env, "[mcp]\ntool_timeout_ms = 60000\n");
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.toolTimeoutMs).toBe(60000);
 
-    env[MCP_TOOL_TIMEOUT_ENV] = 'abc';
+    env[MCP_TOOL_TIMEOUT_ENV] = "abc";
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.toolTimeoutMs).toBe(60000);
 
-    env[MCP_TOOL_TIMEOUT_ENV] = '90000';
+    env[MCP_TOOL_TIMEOUT_ENV] = "90000";
     expect(config.get<McpSection | undefined>(MCP_SECTION)?.toolTimeoutMs).toBe(90000);
 
     disposables.dispose();
   });
 
-  it('restores the env-owned timeout to the raw value on set() while the env var is set', async () => {
-    const env: Record<string, string> = { [MCP_STARTUP_TIMEOUT_ENV]: '7000' };
-    const { config, disposables } = await createConfig(env, '[mcp]\nstartup_timeout_ms = 5000\n');
+  it("restores the env-owned timeout to the raw value on set() while the env var is set", async () => {
+    const env: Record<string, string> = { [MCP_STARTUP_TIMEOUT_ENV]: "7000" };
+    const { config, disposables } = await createConfig(env, "[mcp]\nstartup_timeout_ms = 5000\n");
 
     // A client echoing the env-overlaid section back.
     await config.set(MCP_SECTION, { startupTimeoutMs: 7000 });
@@ -1634,13 +1604,13 @@ describe('mcp config section', () => {
   });
 });
 
-describe('get() freshness for overlay-written domains', () => {
-  it('recomputes overlay values on every get()', async () => {
+describe("get() freshness for overlay-written domains", () => {
+  it("recomputes overlay values on every get()", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1650,35 +1620,35 @@ describe('get() freshness for overlay-written domains', () => {
 
     ix.get(IConfigRegistry).registerEffectiveOverlay({
       apply(effective, getEnv) {
-        if (getEnv('SMOKE_OVERLAY_FLAG') !== '1') return [];
-        effective['overlayDomain'] = { flag: true };
-        return ['overlayDomain'];
+        if (getEnv("SMOKE_OVERLAY_FLAG") !== "1") return [];
+        effective["overlayDomain"] = { flag: true };
+        return ["overlayDomain"];
       },
     });
 
-    expect(config.get('overlayDomain')).toBeUndefined();
-    env['SMOKE_OVERLAY_FLAG'] = '1';
-    expect(config.get('overlayDomain')).toEqual({ flag: true });
-    delete env['SMOKE_OVERLAY_FLAG'];
-    expect(config.get('overlayDomain')).toBeUndefined();
+    expect(config.get("overlayDomain")).toBeUndefined();
+    env["SMOKE_OVERLAY_FLAG"] = "1";
+    expect(config.get("overlayDomain")).toEqual({ flag: true });
+    delete env["SMOKE_OVERLAY_FLAG"];
+    expect(config.get("overlayDomain")).toBeUndefined();
 
     disposables.dispose();
   });
 });
 
-describe('nested env bindings', () => {
-  it('does not mutate the env-free base when applying nested bindings', async () => {
+describe("nested env bindings", () => {
+  it("does not mutate the env-free base when applying nested bindings", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
     await storage.write(
-      '',
-      'config.toml',
+      "",
+      "config.toml",
       new TextEncoder().encode('[nested_demo.inner]\nvalue = "file"\n'),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1687,18 +1657,18 @@ describe('nested env bindings', () => {
     await config.ready;
 
     const nestedSchema = { parse: (value: unknown) => value as { inner?: { value?: string } } };
-    ix.get(IConfigRegistry).registerSection('nestedDemo', nestedSchema, {
-      env: { inner: { value: 'SMOKE_NESTED_ENV' } },
+    ix.get(IConfigRegistry).registerSection("nestedDemo", nestedSchema, {
+      env: { inner: { value: "SMOKE_NESTED_ENV" } },
     });
 
-    env['SMOKE_NESTED_ENV'] = 'env-value';
-    expect(config.get<{ inner?: { value?: string } }>('nestedDemo')).toEqual({
-      inner: { value: 'env-value' },
+    env["SMOKE_NESTED_ENV"] = "env-value";
+    expect(config.get<{ inner?: { value?: string } }>("nestedDemo")).toEqual({
+      inner: { value: "env-value" },
     });
 
-    delete env['SMOKE_NESTED_ENV'];
-    expect(config.get<{ inner?: { value?: string } }>('nestedDemo')).toEqual({
-      inner: { value: 'file' },
+    delete env["SMOKE_NESTED_ENV"];
+    expect(config.get<{ inner?: { value?: string } }>("nestedDemo")).toEqual({
+      inner: { value: "file" },
     });
 
     disposables.dispose();
@@ -1709,9 +1679,9 @@ function toolNames(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => {
-      if (item === null || typeof item !== 'object') return null;
+      if (item === null || typeof item !== "object") return null;
       const record = item as Record<string, unknown>;
-      return typeof record['name'] === 'string' ? record['name'] : null;
+      return typeof record["name"] === "string" ? record["name"] : null;
     })
     .filter((name): name is string => name !== null);
 }

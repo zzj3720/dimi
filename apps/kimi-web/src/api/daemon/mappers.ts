@@ -26,7 +26,7 @@ import type {
   QuestionItem,
   QuestionOption,
   QuestionResponse,
-} from '../types';
+} from "../types";
 
 import type {
   WireApprovalRequest,
@@ -49,7 +49,7 @@ import type {
   WireWorkspace,
   WireEvent,
   WireConfig,
-} from './wire';
+} from "./wire";
 
 // ---------------------------------------------------------------------------
 // Session mappers
@@ -106,8 +106,8 @@ export function toAppSession(wire: WireSession): AppSession {
     lastSeq: wire.last_seq,
     workspaceId: wire.workspace_id,
     parentSessionId:
-      typeof wire.metadata['parent_session_id'] === 'string'
-        ? wire.metadata['parent_session_id']
+      typeof wire.metadata["parent_session_id"] === "string"
+        ? wire.metadata["parent_session_id"]
         : undefined,
   };
 }
@@ -127,60 +127,60 @@ export function toAppWorkspace(wire: WireWorkspace): AppWorkspace {
 // ---------------------------------------------------------------------------
 
 function toAppImageSource(src: WireImageSource): ImageSource {
-  if (src.kind === 'base64') {
-    return { kind: 'base64', mediaType: src.media_type, data: src.data };
+  if (src.kind === "base64") {
+    return { kind: "base64", mediaType: src.media_type, data: src.data };
   }
-  if (src.kind === 'file') {
-    return { kind: 'file', fileId: src.file_id };
+  if (src.kind === "file") {
+    return { kind: "file", fileId: src.file_id };
   }
-  return { kind: 'url', url: src.url, id: src.id };
+  return { kind: "url", url: src.url, id: src.id };
 }
 
 export function toAppMessageContent(wire: WireMessageContent): AppMessageContent {
   switch (wire.type) {
-    case 'text':
-      return { type: 'text', text: wire.text };
-    case 'tool_use':
+    case "text":
+      return { type: "text", text: wire.text };
+    case "tool_use":
       return {
-        type: 'toolUse',
+        type: "toolUse",
         toolCallId: wire.tool_call_id,
         toolName: wire.tool_name,
         input: wire.input,
       };
-    case 'tool_result':
+    case "tool_result":
       return {
-        type: 'toolResult',
+        type: "toolResult",
         toolCallId: wire.tool_call_id,
         output: wire.output,
         isError: wire.is_error,
       };
-    case 'image':
+    case "image":
       return {
-        type: 'image',
+        type: "image",
         source: toAppImageSource(wire.source),
       };
-    case 'video':
+    case "video":
       return {
-        type: 'video',
+        type: "video",
         source: toAppImageSource(wire.source),
       };
-    case 'file':
+    case "file":
       return {
-        type: 'file',
+        type: "file",
         fileId: wire.file_id,
         name: wire.name,
         mediaType: wire.media_type,
         size: wire.size,
       };
-    case 'thinking':
+    case "thinking":
       return {
-        type: 'thinking',
+        type: "thinking",
         thinking: wire.thinking,
         signature: wire.signature,
       };
     default: {
       // Unknown content type — pass raw through
-      return { type: 'unknown', raw: wire };
+      return { type: "unknown", raw: wire };
     }
   }
 }
@@ -204,46 +204,46 @@ export function toAppMessage(wire: WireMessage): AppMessage {
 
 function toWireMessageContent(app: AppMessageContent): WireMessageContent {
   switch (app.type) {
-    case 'text':
-      return { type: 'text', text: app.text };
-    case 'toolUse':
+    case "text":
+      return { type: "text", text: app.text };
+    case "toolUse":
       return {
-        type: 'tool_use',
+        type: "tool_use",
         tool_call_id: app.toolCallId,
         tool_name: app.toolName,
         input: app.input,
       };
-    case 'toolResult':
+    case "toolResult":
       return {
-        type: 'tool_result',
+        type: "tool_result",
         tool_call_id: app.toolCallId,
         output: app.output,
         is_error: app.isError,
       };
-    case 'image':
-    case 'video': {
+    case "image":
+    case "video": {
       const src = app.source;
       let wireSrc: WireImageSource;
-      if (src.kind === 'base64') {
-        wireSrc = { kind: 'base64', media_type: src.mediaType, data: src.data };
-      } else if (src.kind === 'file') {
-        wireSrc = { kind: 'file', file_id: src.fileId };
+      if (src.kind === "base64") {
+        wireSrc = { kind: "base64", media_type: src.mediaType, data: src.data };
+      } else if (src.kind === "file") {
+        wireSrc = { kind: "file", file_id: src.fileId };
       } else {
-        wireSrc = { kind: 'url', url: src.url, id: src.id };
+        wireSrc = { kind: "url", url: src.url, id: src.id };
       }
       return { type: app.type, source: wireSrc };
     }
-    case 'file':
+    case "file":
       return {
-        type: 'file',
+        type: "file",
         file_id: app.fileId,
         name: app.name,
         media_type: app.mediaType,
         size: app.size,
       };
-    case 'thinking':
-      return { type: 'thinking', thinking: app.thinking, signature: app.signature };
-    case 'unknown':
+    case "thinking":
+      return { type: "thinking", thinking: app.thinking, signature: app.signature };
+    case "unknown":
       // Best-effort: pass raw back. May not be a valid WireMessageContent.
       return app.raw as WireMessageContent;
   }
@@ -332,16 +332,16 @@ export function toAppQuestionRequest(wire: WireQuestionRequest): AppQuestionRequ
 
 function toWireQuestionAnswer(app: QuestionAnswer): WireQuestionAnswer {
   switch (app.kind) {
-    case 'single':
-      return { kind: 'single', option_id: app.optionId };
-    case 'multi':
-      return { kind: 'multi', option_ids: app.optionIds };
-    case 'other':
-      return { kind: 'other', text: app.text };
-    case 'multiWithOther':
-      return { kind: 'multi_with_other', option_ids: app.optionIds, other_text: app.otherText };
-    case 'skipped':
-      return { kind: 'skipped' };
+    case "single":
+      return { kind: "single", option_id: app.optionId };
+    case "multi":
+      return { kind: "multi", option_ids: app.optionIds };
+    case "other":
+      return { kind: "other", text: app.text };
+    case "multiWithOther":
+      return { kind: "multi_with_other", option_ids: app.optionIds, other_text: app.otherText };
+    case "skipped":
+      return { kind: "skipped" };
   }
 }
 
@@ -383,7 +383,7 @@ export function toAppTask(wire: WireTask): AppTask {
     // does not, but its background-task store only holds detached tasks, so any
     // subagent it returns is a background subagent (foreground ones never
     // persist there) — hence the `?? true` fallback for that path.
-    runInBackground: wire.run_in_background ?? (wire.kind === 'subagent' ? true : undefined),
+    runInBackground: wire.run_in_background ?? (wire.kind === "subagent" ? true : undefined),
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }
@@ -415,47 +415,60 @@ export function toAppFsEntry(wire: WireFsEntry): FsEntry {
 
 function recordString(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key];
-  return typeof value === 'string' ? value : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 function recordNumber(source: Record<string, unknown>, key: string): number | undefined {
   const value = source[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function recordNullableNumber(source: Record<string, unknown>, key: string): number | null {
   const value = source[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export function toAppGoal(snapshot: unknown): AppGoal | null {
-  if (!snapshot || typeof snapshot !== 'object') return null;
+  if (!snapshot || typeof snapshot !== "object") return null;
   const source = snapshot as Record<string, unknown>;
-  const status = recordString(source, 'status');
-  if (status !== 'active' && status !== 'paused' && status !== 'blocked' && status !== 'complete') {
+  const status = recordString(source, "status");
+  if (status !== "active" && status !== "paused" && status !== "blocked" && status !== "complete") {
     return null;
   }
 
-  const budgetRaw = source['budget'];
-  const budget = budgetRaw && typeof budgetRaw === 'object' ? budgetRaw as Record<string, unknown> : {};
+  const budgetRaw = source["budget"];
+  const budget =
+    budgetRaw && typeof budgetRaw === "object" ? (budgetRaw as Record<string, unknown>) : {};
 
   return {
-    goalId: recordString(source, 'goalId') ?? recordString(source, 'goal_id') ?? 'goal',
-    objective: recordString(source, 'objective') ?? '',
-    completionCriterion: recordString(source, 'completionCriterion') ?? recordString(source, 'completion_criterion'),
+    goalId: recordString(source, "goalId") ?? recordString(source, "goal_id") ?? "goal",
+    objective: recordString(source, "objective") ?? "",
+    completionCriterion:
+      recordString(source, "completionCriterion") ?? recordString(source, "completion_criterion"),
     status,
-    turnsUsed: recordNumber(source, 'turnsUsed') ?? recordNumber(source, 'turns_used') ?? 0,
-    tokensUsed: recordNumber(source, 'tokensUsed') ?? recordNumber(source, 'tokens_used') ?? 0,
-    wallClockMs: recordNumber(source, 'wallClockMs') ?? recordNumber(source, 'wall_clock_ms') ?? 0,
-    terminalReason: recordString(source, 'terminalReason') ?? recordString(source, 'terminal_reason'),
+    turnsUsed: recordNumber(source, "turnsUsed") ?? recordNumber(source, "turns_used") ?? 0,
+    tokensUsed: recordNumber(source, "tokensUsed") ?? recordNumber(source, "tokens_used") ?? 0,
+    wallClockMs: recordNumber(source, "wallClockMs") ?? recordNumber(source, "wall_clock_ms") ?? 0,
+    terminalReason:
+      recordString(source, "terminalReason") ?? recordString(source, "terminal_reason"),
     budget: {
-      tokenBudget: recordNullableNumber(budget, 'tokenBudget') ?? recordNullableNumber(budget, 'token_budget'),
-      remainingTokens: recordNullableNumber(budget, 'remainingTokens') ?? recordNullableNumber(budget, 'remaining_tokens'),
-      turnBudget: recordNullableNumber(budget, 'turnBudget') ?? recordNullableNumber(budget, 'turn_budget'),
-      remainingTurns: recordNullableNumber(budget, 'remainingTurns') ?? recordNullableNumber(budget, 'remaining_turns'),
-      wallClockBudgetMs: recordNullableNumber(budget, 'wallClockBudgetMs') ?? recordNullableNumber(budget, 'wall_clock_budget_ms'),
-      remainingWallClockMs: recordNullableNumber(budget, 'remainingWallClockMs') ?? recordNullableNumber(budget, 'remaining_wall_clock_ms'),
-      overBudget: budget['overBudget'] === true || budget['over_budget'] === true,
+      tokenBudget:
+        recordNullableNumber(budget, "tokenBudget") ?? recordNullableNumber(budget, "token_budget"),
+      remainingTokens:
+        recordNullableNumber(budget, "remainingTokens") ??
+        recordNullableNumber(budget, "remaining_tokens"),
+      turnBudget:
+        recordNullableNumber(budget, "turnBudget") ?? recordNullableNumber(budget, "turn_budget"),
+      remainingTurns:
+        recordNullableNumber(budget, "remainingTurns") ??
+        recordNullableNumber(budget, "remaining_turns"),
+      wallClockBudgetMs:
+        recordNullableNumber(budget, "wallClockBudgetMs") ??
+        recordNullableNumber(budget, "wall_clock_budget_ms"),
+      remainingWallClockMs:
+        recordNullableNumber(budget, "remainingWallClockMs") ??
+        recordNullableNumber(budget, "remaining_wall_clock_ms"),
+      overBudget: budget["overBudget"] === true || budget["over_budget"] === true,
     },
   };
 }
@@ -482,36 +495,36 @@ export function toAppEvent(wire: WireEvent): AppEvent {
   const w = wire as any;
   switch ((wire as { type: string }).type) {
     // ----- Session lifecycle -----
-    case 'event.session.created':
-      return { type: 'sessionCreated', session: toAppSession(w.payload.session) };
+    case "event.session.created":
+      return { type: "sessionCreated", session: toAppSession(w.payload.session) };
 
-    case 'event.session.updated':
+    case "event.session.updated":
       return {
-        type: 'sessionUpdated',
+        type: "sessionUpdated",
         session: toAppSession(w.payload.session),
         changedFields: w.payload.changed_fields,
       };
 
-    case 'event.session.deleted':
-      return { type: 'sessionDeleted', sessionId: w.session_id };
+    case "event.session.deleted":
+      return { type: "sessionDeleted", sessionId: w.session_id };
 
     // ----- Workspace lifecycle -----
-    case 'event.workspace.created':
-      return { type: 'workspaceCreated', workspace: toAppWorkspace(w.payload.workspace) };
+    case "event.workspace.created":
+      return { type: "workspaceCreated", workspace: toAppWorkspace(w.payload.workspace) };
 
-    case 'event.workspace.updated':
-      return { type: 'workspaceUpdated', workspace: toAppWorkspace(w.payload.workspace) };
+    case "event.workspace.updated":
+      return { type: "workspaceUpdated", workspace: toAppWorkspace(w.payload.workspace) };
 
-    case 'event.workspace.deleted':
+    case "event.workspace.deleted":
       return {
-        type: 'workspaceDeleted',
+        type: "workspaceDeleted",
         workspaceId: w.payload.workspace_id,
         root: w.payload.root,
       };
 
-    case 'event.session.work_changed':
+    case "event.session.work_changed":
       return {
-        type: 'sessionWorkChanged',
+        type: "sessionWorkChanged",
         sessionId: w.session_id,
         busy: w.payload.busy,
         mainTurnActive: w.payload.main_turn_active,
@@ -521,53 +534,53 @@ export function toAppEvent(wire: WireEvent): AppEvent {
 
     // Deprecated: old journals may still carry status_changed; fold it onto
     // the busy flag (awaiting/running were live work, aborted was not).
-    case 'event.session.status_changed':
+    case "event.session.status_changed":
       return {
-        type: 'sessionWorkChanged',
+        type: "sessionWorkChanged",
         sessionId: w.session_id,
-        busy: w.payload.status !== 'idle' && w.payload.status !== 'aborted',
-        mainTurnActive: w.payload.status !== 'idle' && w.payload.status !== 'aborted',
+        busy: w.payload.status !== "idle" && w.payload.status !== "aborted",
+        mainTurnActive: w.payload.status !== "idle" && w.payload.status !== "aborted",
         pendingInteraction:
-          w.payload.status === 'awaiting_approval'
-            ? 'approval'
-            : w.payload.status === 'awaiting_question'
-              ? 'question'
-              : 'none',
-        lastTurnReason: w.payload.status === 'aborted' ? 'cancelled' : undefined,
+          w.payload.status === "awaiting_approval"
+            ? "approval"
+            : w.payload.status === "awaiting_question"
+              ? "question"
+              : "none",
+        lastTurnReason: w.payload.status === "aborted" ? "cancelled" : undefined,
       };
 
-    case 'event.session.usage_updated':
+    case "event.session.usage_updated":
       return {
-        type: 'sessionUsageUpdated',
+        type: "sessionUsageUpdated",
         sessionId: w.session_id,
         usage: toAppSessionUsage(w.payload.usage),
       };
 
-    case 'event.session.history_compacted':
+    case "event.session.history_compacted":
       return {
-        type: 'historyCompacted',
+        type: "historyCompacted",
         sessionId: w.session_id,
         beforeSeq: w.payload.before_seq,
         reason: w.payload.reason,
         summaryMessageId: w.payload.summary_message_id,
       };
 
-    case 'event.goal.updated': {
+    case "event.goal.updated": {
       const goal = toAppGoal(w.payload.snapshot ?? null);
       return {
-        type: 'goalUpdated',
+        type: "goalUpdated",
         sessionId: w.session_id,
-        goal: goal?.status === 'complete' ? null : goal,
+        goal: goal?.status === "complete" ? null : goal,
       };
     }
 
     // ----- Message lifecycle -----
-    case 'event.message.created':
-      return { type: 'messageCreated', message: toAppMessage(w.payload.message) };
+    case "event.message.created":
+      return { type: "messageCreated", message: toAppMessage(w.payload.message) };
 
-    case 'event.message.updated':
+    case "event.message.updated":
       return {
-        type: 'messageUpdated',
+        type: "messageUpdated",
         sessionId: w.session_id,
         messageId: w.payload.message_id,
         content: w.payload.content.map(toAppMessageContent),
@@ -575,9 +588,9 @@ export function toAppEvent(wire: WireEvent): AppEvent {
       };
 
     // ----- Assistant streaming -----
-    case 'event.assistant.delta':
+    case "event.assistant.delta":
       return {
-        type: 'assistantDelta',
+        type: "assistantDelta",
         sessionId: w.session_id,
         messageId: w.payload.message_id,
         contentIndex: w.payload.content_index,
@@ -585,105 +598,105 @@ export function toAppEvent(wire: WireEvent): AppEvent {
       };
 
     // No-op streaming events — advance seq silently
-    case 'event.assistant.tool_use_started':
-    case 'event.assistant.tool_use_delta':
-    case 'event.assistant.tool_use_completed':
-    case 'event.assistant.completed':
-    case 'event.tool.started':
-      return { type: 'unknown', raw: { _noop: true, _wireType: w.type } };
+    case "event.assistant.tool_use_started":
+    case "event.assistant.tool_use_delta":
+    case "event.assistant.tool_use_completed":
+    case "event.assistant.completed":
+    case "event.tool.started":
+      return { type: "unknown", raw: { _noop: true, _wireType: w.type } };
 
-    case 'event.tool.output':
+    case "event.tool.output":
       return {
-        type: 'toolOutput',
+        type: "toolOutput",
         sessionId: w.session_id,
         toolCallId: w.payload.tool_call_id,
         outputChunk: w.payload.chunk,
         stream: w.payload.stream,
       };
 
-    case 'event.tool.progress':
-      if (typeof w.payload.message === 'string' && w.payload.message.length > 0) {
+    case "event.tool.progress":
+      if (typeof w.payload.message === "string" && w.payload.message.length > 0) {
         return {
-          type: 'toolOutput',
+          type: "toolOutput",
           sessionId: w.session_id,
           toolCallId: w.payload.tool_call_id,
           outputChunk: w.payload.message,
-          stream: 'stdout',
+          stream: "stdout",
         };
       }
-      return { type: 'unknown', raw: { _noop: true, _wireType: w.type } };
+      return { type: "unknown", raw: { _noop: true, _wireType: w.type } };
 
-    case 'event.tool.completed':
-      return { type: 'unknown', raw: { _noop: true, _wireType: w.type } };
+    case "event.tool.completed":
+      return { type: "unknown", raw: { _noop: true, _wireType: w.type } };
 
     // ----- Approval -----
-    case 'event.approval.requested':
+    case "event.approval.requested":
       return {
-        type: 'approvalRequested',
+        type: "approvalRequested",
         sessionId: w.session_id,
         approval: toAppApprovalRequest(w.payload),
       };
 
-    case 'event.approval.resolved':
+    case "event.approval.resolved":
       return {
-        type: 'approvalResolved',
+        type: "approvalResolved",
         sessionId: w.session_id,
         approvalId: w.payload.approval_id,
         decision: w.payload.decision,
         resolvedAt: w.payload.resolved_at,
       };
 
-    case 'event.approval.expired':
+    case "event.approval.expired":
       return {
-        type: 'approvalExpired',
+        type: "approvalExpired",
         sessionId: w.session_id,
         approvalId: w.payload.approval_id,
       };
 
     // ----- Question -----
-    case 'event.question.requested':
+    case "event.question.requested":
       return {
-        type: 'questionRequested',
+        type: "questionRequested",
         sessionId: w.session_id,
         question: toAppQuestionRequest(w.payload),
       };
 
-    case 'event.question.answered':
+    case "event.question.answered":
       return {
-        type: 'questionAnswered',
+        type: "questionAnswered",
         sessionId: w.session_id,
         questionId: w.payload.question_id,
         resolvedAt: w.payload.resolved_at,
       };
 
-    case 'event.question.dismissed':
+    case "event.question.dismissed":
       return {
-        type: 'questionDismissed',
+        type: "questionDismissed",
         sessionId: w.session_id,
         questionId: w.payload.question_id,
         dismissedAt: w.payload.dismissed_at,
       };
 
     // ----- Tasks -----
-    case 'event.task.created':
+    case "event.task.created":
       return {
-        type: 'taskCreated',
+        type: "taskCreated",
         sessionId: w.session_id,
         task: toAppTask(w.payload.task),
       };
 
-    case 'event.task.progress':
+    case "event.task.progress":
       return {
-        type: 'taskProgress',
+        type: "taskProgress",
         sessionId: w.session_id,
         taskId: w.payload.task_id,
         outputChunk: w.payload.output_chunk,
         stream: w.payload.stream,
       };
 
-    case 'event.task.completed':
+    case "event.task.completed":
       return {
-        type: 'taskCompleted',
+        type: "taskCompleted",
         sessionId: w.session_id,
         taskId: w.payload.task_id,
         status: w.payload.status as AppTaskStatus,
@@ -691,18 +704,23 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         outputBytes: w.payload.output_bytes,
       };
 
-    case 'event.config.changed':
+    case "event.config.changed":
       return {
-        type: 'configChanged',
+        type: "configChanged",
         changedFields: w.payload.changed_fields,
         config: toAppConfig(w.payload.config),
       };
 
-    case 'event.model_catalog.changed':
+    case "event.model_catalog.changed":
       return {
-        type: 'modelCatalogChanged',
+        type: "modelCatalogChanged",
         changed: w.payload.changed.map(
-          (item: { provider_id: string; provider_name: string; added: number; removed: number }) => ({
+          (item: {
+            provider_id: string;
+            provider_name: string;
+            added: number;
+            removed: number;
+          }) => ({
             providerId: item.provider_id,
             providerName: item.provider_name,
             added: item.added,
@@ -715,7 +733,7 @@ export function toAppEvent(wire: WireEvent): AppEvent {
 
     default: {
       // Truly unknown event — record warning
-      return { type: 'unknown', raw: wire };
+      return { type: "unknown", raw: wire };
     }
   }
 }
@@ -741,30 +759,20 @@ export function toAppModel(wire: WireModel): AppModel {
 export function toAppProvider(wire: WireProvider): AppProvider {
   return {
     id: wire.id,
-    type: wire.type,
+    name: wire.name,
     baseUrl: wire.base_url,
     defaultModel: wire.default_model,
-    hasApiKey: wire.has_api_key,
+    authMethods: wire.auth_methods,
+    credentialType: wire.credential_type,
     status: wire.status,
     models: wire.models,
   };
 }
 
 export function toAppConfig(wire: WireConfig): AppConfig {
-  const providers: Record<string, { type: string; baseUrl?: string; defaultModel?: string; hasApiKey: boolean }> = {};
-  for (const [id, provider] of Object.entries(wire.providers)) {
-    providers[id] = {
-      type: provider.type,
-      baseUrl: provider.base_url,
-      defaultModel: provider.default_model,
-      hasApiKey: provider.has_api_key,
-    };
-  }
   return {
-    providers,
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
-    models: wire.models,
     thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,
     yolo: wire.yolo,

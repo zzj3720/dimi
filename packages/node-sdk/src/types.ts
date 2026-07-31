@@ -15,12 +15,11 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
+  IProviderRuntime,
   ITelemetryAppender,
   LoopControl,
   McpServerConfig as RuntimeMcpServerConfig,
-  ModelRecord,
   MoonshotServiceConfig,
-  OAuthRef,
   PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
@@ -29,8 +28,6 @@ import type {
   PluginSource,
   PluginSummary,
   PromptOrigin,
-  ProviderConfig,
-  ProviderType,
   ReloadSummary,
   ResumeSessionResult,
   ResumedAgentState,
@@ -42,15 +39,15 @@ import type {
   TelemetryProperties,
   ThinkingConfig,
   ToolInfo,
-} from '@moonshot-ai/agent-core-v2';
+} from "@moonshot-ai/agent-core-v2";
 import type {
   ConfigDiagnostics,
   McpServerInfo,
   McpStartupMetrics,
-} from '@moonshot-ai/agent-core-v2/agent/rpc/core-api';
-import type { Kaos } from '@moonshot-ai/kaos';
-import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import type { ContentPart } from '@moonshot-ai/kosong';
+} from "@moonshot-ai/agent-core-v2/agent/rpc/core-api";
+import type { Kaos } from "@moonshot-ai/kaos";
+import type { KimiHostIdentity } from "@moonshot-ai/kimi-code-oauth";
+import type { ContentPart } from "@moonshot-ai/agent-core-v2";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -77,7 +74,6 @@ export type {
   McpServerInfo,
   McpStartupMetrics,
   MoonshotServiceConfig,
-  OAuthRef,
   PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
@@ -86,8 +82,6 @@ export type {
   PluginSource,
   PluginSummary,
   PromptOrigin,
-  ProviderConfig,
-  ProviderType,
   ReloadSummary,
   ResumedAgentState,
   ServicesConfig,
@@ -101,17 +95,25 @@ export type TelemetryClient = ITelemetryAppender;
 export type BackgroundConfig = AgentTaskConfig;
 export type BackgroundTaskInfo = AgentTaskInfo;
 export type BackgroundTaskStatus = AgentTaskStatus;
-export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'agent' }>;
-export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'process' }>;
-export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'question' }>;
-export type ToolBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'tool' }>;
-export type ModelAlias = ModelRecord;
+export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "agent" }>;
+export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "process" }>;
+export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "question" }>;
+export type ToolBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "tool" }>;
+/** UI/host projection of a runtime model; it is not persisted in config.toml. */
+export interface ModelAlias {
+  readonly provider: string;
+  readonly model: string;
+  readonly displayName?: string;
+  readonly maxContextSize: number;
+  readonly maxOutputSize?: number;
+  readonly capabilities?: readonly string[];
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
+}
 
 export interface KimiConfig {
-  providers: Record<string, ProviderConfig>;
   defaultProvider?: string;
   defaultModel?: string;
-  models?: Record<string, ModelAlias>;
   secondaryModel?: SecondaryModelConfig;
   services?: ServicesConfig;
   thinking?: ThinkingConfig;
@@ -142,19 +144,19 @@ export interface GetCronTasksResult {
   readonly tasks: readonly CronTaskSnapshot[];
 }
 
-export type { KimiHostIdentity, OAuthRefreshOutcome };
+export type { KimiHostIdentity };
 export type { TelemetryContextPatch, TelemetryProperties };
-export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
+export type { ContentPart, Role, ThinkingEffort, ToolCall } from "@moonshot-ai/agent-core-v2";
 
-export type PermissionMode = 'yolo' | 'manual' | 'auto';
+export type PermissionMode = "yolo" | "manual" | "auto";
 
 export interface CreateGoalInput {
   readonly objective: string;
   readonly replace?: boolean;
 }
 
-export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
-export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
+export type TextPromptPart = Extract<ContentPart, { type: "text" }>;
+export type PromptPart = Extract<ContentPart, { type: "text" | "image_url" | "video_url" }>;
 
 export type PromptInput = readonly PromptPart[];
 
@@ -166,8 +168,9 @@ export interface KimiHarnessOptions {
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
   readonly telemetry?: TelemetryClient | undefined;
-  readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
+  /** Replaces the built-in provider runtime for custom hosts and deterministic tests. */
+  readonly providerRuntime?: IProviderRuntime;
 }
 
 export interface CreateSessionOptions {
@@ -283,9 +286,7 @@ export interface GetConfigOptions {
 }
 
 export interface AuthenticateMcpServerOptions {
-  readonly onAuthorizationUrl: (
-    url: string,
-  ) => void | boolean | PromiseLike<void | boolean>;
+  readonly onAuthorizationUrl: (url: string) => void | boolean | PromiseLike<void | boolean>;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
 }
@@ -355,6 +356,9 @@ export interface AddAdditionalDirResult {
   readonly persisted: boolean;
 }
 
-export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
+export type ResumedSessionState = Pick<
+  ResumeSessionResult,
+  "sessionMetadata" | "agents" | "warning"
+>;
 
-export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }
+export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}

@@ -1,5 +1,4 @@
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
-import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
@@ -129,7 +128,6 @@ export interface SlashCommandHost {
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
@@ -312,7 +310,7 @@ async function handleBuiltInSlashCommand(
       await handleEffortCommand(host, args);
       return;
     case 'provider':
-      await handleProviderCommand(host);
+      await handleProviderCommand(host, args);
       return;
     case 'permission':
       showPermissionPicker(host);
@@ -369,7 +367,7 @@ async function handleBuiltInSlashCommand(
       await handleCopyCommand(host);
       return;
     case 'login':
-      await handleLoginCommand(host);
+      await handleLoginCommand(host, args);
       return;
     case 'logout':
       await handleLogoutCommand(host);

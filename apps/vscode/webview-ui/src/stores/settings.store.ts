@@ -2,10 +2,15 @@ import { create } from "zustand";
 import { bridge } from "@/services";
 import { toast } from "@/components/ui/sonner";
 import type { ExtensionConfig } from "shared/types";
-import type { MCPServerConfig, ModelConfig, ThinkingMode, SlashCommandInfo } from "shared/legacy-sdk";
+import type {
+  MCPServerConfig,
+  ModelConfig,
+  ThinkingMode,
+  SlashCommandInfo,
+} from "shared/legacy-sdk";
 
 let settingsSaveRevision = 0;
-const MANAGED_KIMI_CODE_PROVIDER = "managed:kimi-code";
+const MANAGED_KIMI_CODE_PROVIDER = "kimi-coding";
 
 function saveConfigWithRollback(
   config: Parameters<typeof bridge.saveConfig>[0],
@@ -18,7 +23,9 @@ function saveConfigWithRollback(
     // would overwrite the user's latest choice.
     if (revision !== settingsSaveRevision) return;
     set(rollback);
-    toast.error(`Failed to save model settings: ${error instanceof Error ? error.message : String(error)}`);
+    toast.error(
+      `Failed to save model settings: ${error instanceof Error ? error.message : String(error)}`,
+    );
   });
 }
 
@@ -77,17 +84,11 @@ export function groupModelsByProvider(models: ModelConfig[]): ModelProviderGroup
     .toSorted((left, right) => left.label.localeCompare(right.label));
 }
 
-export function requiresManagedProviderLogin(
-  models: ModelConfig[],
-  defaultModel: string | null,
-  loggedIn: boolean,
-): boolean {
-  if (loggedIn) return false;
-  const activeModel = getModelById(models, defaultModel ?? "") ?? models[0];
-  return activeModel?.provider === MANAGED_KIMI_CODE_PROVIDER;
-}
-
-function defaultEffortForModel(model: ModelConfig, defaultThinking: boolean, configuredEffort?: string): string {
+function defaultEffortForModel(
+  model: ModelConfig,
+  defaultThinking: boolean,
+  configuredEffort?: string,
+): string {
   const mode = getModelThinkingMode(model);
   if (mode === "none") return "off";
   const efforts = model.support_efforts ?? [];
@@ -119,7 +120,10 @@ export interface MediaRequirements {
   video: boolean;
 }
 
-export function getModelsForMedia(models: ModelConfig[], mediaReq: MediaRequirements): ModelConfig[] {
+export function getModelsForMedia(
+  models: ModelConfig[],
+  mediaReq: MediaRequirements,
+): ModelConfig[] {
   return models.filter((m) => {
     if (mediaReq.image && !isImageModel(m)) {
       return false;
@@ -135,8 +139,10 @@ export function getMediaFallbackModel(
   compatibleModels: ModelConfig[],
   currentModel?: ModelConfig,
 ): ModelConfig | undefined {
-  return compatibleModels.find((model) => model.provider === currentModel?.provider)
-    ?? compatibleModels[0];
+  return (
+    compatibleModels.find((model) => model.provider === currentModel?.provider) ??
+    compatibleModels[0]
+  );
 }
 
 interface SettingsState {
@@ -168,7 +174,12 @@ interface SettingsState {
   setWorkDirModalOpen: (open: boolean) => void;
   setCurrentWorkDir: (workDir: string | null) => void;
   setWorkspaceRoot: (root: string | null) => void;
-  initModels: (models: ModelConfig[], defaultModel: string | null, defaultThinking: boolean, defaultThinkingEffort?: string) => void;
+  initModels: (
+    models: ModelConfig[],
+    defaultModel: string | null,
+    defaultThinking: boolean,
+    defaultThinkingEffort?: string,
+  ) => void;
   setWireSlashCommands: (commands: SlashCommandInfo[]) => void;
   setIsLoggedIn: (loggedIn: boolean) => void;
   getCurrentThinkingMode: () => ThinkingMode;
@@ -196,7 +207,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setThinkingEffort: (thinkingEffort) => set({ thinkingEffort }),
 
   updateModel: (modelId) => {
-    const { models, defaultThinking, defaultThinkingEffort, currentModel, thinkingEffort: previousEffort } = get();
+    const {
+      models,
+      defaultThinking,
+      defaultThinkingEffort,
+      currentModel,
+      thinkingEffort: previousEffort,
+    } = get();
     const model = getModelById(models, modelId);
     if (!model) {
       return;
@@ -238,7 +255,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   selectThinkingEffort: (effort) => {
-    const { models, currentModel, thinkingEffort: previousEffort, defaultThinking, defaultThinkingEffort } = get();
+    const {
+      models,
+      currentModel,
+      thinkingEffort: previousEffort,
+      defaultThinking,
+      defaultThinkingEffort,
+    } = get();
     const model = getModelById(models, currentModel);
     if (!model) return;
     // Match the TUI's commitEffort rule: a boolean "on" never reaches the
@@ -250,7 +273,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
     const allowed = model.support_efforts ?? [];
     const alwaysOn = model.capabilities.includes("always_thinking");
-    if (thinkingEffort !== "off" && thinkingEffort !== "on" && !allowed.includes(thinkingEffort)) return;
+    if (thinkingEffort !== "off" && thinkingEffort !== "on" && !allowed.includes(thinkingEffort))
+      return;
     if (alwaysOn && thinkingEffort === "off") return;
     // Re-confirming the effort already shown is not an explicit choice —
     // skip the state update and the config write entirely.
@@ -290,7 +314,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const initialModel = defaultModel || models[0]?.id || "";
     const model = getModelById(models, initialModel);
 
-    const thinkingEffort = model ? defaultEffortForModel(model, defaultThinking, defaultThinkingEffort) : "off";
+    const thinkingEffort = model
+      ? defaultEffortForModel(model, defaultThinking, defaultThinkingEffort)
+      : "off";
 
     set({
       models,

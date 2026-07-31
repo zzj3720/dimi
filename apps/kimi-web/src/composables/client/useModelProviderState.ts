@@ -1,12 +1,12 @@
 // apps/kimi-web/src/composables/client/useModelProviderState.ts
 // Models, providers, starred/favorite models, the active-session thinking
-// level, session-scoped slash skills, and the managed OAuth device flow.
+// level, session-scoped slash skills, and provider authentication flows.
 // Owns the lazy-loaded model/provider caches plus the new-session "draft"
 // model pick. Cross-dependencies (failure reporting, status refresh, activity,
 // in-flight set, thinking storage) are injected by the facade.
 
-import { ref, watch, type ComputedRef } from 'vue';
-import { getKimiWebApi } from '../../api';
+import { ref, watch, type ComputedRef } from "vue";
+import { getKimiWebApi } from "../../api";
 import type {
   AppMessage,
   AppModel,
@@ -15,17 +15,17 @@ import type {
   AppSkill,
   OAuthLoginStartResult,
   ThinkingLevel,
-} from '../../api/types';
-import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
+} from "../../api/types";
+import { safeGetString, safeSetString, STORAGE_KEYS } from "../../lib/storage";
 import {
   defaultThinkingLevelFor,
   levelDeclaredBy,
   thinkingLevelForModelSwitch,
   thinkingLevelToConfig,
-} from '../../lib/modelThinking';
-import { beginLocalTurn, settleLocalTurn } from './useWorkspaceState';
-import type { ActivityState } from '../../types';
-import type { ExtendedState } from '../useKimiWebClient';
+} from "../../lib/modelThinking";
+import { beginLocalTurn, settleLocalTurn } from "./useWorkspaceState";
+import type { ActivityState } from "../../types";
+import type { ExtendedState } from "../useKimiWebClient";
 
 const STARRED_MODELS_STORAGE_KEY = STORAGE_KEYS.starredModels;
 
@@ -33,14 +33,14 @@ const STARRED_MODELS_STORAGE_KEY = STORAGE_KEYS.starredModels;
  *  persist failed — persistSessionProfile already surfaced that failure, so
  *  the catch skips activating without reporting a second, synthetic error.
  *  (An actual Error instance: oxlint only-throw-error.) */
-const PROFILE_PERSIST_FAILED = new Error('profile persist failed');
+const PROFILE_PERSIST_FAILED = new Error("profile persist failed");
 
 function loadStarredModelsFromStorage(): string[] {
   try {
     const raw = safeGetString(STARRED_MODELS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) {
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
       return parsed as string[];
     }
   } catch {
@@ -63,7 +63,7 @@ export interface PersistSessionProfilePatch {
   planMode?: boolean;
   swarmMode?: boolean;
   goalObjective?: string;
-  goalControl?: 'pause' | 'resume' | 'cancel';
+  goalControl?: "pause" | "resume" | "cancel";
   thinking?: string;
 }
 
@@ -77,7 +77,10 @@ export interface UseModelProviderStateDeps {
   /** Persist profile fields to the daemon. Resolves false (after surfacing the
    *  failure itself) when the daemon rejected the patch — awaited callers that
    *  order strictly after the profile must NOT proceed on false. */
-  persistSessionProfile: (patch: PersistSessionProfilePatch, sessionId?: string) => Promise<boolean>;
+  persistSessionProfile: (
+    patch: PersistSessionProfilePatch,
+    sessionId?: string,
+  ) => Promise<boolean>;
   activity: ComputedRef<ActivityState>;
   /** Replace one session in place (matched by id). Owned by the facade so the
    *  model module never assigns rawState.sessions directly. */
@@ -89,10 +92,7 @@ export interface UseModelProviderStateDeps {
   ) => void;
 }
 
-export function useModelProviderState(
-  rawState: ExtendedState,
-  deps: UseModelProviderStateDeps,
-) {
+export function useModelProviderState(rawState: ExtendedState, deps: UseModelProviderStateDeps) {
   const {
     pushOperationFailure,
     refreshSessionStatus,
@@ -123,8 +123,7 @@ export function useModelProviderState(
     if (modelId === undefined || modelId === null || modelId.length === 0) return undefined;
     // Prefer the exact id — model names can collide across providers.
     return (
-      models.value.find((m) => m.id === modelId) ??
-      models.value.find((m) => m.model === modelId)
+      models.value.find((m) => m.id === modelId) ?? models.value.find((m) => m.model === modelId)
     );
   }
 
@@ -134,7 +133,7 @@ export function useModelProviderState(
       : undefined;
     const rawModel =
       activeSession === undefined
-        ? draftModel.value ?? rawState.defaultModel
+        ? (draftModel.value ?? rawState.defaultModel)
         : activeSession.model || rawState.defaultModel;
     return modelById(rawModel)?.id ?? rawModel ?? undefined;
   }
@@ -255,7 +254,7 @@ export function useModelProviderState(
       .setConfig({
         thinking: thinkingLevelToConfig(level, modelById(currentModelId())?.supportEfforts),
       })
-      .catch((error: unknown) => pushOperationFailure('setConfig', error));
+      .catch((error: unknown) => pushOperationFailure("setConfig", error));
   }
 
   async function loadSkillsForSession(sessionId: string): Promise<void> {
@@ -294,7 +293,7 @@ export function useModelProviderState(
         rawState.thinking = thinkingLevelForSession(rawState.activeSessionId, active);
       }
     } catch (err) {
-      pushOperationFailure('loadModels', err);
+      pushOperationFailure("loadModels", err);
     }
   }
 
@@ -304,7 +303,7 @@ export function useModelProviderState(
       const api = getKimiWebApi();
       providers.value = await api.listProviders();
     } catch (err) {
-      pushOperationFailure('loadProviders', err);
+      pushOperationFailure("loadProviders", err);
     }
   }
 
@@ -323,9 +322,7 @@ export function useModelProviderState(
     const sid = rawState.activeSessionId;
     const targetModel = modelById(modelId);
     const prevThinking = rawState.thinking;
-    const prevSessionModel = sid
-      ? rawState.sessions.find((s) => s.id === sid)?.model
-      : undefined;
+    const prevSessionModel = sid ? rawState.sessions.find((s) => s.id === sid)?.model : undefined;
     const isSwitch = currentModelId() !== (targetModel?.id ?? modelId);
     // On a real switch, pre-select the target model's catalog default (see
     // thinkingLevelForModelSwitch); re-selecting keeps the live level.
@@ -371,7 +368,7 @@ export function useModelProviderState(
           rawState.thinkingBySession = { ...rawState.thinkingBySession, [sid]: prevThinking };
         }
       }
-      pushOperationFailure('setModel', err, { sessionId: sid });
+      pushOperationFailure("setModel", err, { sessionId: sid });
       return false;
     }
     // The switch reached the daemon: also persist the thinking pick as the
@@ -407,10 +404,14 @@ export function useModelProviderState(
    * creating a session, so a concurrent session switch can't redirect the
    * activation to the wrong session. No session at all is a no-op.
    */
-  async function activateSkill(skillName: string, args?: string, sessionId?: string): Promise<void> {
+  async function activateSkill(
+    skillName: string,
+    args?: string,
+    sessionId?: string,
+  ): Promise<void> {
     const sid = sessionId ?? rawState.activeSessionId;
     if (!sid) return;
-    const guarded = activity.value === 'idle' && !rawState.inFlightBySession[sid];
+    const guarded = activity.value === "idle" && !rawState.inFlightBySession[sid];
     const tempId = `msg_skill_opt_${Date.now().toString(36)}`;
 
     const localTurnToken = guarded ? beginLocalTurn(sid) : undefined;
@@ -421,14 +422,14 @@ export function useModelProviderState(
       const optimisticMsg: AppMessage = {
         id: tempId,
         sessionId: sid,
-        role: 'user',
-        content: [{ type: 'text', text: `/${skillName}${args ? ` ${args}` : ''}` }],
+        role: "user",
+        content: [{ type: "text", text: `/${skillName}${args ? ` ${args}` : ""}` }],
         createdAt: new Date().toISOString(),
         metadata: {
-          'kimiWeb.optimisticUserMessage': true,
+          "kimiWeb.optimisticUserMessage": true,
           origin: {
-            kind: 'skill_activation',
-            trigger: 'user-slash',
+            kind: "skill_activation",
+            trigger: "user-slash",
             skillName,
             skillArgs: args,
           },
@@ -449,7 +450,8 @@ export function useModelProviderState(
       // that as "unset" and resolve through the configured default, same as
       // the prompt/BTW/steer paths, before selecting the thinking level.
       const rawModel = rawState.sessions.find((s) => s.id === sid)?.model;
-      const skillModel = (rawModel && rawModel.length > 0 ? rawModel : rawState.defaultModel) ?? undefined;
+      const skillModel =
+        (rawModel && rawModel.length > 0 ? rawModel : rawState.defaultModel) ?? undefined;
       const persisted = await persistSessionProfile(
         { thinking: (await resolveThinkingForPrompt(sid, skillModel)) ?? rawState.thinking },
         sid,
@@ -462,7 +464,8 @@ export function useModelProviderState(
         updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
       }
       // The persist failure was already surfaced by persistSessionProfile.
-      if (err !== PROFILE_PERSIST_FAILED) pushOperationFailure('activateSkill', err, { sessionId: sid });
+      if (err !== PROFILE_PERSIST_FAILED)
+        pushOperationFailure("activateSkill", err, { sessionId: sid });
     } finally {
       // The daemon answered the activation (accepted or rejected) — the
       // pending window in which a snapshot can't reflect this turn is over.
@@ -470,30 +473,27 @@ export function useModelProviderState(
     }
   }
 
-  /** Add a provider, then reload providers + models */
-  async function addProvider(input: {
-    type: string;
-    apiKey?: string;
-    baseUrl?: string;
-    defaultModel?: string;
-  }): Promise<void> {
+  /** Store an API key for one built-in provider, then reload its catalog. */
+  async function loginProviderApiKey(providerId: string, value: string): Promise<boolean> {
     try {
       const api = getKimiWebApi();
-      await api.addProvider(input);
+      await api.loginProviderApiKey(providerId, value);
       await Promise.all([loadProviders(), loadModels()]);
+      return true;
     } catch (err) {
-      pushOperationFailure('addProvider', err);
+      pushOperationFailure("loginProviderApiKey", err, { message: providerId });
+      return false;
     }
   }
 
-  /** Delete a provider, then reload providers + models */
-  async function deleteProvider(id: string): Promise<void> {
+  /** Remove one provider credential, then reload providers + models. */
+  async function logoutProvider(id: string): Promise<void> {
     try {
       const api = getKimiWebApi();
-      await api.deleteProvider(id);
+      await api.logoutProvider(id);
       await Promise.all([loadProviders(), loadModels()]);
     } catch (err) {
-      pushOperationFailure('deleteProvider', err);
+      pushOperationFailure("logoutProvider", err, { message: id });
     }
   }
 
@@ -502,13 +502,13 @@ export function useModelProviderState(
     try {
       const result = await getKimiWebApi().refreshProvider(id);
       for (const failure of result.failed) {
-        pushOperationFailure('refreshProvider', new Error(failure.reason), {
+        pushOperationFailure("refreshProvider", new Error(failure.message), {
           message: failure.provider,
         });
       }
       await Promise.all([loadProviders(), loadModels()]);
     } catch (err) {
-      pushOperationFailure('refreshProvider', err);
+      pushOperationFailure("refreshProvider", err);
     }
   }
 
@@ -517,48 +517,48 @@ export function useModelProviderState(
     try {
       const result = await getKimiWebApi().refreshAllProviders();
       for (const failure of result.failed) {
-        pushOperationFailure('refreshAllProviders', new Error(failure.reason), {
+        pushOperationFailure("refreshAllProviders", new Error(failure.message), {
           message: failure.provider,
         });
       }
       await Promise.all([loadProviders(), loadModels()]);
     } catch (err) {
-      pushOperationFailure('refreshAllProviders', err);
+      pushOperationFailure("refreshAllProviders", err);
     }
   }
 
-  /** Start managed Kimi OAuth device flow. Returns flow data or null on error. */
-  async function startOAuthLogin(): Promise<OAuthLoginStartResult | null> {
+  /** Start an OAuth device flow for one provider. */
+  async function startOAuthLogin(providerId: string): Promise<OAuthLoginStartResult | null> {
     try {
       const api = getKimiWebApi();
-      return await api.startOAuthLogin();
+      return await api.startOAuthLogin(providerId);
     } catch {
       return null;
     }
   }
 
-  /** Poll the singleton OAuth flow. Returns null on error or no active flow. */
-  async function pollOAuthLogin(): Promise<{
+  /** Poll one provider's OAuth flow. */
+  async function pollOAuthLogin(providerId: string): Promise<{
     flowId: string;
-    status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
+    status: "pending" | "authenticated" | "expired" | "cancelled";
     resolvedAt?: string;
   } | null> {
     try {
       const api = getKimiWebApi();
-      return await api.pollOAuthLogin();
+      return await api.pollOAuthLogin(providerId);
     } catch (err) {
       // The dialog counts consecutive nulls and gives up after a few; keep the
       // cause in the log so a dead daemon is diagnosable.
-      console.warn('[kimi-web] pollOAuthLogin failed', err);
+      console.warn("[kimi-web] pollOAuthLogin failed", err);
       return null;
     }
   }
 
-  /** Cancel the current OAuth flow (best-effort). */
-  async function cancelOAuthLogin(): Promise<void> {
+  /** Cancel one provider's OAuth flow (best-effort). */
+  async function cancelOAuthLogin(providerId: string): Promise<void> {
     try {
       const api = getKimiWebApi();
-      await api.cancelOAuthLogin();
+      await api.cancelOAuthLogin(providerId);
     } catch {
       // Best-effort
     }
@@ -591,8 +591,8 @@ export function useModelProviderState(
     resolveThinkingForPrompt,
     toggleStarModel,
     activateSkill,
-    addProvider,
-    deleteProvider,
+    loginProviderApiKey,
+    logoutProvider,
     refreshProvider,
     refreshAllProviders,
     startOAuthLogin,

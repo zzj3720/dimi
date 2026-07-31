@@ -33,22 +33,21 @@ import {
   getMediaFallbackModel,
   getModelThinkingMode,
   groupModelsByProvider,
-  requiresManagedProviderLogin,
   useSettingsStore,
 } from "../webview-ui/src/stores/settings.store";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
 
 const MODELS = [
-  { id: "plain", name: "Plain", provider: "managed:kimi-code", capabilities: [] },
+  { id: "plain", name: "Plain", provider: "kimi-coding", capabilities: [] },
   {
     id: "reasoning",
     name: "Reasoning",
-    provider: "managed:kimi-code",
+    provider: "kimi-coding",
     capabilities: ["thinking"],
     support_efforts: ["low", "high"],
     default_effort: "high",
   },
-  { id: "always", name: "Always", provider: "managed:kimi-code", capabilities: ["always_thinking"] },
+  { id: "always", name: "Always", provider: "kimi-coding", capabilities: ["always_thinking"] },
 ];
 
 beforeEach(() => {
@@ -85,10 +84,14 @@ afterEach(() => {
 describe("Webview model settings persistence", () => {
   it("persists the selected alias when display names collide across providers", () => {
     boundary.saveConfig.mockResolvedValue({ ok: true });
-    useSettingsStore.getState().initModels([
-      { id: "openai/shared", name: "Shared", provider: "openai", capabilities: [] },
-      { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
-    ], "openai/shared", false);
+    useSettingsStore.getState().initModels(
+      [
+        { id: "openai/shared", name: "Shared", provider: "openai", capabilities: [] },
+        { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
+      ],
+      "openai/shared",
+      false,
+    );
 
     useSettingsStore.getState().updateModel("proxy/shared");
 
@@ -102,9 +105,11 @@ describe("Webview model settings persistence", () => {
 
   it("rolls back the optimistic model selection when saving fails", async () => {
     let rejectSave!: (error: Error) => void;
-    boundary.saveConfig.mockReturnValue(new Promise((_resolve, reject) => {
-      rejectSave = reject;
-    }));
+    boundary.saveConfig.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectSave = reject;
+      }),
+    );
 
     useSettingsStore.getState().updateModel("reasoning");
     expect(useSettingsStore.getState()).toMatchObject({
@@ -127,9 +132,11 @@ describe("Webview model settings persistence", () => {
   it("does not let an older failed save overwrite a newer selection", async () => {
     let rejectFirst!: (error: Error) => void;
     boundary.saveConfig
-      .mockReturnValueOnce(new Promise((_resolve, reject) => {
-        rejectFirst = reject;
-      }))
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        }),
+      )
       .mockResolvedValueOnce({ ok: true });
 
     useSettingsStore.getState().updateModel("reasoning");
@@ -145,28 +152,32 @@ describe("Webview model settings persistence", () => {
 describe("Webview model metadata", () => {
   it("keeps same-named models in separate provider groups", () => {
     const groups = groupModelsByProvider([
-      { id: "kimi/shared", name: "Shared", provider: "managed:kimi-code", capabilities: [] },
+      { id: "kimi/shared", name: "Shared", provider: "kimi-coding", capabilities: [] },
       { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
     ]);
 
-    expect(groups.map((group) => ({
-      provider: group.provider,
-      label: group.label,
-      models: group.models.map((model) => model.id),
-    }))).toEqual([
+    expect(
+      groups.map((group) => ({
+        provider: group.provider,
+        label: group.label,
+        models: group.models.map((model) => model.id),
+      })),
+    ).toEqual([
       { provider: "company-proxy", label: "company-proxy", models: ["proxy/shared"] },
-      { provider: "managed:kimi-code", label: "Kimi Code", models: ["kimi/shared"] },
+      { provider: "kimi-coding", label: "Kimi Code", models: ["kimi/shared"] },
     ]);
   });
 
   it("offers a thinking toggle when a model declares adaptive thinking", () => {
-    expect(getModelThinkingMode({
-      id: "anthropic/claude",
-      name: "Claude",
-      provider: "anthropic",
-      capabilities: [],
-      adaptive_thinking: true,
-    })).toBe("switch");
+    expect(
+      getModelThinkingMode({
+        id: "anthropic/claude",
+        name: "Claude",
+        provider: "anthropic",
+        capabilities: [],
+        adaptive_thinking: true,
+      }),
+    ).toBe("switch");
   });
 
   it("prefers a compatible model from the current provider for media fallback", () => {
@@ -176,24 +187,15 @@ describe("Webview model metadata", () => {
       provider: "openai",
       capabilities: [],
     };
-    const fallback = getMediaFallbackModel([
-      { id: "other/vision", name: "Vision A", provider: "other", capabilities: ["image_in"] },
-      { id: "openai/vision", name: "Vision B", provider: "openai", capabilities: ["image_in"] },
-    ], current);
+    const fallback = getMediaFallbackModel(
+      [
+        { id: "other/vision", name: "Vision A", provider: "other", capabilities: ["image_in"] },
+        { id: "openai/vision", name: "Vision B", provider: "openai", capabilities: ["image_in"] },
+      ],
+      current,
+    );
 
     expect(fallback?.id).toBe("openai/vision");
-  });
-
-  it("does not require Kimi login when the default model uses a custom provider", () => {
-    expect(requiresManagedProviderLogin([
-      { id: "local/model", name: "Local", provider: "local", capabilities: [] },
-    ], "local/model", false)).toBe(false);
-  });
-
-  it("requires Kimi login when the default model uses the managed provider", () => {
-    expect(requiresManagedProviderLogin([
-      { id: "kimi/model", name: "Kimi", provider: "managed:kimi-code", capabilities: [] },
-    ], "kimi/model", false)).toBe(true);
   });
 });
 
@@ -294,7 +296,13 @@ describe("Webview chat error recovery", () => {
 describe("Webview thinking mode parity with the TUI", () => {
   it("derives thinking modes from metadata only, mirroring the TUI rules", () => {
     const base = { id: "m", name: "M", provider: "p", capabilities: [] as string[] };
-    expect(getModelThinkingMode({ ...base, capabilities: ["thinking"], support_efforts: ["low", "high"] })).toBe("effort");
+    expect(
+      getModelThinkingMode({
+        ...base,
+        capabilities: ["thinking"],
+        support_efforts: ["low", "high"],
+      }),
+    ).toBe("effort");
     expect(getModelThinkingMode({ ...base, capabilities: ["always_thinking"] })).toBe("always");
     expect(getModelThinkingMode({ ...base, capabilities: ["thinking"] })).toBe("switch");
     expect(getModelThinkingMode({ ...base, adaptive_thinking: true })).toBe("switch");
@@ -304,17 +312,21 @@ describe("Webview thinking mode parity with the TUI", () => {
 });
 
 describe("Webview thinking effort parity with the TUI", () => {
-  it("resolves a boolean \"on\" to the model default for effort-capable models", () => {
+  it('resolves a boolean "on" to the model default for effort-capable models', () => {
     boundary.saveConfig.mockResolvedValue({ ok: true });
     useSettingsStore.getState().initModels(MODELS, "reasoning", false);
 
     useSettingsStore.getState().selectThinkingEffort("on");
 
     expect(useSettingsStore.getState().thinkingEffort).toBe("high");
-    expect(boundary.saveConfig).toHaveBeenCalledWith({ model: "reasoning", thinking: true, effort: "high" });
+    expect(boundary.saveConfig).toHaveBeenCalledWith({
+      model: "reasoning",
+      thinking: true,
+      effort: "high",
+    });
   });
 
-  it("prefers the persisted configured effort when resolving \"on\"", () => {
+  it('prefers the persisted configured effort when resolving "on"', () => {
     boundary.saveConfig.mockResolvedValue({ ok: true });
     useSettingsStore.getState().initModels(MODELS, "reasoning", false);
     useSettingsStore.setState({ defaultThinkingEffort: "low" });
@@ -324,16 +336,24 @@ describe("Webview thinking effort parity with the TUI", () => {
     expect(useSettingsStore.getState().thinkingEffort).toBe("low");
   });
 
-  it("keeps \"on\" for genuine boolean models", () => {
+  it('keeps "on" for genuine boolean models', () => {
     boundary.saveConfig.mockResolvedValue({ ok: true });
-    useSettingsStore.getState().initModels([
-      { id: "bool", name: "Bool", provider: "openai", capabilities: ["thinking"] },
-    ], "bool", false);
+    useSettingsStore
+      .getState()
+      .initModels(
+        [{ id: "bool", name: "Bool", provider: "openai", capabilities: ["thinking"] }],
+        "bool",
+        false,
+      );
 
     useSettingsStore.getState().selectThinkingEffort("on");
 
     expect(useSettingsStore.getState().thinkingEffort).toBe("on");
-    expect(boundary.saveConfig).toHaveBeenCalledWith({ model: "bool", thinking: true, effort: "on" });
+    expect(boundary.saveConfig).toHaveBeenCalledWith({
+      model: "bool",
+      thinking: true,
+      effort: "on",
+    });
   });
 
   it("persists disabling thinking with thinking false", () => {
@@ -343,14 +363,28 @@ describe("Webview thinking effort parity with the TUI", () => {
     useSettingsStore.getState().selectThinkingEffort("off");
 
     expect(useSettingsStore.getState().thinkingEffort).toBe("off");
-    expect(boundary.saveConfig).toHaveBeenCalledWith({ model: "reasoning", thinking: false, effort: "off" });
+    expect(boundary.saveConfig).toHaveBeenCalledWith({
+      model: "reasoning",
+      thinking: false,
+      effort: "off",
+    });
   });
 
-  it("rejects \"off\" for always-on effort models", () => {
+  it('rejects "off" for always-on effort models', () => {
     boundary.saveConfig.mockResolvedValue({ ok: true });
-    useSettingsStore.getState().initModels([
-      { id: "always-effort", name: "AE", provider: "openai", capabilities: ["always_thinking"], support_efforts: ["low", "high"] },
-    ], "always-effort", true);
+    useSettingsStore.getState().initModels(
+      [
+        {
+          id: "always-effort",
+          name: "AE",
+          provider: "openai",
+          capabilities: ["always_thinking"],
+          support_efforts: ["low", "high"],
+        },
+      ],
+      "always-effort",
+      true,
+    );
     const previous = useSettingsStore.getState().thinkingEffort;
     boundary.saveConfig.mockClear();
 
@@ -391,7 +425,11 @@ describe("Webview thinking effort parity with the TUI", () => {
     useSettingsStore.getState().selectThinkingEffort("high");
 
     expect(useSettingsStore.getState().thinkingEffort).toBe("high");
-    expect(boundary.saveConfig).toHaveBeenCalledWith({ model: "reasoning", thinking: true, effort: "high" });
+    expect(boundary.saveConfig).toHaveBeenCalledWith({
+      model: "reasoning",
+      thinking: true,
+      effort: "high",
+    });
     expect(useSettingsStore.getState().defaultThinkingEffort).toBeUndefined();
   });
 
@@ -413,7 +451,12 @@ describe("Webview thinking effort parity with the TUI", () => {
     useSettingsStore.getState().updateModel("always");
 
     expect(useSettingsStore.getState().thinkingEffort).toBe("on");
-    expect(boundary.saveConfig).toHaveBeenCalledWith({ model: "always", thinking: true, effort: "on", effortChanged: true });
+    expect(boundary.saveConfig).toHaveBeenCalledWith({
+      model: "always",
+      thinking: true,
+      effort: "on",
+      effortChanged: true,
+    });
   });
 });
 
@@ -442,7 +485,9 @@ describe("Webview mid-turn warnings", () => {
     expect(state.messages.at(-1)?.inlineError).toBeUndefined();
 
     // The genuine terminal still completes the turn and flushes the queue.
-    useChatStore.getState().processEvent({ type: "stream_complete", result: { status: "finished" } });
+    useChatStore
+      .getState()
+      .processEvent({ type: "stream_complete", result: { status: "finished" } });
     expect(useChatStore.getState().isStreaming).toBe(false);
     await vi.waitFor(() => {
       expect(boundary.streamChat).toHaveBeenCalledTimes(2);

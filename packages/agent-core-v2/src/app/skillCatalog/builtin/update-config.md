@@ -82,7 +82,7 @@ When a path is passed explicitly the file must exist (your candidate does, so th
 
 Then do two checks `kimi doctor` can't:
 
-1. **Cross-check values against the official docs** (single source of truth): are the key / section / enum values as documented, and snake_case? doctor guarantees "schema-valid", but "valid yet not what the user wanted" (e.g. a misspelled model alias) needs the docs.
+1. **Cross-check values against the official docs** (single source of truth): are the key / section / enum values as documented, and snake_case? doctor guarantees "schema-valid", but "valid yet not what the user wanted" (e.g. a misspelled provider/model reference) needs the docs.
 2. **Completeness**: every existing entry is still present (the candidate fully replaces the target — a dropped line is a deletion).
 
 > To also check whether the currently **active** config is OK overall, run `kimi doctor` with no path (it checks the default `config.toml` + `tui.toml`, showing a missing one as skipped).

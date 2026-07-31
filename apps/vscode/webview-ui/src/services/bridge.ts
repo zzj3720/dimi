@@ -14,6 +14,7 @@ import type {
   SessionConfig,
   ExtensionConfig,
   WorkspaceStatus,
+  LoginRequest,
   LoginStatus,
   UIStreamEvent,
 } from "shared/types";
@@ -81,7 +82,11 @@ class Bridge {
     }
   };
 
-  private call<T>(method: string, params?: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
+  private call<T>(
+    method: string,
+    params?: unknown,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
     const id = `${++this.requestId}_${Date.now()}`;
 
     return new Promise((resolve, reject) => {
@@ -126,8 +131,8 @@ class Bridge {
     return this.call<LoginStatus>(Methods.CheckLoginStatus);
   }
 
-  login() {
-    return this.call<LoginResult>(Methods.Login, undefined, OAUTH_REQUEST_TIMEOUT_MS);
+  login(request: LoginRequest) {
+    return this.call<LoginResult>(Methods.Login, request, OAUTH_REQUEST_TIMEOUT_MS);
   }
 
   logout() {
@@ -183,8 +188,20 @@ class Bridge {
     return this.call<MCPTestResult>(Methods.TestMCP, { name });
   }
 
-  streamChat(content: string | ContentPart[], model: string, effort: string, planMode: boolean, sessionId?: string) {
-    return this.call<{ done: boolean }>(Methods.StreamChat, { content, model, effort, planMode, sessionId });
+  streamChat(
+    content: string | ContentPart[],
+    model: string,
+    effort: string,
+    planMode: boolean,
+    sessionId?: string,
+  ) {
+    return this.call<{ done: boolean }>(Methods.StreamChat, {
+      content,
+      model,
+      effort,
+      planMode,
+      sessionId,
+    });
   }
 
   abortChat() {
@@ -203,8 +220,16 @@ class Bridge {
     return this.call<{ ok: boolean }>(Methods.RespondApproval, { requestId, response });
   }
 
-  respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>) {
-    return this.call<{ ok: boolean }>(Methods.RespondQuestion, { rpcRequestId, questionRequestId, answers });
+  respondQuestion(
+    rpcRequestId: string,
+    questionRequestId: string,
+    answers: Record<string, string>,
+  ) {
+    return this.call<{ ok: boolean }>(Methods.RespondQuestion, {
+      rpcRequestId,
+      questionRequestId,
+      answers,
+    });
   }
 
   getKimiSessions() {
@@ -236,7 +261,10 @@ class Bridge {
   }
 
   forkSession(sessionId: string, turnIndex: number) {
-    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, { sessionId, turnIndex });
+    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, {
+      sessionId,
+      turnIndex,
+    });
   }
 
   pickMedia(maxCount: number, includeVideo = true) {

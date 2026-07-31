@@ -1,4 +1,4 @@
-import { OAUTH_LOGIN_REQUIRED_CODE } from '../constant/kimi-tui';
+import { AUTH_LOGIN_REQUIRED_CODE } from '../constant/kimi-tui';
 
 export function combineStartupNotice(
   existing: string | undefined,
@@ -11,5 +11,5 @@ export function combineStartupNotice(
 }
 
 export function isOAuthLoginRequiredError(error: unknown): boolean {
-  return (error as { readonly code?: unknown }).code === OAUTH_LOGIN_REQUIRED_CODE;
+  return (error as { readonly code?: unknown }).code === AUTH_LOGIN_REQUIRED_CODE;
 }

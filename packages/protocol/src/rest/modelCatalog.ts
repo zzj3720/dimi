@@ -1,11 +1,6 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-import {
-  modelCatalogItemSchema,
-  providerCatalogItemSchema,
-  providerRefreshChangeSchema,
-  providerRefreshFailureSchema,
-} from '../modelCatalog';
+import { modelCatalogItemSchema, providerCatalogItemSchema } from "../modelCatalog";
 
 export const listModelsResponseSchema = z.object({
   items: z.array(modelCatalogItemSchema),
@@ -26,20 +21,27 @@ export const setDefaultModelResponseSchema = z.object({
 });
 export type SetDefaultModelResponse = z.infer<typeof setDefaultModelResponseSchema>;
 
-export const refreshOAuthProviderModelsResponseSchema = z.object({
-  changed: z.array(providerRefreshChangeSchema),
-  unchanged: z.array(z.string().min(1)),
-  failed: z.array(providerRefreshFailureSchema),
+export const refreshProvidersResponseSchema = z.object({
+  refreshed: z.array(z.string().min(1)),
+  failed: z.array(
+    z.object({
+      provider: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ),
 });
-export type RefreshOAuthProviderModelsResponse = z.infer<
-  typeof refreshOAuthProviderModelsResponseSchema
->;
+export type RefreshProvidersResponse = z.infer<typeof refreshProvidersResponseSchema>;
 
-export const refreshProviderModelsResponseSchema = z.object({
-  changed: z.array(providerRefreshChangeSchema),
-  unchanged: z.array(z.string().min(1)),
-  failed: z.array(providerRefreshFailureSchema),
-});
-export type RefreshProviderModelsResponse = z.infer<
-  typeof refreshProviderModelsResponseSchema
->;
+export const providerActionRequestSchema = z
+  .object({
+    method: z.literal("api_key").optional(),
+    value: z.string().min(1).optional(),
+  })
+  .optional();
+export type ProviderActionRequest = z.infer<typeof providerActionRequestSchema>;
+
+export const providerActionResponseSchema = z.union([
+  refreshProvidersResponseSchema,
+  providerCatalogItemSchema,
+]);
+export type ProviderActionResponse = z.infer<typeof providerActionResponseSchema>;

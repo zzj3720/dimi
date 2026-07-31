@@ -5,32 +5,33 @@
  * Run:
  *   pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/agent/task/token-compare.measure.test.ts
  */
-import { afterEach, beforeEach, describe, it } from 'vitest';
+/* eslint-disable jest/expect-expect -- measurement scenarios emit structured output */
+import { afterEach, beforeEach, describe, it } from "vitest";
 
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentWaitService } from '#/agent/wait/wait';
+import { IAgentProfileService } from "#/agent/profile/profile";
+import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
+import { IAgentTaskService } from "#/agent/task/task";
+import { IAgentToolExecutorService } from "#/agent/toolExecutor/toolExecutor";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { IAgentWaitService } from "#/agent/wait/wait";
 import {
   estimateTokens,
   estimateTokensForMessages,
   estimateTokensForTools,
-} from '#/kosong/contract/tokens';
-import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+} from "#/llmProtocol/tokens";
+import type { ExecutableTool, ExecutableToolResult, ToolExecution } from "#/tool/toolContract";
 
-import { createTestAgent, type TestAgentContext } from '../../harness';
+import { createTestAgent, type TestAgentContext } from "../../harness";
 
-const LABEL = process.env.MEASURE_LABEL ?? 'worktree';
+const LABEL = process.env["MEASURE_LABEL"] ?? "worktree";
 
 class ControllableTool implements ExecutableTool<{ readonly query: string }> {
   readonly name: string;
-  readonly description = 'Resolve a lookup after an external completion.';
+  readonly description = "Resolve a lookup after an external completion.";
   readonly parameters = {
-    type: 'object',
-    properties: { query: { type: 'string' } },
-    required: ['query'],
+    type: "object",
+    properties: { query: { type: "string" } },
+    required: ["query"],
     additionalProperties: false,
   } as const;
 
@@ -41,7 +42,7 @@ class ControllableTool implements ExecutableTool<{ readonly query: string }> {
     this.resolveResult = resolve;
   });
 
-  constructor(name = 'SlowLookup') {
+  constructor(name = "SlowLookup") {
     this.name = name;
     this.started = new Promise((resolve) => {
       this.resolveStarted = resolve;
@@ -58,7 +59,7 @@ class ControllableTool implements ExecutableTool<{ readonly query: string }> {
           this.result,
           new Promise<never>((_resolve, reject) => {
             signal.addEventListener(
-              'abort',
+              "abort",
               () => {
                 reject(signal.reason);
               },
@@ -80,7 +81,7 @@ function costOf(call: {
   tools: readonly { name: string; description: string; parameters: unknown }[];
   history: readonly unknown[];
 }) {
-  const system = estimateTokens(call.systemPrompt ?? '');
+  const system = estimateTokens(call.systemPrompt ?? "");
   const tools = estimateTokensForTools(call.tools as never);
   const history = estimateTokensForMessages(call.history as never);
   return {
@@ -103,7 +104,7 @@ function summarizeCalls(calls: readonly ReturnType<typeof costOf>[]) {
   };
 }
 
-describe('token compare measure', () => {
+describe("token compare measure", () => {
   let ctx: TestAgentContext;
 
   beforeEach(async () => {
@@ -111,106 +112,102 @@ describe('token compare measure', () => {
     ctx.get(IAgentToolExecutorService);
     ctx.get(IAgentTaskService);
     ctx.get(IAgentWaitService);
-    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.rpc.setPermission({ mode: "yolo" });
   });
 
   afterEach(async () => {
     await ctx.dispose();
   });
 
-  it(
-    'slow tool detaches then completes (async path)',
-    async () => {
-      const tool = new ControllableTool();
-      const registration = ctx.get(IAgentToolRegistryService).register(tool);
-      ctx.get(IAgentProfileService).update({ activeToolNames: [tool.name] });
-      ctx.mockNextResponse({
-        type: 'function',
-        id: 'call_slow_lookup',
-        name: tool.name,
-        arguments: JSON.stringify({ query: 'moon' }),
-      });
-      ctx.mockNextResponse({ type: 'text', text: 'Observed the completed task notification.' });
-
-      const payload = 'x'.repeat(2000);
-      try {
-        // Match async-tools e2e: prompt, wait for tool start, then untilTurnEnd
-        // (executor detaches after the 3s foreground budget without needing a
-        // manual sleep — sleeping first can miss the turn.ended edge).
-        await ctx.rpc.prompt({
-          input: [{ type: 'text', text: 'Look up moon asynchronously' }],
-        });
-        await tool.started;
-        await ctx.untilTurnEnd();
-
-        const tasks = ctx.get(IAgentTaskService).list(false);
-        const task = tasks.find((t) => t.kind === 'tool');
-
-        const afterDetach = summarizeCalls(ctx.llmCalls.map(costOf));
-        const contextAfterDetach = estimateTokensForMessages(
-          ctx.get(IAgentContextMemoryService).get() as never,
-        );
-
-        const completionTurn = ctx.untilTurnEnd();
-        tool.complete(payload);
-        await completionTurn;
-
-        const afterComplete = summarizeCalls(ctx.llmCalls.map(costOf));
-        const contextAfterComplete = estimateTokensForMessages(
-          ctx.get(IAgentContextMemoryService).get() as never,
-        );
-
-        // Approximate notification size from second-call history delta.
-        const notificationApprox =
-          (afterComplete.perCall[1]?.history ?? 0) - (afterComplete.perCall[0]?.history ?? 0);
-
-        console.log(
-          JSON.stringify(
-            {
-              measure: 'slow-async',
-              label: LABEL,
-              payloadBytes: payload.length,
-              task: task
-                ? {
-                    kind: task.kind,
-                    status: task.status,
-                    detached: 'detached' in task ? task.detached : undefined,
-                  }
-                : null,
-              afterDetach,
-              afterComplete,
-              contextTokensAfterDetach: contextAfterDetach,
-              contextTokensAfterComplete: contextAfterComplete,
-              historyGrowthCall1MinusCall0: notificationApprox,
-              note: 'estimateTokens heuristic (ASCII≈4 chars/token), not provider billing',
-            },
-            null,
-            2,
-          ),
-        );
-      } finally {
-        registration.dispose();
-      }
-    },
-    20_000,
-  );
-
-  it('fast tool completes under foreground budget (inline path)', async () => {
-    const tool = new ControllableTool('FastLookup');
+  it("slow tool detaches then completes (async path)", async () => {
+    const tool = new ControllableTool();
     const registration = ctx.get(IAgentToolRegistryService).register(tool);
     ctx.get(IAgentProfileService).update({ activeToolNames: [tool.name] });
     ctx.mockNextResponse({
-      type: 'function',
-      id: 'call_fast_lookup',
+      type: "function",
+      id: "call_slow_lookup",
       name: tool.name,
-      arguments: JSON.stringify({ query: 'moon' }),
+      arguments: JSON.stringify({ query: "moon" }),
     });
-    ctx.mockNextResponse({ type: 'text', text: 'Got the tool result inline.' });
+    ctx.mockNextResponse({ type: "text", text: "Observed the completed task notification." });
 
-    const payload = 'y'.repeat(2000);
+    const payload = "x".repeat(2000);
+    try {
+      // Match async-tools e2e: prompt, wait for tool start, then untilTurnEnd
+      // (executor detaches after the 3s foreground budget without needing a
+      // manual sleep — sleeping first can miss the turn.ended edge).
+      await ctx.rpc.prompt({
+        input: [{ type: "text", text: "Look up moon asynchronously" }],
+      });
+      await tool.started;
+      await ctx.untilTurnEnd();
+
+      const tasks = ctx.get(IAgentTaskService).list(false);
+      const task = tasks.find((t) => t.kind === "tool");
+
+      const afterDetach = summarizeCalls(ctx.llmCalls.map(costOf));
+      const contextAfterDetach = estimateTokensForMessages(
+        ctx.get(IAgentContextMemoryService).get() as never,
+      );
+
+      const completionTurn = ctx.untilTurnEnd();
+      tool.complete(payload);
+      await completionTurn;
+
+      const afterComplete = summarizeCalls(ctx.llmCalls.map(costOf));
+      const contextAfterComplete = estimateTokensForMessages(
+        ctx.get(IAgentContextMemoryService).get() as never,
+      );
+
+      // Approximate notification size from second-call history delta.
+      const notificationApprox =
+        (afterComplete.perCall[1]?.history ?? 0) - (afterComplete.perCall[0]?.history ?? 0);
+
+      console.log(
+        JSON.stringify(
+          {
+            measure: "slow-async",
+            label: LABEL,
+            payloadBytes: payload.length,
+            task: task
+              ? {
+                  kind: task.kind,
+                  status: task.status,
+                  detached: "detached" in task ? task.detached : undefined,
+                }
+              : null,
+            afterDetach,
+            afterComplete,
+            contextTokensAfterDetach: contextAfterDetach,
+            contextTokensAfterComplete: contextAfterComplete,
+            historyGrowthCall1MinusCall0: notificationApprox,
+            note: "estimateTokens heuristic (ASCII≈4 chars/token), not provider billing",
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      registration.dispose();
+    }
+  }, 20_000);
+
+  it("fast tool completes under foreground budget (inline path)", async () => {
+    const tool = new ControllableTool("FastLookup");
+    const registration = ctx.get(IAgentToolRegistryService).register(tool);
+    ctx.get(IAgentProfileService).update({ activeToolNames: [tool.name] });
+    ctx.mockNextResponse({
+      type: "function",
+      id: "call_fast_lookup",
+      name: tool.name,
+      arguments: JSON.stringify({ query: "moon" }),
+    });
+    ctx.mockNextResponse({ type: "text", text: "Got the tool result inline." });
+
+    const payload = "y".repeat(2000);
     try {
       const promptP = ctx.rpc.prompt({
-        input: [{ type: 'text', text: 'Look up moon quickly' }],
+        input: [{ type: "text", text: "Look up moon quickly" }],
       });
       await tool.started;
       tool.complete(payload);
@@ -222,24 +219,24 @@ describe('token compare measure', () => {
         ctx.get(IAgentContextMemoryService).get() as never,
       );
       const tasks = ctx.get(IAgentTaskService).list(false);
-      const task = tasks.find((t) => t.kind === 'tool');
+      const task = tasks.find((t) => t.kind === "tool");
 
       console.log(
         JSON.stringify(
           {
-            measure: 'fast-inline',
+            measure: "fast-inline",
             label: LABEL,
             payloadBytes: payload.length,
             task: task
               ? {
                   kind: task.kind,
                   status: task.status,
-                  detached: 'detached' in task ? task.detached : undefined,
+                  detached: "detached" in task ? task.detached : undefined,
                 }
               : null,
             summary,
             contextTokens,
-            note: 'estimateTokens heuristic (ASCII≈4 chars/token), not provider billing',
+            note: "estimateTokens heuristic (ASCII≈4 chars/token), not provider billing",
           },
           null,
           2,

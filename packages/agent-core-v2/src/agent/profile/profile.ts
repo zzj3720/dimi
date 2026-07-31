@@ -15,25 +15,28 @@
  * an agent after its initial model binding.
  */
 
-import type { AgentProfile, AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ThinkingEffort } from '#/kosong/contract/provider';
-import type { ModelRequestParams } from '#/kosong/model/modelRequester';
+import type {
+  AgentProfile,
+  AgentProfileContext,
+} from "#/app/agentProfileCatalog/agentProfileCatalog";
+import type { ModelCapability } from "#/llmProtocol/capability";
+import type { ThinkingEffort } from "#/llmProtocol/provider";
+import type { ModelRequestParams } from "#/app/modelCatalog/modelRequester";
 
 import { createDecorator } from "#/_base/di/instantiation";
-import type { ErrorCode } from '#/errors';
-import { Error2 } from '#/_base/errors/errors';
+import type { ErrorCode } from "#/errors";
+import { Error2 } from "#/_base/errors/errors";
 
-import { ProfileErrors } from './errors';
+import { ProfileErrors } from "./errors";
 
-export { ProfileErrors } from './errors';
+export { ProfileErrors } from "./errors";
 
 export type ProfileErrorCode = (typeof ProfileErrors.codes)[keyof typeof ProfileErrors.codes];
 
 export class ProfileError extends Error2 {
   constructor(code: ProfileErrorCode, message: string, details?: Record<string, unknown>) {
     super(code as ErrorCode, message, { details });
-    this.name = 'ProfileError';
+    this.name = "ProfileError";
   }
 }
 
@@ -155,4 +158,4 @@ export interface IAgentProfileService {
   removeActiveTool(name: string): void;
 }
 
-export const IAgentProfileService = createDecorator<IAgentProfileService>('agentProfileService');
+export const IAgentProfileService = createDecorator<IAgentProfileService>("agentProfileService");

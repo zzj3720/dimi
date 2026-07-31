@@ -5,17 +5,17 @@
  * context length while preserving undo/clear semantics. Scope-agnostic.
  */
 
-import { type ContentPart, type ToolCall } from '#/kosong/contract/message';
-import type { WireRecord } from '#/wire/record';
+import { type ContentPart, type ToolCall } from "#/llmProtocol/message";
+import type { WireRecord } from "#/wire/record";
 
-import { isPromptOwnedInjection, isUndoAnchor } from './conversationTime';
-import { readContextCompactionRecord } from './contextOps';
-import type { LoopRecordedEvent } from './loopEventFold';
-import type { ContextMessage } from './types';
-import { isVacuousContentPart } from './vacuousContent';
+import { isPromptOwnedInjection, isUndoAnchor } from "./conversationTime";
+import { readContextCompactionRecord } from "./contextOps";
+import type { LoopRecordedEvent } from "./loopEventFold";
+import type { ContextMessage } from "./types";
+import { isVacuousContentPart } from "./vacuousContent";
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
-  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
+  "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.";
 
 export interface ContextTranscript {
   readonly entries: readonly ContextMessage[];
@@ -30,12 +30,12 @@ export interface ContextTranscriptReducer {
 
 interface MutableMessage {
   id?: string;
-  role: ContextMessage['role'];
+  role: ContextMessage["role"];
   content: ContentPart[];
   toolCalls: ToolCall[];
   toolCallId?: string;
   isError?: boolean;
-  origin?: ContextMessage['origin'];
+  origin?: ContextMessage["origin"];
 }
 
 interface MutableEntry {
@@ -73,8 +73,8 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
     for (const toolCallId of interruptedToolCallIds) {
       push({
         message: {
-          role: 'tool',
-          content: [{ type: 'text', text: TOOL_INTERRUPTED_ON_RESUME_OUTPUT }],
+          role: "tool",
+          content: [{ type: "text", text: TOOL_INTERRUPTED_ON_RESUME_OUTPUT }],
           toolCalls: [],
           toolCallId,
           isError: true,
@@ -105,11 +105,11 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
 
   const applyLoopEvent = (event: LoopRecordedEvent, time: number | undefined): void => {
     switch (event.type) {
-      case 'step.begin': {
+      case "step.begin": {
         closePendingToolResults(time);
         if (lastOpenStepUuid !== undefined) settleStep(lastOpenStepUuid);
         const entry: MutableEntry = {
-          message: { role: 'assistant', content: [], toolCalls: [] },
+          message: { role: "assistant", content: [], toolCalls: [] },
           time,
         };
         push(entry);
@@ -117,21 +117,21 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
         lastOpenStepUuid = event.uuid;
         return;
       }
-      case 'step.end': {
+      case "step.end": {
         settleStep(event.uuid);
         if (lastOpenStepUuid === event.uuid) lastOpenStepUuid = undefined;
         flushDeferredIfToolExchangeClosed();
         return;
       }
-      case 'content.part': {
+      case "content.part": {
         openSteps.get(event.stepUuid)?.message.content.push(event.part);
         return;
       }
-      case 'tool.call': {
+      case "tool.call": {
         const openStep = openSteps.get(event.stepUuid);
         if (openStep === undefined) return;
         const call: ToolCall = {
-          type: 'function',
+          type: "function",
           id: event.toolCallId,
           name: event.name,
           arguments: event.args === undefined ? null : JSON.stringify(event.args),
@@ -141,11 +141,11 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
         pendingToolResultIds.add(event.toolCallId);
         return;
       }
-      case 'tool.result': {
+      case "tool.result": {
         if (!pendingToolResultIds.has(event.toolCallId)) return;
         push({
           message: {
-            role: 'tool',
+            role: "tool",
             content: rawToolResultContent(event.result.output),
             toolCalls: [],
             toolCallId: event.toolCallId,
@@ -165,17 +165,14 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
     let removedUserCount = 0;
     for (let i = transcript.length - 1; i >= clearFloor; i--) {
       const message = transcript[i]!.message;
-      if (message.origin?.kind === 'injection') continue;
-      if (message.origin?.kind === 'compaction_summary') break;
+      if (message.origin?.kind === "injection") continue;
+      if (message.origin?.kind === "compaction_summary") break;
       transcript.splice(i, 1);
       foldedLength = Math.max(0, foldedLength - 1);
       if (isUndoAnchor(message)) {
         removedUserCount++;
         if (removedUserCount >= count) {
-          while (
-            i > clearFloor &&
-            isPromptOwnedInjection(transcript[i - 1]!.message, message)
-          ) {
+          while (i > clearFloor && isPromptOwnedInjection(transcript[i - 1]!.message, message)) {
             transcript.splice(i - 1, 1);
             i--;
             foldedLength = Math.max(0, foldedLength - 1);
@@ -189,23 +186,23 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
 
   const add = (record: WireRecord): void => {
     switch (record.type) {
-      case 'context.append_message': {
-        const entry = toMutableEntry(record['message'] as ContextMessage, record.time);
+      case "context.append_message": {
+        const entry = toMutableEntry(record["message"] as ContextMessage, record.time);
         if (pendingToolResultIds.size > 0) deferred.push(entry);
         else push(entry);
         break;
       }
-      case 'context.append_loop_event':
-        applyLoopEvent(record['event'] as LoopRecordedEvent, record.time);
+      case "context.append_loop_event":
+        applyLoopEvent(record["event"] as LoopRecordedEvent, record.time);
         break;
-      case 'context.apply_compaction': {
+      case "context.apply_compaction": {
         const compaction = readContextCompactionRecord(record);
         transcript.push({
           message: {
-            role: 'user',
-            content: [{ type: 'text', text: compaction.summary }],
+            role: "user",
+            content: [{ type: "text", text: compaction.summary }],
             toolCalls: [],
-            origin: { kind: 'compaction_summary' },
+            origin: { kind: "compaction_summary" },
           },
           time: record.time,
         });
@@ -215,10 +212,10 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
         resetOpenState();
         break;
       }
-      case 'context.undo':
-        applyUndo(record['count'] as number);
+      case "context.undo":
+        applyUndo(record["count"] as number);
         break;
-      case 'context.clear':
+      case "context.clear":
         clearFloor = transcript.length;
         foldedLength = 0;
         resetOpenState();
@@ -254,5 +251,5 @@ function toMutableEntry(message: ContextMessage, time: number | undefined): Muta
 }
 
 function rawToolResultContent(output: string | readonly ContentPart[]): ContentPart[] {
-  return typeof output === 'string' ? [{ type: 'text', text: output }] : [...output];
+  return typeof output === "string" ? [{ type: "text", text: output }] : [...output];
 }

@@ -26,15 +26,15 @@
  * Live-server gated via the same `daemonReachable()` check as
  * `client.test.ts`; missing server → tests skip cleanly so CI stays green.
  */
-import { afterEach, describe, expect, it } from 'vitest';
-import { WebSocket as WsWebSocket } from 'ws';
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket as WsWebSocket } from "ws";
 
-import { DaemonClient, WsClient, type AnyFrame } from '../harness/index.js';
-import { fetchWithReport } from '../harness/report.js';
-import { createCaseLogger } from './log.js';
+import { DaemonClient, WsClient, type AnyFrame } from "../harness/index.js";
+import { fetchWithReport } from "../harness/report.js";
+import { createCaseLogger } from "./log.js";
 
-const BASE_URL = process.env['KIMI_SERVER_URL'] ?? 'http://127.0.0.1:58627';
-const API_PREFIX = '/api/v1';
+const BASE_URL = process.env["KIMI_SERVER_URL"] ?? "http://127.0.0.1:58627";
+const API_PREFIX = "/api/v1";
 const HANDSHAKE_TIMEOUT_MS = 5_000;
 const PROMPT_TIMEOUT_MS = 120_000;
 
@@ -61,17 +61,17 @@ async function getEnvelope<T>(
   log?: (label: string, value?: unknown) => void,
 ): Promise<T> {
   const res = await fetchWithReport(`${BASE_URL}${API_PREFIX}${path}`, {
-    headers: { accept: 'application/json' },
+    headers: { accept: "application/json" },
   });
   const body = (await res.json()) as Envelope<T>;
-  log?.('http envelope', {
-    method: 'GET',
+  log?.("http envelope", {
+    method: "GET",
     path: `${API_PREFIX}${path}`,
     status: res.status,
     body,
   });
-  expect(typeof body.code, `${path} missing envelope.code`).toBe('number');
-  expect(body.code, `${path} returned code=${body.code} msg=${body.msg ?? ''}`).toBe(0);
+  expect(typeof body.code, `${path} missing envelope.code`).toBe("number");
+  expect(body.code, `${path} returned code=${body.code} msg=${body.msg ?? ""}`).toBe(0);
   return body.data;
 }
 
@@ -87,16 +87,16 @@ async function openSocketWithHello(opts: {
   clientId?: string;
   log?: (label: string, value?: unknown) => void;
 }): Promise<HelloResult> {
-  const wsUrl = `${BASE_URL.replace(/^http/, 'ws')}${API_PREFIX}/ws`;
+  const wsUrl = `${BASE_URL.replace(/^http/, "ws")}${API_PREFIX}/ws`;
   const ws = new WsClient({ url: wsUrl, wsImpl: WsWebSocket, logger: () => {} });
-  opts.log?.('refresh ws open', { url: wsUrl, sid: opts.sid, last_seq: opts.lastSeq });
+  opts.log?.("refresh ws open", { url: wsUrl, sid: opts.sid, last_seq: opts.lastSeq });
   await ws.open();
 
   const arrivals: AnyFrame[] = [];
   ws.onFrame((f) => arrivals.push(f));
 
-  const serverHello = await ws.waitForFrame((f) => f.type === 'server_hello', HANDSHAKE_TIMEOUT_MS);
-  opts.log?.('refresh ws server_hello', frameForLog(serverHello));
+  const serverHello = await ws.waitForFrame((f) => f.type === "server_hello", HANDSHAKE_TIMEOUT_MS);
+  opts.log?.("refresh ws server_hello", frameForLog(serverHello));
 
   const helloId = `hello-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const payload: Record<string, unknown> = {
@@ -104,29 +104,29 @@ async function openSocketWithHello(opts: {
     subscriptions: [opts.sid],
   };
   if (opts.lastSeq !== undefined) {
-    payload['cursors'] = { [opts.sid]: { seq: opts.lastSeq } };
+    payload["cursors"] = { [opts.sid]: { seq: opts.lastSeq } };
   }
-  opts.log?.('refresh ws client_hello', { id: helloId, payload });
-  ws.send({ type: 'client_hello', id: helloId, payload });
+  opts.log?.("refresh ws client_hello", { id: helloId, payload });
+  ws.send({ type: "client_hello", id: helloId, payload });
 
   const ack = await ws.waitForFrame(
-    (f) => f.type === 'ack' && f.id === helloId,
+    (f) => f.type === "ack" && f.id === helloId,
     HANDSHAKE_TIMEOUT_MS,
   );
-  opts.log?.('refresh ws ack', frameForLog(ack));
+  opts.log?.("refresh ws ack", frameForLog(ack));
 
   const replayed = arrivals.filter(
     (f) =>
-      f.type !== 'server_hello' &&
-      f.type !== 'ack' &&
-      f.type !== 'ping' &&
-      f.type !== 'resync_required' &&
-      f.type !== 'error' &&
-      typeof f.seq === 'number' &&
+      f.type !== "server_hello" &&
+      f.type !== "ack" &&
+      f.type !== "ping" &&
+      f.type !== "resync_required" &&
+      f.type !== "error" &&
+      typeof f.seq === "number" &&
       f.session_id === opts.sid &&
       (opts.lastSeq === undefined || f.seq > opts.lastSeq),
   );
-  opts.log?.('refresh ws replayed', {
+  opts.log?.("refresh ws replayed", {
     count: replayed.length,
     frames: replayed.map(frameForLog),
   });
@@ -162,80 +162,80 @@ afterEach(async () => {
   }
 });
 
-describeLive('refresh-replay (live server required)', () => {
-  it('phase 0: /healthz returns ok:true', async () => {
-    const log = createCaseLogger('refresh: healthz');
-    const health = await getEnvelope<{ ok: boolean }>('/healthz', log);
-    log('data', health);
+describeLive("refresh-replay (live server required)", () => {
+  it("phase 0: /healthz returns ok:true", async () => {
+    const log = createCaseLogger("refresh: healthz");
+    const health = await getEnvelope<{ ok: boolean }>("/healthz", log);
+    log("data", health);
     expect(health.ok).toBe(true);
   });
 
-  it('phase 0: /meta exposes server_id, version, started_at', async () => {
-    const log = createCaseLogger('refresh: meta');
+  it("phase 0: /meta exposes server_id, version, started_at", async () => {
+    const log = createCaseLogger("refresh: meta");
     const meta = await getEnvelope<{
       server_id: string;
       server_version: string;
       started_at: string;
       capabilities: Record<string, boolean>;
-    }>('/meta', log);
-    log('data', meta);
+    }>("/meta", log);
+    log("data", meta);
     expect(meta.server_id).toMatch(/.+/);
     expect(meta.server_version).toMatch(/.+/);
     expect(meta.started_at).toMatch(/.+/);
-    expect(meta.capabilities['websocket']).toBe(true);
+    expect(meta.capabilities["websocket"]).toBe(true);
   });
 
-  it('phase 0: /auth returns AuthSummary shape', async () => {
-    const log = createCaseLogger('refresh: auth');
+  it("phase 0: /auth returns AuthSummary shape", async () => {
+    const log = createCaseLogger("refresh: auth");
     const auth = await getEnvelope<{
       ready: boolean;
       providers_count: number;
       default_model: string | null;
-      managed_provider: { name: string; status: string } | null;
-    }>('/auth', log);
-    log('data', auth);
-    expect(typeof auth.ready).toBe('boolean');
-    expect(typeof auth.providers_count).toBe('number');
+      authenticated_providers: Array<{
+        id: string;
+        type: "oauth" | "api_key";
+        source: string;
+      }>;
+    }>("/auth", log);
+    log("data", auth);
+    expect(typeof auth.ready).toBe("boolean");
+    expect(typeof auth.providers_count).toBe("number");
   });
 
   it(
-    'reconnect with caught-up last_seq → ack accepts subscription, no replay events',
+    "reconnect with caught-up last_seq → ack accepts subscription, no replay events",
     async () => {
-      const log = createCaseLogger('refresh: caught-up replay');
+      const log = createCaseLogger("refresh: caught-up replay");
       const client = new DaemonClient({ baseUrl: BASE_URL });
       const session = await client.createSession({ metadata: { cwd: process.cwd() } });
       created.push({ client, sid: session.id });
-      log('created session', session);
+      log("created session", session);
 
       await client.connect();
       await client.subscribe(session.id);
-      log('initial subscribe accepted', { session_id: session.id });
+      log("initial subscribe accepted", { session_id: session.id });
 
       let maxSeq = 0;
       client.onFrame((f) => {
-        if (
-          typeof f.seq === 'number' &&
-          f.session_id === session.id &&
-          f.seq > maxSeq
-        ) {
+        if (typeof f.seq === "number" && f.session_id === session.id && f.seq > maxSeq) {
           maxSeq = f.seq;
         }
       });
 
       const { finalFrame } = await client.submitAndWait(
         session.id,
-        { content: [{ type: 'text', text: 'Reply with the single word "OK" and nothing else.' }] },
-        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+        { content: [{ type: "text", text: 'Reply with the single word "OK" and nothing else.' }] },
+        { waitFor: "prompt.completed", timeoutMs: PROMPT_TIMEOUT_MS },
       );
-      log('prompt completed frame', frameForLog(finalFrame));
-      if (typeof finalFrame.seq === 'number' && finalFrame.seq > maxSeq) {
+      log("prompt completed frame", frameForLog(finalFrame));
+      if (typeof finalFrame.seq === "number" && finalFrame.seq > maxSeq) {
         maxSeq = finalFrame.seq;
       }
-      log('max seq before reconnect', { session_id: session.id, max_seq: maxSeq });
-      expect(maxSeq, 'session must publish at least one event before reconnect').toBeGreaterThan(0);
+      log("max seq before reconnect", { session_id: session.id, max_seq: maxSeq });
+      expect(maxSeq, "session must publish at least one event before reconnect").toBeGreaterThan(0);
 
       await client.close();
-      log('closed initial socket');
+      log("closed initial socket");
 
       const refreshed = await openSocketWithHello({ sid: session.id, lastSeq: maxSeq, log });
       sockets.push(refreshed.ws);
@@ -251,7 +251,7 @@ describeLive('refresh-replay (live server required)', () => {
         refreshed.replayed,
         `expected 0 replay events when caught up, got: ${JSON.stringify(refreshed.replayed.map((f) => `${f.type}@${f.seq}`))}`,
       ).toHaveLength(0);
-      log('asserted caught-up replay result', {
+      log("asserted caught-up replay result", {
         accepted_subscriptions: payload.accepted_subscriptions ?? [],
         resync_required: payload.resync_required ?? [],
         replayed_count: refreshed.replayed.length,
@@ -261,43 +261,39 @@ describeLive('refresh-replay (live server required)', () => {
   );
 
   it(
-    'reconnect with last_seq=0 → server replays buffered events in order before ack',
+    "reconnect with last_seq=0 → server replays buffered events in order before ack",
     async () => {
-      const log = createCaseLogger('refresh: replay from zero');
+      const log = createCaseLogger("refresh: replay from zero");
       const client = new DaemonClient({ baseUrl: BASE_URL });
       const session = await client.createSession({ metadata: { cwd: process.cwd() } });
       created.push({ client, sid: session.id });
-      log('created session', session);
+      log("created session", session);
 
       await client.connect();
       await client.subscribe(session.id);
-      log('initial subscribe accepted', { session_id: session.id });
+      log("initial subscribe accepted", { session_id: session.id });
 
       let maxSeq = 0;
       client.onFrame((f) => {
-        if (
-          typeof f.seq === 'number' &&
-          f.session_id === session.id &&
-          f.seq > maxSeq
-        ) {
+        if (typeof f.seq === "number" && f.session_id === session.id && f.seq > maxSeq) {
           maxSeq = f.seq;
         }
       });
 
       const { finalFrame } = await client.submitAndWait(
         session.id,
-        { content: [{ type: 'text', text: 'Reply with the single word "OK" and nothing else.' }] },
-        { waitFor: 'prompt.completed', timeoutMs: PROMPT_TIMEOUT_MS },
+        { content: [{ type: "text", text: 'Reply with the single word "OK" and nothing else.' }] },
+        { waitFor: "prompt.completed", timeoutMs: PROMPT_TIMEOUT_MS },
       );
-      log('prompt completed frame', frameForLog(finalFrame));
-      if (typeof finalFrame.seq === 'number' && finalFrame.seq > maxSeq) {
+      log("prompt completed frame", frameForLog(finalFrame));
+      if (typeof finalFrame.seq === "number" && finalFrame.seq > maxSeq) {
         maxSeq = finalFrame.seq;
       }
-      log('max seq before reconnect', { session_id: session.id, max_seq: maxSeq });
+      log("max seq before reconnect", { session_id: session.id, max_seq: maxSeq });
       expect(maxSeq).toBeGreaterThan(0);
 
       await client.close();
-      log('closed initial socket');
+      log("closed initial socket");
 
       const refreshed = await openSocketWithHello({ sid: session.id, lastSeq: 0, log });
       sockets.push(refreshed.ws);
@@ -315,14 +311,14 @@ describeLive('refresh-replay (live server required)', () => {
 
       const seqs = refreshed.replayed
         .map((f) => f.seq)
-        .filter((n): n is number => typeof n === 'number');
+        .filter((n): n is number => typeof n === "number");
       expect(Math.min(...seqs)).toBe(1);
       expect(Math.max(...seqs)).toBe(maxSeq);
       // Daemon must dispatch buffered events in seq order
       // (eventService.getBufferedSince filters the buffer in insertion order).
       const sorted = seqs.toSorted((a, b) => a - b);
       expect(seqs).toEqual(sorted);
-      log('replay seq assertion', {
+      log("replay seq assertion", {
         min_seq: Math.min(...seqs),
         max_seq: Math.max(...seqs),
         expected_max_seq: maxSeq,
@@ -331,20 +327,20 @@ describeLive('refresh-replay (live server required)', () => {
 
       // Phase 2: REST snapshot reflects the persisted user + assistant pair.
       const { items } = await client.http.listMessages(session.id, { page_size: 100 });
-      log('messages snapshot', {
+      log("messages snapshot", {
         count: items.length,
         roles: items.map((m) => m.role),
         messages: items,
       });
-      expect(items.some((m) => m.role === 'user')).toBe(true);
-      expect(items.some((m) => m.role === 'assistant')).toBe(true);
+      expect(items.some((m) => m.role === "user")).toBe(true);
+      expect(items.some((m) => m.role === "assistant")).toBe(true);
 
       // `GET /tasks` returns the documented `{items:[]}` envelope shape.
       const tasks = await getEnvelope<{ items: unknown[] }>(
         `/sessions/${encodeURIComponent(session.id)}/tasks`,
         log,
       );
-      log('tasks snapshot', tasks);
+      log("tasks snapshot", tasks);
       expect(Array.isArray(tasks.items)).toBe(true);
     },
     PROMPT_TIMEOUT_MS + 30_000,

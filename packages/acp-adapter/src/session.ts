@@ -7,7 +7,7 @@ import {
   type ModelId,
   type PromptResponse,
   type SessionModeId,
-} from '@agentclientprotocol/sdk';
+} from "@agentclientprotocol/sdk";
 import {
   ErrorCodes,
   log,
@@ -25,21 +25,18 @@ import {
   type Session,
   type SessionStatus,
   type SessionUsage,
-} from '@moonshot-ai/kimi-code-sdk';
+} from "@moonshot-ai/kimi-code-sdk";
 
 import {
   approvalRequestToPermissionOptions,
   attachSelectedLabel,
   buildPermissionToolCallUpdate,
   permissionResponseToApprovalResponse,
-} from './approval';
-import {
-  ACP_BUILTIN_SLASH_COMMANDS,
-  type AcpBuiltinSlashCommandName,
-} from './builtin-commands';
-import { buildSessionConfigOptions } from './config-options';
-import { listModelsFromHarness } from './model-catalog';
-import { acpBlocksToPromptParts, compressPromptImageParts } from './convert';
+} from "./approval";
+import { ACP_BUILTIN_SLASH_COMMANDS, type AcpBuiltinSlashCommandName } from "./builtin-commands";
+import { buildSessionConfigOptions } from "./config-options";
+import { listModelsFromHarness } from "./model-catalog";
+import { acpBlocksToPromptParts, compressPromptImageParts } from "./convert";
 import {
   acpToolCallId,
   assistantDeltaToSessionUpdate,
@@ -54,10 +51,10 @@ import {
   toolProgressToSessionUpdate,
   toolResultToSessionUpdate,
   turnEndReasonToStopReason,
-} from './events-map';
-import { acpModeToToggles, DEFAULT_MODE_ID, isAcpModeId, type AcpModeId } from './modes';
-import { outcomeToQuestionAnswer, questionItemToPermissionOptions } from './question';
-import { detectSlashIntent } from './slash';
+} from "./events-map";
+import { acpModeToToggles, DEFAULT_MODE_ID, isAcpModeId, type AcpModeId } from "./modes";
+import { outcomeToQuestionAnswer, questionItemToPermissionOptions } from "./question";
+import { detectSlashIntent } from "./slash";
 
 /**
  * Telemetry sink threaded into {@link AcpSession} so reverse-RPC bridges
@@ -66,10 +63,7 @@ import { detectSlashIntent } from './slash';
  * the session is a silent passthrough (matches the Phase 11.2 stub-
  * tolerant pattern in `server.ts:trackSessionStarted`).
  */
-export type TelemetryTrackFn = (
-  event: string,
-  properties?: Record<string, unknown>,
-) => void;
+export type TelemetryTrackFn = (event: string, properties?: Record<string, unknown>) => void;
 
 /**
  * Adapter-side wrapper around a {@link Session} from the Kimi node SDK.
@@ -125,7 +119,7 @@ export class AcpSession {
    * newly-selected model does not declare) is reflected in the next
    * snapshot instead of the adapter's requested value.
    */
-  private currentThinkingEffortInternal: string = 'off';
+  private currentThinkingEffortInternal: string = "off";
 
   /**
    * The adapter-side authoritative current mode id. Updated by
@@ -212,8 +206,8 @@ export class AcpSession {
      */
     initialThinkingEffort?: string,
   ) {
-    this.currentModelIdInternal = initialModelId ?? '';
-    this.currentThinkingEffortInternal = initialThinkingEffort ?? 'off';
+    this.currentModelIdInternal = initialModelId ?? "";
+    this.currentThinkingEffortInternal = initialThinkingEffort ?? "off";
     // Register the approval bridge once, at session-construction time —
     // NOT per-prompt — because `setApprovalHandler` is scoped to the
     // SDK session, not the individual turn. The handler captures `this`
@@ -224,14 +218,14 @@ export class AcpSession {
     // tests may omit it. Treat absence as "no approval channel" rather
     // than crashing the constructor — the SDK still works end-to-end,
     // just without reverse-RPC approvals.
-    if (typeof this.session.setApprovalHandler === 'function') {
+    if (typeof this.session.setApprovalHandler === "function") {
       this.session.setApprovalHandler((req) => this.handleApproval(req));
     }
     // Same pattern as the approval handler, but for the AskUserQuestion
     // reverse-RPC channel (Phase 13.1). Pre-Phase-13 builds of the SDK
     // do not expose `setQuestionHandler`, and unit-test stubs may omit
     // it; the `typeof === 'function'` guard keeps both cases working.
-    if (typeof this.session.setQuestionHandler === 'function') {
+    if (typeof this.session.setQuestionHandler === "function") {
       this.session.setQuestionHandler(async (req) => this.handleQuestion(req));
     }
   }
@@ -352,18 +346,17 @@ export class AcpSession {
    * `AcpServer.unstable_setSessionModel` decides how to translate them.
    */
   async setModel(modelId: ModelId): Promise<void> {
-    const suffix = ',thinking';
+    const suffix = ",thinking";
     const hasSuffix = modelId.endsWith(suffix);
     const baseKey = hasSuffix ? modelId.slice(0, -suffix.length) : modelId;
     await this.session.setModel(baseKey);
     // Update BEFORE resolving the on-effort so a merged `,thinking`
     // switch picks the NEW model's default level, not the old one's.
     this.currentModelIdInternal = baseKey;
-    if (hasSuffix && typeof this.session.setThinking === 'function') {
+    if (hasSuffix && typeof this.session.setThinking === "function") {
       const onEffort = await this.thinkingOnEffort();
       await this.session.setThinking(onEffort);
-      this.currentThinkingEffortInternal =
-        (await this.readEffectiveThinkingEffort()) ?? onEffort;
+      this.currentThinkingEffortInternal = (await this.readEffectiveThinkingEffort()) ?? onEffort;
     } else if (!hasSuffix) {
       this.currentThinkingEffortInternal =
         (await this.readEffectiveThinkingEffort()) ?? this.currentThinkingEffortInternal;
@@ -406,11 +399,10 @@ export class AcpSession {
    */
   async setThinking(effort: string): Promise<void> {
     const resolved = await this.resolveEffortForCurrentModel(effort);
-    if (typeof this.session.setThinking === 'function') {
+    if (typeof this.session.setThinking === "function") {
       await this.session.setThinking(resolved);
     }
-    this.currentThinkingEffortInternal =
-      (await this.readEffectiveThinkingEffort()) ?? resolved;
+    this.currentThinkingEffortInternal = (await this.readEffectiveThinkingEffort()) ?? resolved;
     await this.emitConfigOptionUpdate();
   }
 
@@ -424,8 +416,8 @@ export class AcpSession {
     if (!this.harness) return effort;
     const models = await listModelsFromHarness(this.harness);
     const entry = models.find((m) => m.id === this.currentModelIdInternal);
-    if (effort === 'on') return entry?.defaultThinkingEffort ?? 'on';
-    if (effort === 'off') return 'off';
+    if (effort === "on") return entry?.defaultThinkingEffort ?? "on";
+    if (effort === "off") return "off";
     if (entry !== undefined && !entry.supportEfforts.includes(effort)) {
       throw RequestError.invalidParams(
         { effort, modelId: entry.id },
@@ -444,10 +436,10 @@ export class AcpSession {
    * {@link AcpServer.resolveCurrentThinkingEffort}.
    */
   private async readEffectiveThinkingEffort(): Promise<string | undefined> {
-    if (typeof this.session.getStatus !== 'function') return undefined;
+    if (typeof this.session.getStatus !== "function") return undefined;
     try {
       const effort = (await this.session.getStatus()).thinkingEffort;
-      return typeof effort === 'string' && effort.length > 0 ? effort : undefined;
+      return typeof effort === "string" && effort.length > 0 ? effort : undefined;
     } catch {
       return undefined;
     }
@@ -462,9 +454,9 @@ export class AcpSession {
    * longer clamps an explicit off request here.
    */
   private async thinkingOnEffort(): Promise<string> {
-    if (!this.harness) return 'on';
+    if (!this.harness) return "on";
     const models = await listModelsFromHarness(this.harness);
-    return models.find((m) => m.id === this.currentModelIdInternal)?.defaultThinkingEffort ?? 'on';
+    return models.find((m) => m.id === this.currentModelIdInternal)?.defaultThinkingEffort ?? "on";
   }
 
   /**
@@ -543,7 +535,7 @@ export class AcpSession {
       );
       await this.conn.sessionUpdate(configOptionUpdateNotification(this.id, snapshot));
     } catch (err) {
-      log.warn('acp: failed to emit config_option_update', {
+      log.warn("acp: failed to emit config_option_update", {
         sessionId: this.id,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -595,12 +587,12 @@ export class AcpSession {
     const conn = this.conn;
     const resumeState = this.session.getResumeState?.();
     if (!resumeState) {
-      log.warn('acp: replayHistory called on session without resume state', { sessionId });
+      log.warn("acp: replayHistory called on session without resume state", { sessionId });
       return;
     }
     const agent = resumeState.agents?.[agentId];
     if (!agent) {
-      log.warn('acp: replayHistory found no agent state for replay', {
+      log.warn("acp: replayHistory found no agent state for replay", {
         sessionId,
         agentId,
         knownAgents: resumeState.agents ? Object.keys(resumeState.agents) : [],
@@ -627,7 +619,7 @@ export class AcpSession {
           lookupToolCallTurnId: (toolCallId) => toolCallTurnIds.get(toolCallId),
         });
       } catch (err) {
-        log.warn('acp: replayHistory failed to emit a message; continuing', {
+        log.warn("acp: replayHistory failed to emit a message; continuing", {
           sessionId,
           role: message.role,
           error: err instanceof Error ? err.message : String(err),
@@ -656,20 +648,20 @@ export class AcpSession {
     },
   ): Promise<void> {
     switch (message.role) {
-      case 'user':
+      case "user":
         for (const part of message.content) {
-          if (part.type === 'text' && part.text) {
+          if (part.type === "text" && part.text) {
             await conn.sessionUpdate({
               sessionId,
               update: {
-                sessionUpdate: 'user_message_chunk',
-                content: { type: 'text', text: part.text },
+                sessionUpdate: "user_message_chunk",
+                content: { type: "text", text: part.text },
               },
             });
           }
         }
         return;
-      case 'assistant': {
+      case "assistant": {
         ctx.beginAssistantTurn();
         const turnId = ctx.getTurnId();
         for (const part of message.content) {
@@ -681,18 +673,18 @@ export class AcpSession {
         }
         return;
       }
-      case 'tool': {
+      case "tool": {
         const rawToolCallId = message.toolCallId;
         if (!rawToolCallId) {
           // Tool result with no correlation id — log and skip rather
           // than crash. The on-disk session is the source of truth;
           // we cannot synthesize a missing id.
-          log.warn('acp: replayHistory skipped tool message with no toolCallId', { sessionId });
+          log.warn("acp: replayHistory skipped tool message with no toolCallId", { sessionId });
           return;
         }
         const turnId = ctx.lookupToolCallTurnId(rawToolCallId);
         if (turnId === undefined) {
-          log.warn('acp: replayHistory found tool message with no matching call', {
+          log.warn("acp: replayHistory found tool message with no matching call", {
             sessionId,
             toolCallId: rawToolCallId,
           });
@@ -702,9 +694,9 @@ export class AcpSession {
         await conn.sessionUpdate({
           sessionId,
           update: {
-            sessionUpdate: 'tool_call_update',
+            sessionUpdate: "tool_call_update",
             toolCallId: acpToolCallId(turnId, rawToolCallId),
-            status: isError ? 'failed' : 'completed',
+            status: isError ? "failed" : "completed",
             content: toolMessageContentToAcpToolCallContent(message.content),
           },
         });
@@ -717,25 +709,25 @@ export class AcpSession {
   }
 
   private async replayAssistantContentPart(
-    part: ContextMessage['content'][number],
+    part: ContextMessage["content"][number],
     sessionId: string,
     conn: AgentSideConnection,
     turnId: number,
   ): Promise<void> {
-    if (part.type === 'text' && part.text) {
+    if (part.type === "text" && part.text) {
       await conn.sessionUpdate(
         assistantDeltaToSessionUpdate(sessionId, {
-          type: 'assistant.delta',
+          type: "assistant.delta",
           turnId,
           delta: part.text,
         }),
       );
       return;
     }
-    if (part.type === 'think' && part.think) {
+    if (part.type === "think" && part.think) {
       await conn.sessionUpdate(
         thinkingDeltaToSessionUpdate(sessionId, {
-          type: 'thinking.delta',
+          type: "thinking.delta",
           turnId,
           delta: part.think,
         }),
@@ -748,7 +740,7 @@ export class AcpSession {
   }
 
   private async replaySyntheticToolCall(
-    toolCall: NonNullable<ContextMessage['toolCalls']>[number],
+    toolCall: NonNullable<ContextMessage["toolCalls"]>[number],
     sessionId: string,
     conn: AgentSideConnection,
     turnId: number,
@@ -758,7 +750,7 @@ export class AcpSession {
     const parsedArgs = parseToolCallArguments(argsRaw);
     await conn.sessionUpdate(
       toolCallStartToSessionUpdate(sessionId, {
-        type: 'tool.call.started',
+        type: "tool.call.started",
         turnId,
         toolCallId: toolCall.id,
         name,
@@ -805,8 +797,7 @@ export class AcpSession {
       const sessionDir = this.session.summary?.sessionDir;
       const track = this.track;
       parts = await compressPromptImageParts(acpBlocksToPromptParts(blocks), {
-        originalsDir:
-          sessionDir === undefined ? undefined : sessionMediaOriginalsDir(sessionDir),
+        originalsDir: sessionDir === undefined ? undefined : sessionMediaOriginalsDir(sessionDir),
         maxImageEdgePx: this.harness?.imageLimits?.maxEdgePx(),
         telemetry:
           track === undefined
@@ -820,7 +811,7 @@ export class AcpSession {
       this.pendingPromptAborts.delete(pending);
     }
     if (pending.aborted) {
-      return { stopReason: 'cancelled' };
+      return { stopReason: "cancelled" };
     }
     const sessionId = this.id;
     const conn = this.conn;
@@ -831,8 +822,8 @@ export class AcpSession {
     // built-ins route to local SDK queries, and unknown slash commands are
     // reported locally instead of being forwarded to the model as text.
     const intent = detectLeadingSlashIntent(blocks, this.skillCommandMap);
-    if (intent.kind === 'skill') {
-      this.emitTelemetry('acp_skill_activated', { skill_name: intent.skillName });
+    if (intent.kind === "skill") {
+      this.emitTelemetry("acp_skill_activated", { skill_name: intent.skillName });
       const skillName = intent.skillName;
       const skillArgs = intent.args;
       return this.runTurnBody(sessionId, conn, () =>
@@ -843,10 +834,10 @@ export class AcpSession {
         this.session.activateSkill(skillName, skillArgs.length > 0 ? skillArgs : undefined),
       );
     }
-    if (intent.kind === 'builtin') {
+    if (intent.kind === "builtin") {
       return this.runBuiltInCommand(intent.name, intent.args);
     }
-    if (intent.kind === 'unknown') {
+    if (intent.kind === "unknown") {
       return this.runUnknownSlashCommand(intent.name);
     }
 
@@ -859,48 +850,48 @@ export class AcpSession {
   ): Promise<PromptResponse> {
     try {
       switch (name) {
-        case 'compact':
+        case "compact":
           await this.runCompactCommand(args);
           break;
-        case 'status':
+        case "status":
           await this.emitLocalCommandMessage(formatStatusReport(await this.session.getStatus()));
           break;
-        case 'usage':
+        case "usage":
           await this.emitLocalCommandMessage(
             formatUsageReport(await this.session.getUsage(), await this.session.getStatus()),
           );
           break;
-        case 'mcp':
+        case "mcp":
           await this.emitLocalCommandMessage(formatMcpReport(await this.session.listMcpServers()));
           break;
-        case 'tasks':
+        case "tasks":
           await this.emitLocalCommandMessage(
             formatTasksReport(await this.session.listBackgroundTasks()),
           );
           break;
-        case 'help':
+        case "help":
           await this.emitLocalCommandMessage(formatHelpReport(this.availableCommands));
           break;
       }
     } catch (error) {
       await this.emitLocalCommandMessage(`/${name} failed: ${errorMessage(error)}`);
     }
-    return { stopReason: 'end_turn' };
+    return { stopReason: "end_turn" };
   }
 
   private async runUnknownSlashCommand(name: string): Promise<PromptResponse> {
     await this.emitLocalCommandMessage(
       `Unknown ACP command: /${name}. Use /help to see available commands.`,
     );
-    return { stopReason: 'end_turn' };
+    return { stopReason: "end_turn" };
   }
 
   private async emitLocalCommandMessage(text: string): Promise<void> {
     await this.conn.sessionUpdate({
       sessionId: this.id,
       update: {
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text },
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
       },
     });
   }
@@ -924,25 +915,27 @@ export class AcpSession {
       };
       unsubscribe = this.session.onEvent((event: Event) => {
         if (event.agentId !== undefined && event.agentId !== MAIN_AGENT_ID) return;
-        if (event.type === 'compaction.started') {
+        if (event.type === "compaction.started") {
           started = true;
           void this.emitLocalCommandMessage(
             instruction === undefined
-              ? 'Compacting conversation context…'
+              ? "Compacting conversation context…"
               : `Compacting conversation context with instruction: ${instruction}`,
           );
           return;
         }
-        if (event.type === 'compaction.completed') {
-          settle(() => resolve({ kind: 'completed', result: event.result }));
+        if (event.type === "compaction.completed") {
+          settle(() => resolve({ kind: "completed", result: event.result }));
           return;
         }
-        if (event.type === 'compaction.cancelled') {
-          settle(() => resolve({ kind: 'cancelled' }));
+        if (event.type === "compaction.cancelled") {
+          settle(() => resolve({ kind: "cancelled" }));
           return;
         }
-        if (event.type === 'compaction.blocked') {
-          void this.emitLocalCommandMessage('Compaction is blocked by the current turn; retry when the turn is idle.');
+        if (event.type === "compaction.blocked") {
+          void this.emitLocalCommandMessage(
+            "Compaction is blocked by the current turn; retry when the turn is idle.",
+          );
           return;
         }
         // Surface any error event the worker emits, even if it lands
@@ -950,7 +943,7 @@ export class AcpSession {
         // (begin() throws synchronously and rejects compact()), but
         // dropping pre-start errors would silently hang the prompt if
         // the worker is ever restructured.
-        if (event.type === 'error') {
+        if (event.type === "error") {
           settle(() => reject(new Error(event.message)));
         }
       });
@@ -958,14 +951,14 @@ export class AcpSession {
     try {
       await this.session.compact({ instruction });
       if (!started && !settled) {
-        await this.emitLocalCommandMessage('Compaction was not started.');
+        await this.emitLocalCommandMessage("Compaction was not started.");
         return;
       }
       const outcome = await completion;
-      if (outcome.kind === 'completed') {
+      if (outcome.kind === "completed") {
         await this.emitLocalCommandMessage(formatCompactionCompleted(outcome.result));
       } else {
-        await this.emitLocalCommandMessage('Compaction cancelled.');
+        await this.emitLocalCommandMessage("Compaction cancelled.");
       }
     } finally {
       unsubscribe?.();
@@ -1023,7 +1016,7 @@ export class AcpSession {
       let hasReceivedOwnTurnStarted = false;
       const unsub = this.session.onEvent((event) => {
         if (
-          event.type === 'turn.started' &&
+          event.type === "turn.started" &&
           isFromMainAgent(event) &&
           (initialActiveTurnId === undefined || event.turnId !== initialActiveTurnId)
         ) {
@@ -1038,14 +1031,10 @@ export class AcpSession {
         // Subagent turn events carry their own `turnId`; filtering on
         // `agentId` keeps `currentTurnId` aligned with the parent turn
         // that the approval prompt actually belongs to.
-        if (
-          'turnId' in event &&
-          typeof event.turnId === 'number' &&
-          isFromMainAgent(event)
-        ) {
+        if ("turnId" in event && typeof event.turnId === "number" && isFromMainAgent(event)) {
           this.currentTurnId = event.turnId;
         }
-        if (event.type === 'error') {
+        if (event.type === "error") {
           if (settled) return;
           if (!isFromMainAgent(event)) return;
           if (event.code !== ErrorCodes.TURN_AGENT_BUSY) return;
@@ -1055,7 +1044,7 @@ export class AcpSession {
           startedToolCalls.clear();
           this.currentTurnId = undefined;
           unsub();
-          log.warn('acp: prompt rejected because another turn is active', {
+          log.warn("acp: prompt rejected because another turn is active", {
             sessionId,
             details: event.details,
           });
@@ -1067,7 +1056,7 @@ export class AcpSession {
           );
           return;
         }
-        if (event.type === 'assistant.delta') {
+        if (event.type === "assistant.delta") {
           if (!isFromMainAgent(event)) return;
           // `sessionUpdate` is itself async (it serializes onto the
           // ndjson stream). The text deltas form a strictly ordered
@@ -1075,29 +1064,25 @@ export class AcpSession {
           // would force the next delta to wait for the previous flush.
           // Fire-and-forget keeps the stream pumping; we log push
           // failures rather than dropping them silently.
-          conn
-            .sessionUpdate(assistantDeltaToSessionUpdate(sessionId, event))
-            .catch((err) => {
-              log.warn('acp: failed to push agent_message_chunk', {
-                sessionId,
-                error: err instanceof Error ? err.message : String(err),
-              });
+          conn.sessionUpdate(assistantDeltaToSessionUpdate(sessionId, event)).catch((err) => {
+            log.warn("acp: failed to push agent_message_chunk", {
+              sessionId,
+              error: err instanceof Error ? err.message : String(err),
             });
+          });
           return;
         }
-        if (event.type === 'thinking.delta') {
+        if (event.type === "thinking.delta") {
           if (!isFromMainAgent(event)) return;
-          conn
-            .sessionUpdate(thinkingDeltaToSessionUpdate(sessionId, event))
-            .catch((err) => {
-              log.warn('acp: failed to push agent_thought_chunk', {
-                sessionId,
-                error: err instanceof Error ? err.message : String(err),
-              });
+          conn.sessionUpdate(thinkingDeltaToSessionUpdate(sessionId, event)).catch((err) => {
+            log.warn("acp: failed to push agent_thought_chunk", {
+              sessionId,
+              error: err instanceof Error ? err.message : String(err),
             });
+          });
           return;
         }
-        if (event.type === 'tool.call.started') {
+        if (event.type === "tool.call.started") {
           if (!isFromMainAgent(event)) return;
           // Seed the accumulator with the **stringified initial args**.
           // The wire-level `tool_call_update` is REPLACE-content (not
@@ -1118,7 +1103,7 @@ export class AcpSession {
             conn
               .sessionUpdate(toolCallStartedUpgradeToSessionUpdate(sessionId, event))
               .catch((err) => {
-                log.warn('acp: failed to push tool_call_update (start upgrade)', {
+                log.warn("acp: failed to push tool_call_update (start upgrade)", {
                   sessionId,
                   toolCallId: event.toolCallId,
                   error: err instanceof Error ? err.message : String(err),
@@ -1126,15 +1111,13 @@ export class AcpSession {
               });
           } else {
             startedToolCalls.add(startedWireId);
-            conn
-              .sessionUpdate(toolCallStartToSessionUpdate(sessionId, event))
-              .catch((err) => {
-                log.warn('acp: failed to push tool_call', {
-                  sessionId,
-                  toolCallId: event.toolCallId,
-                  error: err instanceof Error ? err.message : String(err),
-                });
+            conn.sessionUpdate(toolCallStartToSessionUpdate(sessionId, event)).catch((err) => {
+              log.warn("acp: failed to push tool_call", {
+                sessionId,
+                toolCallId: event.toolCallId,
+                error: err instanceof Error ? err.message : String(err),
               });
+            });
           }
           // Phase 9.3: when the tool exposed a structured TodoList
           // display, additionally fire a `plan` session_update so ACP
@@ -1147,7 +1130,7 @@ export class AcpSession {
             const planNote = planFromDisplayBlock(sessionId, event.turnId, event.display);
             if (planNote !== null) {
               conn.sessionUpdate(planNote).catch((err) => {
-                log.warn('acp: failed to push plan', {
+                log.warn("acp: failed to push plan", {
                   sessionId,
                   error: err instanceof Error ? err.message : String(err),
                 });
@@ -1156,7 +1139,7 @@ export class AcpSession {
           }
           return;
         }
-        if (event.type === 'tool.call.delta') {
+        if (event.type === "tool.call.delta") {
           if (!isFromMainAgent(event)) return;
           // The agent-core emits these args-stream deltas BEFORE the
           // `tool.call.started` event (deltas come from the provider's
@@ -1167,44 +1150,27 @@ export class AcpSession {
           // the start eventually lands.
           const deltaWireId = acpToolCallId(event.turnId, event.toolCallId);
           if (!startedToolCalls.has(deltaWireId)) {
-            const initial = event.argumentsPart ?? '';
+            const initial = event.argumentsPart ?? "";
             argsByToolCall.set(event.toolCallId, { args: initial });
             startedToolCalls.add(deltaWireId);
-            conn
-              .sessionUpdate(toolCallLazyCreateToSessionUpdate(sessionId, event))
-              .catch((err) => {
-                log.warn('acp: failed to push tool_call (lazy create from delta)', {
-                  sessionId,
-                  toolCallId: event.toolCallId,
-                  error: err instanceof Error ? err.message : String(err),
-                });
+            conn.sessionUpdate(toolCallLazyCreateToSessionUpdate(sessionId, event)).catch((err) => {
+              log.warn("acp: failed to push tool_call (lazy create from delta)", {
+                sessionId,
+                toolCallId: event.toolCallId,
+                error: err instanceof Error ? err.message : String(err),
               });
+            });
             return;
           }
           // Subsequent delta — accumulate then emit an update with the
           // cumulative args text (REPLACE-content semantics).
           let acc = argsByToolCall.get(event.toolCallId);
           if (!acc) {
-            acc = { args: '' };
+            acc = { args: "" };
             argsByToolCall.set(event.toolCallId, acc);
           }
-          conn
-            .sessionUpdate(toolCallDeltaToSessionUpdate(sessionId, event, acc))
-            .catch((err) => {
-              log.warn('acp: failed to push tool_call_update (delta)', {
-                sessionId,
-                toolCallId: event.toolCallId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
-          return;
-        }
-        if (event.type === 'tool.progress') {
-          if (!isFromMainAgent(event)) return;
-          const note = toolProgressToSessionUpdate(sessionId, event);
-          if (note === null) return;
-          conn.sessionUpdate(note).catch((err) => {
-            log.warn('acp: failed to push tool_call_update (progress)', {
+          conn.sessionUpdate(toolCallDeltaToSessionUpdate(sessionId, event, acc)).catch((err) => {
+            log.warn("acp: failed to push tool_call_update (delta)", {
               sessionId,
               toolCallId: event.toolCallId,
               error: err instanceof Error ? err.message : String(err),
@@ -1212,24 +1178,35 @@ export class AcpSession {
           });
           return;
         }
-        if (event.type === 'tool.result') {
+        if (event.type === "tool.progress") {
           if (!isFromMainAgent(event)) return;
-          conn
-            .sessionUpdate(toolResultToSessionUpdate(sessionId, event))
-            .catch((err) => {
-              log.warn('acp: failed to push tool_call_update (result)', {
-                sessionId,
-                toolCallId: event.toolCallId,
-                error: err instanceof Error ? err.message : String(err),
-              });
+          const note = toolProgressToSessionUpdate(sessionId, event);
+          if (note === null) return;
+          conn.sessionUpdate(note).catch((err) => {
+            log.warn("acp: failed to push tool_call_update (progress)", {
+              sessionId,
+              toolCallId: event.toolCallId,
+              error: err instanceof Error ? err.message : String(err),
             });
+          });
           return;
         }
-        if (event.type === 'turn.ended') {
+        if (event.type === "tool.result") {
+          if (!isFromMainAgent(event)) return;
+          conn.sessionUpdate(toolResultToSessionUpdate(sessionId, event)).catch((err) => {
+            log.warn("acp: failed to push tool_call_update (result)", {
+              sessionId,
+              toolCallId: event.toolCallId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+          return;
+        }
+        if (event.type === "turn.ended") {
           if (settled) return;
           if (!isFromMainAgent(event)) return;
           settled = true;
-          if (event.reason === 'failed') {
+          if (event.reason === "failed") {
             // Failures bubble up via the SDK `error` payload. Phase 11.1
             // upgrades the prior "log + resolve end_turn" behaviour to
             // route auth-coded failures through `RequestError.authRequired()`
@@ -1237,7 +1214,7 @@ export class AcpSession {
             // codes still resolve with `end_turn` (the spec discourages
             // signaling errors through `stopReason`; the failure is
             // observable in the log).
-            log.warn('acp: turn ended with failed reason', {
+            log.warn("acp: turn ended with failed reason", {
               sessionId,
               error: event.error,
             });
@@ -1251,12 +1228,12 @@ export class AcpSession {
               return;
             }
           } else {
-            if (event.reason === 'blocked') {
+            if (event.reason === "blocked") {
               // Provider safety and prompt hooks both map to ACP `refusal`
               // (see turnEndReasonToStopReason); log them here too so the
               // block stays observable in the agent logs, mirroring the
               // `failed` branch above.
-              log.warn('acp: turn ended with blocked reason', {
+              log.warn("acp: turn ended with blocked reason", {
                 reason: event.reason,
                 sessionId,
               });
@@ -1310,9 +1287,9 @@ export class AcpSession {
     // Phase 13.2 telemetry breadcrumb: how many discrete options does
     // the plan_review surface carry? PII-free (just a count), matches
     // the Phase 11.2 telemetry discipline.
-    if (req.display.kind === 'plan_review') {
+    if (req.display.kind === "plan_review") {
       const count = req.display.options?.length ?? 0;
-      this.emitTelemetry('plan_review_options_count', { count });
+      this.emitTelemetry("plan_review_options_count", { count });
     }
     try {
       // `requestPermission` is an awaitable JSON-RPC request (unlike
@@ -1337,13 +1314,13 @@ export class AcpSession {
         options,
       );
     } catch (err) {
-      log.warn('acp: requestPermission failed; rejecting', {
+      log.warn("acp: requestPermission failed; rejecting", {
         sessionId: this.id,
         toolCallId: req.toolCallId,
         toolName: req.toolName,
         error: err instanceof Error ? err.message : String(err),
       });
-      return { decision: 'rejected' };
+      return { decision: "rejected" };
     }
   }
 
@@ -1375,27 +1352,27 @@ export class AcpSession {
     if (questions.length === 0) {
       // Pathological input — log and dismiss. No telemetry: the SDK
       // would never emit an empty `questions` payload in practice.
-      log.warn('acp: handleQuestion received empty questions array', {
+      log.warn("acp: handleQuestion received empty questions array", {
         sessionId: this.id,
       });
       return null;
     }
     if (questions.length > 1) {
-      log.warn('acp: handleQuestion degrading to first question only', {
+      log.warn("acp: handleQuestion degrading to first question only", {
         sessionId: this.id,
         dropped: questions.length - 1,
       });
-      this.emitTelemetry('question_degraded', {
-        reason: 'multi_question',
+      this.emitTelemetry("question_degraded", {
+        reason: "multi_question",
         dropped: questions.length - 1,
       });
     }
     const q = questions[0]!;
     if (q.multiSelect === true) {
-      this.emitTelemetry('question_degraded', { reason: 'multi_select' });
+      this.emitTelemetry("question_degraded", { reason: "multi_select" });
     }
     const options = questionItemToPermissionOptions(q, 0);
-    const rawToolCallId = req.toolCallId ?? 'ask-user';
+    const rawToolCallId = req.toolCallId ?? "ask-user";
     const toolCallId =
       this.currentTurnId !== undefined
         ? acpToolCallId(this.currentTurnId, rawToolCallId)
@@ -1406,8 +1383,8 @@ export class AcpSession {
         options: [...options],
         toolCall: {
           toolCallId,
-          title: 'AskUserQuestion',
-          content: [{ type: 'content', content: { type: 'text', text: q.question } }],
+          title: "AskUserQuestion",
+          content: [{ type: "content", content: { type: "text", text: q.question } }],
         },
       });
       const answer = outcomeToQuestionAnswer(q, response);
@@ -1415,13 +1392,13 @@ export class AcpSession {
         // Dismissed via skip / cancel / unknown optionId — telemetry
         // matches the ask-user tool's existing `question_dismissed`
         // event so dashboards stay coherent.
-        this.emitTelemetry('question_dismissed');
+        this.emitTelemetry("question_dismissed");
       } else {
-        this.emitTelemetry('question_answered', { answered: Object.keys(answer).length });
+        this.emitTelemetry("question_answered", { answered: Object.keys(answer).length });
       }
       return answer;
     } catch (err) {
-      log.warn('acp: requestPermission (question) failed; dismissing', {
+      log.warn("acp: requestPermission (question) failed; dismissing", {
         sessionId: this.id,
         toolCallId: req.toolCallId,
         error: err instanceof Error ? err.message : String(err),
@@ -1437,11 +1414,11 @@ export class AcpSession {
    * reverse-RPC handler.
    */
   private emitTelemetry(event: string, properties?: Record<string, unknown>): void {
-    if (typeof this.track !== 'function') return;
+    if (typeof this.track !== "function") return;
     try {
       this.track(event, properties);
     } catch (err) {
-      log.warn('acp: telemetry track failed', {
+      log.warn("acp: telemetry track failed", {
         sessionId: this.id,
         event,
         error: err instanceof Error ? err.message : String(err),
@@ -1465,11 +1442,11 @@ export class AcpSession {
  * The kimi-cli Python reference performs the same mapping at
  * `kimi-cli/src/kimi_cli/acp/session.py:218-247`; this is the TS port.
  */
-type CompactionCompletedResult = Extract<Event, { type: 'compaction.completed' }>['result'];
+type CompactionCompletedResult = Extract<Event, { type: "compaction.completed" }>["result"];
 
 type CompactionOutcome =
-  | { readonly kind: 'completed'; readonly result: CompactionCompletedResult }
-  | { readonly kind: 'cancelled' };
+  | { readonly kind: "completed"; readonly result: CompactionCompletedResult }
+  | { readonly kind: "cancelled" };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -1479,29 +1456,30 @@ function formatHelpReport(commands: readonly AvailableCommand[]): string {
   const visibleCommands: readonly AvailableCommand[] =
     commands.length > 0 ? commands : ACP_BUILTIN_SLASH_COMMANDS;
   return [
-    'Available ACP commands:',
+    "Available ACP commands:",
     ...visibleCommands.map((command) => {
-      const hint = command.input?.hint ? ` ${command.input.hint}` : '';
+      const hint = command.input?.hint ? ` ${command.input.hint}` : "";
       return `- /${command.name}${hint} — ${command.description}`;
     }),
-  ].join('\n');
+  ].join("\n");
 }
 
 function formatStatusReport(status: SessionStatus): string {
-  const maxTokens = status.maxContextTokens > 0 ? status.maxContextTokens.toLocaleString('en-US') : 'unknown';
+  const maxTokens =
+    status.maxContextTokens > 0 ? status.maxContextTokens.toLocaleString("en-US") : "unknown";
   const usage = formatContextUsage(status.contextUsage);
   return [
-    'Session status:',
-    `- Model: ${status.model ?? '(not set)'}`,
+    "Session status:",
+    `- Model: ${status.model ?? "(not set)"}`,
     `- Thinking: ${status.thinkingEffort}`,
     `- Permission: ${status.permission}`,
-    `- Plan mode: ${status.planMode ? 'on' : 'off'}`,
-    `- Context: ${status.contextTokens.toLocaleString('en-US')} / ${maxTokens}${usage}`,
-  ].join('\n');
+    `- Plan mode: ${status.planMode ? "on" : "off"}`,
+    `- Context: ${status.contextTokens.toLocaleString("en-US")} / ${maxTokens}${usage}`,
+  ].join("\n");
 }
 
 function formatUsageReport(usage: SessionUsage, status: SessionStatus): string {
-  const lines = ['Session usage:'];
+  const lines = ["Session usage:"];
   if (usage.total !== undefined) {
     lines.push(`- Total: ${formatTokenUsage(usage.total)}`);
   }
@@ -1512,52 +1490,53 @@ function formatUsageReport(usage: SessionUsage, status: SessionStatus): string {
     lines.push(`- ${model}: ${formatTokenUsage(modelUsage)}`);
   }
   lines.push(
-    `- Context: ${status.contextTokens.toLocaleString('en-US')} / ${status.maxContextTokens.toLocaleString('en-US')}${formatContextUsage(status.contextUsage)}`,
+    `- Context: ${status.contextTokens.toLocaleString("en-US")} / ${status.maxContextTokens.toLocaleString("en-US")}${formatContextUsage(status.contextUsage)}`,
   );
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 function formatMcpReport(servers: readonly McpServerInfo[]): string {
-  if (servers.length === 0) return 'No MCP servers are configured for this session.';
+  if (servers.length === 0) return "No MCP servers are configured for this session.";
   return [
     `MCP servers (${servers.length}):`,
     ...servers.map((server) => {
       const base = `- ${server.name}: ${server.status} (${server.transport}, ${server.toolCount} tools)`;
       return server.error === undefined ? base : `${base}\n  Error: ${server.error}`;
     }),
-  ].join('\n');
+  ].join("\n");
 }
 
 function formatTasksReport(tasks: readonly BackgroundTaskInfo[]): string {
-  if (tasks.length === 0) return 'No background tasks for this session.';
+  if (tasks.length === 0) return "No background tasks for this session.";
   return [
     `Background tasks (${tasks.length}):`,
     ...tasks.map((task) => {
       const parts = [`- ${task.taskId}: ${task.status}`, task.description];
-      if (task.kind === 'process') parts.push(`command=${task.command}`);
-      if (task.kind === 'agent' && task.subagentType !== undefined) parts.push(`subagent=${task.subagentType}`);
+      if (task.kind === "process") parts.push(`command=${task.command}`);
+      if (task.kind === "agent" && task.subagentType !== undefined)
+        parts.push(`subagent=${task.subagentType}`);
       if (task.stopReason !== undefined) parts.push(`reason=${task.stopReason}`);
-      return parts.join(' · ');
+      return parts.join(" · ");
     }),
-  ].join('\n');
+  ].join("\n");
 }
 
 function formatCompactionCompleted(result: CompactionCompletedResult): string {
   return [
-    'Compaction completed.',
-    `- Messages compacted: ${result.compactedCount.toLocaleString('en-US')}`,
-    `- Tokens before: ${result.tokensBefore.toLocaleString('en-US')}`,
-    `- Tokens after: ${result.tokensAfter.toLocaleString('en-US')}`,
-  ].join('\n');
+    "Compaction completed.",
+    `- Messages compacted: ${result.compactedCount.toLocaleString("en-US")}`,
+    `- Tokens before: ${result.tokensBefore.toLocaleString("en-US")}`,
+    `- Tokens after: ${result.tokensAfter.toLocaleString("en-US")}`,
+  ].join("\n");
 }
 
-function formatTokenUsage(usage: NonNullable<SessionUsage['total']>): string {
+function formatTokenUsage(usage: NonNullable<SessionUsage["total"]>): string {
   return [
-    `input ${usage.inputOther.toLocaleString('en-US')}`,
-    `output ${usage.output.toLocaleString('en-US')}`,
-    `cache read ${usage.inputCacheRead.toLocaleString('en-US')}`,
-    `cache creation ${usage.inputCacheCreation.toLocaleString('en-US')}`,
-  ].join(', ');
+    `input ${usage.inputOther.toLocaleString("en-US")}`,
+    `output ${usage.output.toLocaleString("en-US")}`,
+    `cache read ${usage.inputCacheRead.toLocaleString("en-US")}`,
+    `cache creation ${usage.inputCacheCreation.toLocaleString("en-US")}`,
+  ].join(", ");
 }
 
 // agent-core emits `contextUsage` as a 0..1 fraction (`contextTokens /
@@ -1565,7 +1544,7 @@ function formatTokenUsage(usage: NonNullable<SessionUsage['total']>): string {
 // briefly exceed 1.0 when a turn overflows the budget; we still surface
 // that as ">100%" rather than collapsing back into 0..1.
 function formatContextUsage(contextUsage: number): string {
-  if (!Number.isFinite(contextUsage) || contextUsage < 0) return '';
+  if (!Number.isFinite(contextUsage) || contextUsage < 0) return "";
   return ` (${(contextUsage * 100).toFixed(1)}%)`;
 }
 
@@ -1588,24 +1567,24 @@ function detectLeadingSlashIntent(
   skillCommandMap: ReadonlyMap<string, string>,
 ): ReturnType<typeof detectSlashIntent> {
   const first = blocks[0];
-  if (!first || first.type !== 'text') return { kind: 'passthrough' };
+  if (!first || first.type !== "text") return { kind: "passthrough" };
   return detectSlashIntent(first.text, skillCommandMap);
 }
 
 function mapPromptError(err: unknown, sessionId: string): RequestError {
   const authErr = authRequiredFromUnknown(err);
   if (authErr) {
-    log.warn('acp: prompt rejected with auth error; mapping to authRequired', {
+    log.warn("acp: prompt rejected with auth error; mapping to authRequired", {
       sessionId,
       error: err instanceof Error ? err.message : String(err),
     });
     return authErr;
   }
-  log.error('acp: prompt failed', {
+  log.error("acp: prompt failed", {
     sessionId,
     error: err instanceof Error ? { message: err.message, stack: err.stack } : String(err),
   });
-  return RequestError.internalError(undefined, 'session prompt failed');
+  return RequestError.internalError(undefined, "session prompt failed");
 }
 
 /**
@@ -1648,7 +1627,7 @@ function isAuthErrorCode(code: unknown): boolean {
  *  - Anything else — returns `undefined`.
  */
 function authRequiredFromUnknown(err: unknown): RequestError | undefined {
-  if (err && typeof err === 'object' && 'code' in err) {
+  if (err && typeof err === "object" && "code" in err) {
     const code = (err as { code?: unknown }).code;
     if (isAuthErrorCode(code)) {
       return RequestError.authRequired();
@@ -1663,10 +1642,10 @@ function authRequiredFromUnknown(err: unknown): RequestError | undefined {
  * filtering on this constant keeps `turn.ended` / `error` events from a
  * child agent from settling the parent's `session/prompt` promise.
  */
-const MAIN_AGENT_ID = 'main';
+const MAIN_AGENT_ID = "main";
 
 /**
- * Parse a tool call's `arguments` field (kosong wire format: a JSON
+ * Parse a tool call's `arguments` field (LLM protocol format: a JSON
  * string or `null`) into the structured object expected by the live
  * {@link toolCallStartToSessionUpdate} mapper. Falls back to the raw
  * string when the payload is not valid JSON — the mapper itself uses
@@ -1675,7 +1654,7 @@ const MAIN_AGENT_ID = 'main';
  * than a crash.
  */
 function parseToolCallArguments(rawArguments: string | null): unknown {
-  if (rawArguments === null || rawArguments === '') return {};
+  if (rawArguments === null || rawArguments === "") return {};
   try {
     return JSON.parse(rawArguments);
   } catch {
@@ -1687,19 +1666,19 @@ function parseToolCallArguments(rawArguments: string | null): unknown {
  * Project a `tool` role {@link ContextMessage}'s `content` array into
  * the ACP `tool_call_update.content` shape (an array of
  * `ToolCallContent` entries). The historical message's content is a
- * sequence of kosong content parts — for replay we surface text parts
+ * sequence of LLM content parts — for replay we surface text parts
  * directly and stringify anything else (image refs etc.) as a
  * `[type]` placeholder so the client still sees that something was
  * returned.
  */
 function toolMessageContentToAcpToolCallContent(
-  parts: ContextMessage['content'],
-): Array<{ type: 'content'; content: { type: 'text'; text: string } }> {
-  const result: Array<{ type: 'content'; content: { type: 'text'; text: string } }> = [];
+  parts: ContextMessage["content"],
+): Array<{ type: "content"; content: { type: "text"; text: string } }> {
+  const result: Array<{ type: "content"; content: { type: "text"; text: string } }> = [];
   for (const part of parts) {
-    if (part.type === 'text') {
+    if (part.type === "text") {
       if (part.text) {
-        result.push({ type: 'content', content: { type: 'text', text: part.text } });
+        result.push({ type: "content", content: { type: "text", text: part.text } });
       }
       continue;
     }
@@ -1707,8 +1686,8 @@ function toolMessageContentToAcpToolCallContent(
     // the result card is not empty. Replay should not lose evidence
     // that a non-text part was present.
     result.push({
-      type: 'content',
-      content: { type: 'text', text: `[${part.type}]` },
+      type: "content",
+      content: { type: "text", text: `[${part.type}]` },
     });
   }
   return result;

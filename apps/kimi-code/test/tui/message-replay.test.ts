@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import type {
   AgentReplayRecord,
@@ -10,31 +10,31 @@ import type {
   Role,
   Session,
   ToolCall,
-} from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+} from "@moonshot-ai/kimi-code-sdk";
+import { describe, expect, it, vi } from "vitest";
 
-import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
-import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
-import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
-import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
-import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
-import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
+import { KimiTUI, type KimiTUIStartupInput, type TUIState } from "#/tui/kimi-tui";
+import type { SessionEventHandler } from "#/tui/controllers/session-event-handler";
+import type { StreamingUIController } from "#/tui/controllers/streaming-ui";
+import { AgentGroupComponent } from "#/tui/components/messages/agent-group";
+import { AssistantMessageComponent } from "#/tui/components/messages/assistant-message";
+import { StepSummaryComponent } from "#/tui/components/messages/step-summary";
 import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
-} from '#/tui/utils/transcript-window';
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-import { ToolCallSequenceComponent } from '#/tui/components/messages/tool-call-sequence';
-import { ReadGroupComponent } from '#/tui/components/messages/read-group';
+} from "#/tui/utils/transcript-window";
+import { ToolCallComponent } from "#/tui/components/messages/tool-call";
+import { ToolCallSequenceComponent } from "#/tui/components/messages/tool-call-sequence";
+import { ReadGroupComponent } from "#/tui/components/messages/read-group";
 
-vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
+vi.mock("#/utils/open-url", () => ({ openUrl: vi.fn() }));
 
-type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
+type GoalReplayRecord = Extract<AgentReplayRecord, { type: "goal_updated" }>;
 
 const REPLAY_TIME = 1_700_000_000_000;
 
 function stripAnsi(text: string): string {
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, "");
 }
 
 function countToolCalls(children: readonly unknown[]): number {
@@ -75,16 +75,16 @@ function makeStartupInput(): KimiTUIStartupInput {
       agentFiles: [],
     },
     tuiConfig: {
-      theme: 'dark',
+      theme: "dark",
       disablePasteBurst: false,
-      busyInputMode: 'steer',
+      busyInputMode: "steer",
       editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
+      notifications: { enabled: true, condition: "unfocused" },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
     },
-    version: '0.0.0-test',
-    workDir: '/tmp/proj-a',
+    version: "0.0.0-test",
+    workDir: "/tmp/proj-a",
   };
 }
 
@@ -100,7 +100,7 @@ function message(
 ): AgentReplayRecord {
   return {
     time: REPLAY_TIME,
-    type: 'message',
+    type: "message",
     message: {
       role,
       content: [...content],
@@ -114,7 +114,7 @@ function message(
 
 function toolCall(id: string, name: string, args: Record<string, unknown>): ToolCall {
   return {
-    type: 'function',
+    type: "function",
     id,
     name,
     arguments: JSON.stringify(args),
@@ -122,11 +122,11 @@ function toolCall(id: string, name: string, args: Record<string, unknown>): Tool
 }
 
 function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
-  const status = overrides.status ?? 'active';
+  const status = overrides.status ?? "active";
   return {
-    goalId: 'g1',
-    objective: 'Ship feature X',
-    completionCriterion: 'tests pass',
+    goalId: "g1",
+    objective: "Ship feature X",
+    completionCriterion: "tests pass",
     status,
     turnsUsed: 0,
     tokensUsed: 0,
@@ -147,13 +147,10 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   };
 }
 
-function goalReplay(
-  snapshot: GoalSnapshot,
-  change: GoalReplayRecord['change'],
-): GoalReplayRecord {
+function goalReplay(snapshot: GoalSnapshot, change: GoalReplayRecord["change"]): GoalReplayRecord {
   return {
     time: REPLAY_TIME,
-    type: 'goal_updated',
+    type: "goal_updated",
     snapshot,
     change,
   };
@@ -164,10 +161,10 @@ function baseAgentState(
   overrides: Partial<ResumedAgentState> = {},
 ): ResumedAgentState {
   return {
-    type: 'main',
+    type: "main",
     config: {
-      cwd: '/tmp/proj-a',
-      modelAlias: 'k2',
+      cwd: "/tmp/proj-a",
+      modelAlias: "k2",
       modelCapabilities: {
         image_in: false,
         video_in: false,
@@ -176,12 +173,12 @@ function baseAgentState(
         tool_use: true,
         max_context_tokens: 100,
       },
-      thinkingLevel: 'off',
-      systemPrompt: '',
+      thinkingLevel: "off",
+      systemPrompt: "",
     },
     context: { history: [], tokenCount: 0 },
     replay,
-    permission: { mode: 'manual', rules: [] },
+    permission: { mode: "manual", rules: [] },
     plan: null,
     swarmMode: false,
     usage: {},
@@ -198,13 +195,13 @@ function makeSession(
 ): Session {
   const agent = baseAgentState(replay, overrides);
   return {
-    id: 'ses-replay',
-    model: 'k2',
+    id: "ses-replay",
+    model: "k2",
     summary: { title: null },
     getStatus: vi.fn(async () => ({
-      model: 'k2',
-      thinkingEffort: 'off',
-      permission: 'manual',
+      model: "k2",
+      thinkingEffort: "off",
+      permission: "manual",
       planMode: false,
       contextTokens: 0,
       maxContextTokens: 100,
@@ -233,7 +230,7 @@ function makeHarness(initialSession: Session) {
   return {
     getConfig: vi.fn(async () => ({
       models: {
-        k2: { model: 'moonshot-v1', maxContextSize: 100 },
+        k2: { model: "moonshot-v1", maxContextSize: 100 },
       },
     })),
     setConfig: vi.fn(async () => ({ providers: {} })),
@@ -246,17 +243,20 @@ function makeHarness(initialSession: Session) {
     setTelemetryContext: vi.fn(),
     getExperimentalFeatures: vi.fn(async () => []),
     get interactiveAgentId() {
-      return interactiveAgentScope.getStore() ?? 'main';
+      return interactiveAgentScope.getStore() ?? "main";
     },
     withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
     auth: {
       status: vi.fn(),
+      providers: vi.fn(async () => []),
+      models: vi.fn(async () => []),
+      refreshModels: vi.fn(async () => ({ aborted: false, errors: new Map() })),
       login: vi.fn(),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
+      submitFeedback: vi.fn(async () => ({ kind: "ok", feedbackId: 3 })),
     },
   };
 }
@@ -266,8 +266,8 @@ async function makeDriver(initialSession: Session): Promise<ReplayDriver> {
     makeHarness(initialSession) as never,
     makeStartupInput(),
   ) as unknown as ReplayDriver;
-  vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
-  vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+  vi.spyOn(driver.state.ui, "requestRender").mockImplementation(() => {});
+  vi.spyOn(driver.state.terminal, "setProgress").mockImplementation(() => {});
   await driver.init();
   return driver;
 }
@@ -279,149 +279,151 @@ async function replayIntoDriver(
   const initial = makeSession([]);
   const resumed = makeSession(replay, overrides);
   const driver = await makeDriver(initial);
-  await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+  await driver.switchToSession(resumed, "Resumed session (ses-replay).");
   return driver;
 }
 
 function backgroundTask(
   taskId: string,
   description: string,
-  status: BackgroundTaskInfo['status'] = 'running',
+  status: BackgroundTaskInfo["status"] = "running",
 ): BackgroundTaskInfo {
-  if (taskId.startsWith('agent-')) {
+  if (taskId.startsWith("agent-")) {
     return {
       taskId,
-      kind: 'agent',
+      kind: "agent",
       agentId: taskId,
-      subagentType: 'coder',
+      subagentType: "coder",
       description,
       status,
       startedAt: 1,
-      endedAt: status === 'running' ? null : 2,
+      endedAt: status === "running" ? null : 2,
     };
   }
   return {
     taskId,
-    kind: 'process',
+    kind: "process",
     command: `[agent] ${description}`,
     description,
     status,
     pid: 0,
-    exitCode: status === 'completed' ? 0 : null,
+    exitCode: status === "completed" ? 0 : null,
     startedAt: 1,
-    endedAt: status === 'running' ? null : 2,
+    endedAt: status === "running" ? null : 2,
   };
 }
 
-describe('KimiTUI resume message replay', () => {
-  it('does not render legacy goal completion context reminders as transcript messages', async () => {
+describe("KimiTUI resume message replay", () => {
+  it("does not render legacy goal completion context reminders as transcript messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<system-reminder>\n✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n</system-reminder>',
+            type: "text",
+            text: "<system-reminder>\n✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_completion' } },
+        { origin: { kind: "system_trigger", name: "goal_completion" } },
       ),
     ]);
 
     expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).not.toContain('Goal complete');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).not.toContain("Goal complete");
   });
 
-  it('unescapes bash tag delimiters when replaying shell output', async () => {
+  it("unescapes bash tag delimiters when replaying shell output", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<bash-stdout>pre&lt;/bash-stdout&gt;post</bash-stdout><bash-stderr></bash-stderr>',
+            type: "text",
+            text: "<bash-stdout>pre&lt;/bash-stdout&gt;post</bash-stdout><bash-stderr></bash-stderr>",
           },
         ],
-        { origin: { kind: 'shell_command', phase: 'output' } },
+        { origin: { kind: "shell_command", phase: "output" } },
       ),
     ]);
 
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('pre</bash-stdout>post');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).toContain("pre</bash-stdout>post");
   });
 
-  it('does not render neutral goal completion context reminders as transcript messages', async () => {
+  it("does not render neutral goal completion context reminders as transcript messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
+            type: "text",
             text:
-              '<system-reminder>\n' +
-              'The current goal was marked complete and cleared. ' +
-              'Handle the next user request normally unless the user starts or resumes a goal.\n' +
-              '</system-reminder>',
+              "<system-reminder>\n" +
+              "The current goal was marked complete and cleared. " +
+              "Handle the next user request normally unless the user starts or resumes a goal.\n" +
+              "</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_completion' } },
+        { origin: { kind: "system_trigger", name: "goal_completion" } },
       ),
     ]);
 
     expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).not.toContain('marked complete and cleared');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).not.toContain("marked complete and cleared");
   });
 
-  it('does not render fork-cleared goal context reminders as transcript messages', async () => {
+  it("does not render fork-cleared goal context reminders as transcript messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
+            type: "text",
             text:
-              '<system-reminder>\n' +
-              'This fork does not have a current goal. ' +
-              'Ignore earlier active-goal reminders from the source session. ' +
-              'Handle requests normally unless the user starts a new goal.\n' +
-              '</system-reminder>',
+              "<system-reminder>\n" +
+              "This fork does not have a current goal. " +
+              "Ignore earlier active-goal reminders from the source session. " +
+              "Handle requests normally unless the user starts a new goal.\n" +
+              "</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_fork_cleared' } },
+        { origin: { kind: "system_trigger", name: "goal_fork_cleared" } },
       ),
     ]);
 
     expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).not.toContain('This fork does not have a current goal');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).not.toContain("This fork does not have a current goal");
   });
 
-  it('renders persisted goal replay records as goal transcript UI', async () => {
+  it("renders persisted goal replay records as goal transcript UI", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot(), { kind: 'created' }),
-      goalReplay(
-        goalSnapshot({ status: 'paused', terminalReason: 'taking a break' }),
-        { kind: 'lifecycle', status: 'paused', reason: 'taking a break' },
-      ),
-      goalReplay(goalSnapshot({ status: 'active' }), { kind: 'lifecycle', status: 'active' }),
-      goalReplay(
-        goalSnapshot({ status: 'blocked', terminalReason: 'needs credentials' }),
-        { kind: 'lifecycle', status: 'blocked', reason: 'needs credentials' },
-      ),
+      goalReplay(goalSnapshot(), { kind: "created" }),
+      goalReplay(goalSnapshot({ status: "paused", terminalReason: "taking a break" }), {
+        kind: "lifecycle",
+        status: "paused",
+        reason: "taking a break",
+      }),
+      goalReplay(goalSnapshot({ status: "active" }), { kind: "lifecycle", status: "active" }),
+      goalReplay(goalSnapshot({ status: "blocked", terminalReason: "needs credentials" }), {
+        kind: "lifecycle",
+        status: "blocked",
+        reason: "needs credentials",
+      }),
       goalReplay(
         goalSnapshot({
-          status: 'complete',
-          terminalReason: 'done',
+          status: "complete",
+          terminalReason: "done",
           turnsUsed: 1,
           tokensUsed: 4300,
           wallClockMs: 435000,
         }),
         {
-          kind: 'completion',
-          status: 'complete',
-          reason: 'done',
+          kind: "completion",
+          status: "complete",
+          reason: "done",
           stats: { turnsUsed: 1, tokensUsed: 4300, wallClockMs: 435000 },
         },
       ),
@@ -429,228 +431,226 @@ describe('KimiTUI resume message replay', () => {
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'goal')
+        .filter((entry) => entry.kind === "goal")
         .map((entry) => entry.content),
-    ).toEqual(['Goal set', 'Goal paused', 'Goal resumed', 'Goal blocked']);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('Goal set');
-    expect(transcript).toContain('Goal paused');
-    expect(transcript).toContain('Goal resumed');
-    expect(transcript).toContain('Goal blocked');
-    expect(transcript).toContain('Goal complete — done');
-    expect(transcript).toContain('Worked 1 turn over 7m15s, using 4.2k tokens.');
+    ).toEqual(["Goal set", "Goal paused", "Goal resumed", "Goal blocked"]);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).toContain("Goal set");
+    expect(transcript).toContain("Goal paused");
+    expect(transcript).toContain("Goal resumed");
+    expect(transcript).toContain("Goal blocked");
+    expect(transcript).toContain("Goal complete — done");
+    expect(transcript).toContain("Worked 1 turn over 7m15s, using 4.2k tokens.");
   });
 
-  it('filters resume-normalization goal pause markers in TUI replay', async () => {
+  it("filters resume-normalization goal pause markers in TUI replay", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot(), { kind: 'created' }),
-      goalReplay(
-        goalSnapshot({ status: 'paused', terminalReason: 'Paused after agent resume' }),
-        { kind: 'lifecycle', status: 'paused', reason: 'Paused after agent resume' },
-      ),
+      goalReplay(goalSnapshot(), { kind: "created" }),
+      goalReplay(goalSnapshot({ status: "paused", terminalReason: "Paused after agent resume" }), {
+        kind: "lifecycle",
+        status: "paused",
+        reason: "Paused after agent resume",
+      }),
     ]);
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'goal')
+        .filter((entry) => entry.kind === "goal")
         .map((entry) => entry.content),
-    ).toEqual(['Goal set']);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('Goal set');
-    expect(transcript).not.toContain('Goal paused');
-    expect(transcript).not.toContain('Paused after agent resume');
+    ).toEqual(["Goal set"]);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).toContain("Goal set");
+    expect(transcript).not.toContain("Goal paused");
+    expect(transcript).not.toContain("Paused after agent resume");
   });
 
-  it('renders replayed goal completion records as assistant completion messages', async () => {
+  it("renders replayed goal completion records as assistant completion messages", async () => {
     const driver = await replayIntoDriver([
       goalReplay(
         goalSnapshot({
-          status: 'complete',
+          status: "complete",
           turnsUsed: 1,
           tokensUsed: 4_300_000,
           wallClockMs: 435_000,
         }),
         {
-          kind: 'completion',
-          status: 'complete',
+          kind: "completion",
+          status: "complete",
           stats: { turnsUsed: 1, tokensUsed: 4_300_000, wallClockMs: 435_000 },
         },
       ),
     ]);
 
     const entry = driver.state.transcriptEntries.find((item) =>
-      item.content.includes('Goal complete'),
+      item.content.includes("Goal complete"),
     );
     expect(entry).toMatchObject({
-      kind: 'assistant',
-      renderMode: 'markdown',
-      content: '✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.1M tokens.',
+      kind: "assistant",
+      renderMode: "markdown",
+      content: "✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.1M tokens.",
     });
   });
 
-  it('does not replay model-facing goal completion prompts as transcript messages', async () => {
+  it("does not replay model-facing goal completion prompts as transcript messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<system-reminder>\nGoal completed successfully.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>',
+            type: "text",
+            text: "<system-reminder>\nGoal completed successfully.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_completion' } },
+        { origin: { kind: "system_trigger", name: "goal_completion" } },
       ),
     ]);
 
-    const content = driver.state.transcriptEntries.map((item) => item.content).join('\n');
-    expect(content).not.toContain('Goal completed successfully');
-    expect(content).not.toContain('Write a concise final message for the user');
+    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
+    expect(content).not.toContain("Goal completed successfully");
+    expect(content).not.toContain("Write a concise final message for the user");
   });
 
-  it('does not replay model-facing goal blocked prompts as transcript messages', async () => {
+  it("does not replay model-facing goal blocked prompts as transcript messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>',
+            type: "text",
+            text: "<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_blocked' } },
+        { origin: { kind: "system_trigger", name: "goal_blocked" } },
       ),
     ]);
 
-    const content = driver.state.transcriptEntries.map((item) => item.content).join('\n');
-    expect(content).not.toContain('Goal blocked.');
-    expect(content).not.toContain('Write a concise final message for the user');
+    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
+    expect(content).not.toContain("Goal blocked.");
+    expect(content).not.toContain("Write a concise final message for the user");
   });
 
-  it('does not replay system-trigger prompts such as goal continuation as user messages', async () => {
+  it("does not replay system-trigger prompts such as goal continuation as user messages", async () => {
     const driver = await replayIntoDriver([
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: 'Continue working toward the active goal. Keep the self-audit brief.',
+            type: "text",
+            text: "Continue working toward the active goal. Keep the self-audit brief.",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_continuation' } },
+        { origin: { kind: "system_trigger", name: "goal_continuation" } },
       ),
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<system-reminder>\nThe goal was cancelled.\n</system-reminder>',
+            type: "text",
+            text: "<system-reminder>\nThe goal was cancelled.\n</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_cancelled' } },
+        { origin: { kind: "system_trigger", name: "goal_cancelled" } },
       ),
-      message('assistant', [{ type: 'text', text: 'Working on it.' }]),
+      message("assistant", [{ type: "text", text: "Working on it." }]),
     ]);
 
-    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).not.toContain('Continue working toward the active goal');
-    expect(transcript).not.toContain('The goal was cancelled');
-    expect(transcript).toContain('Working on it.');
+    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === "user")).toEqual([]);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).not.toContain("Continue working toward the active goal");
+    expect(transcript).not.toContain("The goal was cancelled");
+    expect(transcript).toContain("Working on it.");
   });
 
-  it('does not replay the model-blocked lifecycle marker when the follow-up is replayed', async () => {
+  it("does not replay the model-blocked lifecycle marker when the follow-up is replayed", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'model' },
-      ),
+      goalReplay(goalSnapshot({ status: "blocked" }), {
+        kind: "lifecycle",
+        status: "blocked",
+        actor: "model",
+      }),
       message(
-        'user',
+        "user",
         [
           {
-            type: 'text',
-            text: '<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>',
+            type: "text",
+            text: "<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
           },
         ],
-        { origin: { kind: 'system_trigger', name: 'goal_blocked' } },
+        { origin: { kind: "system_trigger", name: "goal_blocked" } },
       ),
-      message(
-        'assistant',
-        [{ type: 'text', text: 'I am blocked because I need credentials.' }],
-      ),
+      message("assistant", [{ type: "text", text: "I am blocked because I need credentials." }]),
     ]);
 
-    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'goal')).toEqual([]);
-    const content = driver.state.transcriptEntries.map((item) => item.content).join('\n');
-    expect(content).not.toContain('Goal blocked');
-    expect(content).toContain('I am blocked because I need credentials.');
+    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === "goal")).toEqual([]);
+    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
+    expect(content).not.toContain("Goal blocked");
+    expect(content).toContain("I am blocked because I need credentials.");
   });
 
-  it('does not replay model-blocked lifecycle markers without a follow-up', async () => {
+  it("does not replay model-blocked lifecycle markers without a follow-up", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'model' },
-      ),
+      goalReplay(goalSnapshot({ status: "blocked" }), {
+        kind: "lifecycle",
+        status: "blocked",
+        actor: "model",
+      }),
     ]);
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'goal')
+        .filter((entry) => entry.kind === "goal")
         .map((entry) => entry.content),
     ).toEqual([]);
   });
 
-  it('keeps replayed blocked lifecycle markers when actor is unavailable', async () => {
+  it("keeps replayed blocked lifecycle markers when actor is unavailable", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked' },
-      ),
+      goalReplay(goalSnapshot({ status: "blocked" }), { kind: "lifecycle", status: "blocked" }),
     ]);
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'goal')
+        .filter((entry) => entry.kind === "goal")
         .map((entry) => entry.content),
-    ).toEqual(['Goal blocked']);
+    ).toEqual(["Goal blocked"]);
   });
 
-  it('keeps replayed runtime-blocked lifecycle markers', async () => {
+  it("keeps replayed runtime-blocked lifecycle markers", async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'runtime' },
-      ),
+      goalReplay(goalSnapshot({ status: "blocked" }), {
+        kind: "lifecycle",
+        status: "blocked",
+        actor: "runtime",
+      }),
     ]);
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'goal')
+        .filter((entry) => entry.kind === "goal")
         .map((entry) => entry.content),
-    ).toEqual(['Goal blocked']);
+    ).toEqual(["Goal blocked"]);
   });
 
-  it('groups replayed Agent calls from one assistant message using live grouping', async () => {
+  it("groups replayed Agent calls from one assistant message using live grouping", async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'run two agents' }]),
-      message('assistant', [], {
+      message("user", [{ type: "text", text: "run two agents" }]),
+      message("assistant", [], {
         toolCalls: [
-          toolCall('call_agent_1', 'Agent', {
-            description: 'Review API',
-            subagent_type: 'reviewer',
+          toolCall("call_agent_1", "Agent", {
+            description: "Review API",
+            subagent_type: "reviewer",
           }),
-          toolCall('call_agent_2', 'Agent', {
-            description: 'Review tests',
-            subagent_type: 'reviewer',
+          toolCall("call_agent_2", "Agent", {
+            description: "Review tests",
+            subagent_type: "reviewer",
           }),
         ],
       }),
-      message('tool', [{ type: 'text', text: 'agent one done' }], {
-        toolCallId: 'call_agent_1',
+      message("tool", [{ type: "text", text: "agent one done" }], {
+        toolCallId: "call_agent_1",
       }),
-      message('tool', [{ type: 'text', text: 'agent two done' }], {
-        toolCallId: 'call_agent_2',
+      message("tool", [{ type: "text", text: "agent two done" }], {
+        toolCallId: "call_agent_2",
       }),
     ];
 
@@ -658,35 +658,33 @@ describe('KimiTUI resume message replay', () => {
     const sequence = driver.state.transcriptContainer.children.find(
       (child) => child instanceof ToolCallSequenceComponent,
     );
-    const group = sequence?.children.find(
-      (child) => child instanceof AgentGroupComponent,
-    );
+    const group = sequence?.children.find((child) => child instanceof AgentGroupComponent);
 
     expect(group).toBeInstanceOf(AgentGroupComponent);
     expect((group as AgentGroupComponent).size()).toBe(2);
-    const output = stripAnsi((group as AgentGroupComponent).render(120).join('\n'));
-    expect(output).toContain('2 agents finished');
-    expect(output).not.toContain('Still working…');
-    expect(output).not.toContain('Waiting to start…');
+    const output = stripAnsi((group as AgentGroupComponent).render(120).join("\n"));
+    expect(output).toContain("2 agents finished");
+    expect(output).not.toContain("Still working…");
+    expect(output).not.toContain("Waiting to start…");
     expect(driver.streamingUI.hasPendingAgentGroup()).toBe(false);
-    expect(driver.streamingUI.getToolComponent('call_agent_1')).toBeUndefined();
-    expect(driver.streamingUI.getToolComponent('call_agent_2')).toBeUndefined();
+    expect(driver.streamingUI.getToolComponent("call_agent_1")).toBeUndefined();
+    expect(driver.streamingUI.getToolComponent("call_agent_2")).toBeUndefined();
   });
 
-  it('groups replayed Read calls from one assistant message using live grouping', async () => {
+  it("groups replayed Read calls from one assistant message using live grouping", async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'read files' }]),
-      message('assistant', [], {
+      message("user", [{ type: "text", text: "read files" }]),
+      message("assistant", [], {
         toolCalls: [
-          toolCall('call_read_1', 'Read', { file_path: '/tmp/proj-a/src/a.ts' }),
-          toolCall('call_read_2', 'Read', { file_path: '/tmp/proj-a/src/b.ts' }),
+          toolCall("call_read_1", "Read", { file_path: "/tmp/proj-a/src/a.ts" }),
+          toolCall("call_read_2", "Read", { file_path: "/tmp/proj-a/src/b.ts" }),
         ],
       }),
-      message('tool', [{ type: 'text', text: 'line a\nline b\n' }], {
-        toolCallId: 'call_read_1',
+      message("tool", [{ type: "text", text: "line a\nline b\n" }], {
+        toolCallId: "call_read_1",
       }),
-      message('tool', [{ type: 'text', text: 'line c\n' }], {
-        toolCallId: 'call_read_2',
+      message("tool", [{ type: "text", text: "line c\n" }], {
+        toolCallId: "call_read_2",
       }),
     ];
 
@@ -694,136 +692,140 @@ describe('KimiTUI resume message replay', () => {
     const sequence = driver.state.transcriptContainer.children.find(
       (child) => child instanceof ToolCallSequenceComponent,
     );
-    const group = sequence?.children.find(
-      (child) => child instanceof ReadGroupComponent,
-    );
+    const group = sequence?.children.find((child) => child instanceof ReadGroupComponent);
 
     expect(group).toBeInstanceOf(ReadGroupComponent);
     expect((group as ReadGroupComponent).size()).toBe(2);
     expect(driver.streamingUI.hasPendingReadGroup()).toBe(false);
-    expect(driver.streamingUI.getToolComponent('call_read_1')).toBeUndefined();
-    expect(driver.streamingUI.getToolComponent('call_read_2')).toBeUndefined();
+    expect(driver.streamingUI.getToolComponent("call_read_1")).toBeUndefined();
+    expect(driver.streamingUI.getToolComponent("call_read_2")).toBeUndefined();
   });
 
-  it('renders replayed AgentSwarm calls as compact result summaries', async () => {
+  it("renders replayed AgentSwarm calls as compact result summaries", async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'review files with a swarm' }]),
-      message('assistant', [], {
+      message("user", [{ type: "text", text: "review files with a swarm" }]),
+      message("assistant", [], {
         toolCalls: [
-          toolCall('call_swarm', 'AgentSwarm', {
-            description: 'Review changed files',
-            items: ['src/a.ts', 'src/b.ts'],
+          toolCall("call_swarm", "AgentSwarm", {
+            description: "Review changed files",
+            items: ["src/a.ts", "src/b.ts"],
           }),
         ],
       }),
       message(
-        'tool',
-        [{
-          type: 'text',
-          text: [
-            '<agent_swarm_result>',
-            '<summary>completed: 1, failed: 1</summary>',
-            '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
-            '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
-            '</agent_swarm_result>',
-          ].join('\n'),
-        }],
-        { toolCallId: 'call_swarm' },
+        "tool",
+        [
+          {
+            type: "text",
+            text: [
+              "<agent_swarm_result>",
+              "<summary>completed: 1, failed: 1</summary>",
+              '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
+              '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
+              "</agent_swarm_result>",
+            ].join("\n"),
+          },
+        ],
+        { toolCallId: "call_swarm" },
       ),
     ];
 
     const driver = await replayIntoDriver(replay);
-    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
-    expect(summary).toContain('Used 1 tool · ran 1 agent');
-    expect(summary).not.toContain('Agent swarm:');
+    expect(summary).toContain("Used 1 tool · ran 1 agent");
+    expect(summary).not.toContain("Agent swarm:");
 
     driver.toggleToolOutputExpansion();
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
-    expect(transcript).toContain('Agent swarm: ✓ 1 completed · ✗ 1 failed');
-    expect(transcript).not.toContain('<agent_swarm_result>');
-    expect(transcript).not.toContain('Reviewed src/a.ts.');
-    expect(transcript).not.toContain('Agent timed out.');
+    expect(transcript).toContain("Agent swarm: ✓ 1 completed · ✗ 1 failed");
+    expect(transcript).not.toContain("<agent_swarm_result>");
+    expect(transcript).not.toContain("Reviewed src/a.ts.");
+    expect(transcript).not.toContain("Agent timed out.");
   });
 
-  it('does not show no-index replayed AgentSwarm failures as completed', async () => {
+  it("does not show no-index replayed AgentSwarm failures as completed", async () => {
     const replay: AgentReplayRecord[] = [
-      message('user', [{ type: 'text', text: 'review files with a swarm' }]),
-      message('assistant', [], {
+      message("user", [{ type: "text", text: "review files with a swarm" }]),
+      message("assistant", [], {
         toolCalls: [
-          toolCall('call_swarm', 'AgentSwarm', {
-            description: 'Review changed files',
-            items: ['src/a.ts', 'src/b.ts'],
+          toolCall("call_swarm", "AgentSwarm", {
+            description: "Review changed files",
+            items: ["src/a.ts", "src/b.ts"],
           }),
         ],
       }),
       message(
-        'tool',
-        [{
-          type: 'text',
-          text: [
-            '<agent_swarm_result>',
-            '<summary>failed: 1, aborted: 1</summary>',
-            '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values ' +
-              'in this result to continue unfinished work.</resume_hint>',
-            '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
-              'Agent timed out.</subagent>',
-            '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
-              'User interrupted.</subagent>',
-            '</agent_swarm_result>',
-          ].join('\n'),
-        }],
-        { toolCallId: 'call_swarm' },
+        "tool",
+        [
+          {
+            type: "text",
+            text: [
+              "<agent_swarm_result>",
+              "<summary>failed: 1, aborted: 1</summary>",
+              "<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values " +
+                "in this result to continue unfinished work.</resume_hint>",
+              '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
+                "Agent timed out.</subagent>",
+              '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
+                "User interrupted.</subagent>",
+              "</agent_swarm_result>",
+            ].join("\n"),
+          },
+        ],
+        { toolCallId: "call_swarm" },
       ),
     ];
 
     const driver = await replayIntoDriver(replay);
-    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
-    expect(summary).toContain('Used 1 tool · ran 1 agent');
-    expect(summary).not.toContain('Agent swarm:');
+    expect(summary).toContain("Used 1 tool · ran 1 agent");
+    expect(summary).not.toContain("Agent swarm:");
 
     driver.toggleToolOutputExpansion();
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
-    expect(transcript).toContain('Agent swarm: ✗ 1 failed · ⊘ 1 aborted');
-    expect(transcript).not.toContain('Agent swarm: ✓ Completed.');
-    expect(transcript).not.toContain('<agent_swarm_result>');
+    expect(transcript).toContain("Agent swarm: ✗ 1 failed · ⊘ 1 aborted");
+    expect(transcript).not.toContain("Agent swarm: ✓ Completed.");
+    expect(transcript).not.toContain("<agent_swarm_result>");
   });
 
-  it('hydrates todo and background snapshot state from resumed main agent', async () => {
+  it("hydrates todo and background snapshot state from resumed main agent", async () => {
     const driver = await replayIntoDriver([], {
       todos: [
-        { title: 'Review resume snapshot', status: 'done' },
-        { title: 'Render replay transcript', status: 'in_progress' },
-        { title: '', status: 'pending' },
+        { title: "Review resume snapshot", status: "done" },
+        { title: "Render replay transcript", status: "in_progress" },
+        { title: "", status: "pending" },
       ],
       tasks: [
-        backgroundTask('agent-bg1', 'Review long-running work', 'running'),
-        backgroundTask('bash-bg1', 'Build package', 'completed'),
+        backgroundTask("agent-bg1", "Review long-running work", "running"),
+        backgroundTask("bash-bg1", "Build package", "completed"),
       ],
     });
 
     expect(driver.state.todoPanel.getTodos()).toEqual([
-      { title: 'Review resume snapshot', status: 'done' },
-      { title: 'Render replay transcript', status: 'in_progress' },
+      { title: "Review resume snapshot", status: "done" },
+      { title: "Render replay transcript", status: "in_progress" },
     ]);
-    expect(driver.sessionEventHandler.backgroundTasks.has('agent-bg1')).toBe(true);
-    expect(driver.sessionEventHandler.backgroundTasks.has('bash-bg1')).toBe(true);
-    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('bash-bg1')).toBe(true);
+    expect(driver.sessionEventHandler.backgroundTasks.has("agent-bg1")).toBe(true);
+    expect(driver.sessionEventHandler.backgroundTasks.has("bash-bg1")).toBe(true);
+    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has("bash-bg1")).toBe(
+      true,
+    );
   });
 
-  it('matches completed resumed background agents by agent id when task id differs', async () => {
+  it("matches completed resumed background agents by agent id when task id differs", async () => {
     const driver = await replayIntoDriver([], {
       tasks: [
         {
-          taskId: 'task-bg1',
-          kind: 'agent',
-          agentId: 'agent-bg1',
-          subagentType: 'coder',
-          description: 'Review long-running work',
-          status: 'running',
+          taskId: "task-bg1",
+          kind: "agent",
+          agentId: "agent-bg1",
+          subagentType: "coder",
+          description: "Review long-running work",
+          status: "running",
           startedAt: 1,
           endedAt: null,
         },
@@ -831,100 +833,101 @@ describe('KimiTUI resume message replay', () => {
     });
 
     expect(
-      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has('agent-bg1'),
+      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has("agent-bg1"),
     ).toBe(true);
     expect(
-      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has('task-bg1'),
+      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has("task-bg1"),
     ).toBe(false);
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'subagent.completed',
-        agentId: 'main',
-        sessionId: 'ses-replay',
-        subagentId: 'agent-bg1',
-        resultSummary: 'Reviewed the long-running work.',
+        type: "subagent.completed",
+        agentId: "main",
+        sessionId: "ses-replay",
+        subagentId: "agent-bg1",
+        resultSummary: "Reviewed the long-running work.",
       },
       () => {},
     );
 
     const status = driver.state.transcriptEntries.find(
-      (entry) => entry.backgroundAgentStatus?.phase === 'completed',
+      (entry) => entry.backgroundAgentStatus?.phase === "completed",
     );
 
     expect(
-      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has('agent-bg1'),
+      driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has("agent-bg1"),
     ).toBe(false);
-    expect(status?.backgroundAgentStatus?.headline).toBe('agent completed in background');
-    expect(status?.backgroundAgentStatus?.detail).toContain('Review long-running work');
+    expect(status?.backgroundAgentStatus?.headline).toBe("agent completed in background");
+    expect(status?.backgroundAgentStatus?.detail).toContain("Review long-running work");
   });
 
-  it('keeps timed-out status when an aborted resumed background agent later fails', async () => {
+  it("keeps timed-out status when an aborted resumed background agent later fails", async () => {
     const info: BackgroundTaskInfo = {
-      taskId: 'task-bg-timeout',
-      kind: 'agent',
-      agentId: 'agent-bg-timeout',
-      subagentType: 'coder',
-      description: 'Review timeout handling',
-      status: 'running',
+      taskId: "task-bg-timeout",
+      kind: "agent",
+      agentId: "agent-bg-timeout",
+      subagentType: "coder",
+      description: "Review timeout handling",
+      status: "running",
       startedAt: 1,
       endedAt: null,
       timeoutMs: 1000,
     };
     const driver = await replayIntoDriver([], { tasks: [info] });
     const applyTerminalStatus = vi
-      .spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
+      .spyOn(driver.streamingUI, "applyBackgroundTaskTerminalStatus")
       .mockReturnValue(true);
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'task.terminated',
-        agentId: 'main',
-        sessionId: 'ses-replay',
-        info: { ...info, status: 'timed_out', endedAt: 2 },
+        type: "task.terminated",
+        agentId: "main",
+        sessionId: "ses-replay",
+        info: { ...info, status: "timed_out", endedAt: 2 },
       },
       () => {},
     );
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'subagent.failed',
-        agentId: 'main',
-        sessionId: 'ses-replay',
-        subagentId: 'agent-bg-timeout',
-        error: 'The subagent was aborted.',
+        type: "subagent.failed",
+        agentId: "main",
+        sessionId: "ses-replay",
+        subagentId: "agent-bg-timeout",
+        error: "The subagent was aborted.",
       },
       () => {},
     );
 
-    expect(applyTerminalStatus.mock.calls.map(([args]) => args.status)).toEqual(['timed_out']);
+    expect(applyTerminalStatus.mock.calls.map(([args]) => args.status)).toEqual(["timed_out"]);
     expect(
       driver.sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.has(
-        'agent-bg-timeout',
+        "agent-bg-timeout",
       ),
     ).toBe(false);
-    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('task-bg-timeout'))
-      .toBe(true);
+    expect(
+      driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has("task-bg-timeout"),
+    ).toBe(true);
     expect(
       driver.state.transcriptEntries.some(
-        (entry) => entry.backgroundAgentStatus?.phase === 'failed',
+        (entry) => entry.backgroundAgentStatus?.phase === "failed",
       ),
     ).toBe(false);
   });
 
-  it('renders replayed bash background notifications as bash tasks', async () => {
+  it("renders replayed bash background notifications as bash tasks", async () => {
     const driver = await replayIntoDriver(
       [
-        message('user', [{ type: 'text', text: 'Background task lost.' }], {
+        message("user", [{ type: "text", text: "Background task lost." }], {
           origin: {
-            kind: 'task',
-            taskId: 'bash-lost0000',
-            status: 'lost',
-            notificationId: 'task:bash-lost0000:lost',
+            kind: "task",
+            taskId: "bash-lost0000",
+            status: "lost",
+            notificationId: "task:bash-lost0000:lost",
           },
         }),
       ],
       {
-        tasks: [backgroundTask('bash-lost0000', 'Background timestamp logger', 'lost')],
+        tasks: [backgroundTask("bash-lost0000", "Background timestamp logger", "lost")],
       },
     );
 
@@ -932,33 +935,33 @@ describe('KimiTUI resume message replay', () => {
       (entry) => entry.backgroundAgentStatus !== undefined,
     );
 
-    expect(status?.backgroundAgentStatus?.headline).toBe('bash task lost');
-    expect(status?.backgroundAgentStatus?.detail).toContain('Background timestamp logger');
-    expect(status?.backgroundAgentStatus?.headline).not.toContain('agent');
+    expect(status?.backgroundAgentStatus?.headline).toBe("bash task lost");
+    expect(status?.backgroundAgentStatus?.detail).toContain("Background timestamp logger");
+    expect(status?.backgroundAgentStatus?.headline).not.toContain("agent");
   });
 
-  it('does not render successful tool task notifications as transcript cards', async () => {
+  it("does not render successful tool task notifications as transcript cards", async () => {
     const toolTask: BackgroundTaskInfo = {
-      taskId: 'tool-ok000000',
-      kind: 'tool',
+      taskId: "tool-ok000000",
+      kind: "tool",
       turnId: 1,
-      toolCallId: 'call-ok',
-      toolName: 'Lookup',
+      toolCallId: "call-ok",
+      toolName: "Lookup",
       autoWaitTimeoutSeconds: 20,
-      description: 'Running Lookup',
-      status: 'completed',
+      description: "Running Lookup",
+      status: "completed",
       detached: true,
       startedAt: 1,
       endedAt: 2,
     };
     const driver = await replayIntoDriver(
       [
-        message('user', [{ type: 'text', text: 'Background tool completed.' }], {
+        message("user", [{ type: "text", text: "Background tool completed." }], {
           origin: {
-            kind: 'task',
-            taskId: 'tool-ok000000',
-            status: 'completed',
-            notificationId: 'task:tool-ok000000:completed',
+            kind: "task",
+            taskId: "tool-ok000000",
+            status: "completed",
+            notificationId: "task:tool-ok000000:completed",
           },
         }),
       ],
@@ -970,29 +973,29 @@ describe('KimiTUI resume message replay', () => {
     ).toBe(false);
   });
 
-  it('renders failed tool task notifications as transcript cards', async () => {
+  it("renders failed tool task notifications as transcript cards", async () => {
     const toolTask: BackgroundTaskInfo = {
-      taskId: 'tool-bad00000',
-      kind: 'tool',
+      taskId: "tool-bad00000",
+      kind: "tool",
       turnId: 1,
-      toolCallId: 'call-bad',
-      toolName: 'Lookup',
+      toolCallId: "call-bad",
+      toolName: "Lookup",
       autoWaitTimeoutSeconds: 20,
-      description: 'Running Lookup',
-      status: 'failed',
+      description: "Running Lookup",
+      status: "failed",
       detached: true,
       startedAt: 1,
       endedAt: 2,
-      stopReason: 'tool error',
+      stopReason: "tool error",
     };
     const driver = await replayIntoDriver(
       [
-        message('user', [{ type: 'text', text: 'Background tool failed.' }], {
+        message("user", [{ type: "text", text: "Background tool failed." }], {
           origin: {
-            kind: 'task',
-            taskId: 'tool-bad00000',
-            status: 'failed',
-            notificationId: 'task:tool-bad00000:failed',
+            kind: "task",
+            taskId: "tool-bad00000",
+            status: "failed",
+            notificationId: "task:tool-bad00000:failed",
           },
         }),
       ],
@@ -1002,63 +1005,63 @@ describe('KimiTUI resume message replay', () => {
     const status = driver.state.transcriptEntries.find(
       (entry) => entry.backgroundAgentStatus !== undefined,
     );
-    expect(status?.backgroundAgentStatus?.headline).toBe('tool task failed in background');
-    expect(status?.backgroundAgentStatus?.detail).toContain('Running Lookup');
+    expect(status?.backgroundAgentStatus?.headline).toBe("tool task failed in background");
+    expect(status?.backgroundAgentStatus?.detail).toContain("Running Lookup");
   });
 
-  it('renders only the most recent ten visible user turns', async () => {
+  it("renders only the most recent ten visible user turns", async () => {
     const replay = Array.from({ length: 12 }, (_, index) => [
-      message('user', [{ type: 'text', text: `prompt ${index}` }]),
-      message('assistant', [{ type: 'text', text: `answer ${index}` }]),
+      message("user", [{ type: "text", text: `prompt ${index}` }]),
+      message("assistant", [{ type: "text", text: `answer ${index}` }]),
     ]).flat();
 
     const driver = await replayIntoDriver(replay);
 
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'user')
+        .filter((entry) => entry.kind === "user")
         .map((entry) => entry.content),
     ).toEqual([
-      'prompt 2',
-      'prompt 3',
-      'prompt 4',
-      'prompt 5',
-      'prompt 6',
-      'prompt 7',
-      'prompt 8',
-      'prompt 9',
-      'prompt 10',
-      'prompt 11',
+      "prompt 2",
+      "prompt 3",
+      "prompt 4",
+      "prompt 5",
+      "prompt 6",
+      "prompt 7",
+      "prompt 8",
+      "prompt 9",
+      "prompt 10",
+      "prompt 11",
     ]);
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'assistant')
+        .filter((entry) => entry.kind === "assistant")
         .map((entry) => entry.content),
     ).toEqual([
-      'answer 2',
-      'answer 3',
-      'answer 4',
-      'answer 5',
-      'answer 6',
-      'answer 7',
-      'answer 8',
-      'answer 9',
-      'answer 10',
-      'answer 11',
+      "answer 2",
+      "answer 3",
+      "answer 4",
+      "answer 5",
+      "answer 6",
+      "answer 7",
+      "answer 8",
+      "answer 9",
+      "answer 10",
+      "answer 11",
     ]);
   });
 
-  it('renders cron_job origin records during replay without exposing raw XML', async () => {
+  it("renders cron_job origin records during replay without exposing raw XML", async () => {
     const cronFire =
       '<cron-fire jobId="job-1" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\nrun nightly\n</prompt>\n</cron-fire>';
     const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'real prompt' }]),
-      message('assistant', [{ type: 'text', text: 'real answer' }]),
-      message('user', [{ type: 'text', text: cronFire }], {
+      message("user", [{ type: "text", text: "real prompt" }]),
+      message("assistant", [{ type: "text", text: "real answer" }]),
+      message("user", [{ type: "text", text: cronFire }], {
         origin: {
-          kind: 'cron_job',
-          jobId: 'job-1',
-          cron: '*/5 * * * *',
+          kind: "cron_job",
+          jobId: "job-1",
+          cron: "*/5 * * * *",
           recurring: true,
           coalescedCount: 1,
           stale: false,
@@ -1066,138 +1069,138 @@ describe('KimiTUI resume message replay', () => {
       }),
     ]);
 
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
-    expect(transcript).not.toContain('<cron-fire');
-    expect(transcript).toContain('Scheduled reminder fired');
-    expect(transcript).toContain('run nightly');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
+    expect(transcript).not.toContain("<cron-fire");
+    expect(transcript).toContain("Scheduled reminder fired");
+    expect(transcript).toContain("run nightly");
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'user')
+        .filter((entry) => entry.kind === "user")
         .map((entry) => entry.content),
-    ).toEqual(['real prompt']);
+    ).toEqual(["real prompt"]);
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'cron')
+        .filter((entry) => entry.kind === "cron")
         .map((entry) => entry.content),
-    ).toEqual(['run nightly']);
+    ).toEqual(["run nightly"]);
   });
 
-  it('renders cron_missed origin records during replay without exposing raw XML', async () => {
+  it("renders cron_missed origin records during replay without exposing raw XML", async () => {
     const cronMissed =
       '<cron-fire jobId="job-2" missed="true" count="3">\n3 one-shot tasks missed while offline\n</cron-fire>';
     const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'real prompt' }]),
-      message('assistant', [{ type: 'text', text: 'real answer' }]),
-      message('user', [{ type: 'text', text: cronMissed }], {
-        origin: { kind: 'cron_missed', count: 3 },
+      message("user", [{ type: "text", text: "real prompt" }]),
+      message("assistant", [{ type: "text", text: "real answer" }]),
+      message("user", [{ type: "text", text: cronMissed }], {
+        origin: { kind: "cron_missed", count: 3 },
       }),
     ]);
 
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
-    expect(transcript).not.toContain('<cron-fire');
-    expect(transcript).toContain('Missed scheduled reminders');
-    expect(transcript).toContain('3 one-shot tasks missed while offline');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
+    expect(transcript).not.toContain("<cron-fire");
+    expect(transcript).toContain("Missed scheduled reminders");
+    expect(transcript).toContain("3 one-shot tasks missed while offline");
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'user')
+        .filter((entry) => entry.kind === "user")
         .map((entry) => entry.content),
-    ).toEqual(['real prompt']);
+    ).toEqual(["real prompt"]);
     expect(
       driver.state.transcriptEntries
-        .filter((entry) => entry.kind === 'cron')
+        .filter((entry) => entry.kind === "cron")
         .map((entry) => entry.content),
-    ).toEqual(['3 one-shot tasks missed while offline']);
+    ).toEqual(["3 one-shot tasks missed while offline"]);
   });
 
-  it('renders user-slash skill activation once without exposing injected prompt text', async () => {
+  it("renders user-slash skill activation once without exposing injected prompt text", async () => {
     const activation = message(
-      'user',
-      [{ type: 'text', text: 'Review the requested file.\n\nUser request:\nsrc/app.ts' }],
+      "user",
+      [{ type: "text", text: "Review the requested file.\n\nUser request:\nsrc/app.ts" }],
       {
         origin: {
-          kind: 'skill_activation',
-          activationId: 'act-review',
-          skillName: 'review',
-          skillArgs: 'src/app.ts',
-          trigger: 'user-slash',
+          kind: "skill_activation",
+          activationId: "act-review",
+          skillName: "review",
+          skillArgs: "src/app.ts",
+          trigger: "user-slash",
         },
       },
     );
 
     const driver = await replayIntoDriver([activation, activation]);
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
 
-    expect(transcript).toContain('review');
-    expect(transcript).toContain('src/app.ts');
-    expect(transcript).not.toContain('Review the requested file');
-    expect(driver.sessionEventHandler.renderedSkillActivationIds.has('act-review')).toBe(true);
+    expect(transcript).toContain("review");
+    expect(transcript).toContain("src/app.ts");
+    expect(transcript).not.toContain("Review the requested file");
+    expect(driver.sessionEventHandler.renderedSkillActivationIds.has("act-review")).toBe(true);
   });
 
-  it('renders replayed hook results as assistant transcript entries', async () => {
+  it("renders replayed hook results as assistant transcript entries", async () => {
     const hookResult =
       '<hook_result hook_event="UserPromptSubmit">\nhook response 1\n</hook_result>\n' +
       '<hook_result hook_event="UserPromptSubmit">\nhook response 2\n</hook_result>';
     const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'prompt' }]),
-      message('user', [{ type: 'text', text: hookResult }], {
-        origin: { kind: 'hook_result', event: 'UserPromptSubmit' },
+      message("user", [{ type: "text", text: "prompt" }]),
+      message("user", [{ type: "text", text: hookResult }], {
+        origin: { kind: "hook_result", event: "UserPromptSubmit" },
       }),
     ]);
 
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
 
-    expect(transcript).toContain('UserPromptSubmit hook');
-    expect(transcript).toContain('hook response 1');
-    expect(transcript).toContain('hook response 2');
+    expect(transcript).toContain("UserPromptSubmit hook");
+    expect(transcript).toContain("hook response 1");
+    expect(transcript).toContain("hook response 2");
   });
 
-  it('renders replayed compaction records as completed compaction blocks', async () => {
+  it("renders replayed compaction records as completed compaction blocks", async () => {
     const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'prompt before compaction' }]),
+      message("user", [{ type: "text", text: "prompt before compaction" }]),
       {
         time: REPLAY_TIME,
-        type: 'compaction',
+        type: "compaction",
         result: {
-          summary: 'Compacted transcript summary.',
+          summary: "Compacted transcript summary.",
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
           keptUserMessageCount: 1,
         },
-        instruction: 'preserve implementation notes',
+        instruction: "preserve implementation notes",
       },
-      message('user', [{ type: 'text', text: 'prompt after compaction' }]),
+      message("user", [{ type: "text", text: "prompt after compaction" }]),
     ]);
 
     const compactionEntry = driver.state.transcriptEntries.find(
       (entry) => entry.compactionData !== undefined,
     );
     expect(compactionEntry?.compactionData).toEqual({
-      summary: 'Compacted transcript summary.',
+      summary: "Compacted transcript summary.",
       tokensBefore: 120,
       tokensAfter: 24,
-      instruction: 'preserve implementation notes',
+      instruction: "preserve implementation notes",
     });
-    const collapsed = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(collapsed).toContain('Compaction complete');
-    expect(collapsed).toContain('120 → 24 tokens');
-    expect(collapsed).toContain('preserve implementation notes');
-    expect(collapsed).not.toContain('Compacted transcript summary.');
+    const collapsed = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(collapsed).toContain("Compaction complete");
+    expect(collapsed).toContain("120 → 24 tokens");
+    expect(collapsed).toContain("preserve implementation notes");
+    expect(collapsed).not.toContain("Compacted transcript summary.");
 
     driver.state.editor.onToggleToolExpand?.();
     driver.state.editor.onToggleToolExpand?.();
-    const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(expanded).toContain('Compacted transcript summary.');
+    const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(expanded).toContain("Compacted transcript summary.");
   });
 
-  it('initializes replayed compaction blocks as expanded when tool output is already expanded', async () => {
+  it("initializes replayed compaction blocks as expanded when tool output is already expanded", async () => {
     const initial = makeSession([]);
     const resumed = makeSession([
       {
         time: REPLAY_TIME,
-        type: 'compaction',
+        type: "compaction",
         result: {
-          summary: 'Compacted transcript summary.',
+          summary: "Compacted transcript summary.",
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
@@ -1206,191 +1209,195 @@ describe('KimiTUI resume message replay', () => {
       },
     ]);
     const driver = await makeDriver(initial);
-    driver.state.toolDisplayMode = 'full';
-    await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+    driver.state.toolDisplayMode = "full";
+    await driver.switchToSession(resumed, "Resumed session (ses-replay).");
 
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(transcript).toContain('Compaction complete');
-    expect(transcript).toContain('Compacted transcript summary.');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(transcript).toContain("Compaction complete");
+    expect(transcript).toContain("Compacted transcript summary.");
   });
 
-  it('renders replayed cancelled compaction records as cancelled compaction blocks', async () => {
+  it("renders replayed cancelled compaction records as cancelled compaction blocks", async () => {
     const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'prompt before cancellation' }]),
+      message("user", [{ type: "text", text: "prompt before cancellation" }]),
       {
         time: REPLAY_TIME,
-        type: 'compaction',
-        result: 'cancelled',
-        instruction: 'preserve implementation notes',
+        type: "compaction",
+        result: "cancelled",
+        instruction: "preserve implementation notes",
       },
-      message('user', [{ type: 'text', text: 'prompt after cancellation' }]),
+      message("user", [{ type: "text", text: "prompt after cancellation" }]),
     ]);
 
     const compactionEntry = driver.state.transcriptEntries.find(
       (entry) => entry.compactionData !== undefined,
     );
     expect(compactionEntry?.compactionData).toEqual({
-      result: 'cancelled',
-      instruction: 'preserve implementation notes',
+      result: "cancelled",
+      instruction: "preserve implementation notes",
     });
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
-    expect(transcript).toContain('Compaction cancelled');
-    expect(transcript).toContain('preserve implementation notes');
-    expect(transcript).not.toContain('Compaction complete');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(transcript).toContain("Compaction cancelled");
+    expect(transcript).toContain("preserve implementation notes");
+    expect(transcript).not.toContain("Compaction complete");
   });
 
-  it('renders plan permission and approval replay notices', async () => {
+  it("renders plan permission and approval replay notices", async () => {
     const driver = await replayIntoDriver([
-      { time: REPLAY_TIME, type: 'plan_updated', enabled: true },
-      { time: REPLAY_TIME, type: 'permission_updated', mode: 'auto' },
-      { time: REPLAY_TIME, type: 'permission_updated', mode: 'yolo' },
-      { time: REPLAY_TIME, type: 'permission_updated', mode: 'manual' },
+      { time: REPLAY_TIME, type: "plan_updated", enabled: true },
+      { time: REPLAY_TIME, type: "permission_updated", mode: "auto" },
+      { time: REPLAY_TIME, type: "permission_updated", mode: "yolo" },
+      { time: REPLAY_TIME, type: "permission_updated", mode: "manual" },
       {
         time: REPLAY_TIME,
-        type: 'approval_result',
+        type: "approval_result",
         record: {
           turnId: 0,
-          toolCallId: 'call_bash',
-          action: 'run command',
-          toolName: 'Bash',
+          toolCallId: "call_bash",
+          action: "run command",
+          toolName: "Bash",
           result: {
-            decision: 'approved',
-            scope: 'session',
-            selectedLabel: 'Approve for this session',
+            decision: "approved",
+            scope: "session",
+            selectedLabel: "Approve for this session",
           },
         },
       },
-      { time: REPLAY_TIME, type: 'plan_updated', enabled: false },
+      { time: REPLAY_TIME, type: "plan_updated", enabled: false },
     ]);
 
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
 
-    expect(transcript).toContain('Plan mode: ON');
-    expect(transcript).toContain('Permission mode: auto');
-    expect(transcript).toContain('YOLO mode: ON');
-    expect(transcript).toContain('YOLO mode: OFF');
-    expect(transcript).toContain('Approved for session: run command');
-    expect(transcript).toContain('Plan mode: OFF');
+    expect(transcript).toContain("Plan mode: ON");
+    expect(transcript).toContain("Permission mode: auto");
+    expect(transcript).toContain("YOLO mode: ON");
+    expect(transcript).toContain("YOLO mode: OFF");
+    expect(transcript).toContain("Approved for session: run command");
+    expect(transcript).toContain("Plan mode: OFF");
   });
 
-  it('keeps only the final approved plan card after rejected plan reviews', async () => {
+  it("keeps only the final approved plan card after rejected plan reviews", async () => {
     const driver = await replayIntoDriver([
-      message('assistant', [], {
-        toolCalls: [toolCall('call_exit_reject', 'ExitPlanMode', {})],
+      message("assistant", [], {
+        toolCalls: [toolCall("call_exit_reject", "ExitPlanMode", {})],
       }),
       {
         time: REPLAY_TIME,
-        type: 'approval_result',
+        type: "approval_result",
         record: {
           turnId: 0,
-          toolCallId: 'call_exit_reject',
-          action: 'Review plan',
-          toolName: 'ExitPlanMode',
-          result: { decision: 'rejected', selectedLabel: 'Reject' },
-        },
-      },
-      message('tool', [{ type: 'text', text: 'Plan rejected by user. Plan mode remains active.' }], {
-        toolCallId: 'call_exit_reject',
-        isError: true,
-      }),
-      message('assistant', [], {
-        toolCalls: [toolCall('call_exit_final', 'ExitPlanMode', {})],
-      }),
-      {
-        time: REPLAY_TIME,
-        type: 'approval_result',
-        record: {
-          turnId: 1,
-          toolCallId: 'call_exit_final',
-          action: 'Review plan',
-          toolName: 'ExitPlanMode',
-          result: { decision: 'approved', selectedLabel: 'Approve' },
+          toolCallId: "call_exit_reject",
+          action: "Review plan",
+          toolName: "ExitPlanMode",
+          result: { decision: "rejected", selectedLabel: "Reject" },
         },
       },
       message(
-        'tool',
+        "tool",
+        [{ type: "text", text: "Plan rejected by user. Plan mode remains active." }],
+        {
+          toolCallId: "call_exit_reject",
+          isError: true,
+        },
+      ),
+      message("assistant", [], {
+        toolCalls: [toolCall("call_exit_final", "ExitPlanMode", {})],
+      }),
+      {
+        time: REPLAY_TIME,
+        type: "approval_result",
+        record: {
+          turnId: 1,
+          toolCallId: "call_exit_final",
+          action: "Review plan",
+          toolName: "ExitPlanMode",
+          result: { decision: "approved", selectedLabel: "Approve" },
+        },
+      },
+      message(
+        "tool",
         [
           {
-            type: 'text',
+            type: "text",
             text:
-              'Exited plan mode. Plan mode deactivated. All tools are now available.\n' +
-              'Plan saved to: /tmp/plans/final-plan.md\n\n' +
-              '## Approved Plan:\n# Final Plan\n\n- replay final approved plan',
+              "Exited plan mode. Plan mode deactivated. All tools are now available.\n" +
+              "Plan saved to: /tmp/plans/final-plan.md\n\n" +
+              "## Approved Plan:\n# Final Plan\n\n- replay final approved plan",
           },
         ],
-        { toolCallId: 'call_exit_final' },
+        { toolCallId: "call_exit_final" },
       ),
-      { time: REPLAY_TIME, type: 'plan_updated', enabled: false },
+      { time: REPLAY_TIME, type: "plan_updated", enabled: false },
     ]);
 
-    const summary = driver.state.transcriptContainer.render(120).join('\n');
-    expect(summary).toContain('Used 1 tool');
-    expect(summary).not.toContain('Final Plan');
+    const summary = driver.state.transcriptContainer.render(120).join("\n");
+    expect(summary).toContain("Used 1 tool");
+    expect(summary).not.toContain("Final Plan");
 
     driver.toggleToolOutputExpansion();
-    const transcript = driver.state.transcriptContainer.render(120).join('\n');
+    const transcript = driver.state.transcriptContainer.render(120).join("\n");
 
-    expect(transcript).toContain('Plan review rejected');
-    expect(transcript).toContain('Final Plan');
-    expect(transcript).toContain('replay final approved plan');
-    expect(transcript).not.toContain('Plan rejected by user.');
-    expect(transcript).not.toContain('Plan mode: OFF');
+    expect(transcript).toContain("Plan review rejected");
+    expect(transcript).toContain("Final Plan");
+    expect(transcript).toContain("replay final approved plan");
+    expect(transcript).not.toContain("Plan rejected by user.");
+    expect(transcript).not.toContain("Plan mode: OFF");
   });
 
-  it('trims goal sessions to the most recent goal turns and hides continuation prompts', async () => {
-    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+  it("trims goal sessions to the most recent goal turns and hides continuation prompts", async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: "created" })];
     for (let i = 0; i < 25; i++) {
       replay.push(
-        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
-          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
+          origin: { kind: "system_trigger", name: "goal_continuation" },
         }),
-        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
-          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        message("assistant", [{ type: "text", text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, "Bash", { command: "ls" })],
         }),
-        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+        message("tool", [{ type: "text", text: "ok" }], { toolCallId: `call_${i}` }),
       );
     }
 
     const driver = await replayIntoDriver(replay);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
     // Continuation prompts are model-facing and never render as user bubbles.
-    expect(transcript).not.toContain('Continue working toward the active goal.');
+    expect(transcript).not.toContain("Continue working toward the active goal.");
     // Only the most recent REPLAY_TURN_LIMIT goal turns are replayed.
-    expect(transcript).not.toContain('round 0 summary');
-    expect(transcript).not.toContain('round 14 summary');
-    expect(transcript).toContain('round 15 summary');
-    expect(transcript).toContain('round 24 summary');
+    expect(transcript).not.toContain("round 0 summary");
+    expect(transcript).not.toContain("round 14 summary");
+    expect(transcript).toContain("round 15 summary");
+    expect(transcript).toContain("round 24 summary");
     expect(countToolCalls(driver.state.transcriptContainer.children)).toBe(10);
   });
 
-  it('folds oversized goal rounds even though continuation boundaries are hidden', async () => {
-    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: 'created' })];
+  it("folds oversized goal rounds even though continuation boundaries are hidden", async () => {
+    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: "created" })];
     // Ten continuation rounds — exactly at the replay turn limit, so nothing
     // is trimmed and only folding can bound the oversized final round.
     for (let i = 0; i < 9; i++) {
       replay.push(
-        message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
-          origin: { kind: 'system_trigger', name: 'goal_continuation' },
+        message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
+          origin: { kind: "system_trigger", name: "goal_continuation" },
         }),
-        message('assistant', [{ type: 'text', text: `round ${i} summary` }], {
-          toolCalls: [toolCall(`call_${i}`, 'Bash', { command: 'ls' })],
+        message("assistant", [{ type: "text", text: `round ${i} summary` }], {
+          toolCalls: [toolCall(`call_${i}`, "Bash", { command: "ls" })],
         }),
-        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `call_${i}` }),
+        message("tool", [{ type: "text", text: "ok" }], { toolCallId: `call_${i}` }),
       );
     }
     // Final round: 40 tool calls and 5 assistant texts in one continuation turn.
     replay.push(
-      message('user', [{ type: 'text', text: 'Continue working toward the active goal.' }], {
-        origin: { kind: 'system_trigger', name: 'goal_continuation' },
+      message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
+        origin: { kind: "system_trigger", name: "goal_continuation" },
       }),
     );
     for (let t = 0; t < 40; t++) {
       replay.push(
-        message('assistant', t < 5 ? [{ type: 'text', text: `final text ${t}` }] : [], {
-          toolCalls: [toolCall(`final_${t}`, 'Bash', { command: 'ls' })],
+        message("assistant", t < 5 ? [{ type: "text", text: `final text ${t}` }] : [], {
+          toolCalls: [toolCall(`final_${t}`, "Bash", { command: "ls" })],
         }),
-        message('tool', [{ type: 'text', text: 'ok' }], { toolCallId: `final_${t}` }),
+        message("tool", [{ type: "text", text: "ok" }], { toolCallId: `final_${t}` }),
       );
     }
 
@@ -1405,13 +1412,13 @@ describe('KimiTUI resume message replay', () => {
 
     const summaries = children.filter((child) => child instanceof StepSummaryComponent);
     expect(summaries).toHaveLength(1);
-    const summaryText = stripAnsi(summaries[0]!.render(120).join('\n'));
+    const summaryText = stripAnsi(summaries[0]!.render(120).join("\n"));
     expect(summaryText).toContain(`call ${40 - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
     expect(summaryText).toContain(`${5 - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
 
     // The folded content is gone from view; the latest work stays.
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).not.toContain('final text 0');
-    expect(transcript).toContain('final text 4');
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
+    expect(transcript).not.toContain("final text 0");
+    expect(transcript).toContain("final text 4");
   });
 });

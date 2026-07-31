@@ -1,4 +1,3 @@
-import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -21,7 +20,6 @@ import { resolve } from 'pathe';
 import type { CLIOptions } from '#/cli/options';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
-import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
@@ -41,7 +39,6 @@ import {
 } from './commands';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
-import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
@@ -2396,20 +2393,6 @@ export class KimiTUI {
         spinner.setLabel(nextLabel);
       },
     };
-  }
-
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
-    openUrl(auth.verificationUriComplete);
-    this.state.transcriptContainer.addChild(
-      new DeviceCodeBoxComponent({
-        title: 'Sign in to Kimi Code',
-        url: auth.verificationUriComplete,
-        code: auth.userCode,
-        hint: 'Press Ctrl-C to cancel',
-      }),
-    );
-    this.state.ui.requestRender();
-    return this.showLoginProgressSpinner('Waiting for authorization…');
   }
 
   // =========================================================================

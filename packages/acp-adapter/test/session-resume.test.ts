@@ -16,7 +16,7 @@ import {
 import { KimiError, ErrorCodes, type Event, type KimiHarness, type Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, UNAUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 /**
  * Tests for the ACP `session/resume` handler (gap-4.3). Mirrors the
@@ -103,10 +103,12 @@ function makeHarness(opts: {
   resumeError?: Error;
 }): KimiHarness {
   const authed = opts.hasUsableToken ?? true;
+  const models = makeProviderModels([
+    { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+    { id: 'test/kimi-plain', name: 'Kimi Plain' },
+  ]);
   return {
-    auth: {
-      status: async () => (authed ? AUTHED_STATUS : UNAUTHED_STATUS),
-    },
+    auth: makeAuth({ authenticated: authed, models }),
     resumeSession: async (_input: { id: string }) => {
       if (opts.resumeError) throw opts.resumeError;
       if (!opts.session) throw new Error('test harness has no session configured');
@@ -117,11 +119,7 @@ function makeHarness(opts: {
     // via `capabilities: ['thinking']`; `kimi-plain` stays off.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([
-        { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-        { id: 'kimi-plain', name: 'Kimi Plain', thinkingSupported: false },
-      ]),
+      defaultModel: 'test/kimi-coder',
     }),
   } as unknown as KimiHarness;
 }
@@ -150,7 +148,7 @@ describe('AcpServer.resumeSession', () => {
     // We use kimi-coder so the thinking option is rendered (kimi-plain
     // would suppress it via `thinkingSupported: false`).
     const session = makeSessionWithMainConfig(sessionId, {
-      modelAlias: 'kimi-coder',
+      modelAlias: 'test/kimi-coder',
       thinkingLevel: 'high',
     });
     const harness = makeHarness({ hasUsableToken: true, session });
@@ -176,11 +174,11 @@ describe('AcpServer.resumeSession', () => {
     expect(modeOpt).toBeDefined();
 
     if (modelOpt!.type !== 'select') throw new Error('model option must be a select');
-    expect(modelOpt!.currentValue).toBe('kimi-coder');
+    expect(modelOpt!.currentValue).toBe('test/kimi-coder');
 
     if (thinkingOpt!.type !== 'select') throw new Error('thinking option must be a select');
     // `thinkingLevel='high'` → boolean projection picks the `on` slot.
-    expect(thinkingOpt!.currentValue).toBe('on');
+    expect(thinkingOpt!.currentValue).toBe('high');
 
     if (modeOpt!.type !== 'select') throw new Error('mode option must be a select');
     // Mode is session-scoped and not persisted → resumed sessions

@@ -116,13 +116,10 @@ This pattern recurs throughout the codebase and confirms the rule:
   `ISessionMetadata` (`Session`, this session's metadata) + `IAgentWireRecordService` (`Agent`, this
   agent's record stream).
 - **`config`** — `IConfigRegistry` / `IConfigService` (`App`, global config).
-- **`chatProvider` / `model` / `modelRuntime`** — `IChatProviderFactory` (`App`,
-  protocol adapters keyed by provider type), `IModelService` (`App`, model-alias
-  configuration), and `IModelResolver` (`Session`, resolves the active model into a
-  runtime provider config plus request authorization). Provider connection
-  configuration lives in the sibling `provider` domain (`IProviderService`, `App`).
-  Generation itself is driven by `IAgentLLMRequesterService` (`Agent`) in the `llmRequester`
-  domain.
+- **`providerRuntime` / `modelCatalog`** — `IProviderRuntime` (`App`, providers,
+  credentials, dynamic model sources, and streaming) + `IModelCatalog` (`App`,
+  the resolved catalog consumed by profiles and clients). Generation itself is
+  driven by `IAgentLLMRequesterService` (`Agent`) in the `llmRequester` domain.
 - **`tool`** — `IToolDefinitionRegistry` (`App`, tool-definition registry) + `IToolService`
   (`Agent`, this agent's execution).
 

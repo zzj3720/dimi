@@ -5,8 +5,8 @@ transports — you pick the transport **once** at creation; everything after
 that is byte-identical:
 
 ```ts
-import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
-import { createKlient } from '@moonshot-ai/klient/memory';   // or '/ipc'
+import { bootstrap, logSeed, resolveLoggingConfig } from "@moonshot-ai/agent-core-v2";
+import { createKlient } from "@moonshot-ai/klient/memory"; // or '/ipc'
 
 const { app } = bootstrap({ homeDir }, [
   ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
@@ -17,10 +17,10 @@ const env = await klient.global.env();
 const sessions = await klient.global.sessions.list({ limit: 20 });
 
 const session = await klient.global.sessions.create({ workDir: process.cwd() });
-const agent = klient.session(session.id).agent('main');
-agent.events.on('assistant.delta', (e) => process.stdout.write(e.delta));
-agent.events.on('prompt.completed', () => console.log('\ndone'));
-await agent.prompt({ input: [{ type: 'text', text: 'Say OK.' }] });
+const agent = klient.session(session.id).agent("main");
+agent.events.on("assistant.delta", (e) => process.stdout.write(e.delta));
+agent.events.on("prompt.completed", () => console.log("\ndone"));
+await agent.prompt({ input: [{ type: "text", text: "Say OK." }] });
 
 await klient.close();
 ```
@@ -44,28 +44,28 @@ ipc │ memory
     `config.*`, `providers.*`, `models.*`, `catalog.*`, `auth.*`, `flags.*`,
     `plugins.*`, `hostFs.*`, `env()`.
   - `klient.session(id).*` — `get/setTitle/update/status/close/archive/
-    restore/fork/createChild`, `approvals.*`, `questions.*`,
+restore/fork/createChild`, `approvals.*`, `questions.*`,
     `interactions.*`, `agents()`.
   - `session.agent(id).*` — `prompt/steer/cancel/runShellCommand/
-    cancelShellCommand/getModel/setModel/setPermission/getUsage/getContext/
-    getPlan*/getTasks*/stopTask/getTaskOutput`.
+cancelShellCommand/getModel/setModel/setPermission/getUsage/getContext/
+getPlan*/getTasks*/stopTask/getTaskOutput`.
 - **Contract** — every method has a zod input tuple + output schema, validated
   on the client before send / after receive (default on; `validate: false` to
   disable). Validation is sub-µs for typical payloads — cheaper than the JSON
   serialization the wire already pays.
 - **Events** — `klient.events.on(...)` for the global bus
-  (`config.changed`, `kosong.models.changed`, `session.archived`, …),
+  (`config.changed`, `event.model_catalog.changed`, `session.archived`, …),
   `session(id).events.on('metadata.changed' | 'interactions.changed' |
-  'interactions.resolved')`, and `agent(id).events.on('turn.started' |
-  'assistant.delta' | 'tool.call.started' | 'prompt.completed' | …)`.
+'interactions.resolved')`, and `agent(id).events.on('turn.started' |
+'assistant.delta' | 'tool.call.started' | 'prompt.completed' | …)`.
   Underlying subscriptions are shared and ref-counted; payloads are
   validated; bad payloads drop to `events.onError`.
 
 ## Transports
 
-| entry | options | events |
-|---|---|---|
-| `@moonshot-ai/klient/ipc` | `{ socketPath, token? }` | same socket |
+| entry                        | options                                       | events                          |
+| ---------------------------- | --------------------------------------------- | ------------------------------- |
+| `@moonshot-ai/klient/ipc`    | `{ socketPath, token? }`                      | same socket                     |
 | `@moonshot-ai/klient/memory` | `{ scope }` (a bootstrapped engine app scope) | direct emitter/bus subscription |
 
 `ipc` and `memory` share one in-process dispatcher, so they behave identically

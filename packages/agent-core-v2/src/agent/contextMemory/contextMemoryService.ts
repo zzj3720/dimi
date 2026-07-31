@@ -9,20 +9,20 @@
  * the cut truncates it. Bound at Agent scope.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { estimateTokensForMessages } from '#/kosong/contract/tokens';
-import { IEventBus } from '#/app/event/eventBus';
-import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
-import { IWireService } from '#/wire/wire';
-import type { Op } from '#/wire/op';
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { estimateTokensForMessages } from "#/llmProtocol/tokens";
+import { IEventBus } from "#/app/event/eventBus";
+import { ContextSizeModel, contextSizeMeasured } from "#/agent/contextSize/contextSizeOps";
+import { IWireService } from "#/wire/wire";
+import type { Op } from "#/wire/op";
 
 import {
   IAgentContextMemoryService,
   type ContextCompactionInput,
   type ContextCompactionResult,
-} from './contextMemory';
-import { buildContextCompactionShape } from './compactionHandoff';
+} from "./contextMemory";
+import { buildContextCompactionShape } from "./compactionHandoff";
 import {
   computeUndoCut,
   ContextModel,
@@ -33,13 +33,13 @@ import {
   contextUndo,
   isFullyUndoable,
   type UndoCut,
-} from './contextOps';
-import type { LoopRecordedEvent } from './loopEventFold';
-import type { ContextMessage } from './types';
+} from "./contextOps";
+import type { LoopRecordedEvent } from "./loopEventFold";
+import type { ContextMessage } from "./types";
 
-declare module '#/app/event/eventBus' {
+declare module "#/app/event/eventBus" {
   interface DomainEventMap {
-    'context.spliced': {
+    "context.spliced": {
       start: number;
       deleteCount: number;
       messages: readonly ContextMessage[];
@@ -127,7 +127,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     messages: readonly ContextMessage[];
     tokens?: number;
   }): void {
-    this.eventBus.publish({ type: 'context.spliced', ...input });
+    this.eventBus.publish({ type: "context.spliced", ...input });
   }
 
   private sizeOpsForCut(cutIndex: number, history: readonly ContextMessage[]): Op[] {
@@ -147,5 +147,5 @@ registerScopedService(
   IAgentContextMemoryService,
   AgentContextMemoryService,
   ScopeActivation.OnScopeCreated,
-  'contextMemory',
+  "contextMemory",
 );

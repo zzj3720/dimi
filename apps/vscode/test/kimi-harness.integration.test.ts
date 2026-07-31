@@ -9,10 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  createKimiHarness,
-  type KimiHarness,
-} from "@moonshot-ai/kimi-code-sdk";
+import { createKimiHarness, type KimiHarness } from "@moonshot-ai/kimi-code-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
@@ -30,7 +27,8 @@ vi.mock("vscode", () => ({
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
-} from "../../../packages/kosong/test/e2e/fake-provider-harness";
+} from "../../../test/fixtures/fake-provider-harness";
+import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
 import { Events, Methods } from "../shared/bridge";
 import {
   MCP_SECRET_MASK,
@@ -98,13 +96,29 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
     await provider.close();
   };
 
-  await writeProviderConfig(homeDir, `${provider.baseUrl}/v1`, extraAliases);
   const version = await readExtensionVersion();
+  await writeRuntimeConfig(homeDir);
+  const harness = createKimiHarness({
+    homeDir,
+    identity: { userAgentProduct: "kimi-code-vscode", version },
+    providerRuntime: createTestProviderRuntime({
+      providerId: "local",
+      modelIds: [MODEL_ALIAS, ...extraAliases],
+      baseUrl: `${provider.baseUrl}/v1`,
+      apiKey: PROVIDER_TOKEN,
+      model: {
+        reasoning: true,
+        thinkingLevelMap: { off: "off", low: "low", high: "high" },
+        headers: { "User-Agent": `kimi-code-vscode/${version}` },
+      },
+    }),
+  });
   const broadcasts: BroadcastRecord[] = [];
   const logs: LogRecord[] = [];
   const runtime = new KimiRuntime({
     version,
     homeDir,
+    harness,
     broadcast: (event: string, data: unknown, webviewId?: string) => {
       broadcasts.push({ event, data, webviewId });
     },
@@ -138,10 +152,22 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
   };
 }
 
-async function createPlainHarness(homeDir: string): Promise<KimiHarness> {
+async function createPlainHarness(
+  homeDir: string,
+  provider?: FakeProviderHarness,
+): Promise<KimiHarness> {
   const harness = createKimiHarness({
     homeDir,
     identity: { userAgentProduct: "kimi-code-cli", version: "test" },
+    providerRuntime:
+      provider === undefined
+        ? undefined
+        : createTestProviderRuntime({
+            providerId: "local",
+            modelId: MODEL_ALIAS,
+            baseUrl: `${provider.baseUrl}/v1`,
+            apiKey: PROVIDER_TOKEN,
+          }),
   });
   cleanups.push(() => harness.close());
   return harness;
@@ -160,11 +186,15 @@ async function updateMcpServer(
   rig: McpHandlerRig,
   request: UpdateMCPServerRequest | MCPServerConfig,
 ): Promise<MCPServerConfig[]> {
-  return mcpHandlers[Methods.UpdateMCPServer]!(request, mcpHandlerContext(rig)) as Promise<MCPServerConfig[]>;
+  return mcpHandlers[Methods.UpdateMCPServer]!(request, mcpHandlerContext(rig)) as Promise<
+    MCPServerConfig[]
+  >;
 }
 
 async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerConfig[]> {
-  return mcpHandlers[Methods.GetMCPServers]!(undefined, mcpHandlerContext(rig)) as Promise<MCPServerConfig[]>;
+  return mcpHandlers[Methods.GetMCPServers]!(undefined, mcpHandlerContext(rig)) as Promise<
+    MCPServerConfig[]
+  >;
 }
 
 function mcpHandlerContext(rig: McpHandlerRig): HandlerContext {
@@ -188,37 +218,10 @@ async function readExtensionVersion(): Promise<string> {
   return parsed.version;
 }
 
-async function writeProviderConfig(
-  homeDir: string,
-  baseUrl: string,
-  extraAliases: readonly string[] = [],
-): Promise<void> {
-  const extra = extraAliases
-    .map(
-      (alias) => `
-[models."${alias}"]
-provider = "local"
-model = "mock-model"
-max_context_size = 128000
-capabilities = ["thinking"]
-support_efforts = ["low", "high"]
-`,
-    )
-    .join("\n");
+async function writeRuntimeConfig(homeDir: string): Promise<void> {
   await writeFile(
     join(homeDir, "config.toml"),
     `default_model = "${MODEL_ALIAS}"
-
-[providers.local]
-type = "kimi"
-base_url = "${baseUrl}"
-api_key = "${PROVIDER_TOKEN}"
-
-[models."${MODEL_ALIAS}"]
-provider = "local"
-model = "mock-model"
-max_context_size = 128000
-${extra}
 [loop_control]
 max_retries_per_step = 1
 `,
@@ -261,7 +264,10 @@ function routeBlockedPrompt(provider: FakeProviderHarness): {
   provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
     markStarted();
     await blocked;
-    await reply.sseJson(200, [completionChunk({ content: "late response" }), completionChunk({}, "stop")]);
+    await reply.sseJson(200, [
+      completionChunk({ content: "late response" }),
+      completionChunk({}, "stop"),
+    ]);
   });
   return { started, release };
 }
@@ -342,7 +348,11 @@ async function runSlash(
 
 describe("VS Code Kimi harness integration (shares one in-process SDK home)", () => {
   it("only intercepts released slash commands and user-invoked skills", () => {
-    expect(parseHostSlashCommand("/plan on")).toEqual({ name: "plan", args: "on", raw: "/plan on" });
+    expect(parseHostSlashCommand("/plan on")).toEqual({
+      name: "plan",
+      args: "on",
+      raw: "/plan on",
+    });
     expect(parseHostSlashCommand(" /skill:review carefully ")).toEqual({
       name: "skill:review",
       args: "carefully",
@@ -357,8 +367,20 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       workDir: "/workspace",
       harness: {
         listWorkspaceSkills: async () => [
-          { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
-          { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
+          {
+            name: "review",
+            description: "Review changes",
+            path: "/skills/review",
+            source: "user",
+            type: "prompt",
+          },
+          {
+            name: "reference-only",
+            description: "Reference",
+            path: "/skills/ref",
+            source: "user",
+            type: "reference",
+          },
         ],
       },
       logError: () => undefined,
@@ -385,14 +407,12 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
     await expect(session.prompt("hello")).resolves.toEqual({ status: "finished" });
 
-    expect(rig.provider.requests[0]?.headers["user-agent"]).toBe(
-      `kimi-code-vscode/${rig.version}`,
-    );
+    expect(rig.provider.requests[0]?.headers["user-agent"]).toBe(`kimi-code-vscode/${rig.version}`);
   });
 
   it("reloads sequential config writes from either harness sharing one home", async () => {
     const rig = await createRuntimeRig();
-    const plain = await createPlainHarness(rig.homeDir);
+    const plain = await createPlainHarness(rig.homeDir, rig.provider);
 
     await plain.setConfig({ thinking: { enabled: true, effort: "high" } });
     await expect(rig.runtime.harness.getConfig({ reload: true })).resolves.toMatchObject({
@@ -450,7 +470,9 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
         },
       },
     ]);
-    expect(JSON.stringify(servers)).not.toMatch(/header-secret|cookie-secret|api-key-secret|env-secret/);
+    expect(JSON.stringify(servers)).not.toMatch(
+      /header-secret|cookie-secret|api-key-secret|env-secret/,
+    );
   });
 
   it("logs a failed MCP test without returning credential values to the Webview", async () => {
@@ -465,10 +487,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       ].join("\n"),
     });
 
-    const result = await mcpHandlers[Methods.TestMCP]!(
-      { name: "broken" },
-      mcpHandlerContext(rig),
-    );
+    const result = await mcpHandlers[Methods.TestMCP]!({ name: "broken" }, mcpHandlerContext(rig));
 
     expect(result).toMatchObject({ success: false, output: expect.stringContaining("ENOENT") });
     expect(JSON.stringify(result)).not.toMatch(/header-secret|env-secret|cookie-secret/);
@@ -476,7 +495,9 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     expect(rig.logs[0]?.message).toBe('MCP server test failed for "broken"');
     expect(rig.logs[0]?.error).toBeInstanceOf(Error);
     expect((rig.logs[0]?.error as Error).message).toContain("ENOENT");
-    expect((rig.logs[0]?.error as Error).message).not.toMatch(/header-secret|env-secret|cookie-secret/);
+    expect((rig.logs[0]?.error as Error).message).not.toMatch(
+      /header-secret|env-secret|cookie-secret/,
+    );
   });
 
   it("preserves an unchanged masked HTTP credential without exposing it in the response or broadcast", async () => {
@@ -885,7 +906,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     const rig = await createRuntimeRig();
     const vscodeSession = await openRuntimeSession(rig);
     await rig.runtime.detachView("view-1");
-    const plain = await createPlainHarness(rig.homeDir);
+    const plain = await createPlainHarness(rig.homeDir, rig.provider);
 
     const listed = await plain.listSessions({ workDir: rig.workDir });
 
@@ -896,7 +917,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     const rig = await createRuntimeRig();
     const vscodeSession = await openRuntimeSession(rig);
     await rig.runtime.detachView("view-1");
-    const plain = await createPlainHarness(rig.homeDir);
+    const plain = await createPlainHarness(rig.homeDir, rig.provider);
 
     const resumed = await plain.resumeSession({ id: vscodeSession.id });
 
@@ -905,7 +926,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
   it("lists a closed plain-harness session from VS Code", async () => {
     const rig = await createRuntimeRig();
-    const plain = await createPlainHarness(rig.homeDir);
+    const plain = await createPlainHarness(rig.homeDir, rig.provider);
     const plainSession = await plain.createSession({
       id: "ses_plain_to_vscode",
       workDir: rig.workDir,
@@ -920,7 +941,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
   it("resumes a closed plain-harness session from VS Code", async () => {
     const rig = await createRuntimeRig();
-    const plain = await createPlainHarness(rig.homeDir);
+    const plain = await createPlainHarness(rig.homeDir, rig.provider);
     const plainSession = await plain.createSession({
       id: "ses_plain_to_vscode",
       workDir: rig.workDir,
@@ -1143,12 +1164,12 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     const rig = await createRuntimeRig();
     const runtime = await openRuntimeSession(rig);
 
-    await expect(runSlash(runtime, "/import missing.md", {
-      harness: rig.runtime.harness,
-      runtime: rig.runtime,
-    } as HandlerContext)).rejects.toThrow(
-      "is not a valid file path or session ID",
-    );
+    await expect(
+      runSlash(runtime, "/import missing.md", {
+        harness: rig.runtime.harness,
+        runtime: rig.runtime,
+      } as HandlerContext),
+    ).rejects.toThrow("is not a valid file path or session ID");
 
     expect(runtime.isBusy).toBe(false);
     await expect(runSlash(runtime, "/clear")).resolves.toBe(true);
@@ -1249,10 +1270,14 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
     await session.prompt("reject this request");
 
-    expect(rig.logs).toContainEqual(expect.objectContaining({
-      message: "Session turn failed",
-      error: expect.objectContaining({ message: expect.stringContaining("mock request rejected") }),
-    }));
+    expect(rig.logs).toContainEqual(
+      expect.objectContaining({
+        message: "Session turn failed",
+        error: expect.objectContaining({
+          message: expect.stringContaining("mock request rejected"),
+        }),
+      }),
+    );
   });
 
   it("settles the prompt as failed when the provider connection is unavailable", async () => {

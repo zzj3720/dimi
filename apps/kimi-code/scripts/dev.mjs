@@ -18,7 +18,9 @@ const MARKETPLACE_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 const EXTERNAL_MARKETPLACE_ENV = 'KIMI_CODE_DEV_MARKETPLACE_URL';
 
 let marketplaceServer;
-const env = { ...process.env };
+// A source checkout must run the code being developed, never hand control to
+// the release updater before the dev TUI starts.
+const env = { ...process.env, KIMI_CODE_NO_AUTO_UPDATE: '1' };
 
 const externalUrl = process.env[EXTERNAL_MARKETPLACE_ENV]?.trim();
 if (externalUrl !== undefined && externalUrl.length > 0) {

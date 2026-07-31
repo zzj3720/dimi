@@ -1,163 +1,113 @@
-# 平台与模型
+# 供应商与模型
 
-Kimi Code CLI 支持同时接入多家 LLM 平台——用 Kimi Code 托管服务一键登录、用 Anthropic API key 接 Claude、用 OpenAI 兼容协议连接第三方推理服务。每个供应商对应一种 API 协议，模型在供应商之上声明自己的名称、上下文长度和能力。本页介绍如何在 `config.toml` 里配置各种供应商。
+Kimi Code CLI 内置供应商目录。连接账号或 API 密钥后，运行时会提供该供应商当前可用的模型。供应商、认证、模型发现、请求头和流式响应现在共用同一套生命周期；`config.toml` 不再定义自定义 `[providers]` 或 `[models]` 表。
 
-## 支持的供应商类型
+## 连接供应商
 
-`providers` 表里的 `type` 字段决定使用哪种协议实现：
-
-| 类型 | 协议 | 典型用途 |
-| --- | --- | --- |
-| `kimi` | OpenAI 兼容 | Kimi Code 托管服务、Kimi Platform API 密钥 |
-| `anthropic` | Anthropic Messages | Claude 系列模型 |
-| `openai` | OpenAI Chat Completions | OpenAI 及兼容服务、DeepSeek、Qwen 等 |
-| `openai_responses` | OpenAI Responses API | OpenAI 较新的 Responses 接口 |
-| `google-genai` | Google GenAI | Gemini API |
-| `vertexai` | Google GenAI on Vertex | Google Cloud Vertex AI |
-
-所有供应商默认以流式方式与模型交互。thinking、视觉、工具调用等能力按模型名前缀自动匹配，通常不需要手动声明。
-
-**凭证优先级**：`api_key` 直接字段 > `[providers.<name>.env]` 子表键 > 两者都缺时启动报错。CLI 不会从 shell 环境变量自动取凭证——详见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
-
-## `/provider` — 交互式供应商管理
-
-不想手动编辑 TOML？在 TUI 里输入 `/provider` 打开**供应商管理器**，可以以交互方式添加或删除供应商。
-
-管理器按来源把供应商显示为一行行条目。操作方式：
-
-- ↑/↓ 移动光标，←/→ 翻页
-- `d` 键删除当前供应商（有 `[y/N]` 确认）
-- 在 `[ Add New Platform ]` 行按 Enter 添加新供应商
-
-添加时有两条路径：
-
-- **Known third-party provider**：从 [models.dev](https://models.dev/) 拉取模型目录，选供应商 → 输入 API 密钥 → 选默认模型。目录未声明协议类型的供应商（如 xai、openrouter 这类厂商专用 SDK）会按 OpenAI 兼容协议导入并显示 "guessed" 提示；目录没有可用端点时会先弹出 base URL 输入框；Amazon Bedrock / Cohere 等专有协议和无法识别的显式协议会被拒绝导入。已下线（deprecated）和 alpha 状态的模型不会出现在导入列表中
-- **Custom registry (api.json)**：粘贴自定义 registry 地址和 Bearer token，CLI 自动创建 `providers` / `models` 条目。后续启动时，同一个 registry 地址下的供应商会一起刷新，因此上游新增、删除供应商以及模型元数据变化都会同步。
-
-::: warning
-通过 `/login` 登录的 Kimi Code OAuth 托管账号不会在 `/provider` 里显示，请用 `/login` 和 `/logout` 管理。
-:::
-
-非交互环境下也可以用 shell 命令完成同样操作：[`kimi provider`](../reference/kimi-command.md#kimi-provider)。
-
-## `kimi`
-
-用于对接 Moonshot AI 的 OpenAI 兼容接口，包括 Kimi Code 托管服务和 Kimi Platform API 密钥。
-
-- 默认 `base_url`：`https://api.moonshot.ai/v1`
-- 凭证键名：`KIMI_API_KEY`、`KIMI_BASE_URL`
-- 额外能力：支持视频上传
-
-```toml
-[providers.kimi]
-type = "kimi"
-base_url = "https://api.moonshot.ai/v1"
-api_key = "sk-xxxxx"
-```
-
-> 使用 Kimi Code 托管服务时，`/login` 登录后会自动配置 `base_url` 和凭证，无需手动填写。
-
-## `anthropic`
-
-用于对接 Claude API。标准 Claude 模型自动启用视觉、工具调用及 Thinking（如支持）；自定义或未覆盖的模型需在 `[models.<alias>]` 里显式声明 `capabilities`。
-
-- 默认 `base_url`：跟随 Anthropic SDK 默认值
-- 凭证键名：`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`
-- 默认 `max_tokens`：按模型自动推断。如需覆盖，在模型别名上设 `max_output_size`
-
-```toml
-[providers.anthropic]
-type = "anthropic"
-api_key = "sk-ant-xxxxx"
-
-[models."claude-opus-4-7"]
-provider = "anthropic"
-model = "claude-opus-4-7"
-max_context_size = 200000
-# max_output_size = 32000  # 可选，省略时使用模型推断的默认值
-```
-
-## `openai`
-
-用于对接 OpenAI Chat Completions 协议，也可连接任何兼容该协议的第三方服务（覆盖 `base_url` 即可）。
-
-第三方推理模型（DeepSeek、Qwen、One API 等）开箱即用：CLI 自动处理 `reasoning_content` 字段和 `reasoning_effort` 注入。如果你的网关用非标准字段名返回推理内容，在模型别名上设 `reasoning_key` 覆盖。
-
-- 默认 `base_url`：`https://api.openai.com/v1`
-- 凭证键名：`OPENAI_API_KEY`、`OPENAI_BASE_URL`
-
-```toml
-[providers.openai]
-type = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = "sk-xxxxx"
-```
-
-## `openai_responses`
-
-对应 OpenAI 较新的 Responses API，始终以流式方式工作。配置方式与 `openai` 相同。
-
-- 默认 `base_url`：`https://api.openai.com/v1`
-- 凭证键名：`OPENAI_API_KEY`、`OPENAI_BASE_URL`
-
-```toml
-[providers.openai-responses]
-type = "openai_responses"
-base_url = "https://api.openai.com/v1"
-api_key = "sk-xxxxx"
-```
-
-## `google-genai`
-
-用于直连 Google Gemini API。thinking、视觉及多模态能力按模型名自动识别。
-
-- 凭证键名：`GOOGLE_API_KEY`
-
-```toml
-[providers.gemini]
-type = "google-genai"
-api_key = "xxxxx"
-```
-
-如需经由兼容 Gemini 协议的代理/网关访问，可设置 `base_url`（或 `GOOGLE_GEMINI_BASE_URL` 环境变量）；不填时使用 SDK 默认地址 `https://generativelanguage.googleapis.com`。
-
-> 只填**主机根地址**。Google GenAI SDK 会自行追加 API 版本与路径（如 `/v1beta/models/<model>:generateContent`），所以结尾带 `/v1beta` 会导致路径重复成 `/v1beta/v1beta/…`。
-
-```toml
-[providers.gemini]
-type = "google-genai"
-api_key = "xxxxx"
-base_url = "https://your-gateway.example"
-```
-
-## `vertexai`
-
-与 `google-genai` 共用实现，`type = "vertexai"` 时切换到 Vertex AI 访问路径。
-
-认证走 Google Cloud 标准 ADC 流程（`gcloud auth application-default login` 或 `GOOGLE_APPLICATION_CREDENTIALS` 服务账号 JSON），这部分与 Kimi Code 无关。**项目 ID 和区域必须写在 `[providers.vertexai.env]` 子表里**——直接在 shell 里 `export GOOGLE_CLOUD_PROJECT` 不会被 CLI 读取。
-
-```toml
-[providers.vertexai]
-type = "vertexai"
-
-[providers.vertexai.env]
-GOOGLE_CLOUD_PROJECT = "my-gcp-project"
-GOOGLE_CLOUD_LOCATION = "us-central1"
-```
+在终端中使用 `kimi login`，或在 TUI 中使用 `/login`。不带参数时，TUI 会先询问使用账号还是 API 密钥，再只显示支持该认证方式的供应商。使用 `/login <provider>` 可以直接进入指定供应商；如果它支持多种认证方式，TUI 会继续询问使用哪一种。认证完成后，从该供应商当前的模型目录中选择模型。
 
 ```sh
-gcloud auth application-default login   # 一次性完成认证
-kimi
+# 订阅账号登录
+kimi login kimi-coding --method oauth
+kimi login openai-codex --method oauth
+kimi login xai --method oauth
+
+# 保存 API 密钥
+kimi login anthropic --method api-key
+kimi login openai --method api-key
 ```
 
-如需让 Vertex 请求走自定义（如代理）端点，可设置 `base_url`（或 `GOOGLE_VERTEX_BASE_URL` 环境变量）；不填时使用 SDK 默认的区域化 `*-aiplatform.googleapis.com` 地址。与 `google-genai` 一样，只填主机根地址——SDK 会自行追加 `/v1beta1/publishers/google/models/…`。
+通过 `kimi login` 输入的 API 密钥保存在 `$KIMI_CODE_HOME/auth.json`。也可以设置供应商对应的环境变量；已保存凭据的优先级更高。OAuth 凭据剩余有效期不超过五分钟时会自动刷新。
 
-## OAuth 与凭证注入
+在 TUI 中，`/provider` 打开带连接状态和凭据来源的供应商列表，并为选中的供应商启动登录。`/provider <provider>` 直接连接指定供应商，`/provider refresh` 刷新所有动态模型目录，`/model` 打开所有供应商当前可用的模型，`/logout` 断开供应商。
 
-Kimi Code 托管服务使用 OAuth 而非静态 API 密钥。运行 `/login` 后，内置的认证工具链会自动写入并刷新凭证，`config.toml` 里无需手动配置这部分内容。
+## 内置供应商
 
-## 下一步
+目录包含以下供应商：
 
-- [配置文件](./config-files.md) — `providers` 和 `models` 表的完整字段参考
-- [配置覆盖](./overrides.md) — 供应商凭证的解析优先级规则
-- [环境变量](./env-vars.md) — 各供应商对应的凭证键名列表
+| 供应商 ID      | 服务                 | 认证方式                             |
+| -------------- | -------------------- | ------------------------------------ |
+| `kimi-coding`  | Kimi Code 订阅       | OAuth 或 `KIMI_API_KEY`              |
+| `openai-codex` | ChatGPT Codex        | OAuth                                |
+| `xai`          | Grok / xAI           | OAuth 或 `XAI_API_KEY`               |
+| `openai`       | OpenAI API           | `OPENAI_API_KEY`                     |
+| `anthropic`    | Anthropic API        | `ANTHROPIC_API_KEY`                  |
+| `openrouter`   | OpenRouter           | `OPENROUTER_API_KEY`                 |
+| `deepseek`     | DeepSeek             | `DEEPSEEK_API_KEY`                   |
+| `groq`         | Groq                 | `GROQ_API_KEY`                       |
+| `mistral`      | Mistral              | `MISTRAL_API_KEY`                    |
+| `together`     | Together AI          | `TOGETHER_API_KEY`                   |
+| `cerebras`     | Cerebras             | `CEREBRAS_API_KEY`                   |
+| `fireworks`    | Fireworks AI         | `FIREWORKS_API_KEY`                  |
+| `zai`          | Z.AI                 | `ZAI_API_KEY`                        |
+| `qwen`         | 阿里云百炼           | `DASHSCOPE_API_KEY`                  |
+| `moonshot`     | Moonshot AI 开放平台 | `MOONSHOT_API_KEY` 或 `KIMI_API_KEY` |
+
+`kimi-coding` 对应 `https://api.kimi.com/coding/v1` 上的 Kimi Code 平台。独立的 `moonshot` 供应商用于 Moonshot AI 开放平台账号。
+
+## 列出并刷新模型
+
+模型使用 `provider/model` 标识，例如 `anthropic/claude-sonnet-4-6`。可以查看当前目录：
+
+```sh
+kimi provider list
+kimi provider list --json
+kimi provider models
+kimi provider models anthropic
+```
+
+拥有模型列表端点的供应商会动态刷新目录。运行时把最近一次成功的目录保存在 `$KIMI_CODE_HOME/models-store.json`；上游提供 ETag 时会发送条件请求；没有动态结果时，使用内置基线模型。
+
+供应商新增或删除模型后，可以强制刷新：
+
+```sh
+kimi provider refresh
+```
+
+长期运行的 Web server 也会在后台刷新已连接的动态供应商。刷新周期通过 [`config.toml`](./config-files.md#model-catalog) 中的 `[model_catalog]` 配置。
+
+## 选择默认模型
+
+`config.toml` 保存选择和请求偏好，不保存供应商定义：
+
+```toml
+default_provider = "anthropic"
+default_model = "claude-sonnet-4-6"
+
+[thinking]
+enabled = true
+effort = "high"
+
+[model_overrides]
+temperature = 0.3
+max_completion_tokens = 8192
+```
+
+`--model` 参数和 `/model` 选择器使用同样的 `provider/model` 标识。在 TUI 中持久化选择时，会写入 `default_provider` 和 `default_model`。
+
+## 断开供应商
+
+移除已保存凭据：
+
+```sh
+kimi logout anthropic
+```
+
+通过环境变量提供的凭据在取消设置前仍然可用。退出一个供应商不会影响其他供应商的会话或凭据。
+
+## 从供应商表迁移
+
+原有 `[providers]`、`[models]`、目录导入和自定义 registry 配置不再读取。连接一个内置供应商，再从运行时目录选择模型：
+
+```sh
+kimi login <provider> --method api-key
+kimi provider models <provider>
+```
+
+如果此前把 API 密钥直接写在 `config.toml`，请迁移到对应供应商的环境变量，或通过 `kimi login` 输入。
+
+## 后续阅读
+
+- [配置文件](./config-files.md) —— 默认供应商、模型和运行时请求设置
+- [环境变量](./env-vars.md) —— 凭据与模型选择覆盖
+- [`kimi` 命令](../reference/kimi-command.md) —— 供应商、登录和退出命令参考

@@ -1,20 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
-import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
-import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import { IAgentUsageService } from '#/agent/usage/usage';
-import { IWireService } from '#/wire/wire';
+import { IAgentContextMemoryService, IAgentProfileService } from "#/index";
+import { IAgentContextSizeService } from "#/agent/contextSize/contextSize";
+import { ContextSizeModel, contextSizeMeasured } from "#/agent/contextSize/contextSizeOps";
+import type { TokenUsage } from "#/llmProtocol/usage";
+import { IAgentUsageService } from "#/agent/usage/usage";
+import { IWireService } from "#/wire/wire";
 
-import { createTestAgent, type TestAgentContext } from '../../harness';
+import { createTestAgent, type TestAgentContext } from "../../harness";
 
 function totalOf(usage: TokenUsage | undefined): number {
   if (usage === undefined) return 0;
   return usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
 }
 
-describe('Agent context size', () => {
+describe("Agent context size", () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
   let contextSize: IAgentContextSizeService;
@@ -39,11 +39,11 @@ describe('Agent context size', () => {
     }
   });
 
-  it('adopts the exchange totals as the measured context size after a turn', async () => {
+  it("adopts the exchange totals as the measured context size after a turn", async () => {
     profile.update({ activeToolNames: [] });
 
-    ctx.mockNextResponse({ type: 'text', text: 'Hi there!' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hi' }] });
+    ctx.mockNextResponse({ type: "text", text: "Hi there!" });
+    await ctx.rpc.prompt({ input: [{ type: "text", text: "hi" }] });
     await ctx.untilTurnEnd();
 
     const exchangeTotal = totalOf(usage.status().total);
@@ -67,15 +67,15 @@ describe('Agent context size', () => {
     expect((await ctx.rpc.getContext({})).tokenCount).toBe(exchangeTotal);
   });
 
-  it('repoints the measured size at the last exchange across turns', async () => {
+  it("repoints the measured size at the last exchange across turns", async () => {
     profile.update({ activeToolNames: [] });
 
-    ctx.mockNextResponse({ type: 'text', text: 'first' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hi' }] });
+    ctx.mockNextResponse({ type: "text", text: "first" });
+    await ctx.rpc.prompt({ input: [{ type: "text", text: "hi" }] });
     await ctx.untilTurnEnd();
 
-    ctx.mockNextResponse({ type: 'text', text: 'second reply, a longer one' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'again' }] });
+    ctx.mockNextResponse({ type: "text", text: "second reply, a longer one" });
+    await ctx.rpc.prompt({ input: [{ type: "text", text: "again" }] });
     await ctx.untilTurnEnd();
 
     const lastExchangeTotal = totalOf(usage.status().currentTurn);
@@ -90,8 +90,8 @@ describe('Agent context size', () => {
     expect((await ctx.rpc.getContext({})).tokenCount).toBe(lastExchangeTotal);
   });
 
-  it('estimates the not-yet-measured tail instead of dropping it', () => {
-    ctx.appendUserMessage([{ type: 'text', text: 'hello world, not measured yet' }]);
+  it("estimates the not-yet-measured tail instead of dropping it", () => {
+    ctx.appendUserMessage([{ type: "text", text: "hello world, not measured yet" }]);
 
     const size = contextSize.get();
     expect(size.measured).toBe(0);
@@ -99,8 +99,8 @@ describe('Agent context size', () => {
     expect(size.size).toBe(size.estimated);
   });
 
-  it('tolerates a stored measured prefix longer than the live context', () => {
-    ctx.appendUserMessage([{ type: 'text', text: 'only one message' }]);
+  it("tolerates a stored measured prefix longer than the live context", () => {
+    ctx.appendUserMessage([{ type: "text", text: "only one message" }]);
 
     // A corrupt/overshooting record must not push reads onto the estimate
     // branch; the measured total is clamped to the live context instead.

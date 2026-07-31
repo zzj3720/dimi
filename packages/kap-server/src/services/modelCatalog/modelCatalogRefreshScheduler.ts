@@ -3,9 +3,7 @@
  *
  * Keeps a long-lived daemon's catalog fresh by refreshing once on start and
  * then on a configurable interval, delegating the work to
- * `IProviderDiscoveryService.refreshProviderModels({ scope: 'all' })` (which
- * refreshes every refreshable provider — managed OAuth + open platforms +
- * custom registries — and publishes `event.model_catalog.changed` on change).
+ * `IProviderRuntime.refresh()` which refreshes every dynamic provider.
  *
  * The cadence is config-driven: the `[model_catalog]` config section
  * (`refresh_interval_ms`, `refresh_on_start`) is read first, with the
@@ -18,26 +16,27 @@
 
 import {
   type IConfigService,
-  type IProviderDiscoveryService,
+  type IProviderRuntime,
   type ModelCatalogConfig,
   MODEL_CATALOG_SECTION,
-} from '@moonshot-ai/agent-core-v2';
+} from "@moonshot-ai/agent-core-v2";
 
-import type { ServerLogger } from '../pinoLoggerService';
+import type { ServerLogger } from "../pinoLoggerService";
 
 const DEFAULT_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const INTERVAL_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS';
-const REFRESH_ON_START_ENV = 'KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START';
+const INTERVAL_ENV = "KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS";
+const REFRESH_ON_START_ENV = "KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START";
 
 export class ModelCatalogRefreshScheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
+  private refreshPromise: Promise<void> | undefined;
   private started = false;
   private disposed = false;
 
   constructor(
-    private readonly discovery: IProviderDiscoveryService,
+    private readonly providers: IProviderRuntime,
     private readonly config: IConfigService,
-    private readonly logger: Pick<ServerLogger, 'info' | 'warn'>,
+    private readonly logger: Pick<ServerLogger, "info" | "warn">,
     private readonly env: NodeJS.ProcessEnv = process.env,
   ) {}
 
@@ -52,37 +51,54 @@ export class ModelCatalogRefreshScheduler {
     const refreshOnStart = resolveRefreshOnStart(this.env, catalogConfig?.refreshOnStart);
 
     if (refreshOnStart) {
-      void this.refresh('startup');
+      void this.scheduleRefresh("startup");
     }
 
     if (intervalMs > 0) {
-      this.timer = setInterval(() => void this.refresh('interval'), intervalMs);
+      this.timer = setInterval(() => void this.scheduleRefresh("interval"), intervalMs);
       this.timer.unref?.();
-      this.logger.info({ intervalMs }, 'provider-model catalog auto-refresh enabled');
+      this.logger.info({ intervalMs }, "provider-model catalog auto-refresh enabled");
     }
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true;
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+    await this.refreshPromise;
   }
 
-  private async refresh(trigger: 'startup' | 'interval'): Promise<void> {
+  private scheduleRefresh(trigger: "startup" | "interval"): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.refreshPromise !== undefined) return this.refreshPromise;
+    const pending = this.refresh(trigger).finally(() => {
+      if (this.refreshPromise === pending) this.refreshPromise = undefined;
+    });
+    this.refreshPromise = pending;
+    return pending;
+  }
+
+  private async refresh(trigger: "startup" | "interval"): Promise<void> {
     try {
-      const result = await this.discovery.refreshProviderModels({ scope: 'all' });
-      if (result.failed.length > 0) {
+      const result = await this.providers.refresh({ allowNetwork: true });
+      if (result.errors.size > 0) {
         this.logger.warn(
-          { trigger, failed: result.failed },
-          'provider-model catalog refresh completed with failures',
+          {
+            trigger,
+            failed: [...result.errors].map(([provider, error]) => ({
+              provider,
+              message: error.message,
+            })),
+          },
+          "provider-model catalog refresh completed with failures",
         );
       }
     } catch (error) {
       this.logger.warn(
         { trigger, err: error instanceof Error ? error.message : String(error) },
-        'provider-model catalog refresh failed',
+        "provider-model catalog refresh failed",
       );
     }
   }
@@ -103,7 +119,7 @@ function resolveRefreshOnStart(env: NodeJS.ProcessEnv, configValue: boolean | un
   const raw = env[REFRESH_ON_START_ENV];
   if (raw !== undefined && raw.trim().length > 0) {
     const normalized = raw.trim().toLowerCase();
-    return normalized === '1' || normalized === 'true' || normalized === 'yes';
+    return normalized === "1" || normalized === "true" || normalized === "yes";
   }
   return configValue ?? true;
 }

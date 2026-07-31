@@ -6,10 +6,10 @@
  * that content while preserving newly generated recovery media.
  */
 
-import { createDecorator } from '#/_base/di/instantiation';
-import type { Message } from '#/kosong/contract/message';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Message } from "#/llmProtocol/message";
 
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ContextMessage } from "#/agent/contextMemory/types";
 
 declare const mediaStripSnapshotBrand: unique symbol;
 
@@ -31,5 +31,5 @@ export interface IAgentContextProjectorService {
 }
 
 export const IAgentContextProjectorService = createDecorator<IAgentContextProjectorService>(
-  'agentContextProjectorService',
+  "agentContextProjectorService",
 );

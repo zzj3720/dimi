@@ -1,18 +1,18 @@
-import { createDecorator } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
-import { Error2, isError2, type Error2Options } from '#/_base/errors/errors';
-import type { FinishReason } from '#/kosong/contract/provider';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import type { Hooks } from '#/hooks';
-import { LoopErrors } from './errors';
-import type { StepRequest } from './stepRequest';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { IDisposable } from "#/_base/di/lifecycle";
+import { Error2, isError2, type Error2Options } from "#/_base/errors/errors";
+import type { FinishReason } from "#/llmProtocol/provider";
+import type { TokenUsage } from "#/llmProtocol/usage";
+import type { Hooks } from "#/hooks";
+import { LoopErrors } from "./errors";
+import type { StepRequest } from "./stepRequest";
 
 export type LoopErrorCode = (typeof LoopErrors.codes)[keyof typeof LoopErrors.codes];
 
 export class LoopError extends Error2 {
   constructor(code: LoopErrorCode, message: string, options?: Error2Options) {
     super(code, message, options);
-    this.name = 'LoopError';
+    this.name = "LoopError";
   }
 }
 
@@ -71,29 +71,29 @@ export interface LoopRunOptions {
 
 export type LoopRunResult =
   | {
-      readonly type: 'completed';
+      readonly type: "completed";
       readonly steps: number;
       readonly truncated: boolean;
     }
   | {
-      readonly type: 'failed';
+      readonly type: "failed";
       readonly steps: number;
       readonly error: unknown;
     }
   | {
-      readonly type: 'cancelled';
+      readonly type: "cancelled";
       readonly steps: number;
       readonly reason: unknown;
     };
 
 export type TurnResult = LoopRunResult;
 
-export type StepState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type StepState = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export type StepResult =
-  | { readonly type: 'completed' }
-  | { readonly type: 'failed'; readonly error: unknown }
-  | { readonly type: 'cancelled'; readonly reason: unknown };
+  | { readonly type: "completed" }
+  | { readonly type: "failed"; readonly error: unknown }
+  | { readonly type: "cancelled"; readonly reason: unknown };
 
 export interface Step {
   readonly id: string;
@@ -106,7 +106,7 @@ export interface Step {
 
 export interface Turn {
   readonly id: number;
-  readonly state?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  readonly state?: "queued" | "running" | "completed" | "failed" | "cancelled";
   readonly signal: AbortSignal;
   readonly ready: Promise<void>;
   readonly result: Promise<LoopRunResult>;
@@ -124,7 +124,7 @@ export interface EnqueueReceipt {
 }
 
 export interface AgentLoopStatus {
-  readonly state: 'idle' | 'running';
+  readonly state: "idle" | "running";
   readonly activeTurnId?: number;
   readonly pendingTurnIds: readonly number[];
   readonly hasPendingRequests: boolean;
@@ -132,7 +132,7 @@ export interface AgentLoopStatus {
 }
 
 export interface StepEnqueueOptions {
-  readonly at?: 'head' | 'tail';
+  readonly at?: "head" | "tail";
 }
 
 export interface IAgentLoopService {
@@ -165,4 +165,4 @@ export interface IAgentLoopService {
   }>;
 }
 
-export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');
+export const IAgentLoopService = createDecorator<IAgentLoopService>("agentLoopService");

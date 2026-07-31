@@ -1,11 +1,19 @@
 import { useState } from "react";
-import { IconSettings, IconServer, IconLogout, IconLogin, IconLoader2, IconRefresh, IconFileText, IconFolder } from "@tabler/icons-react";
+import {
+  IconSettings,
+  IconServer,
+  IconLogout,
+  IconLogin,
+  IconLoader2,
+  IconRefresh,
+  IconFileText,
+  IconFolder,
+} from "@tabler/icons-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsStore } from "@/stores";
 import { bridge } from "@/services";
-import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
 interface ActionMenuProps {
@@ -13,7 +21,15 @@ interface ActionMenuProps {
   onAuthAction?: () => void;
 }
 
-function MenuSection({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function MenuSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="py-1">
       <div className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center justify-between">
@@ -25,7 +41,17 @@ function MenuSection({ title, subtitle, children }: { title: string; subtitle?: 
   );
 }
 
-function MenuItem({ onClick, disabled, danger, children }: { onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+function MenuItem({
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
@@ -72,19 +98,15 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
   };
 
   const handleAuthAction = async () => {
+    if (!isLoggedIn) {
+      setOpen(false);
+      onAuthAction?.();
+      return;
+    }
     setLoading(true);
     try {
-      if (isLoggedIn) {
-        await bridge.logout();
-        setIsLoggedIn(false);
-      } else {
-        const result = await bridge.login();
-        if (result.success) {
-          setIsLoggedIn(true);
-        } else {
-          toast.error(result.error ?? "Sign-in failed. Check the logs for details.");
-        }
-      }
+      await bridge.logout();
+      setIsLoggedIn(false);
     } finally {
       setLoading(false);
       setOpen(false);
@@ -118,7 +140,10 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
 
         <Separator className="my-px" />
 
-        <MenuSection title="Support" subtitle={extensionConfig.version ? `v${extensionConfig.version}` : undefined}>
+        <MenuSection
+          title="Support"
+          subtitle={extensionConfig.version ? `v${extensionConfig.version}` : undefined}
+        >
           <MenuItem onClick={handleShowLogs}>
             <IconFileText className="size-4 text-muted-foreground" />
             <span className="flex-1">Show Logs</span>
@@ -139,8 +164,16 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
             disabled={loading}
             danger={isLoggedIn}
           >
-            {loading ? <IconLoader2 className="size-4 animate-spin" /> : isLoggedIn ? <IconLogout className="size-4" /> : <IconLogin className="size-4 text-muted-foreground" />}
-            <span className="flex-1">{loading ? "Processing..." : isLoggedIn ? "Sign out" : "Sign in"}</span>
+            {loading ? (
+              <IconLoader2 className="size-4 animate-spin" />
+            ) : isLoggedIn ? (
+              <IconLogout className="size-4" />
+            ) : (
+              <IconLogin className="size-4 text-muted-foreground" />
+            )}
+            <span className="flex-1">
+              {loading ? "Processing..." : isLoggedIn ? "Sign out" : "Sign in"}
+            </span>
           </MenuItem>
         </MenuSection>
       </PopoverContent>

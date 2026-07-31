@@ -4,7 +4,7 @@
  * When enabled through `flag`, runs the secondary-model check once per session
  * when the main agent appears (`agentLifecycle` onDidCreate, or an
  * already-present main at construction):
- * resolves the pointed entry through the kosong `modelCatalog` and, when the
+ * resolves the pointed entry through the LLM protocol `modelCatalog` and, when the
  * recipe carries patch fields, checks `default_effort` against the patched
  * `supportEfforts` (what the derived entry will carry) — on failure, caches a
  * warning and publishes it as a `warning` event on the main agent's
@@ -17,35 +17,31 @@
  * backstop. Bound at Session scope.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable } from "#/_base/di/lifecycle";
 import {
   type IAgentScopeHandle,
   LifecycleScope,
   ScopeActivation,
   registerScopedService,
-} from '#/_base/di/scope';
-import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
+} from "#/_base/di/scope";
+import { IConfigService } from "#/app/config/config";
+import { IEventBus } from "#/app/event/eventBus";
+import { IFlagService } from "#/app/flag/flag";
 import {
   SECONDARY_MODEL_EFFORT_ENV,
   SECONDARY_MODEL_ENV,
-} from '#/app/kosongConfig/configSection';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { secondaryModelPatch } from '#/app/kosongConfig/secondaryModelOverlay';
-import { normalizeRequestedThinkingEffort } from '#/kosong/model/thinking';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
+} from "#/app/providerRuntime/configSection";
+import { IModelCatalog, type Model, modelThinkingLevels } from "#/app/modelCatalog/catalog";
+import { normalizeRequestedThinkingEffort } from "#/app/modelCatalog/thinking";
+import { IAgentLifecycleService, MAIN_AGENT_ID } from "#/session/agentLifecycle/agentLifecycle";
 
-import { resolveSecondaryModel } from './configSection';
+import { resolveSecondaryModel } from "./configSection";
 import {
   ISessionSecondaryModelWarningService,
   SECONDARY_MODEL_EFFORT_WARNING_CODE,
   SECONDARY_MODEL_INVALID_WARNING_CODE,
   type SecondaryModelWarning,
-} from './secondaryModelWarning';
+} from "./secondaryModelWarning";
 
 export class SessionSecondaryModelWarningService
   extends Disposable
@@ -82,14 +78,11 @@ export class SessionSecondaryModelWarningService
     const changed =
       previous?.code !== this.warning?.code || previous?.message !== this.warning?.message;
     if (changed && this.warning !== undefined) {
-      this.agentLifecycle
-        .get(MAIN_AGENT_ID)
-        ?.accessor.get(IEventBus)
-        .publish({
-          type: 'warning',
-          code: this.warning.code,
-          message: this.warning.message,
-        });
+      this.agentLifecycle.get(MAIN_AGENT_ID)?.accessor.get(IEventBus).publish({
+        type: "warning",
+        code: this.warning.code,
+        message: this.warning.message,
+      });
     }
     return this.warning;
   }
@@ -100,7 +93,7 @@ export class SessionSecondaryModelWarningService
     this.warning = this.computeWarning();
     if (this.warning !== undefined) {
       main.accessor.get(IEventBus).publish({
-        type: 'warning',
+        type: "warning",
         code: this.warning.code,
         message: this.warning.message,
       });
@@ -112,25 +105,21 @@ export class SessionSecondaryModelWarningService
     if (secondary?.model === undefined) return undefined;
     let model: Model;
     try {
-      model = this.modelCatalog.get(secondary.model);
+      model = this.modelCatalog.get(
+        secondary.provider === undefined
+          ? secondary.model
+          : `${secondary.provider}/${secondary.model}`,
+      );
     } catch (error) {
       return {
         code: SECONDARY_MODEL_INVALID_WARNING_CODE,
         message:
           `Secondary model "${secondary.model}" (from [secondary_model].model / ${SECONDARY_MODEL_ENV}) ` +
           `could not be resolved: ${error instanceof Error ? error.message : String(error)}. ` +
-          'Subagent spawning will fail until this is fixed.',
+          "Subagent spawning will fail until this is fixed.",
       };
     }
-    // The effort check targets what subagents actually bind: with patch
-    // fields the derived entry carries the patched `supportEfforts`, without
-    // them the pointed entry's own list applies.
-    const patch = secondaryModelPatch(secondary);
-    return effortWarning(
-      secondary.model,
-      secondary.defaultEffort,
-      patch?.supportEfforts ?? model.supportEfforts,
-    );
+    return effortWarning(secondary.model, secondary.defaultEffort, modelThinkingLevels(model));
   }
 }
 
@@ -140,7 +129,7 @@ function effortWarning(
   supportEfforts: readonly string[] | undefined,
 ): SecondaryModelWarning | undefined {
   const requested = normalizeRequestedThinkingEffort(effort);
-  if (requested === undefined || requested === 'off' || requested === 'on') return undefined;
+  if (requested === undefined || requested === "off" || requested === "on") return undefined;
   const known = (supportEfforts ?? [])
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
@@ -149,8 +138,8 @@ function effortWarning(
     code: SECONDARY_MODEL_EFFORT_WARNING_CODE,
     message:
       `Secondary model default effort "${requested}" (from [secondary_model].default_effort / ${SECONDARY_MODEL_EFFORT_ENV}) ` +
-      `is not listed for model "${alias}" (known: ${known.join(', ')}). ` +
-      'Subagents may clamp or reject it.',
+      `is not listed for model "${alias}" (known: ${known.join(", ")}). ` +
+      "Subagents may clamp or reject it.",
   };
 }
 
@@ -159,5 +148,5 @@ registerScopedService(
   ISessionSecondaryModelWarningService,
   SessionSecondaryModelWarningService,
   ScopeActivation.OnScopeCreated,
-  'subagent',
+  "subagent",
 );

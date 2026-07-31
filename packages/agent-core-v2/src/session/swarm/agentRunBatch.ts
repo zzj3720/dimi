@@ -8,13 +8,12 @@
  * `SessionSwarmService` imports it.
  */
 
-import { isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
-import * as retry from 'retry';
+import { isProviderRateLimitError } from "#/llmProtocol/errors";
+import { type TokenUsage } from "#/llmProtocol/usage";
+import * as retry from "retry";
 
-import { isUserCancellation } from '#/_base/utils/abort';
-import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
-
+import { isUserCancellation } from "#/_base/utils/abort";
+import type { SessionSwarmRunResult, SessionSwarmTask } from "./sessionSwarm";
 
 export interface AgentRunAttemptOptions {
   readonly parentToolCallId: string;
@@ -43,16 +42,15 @@ export type AgentRunAttemptHandle = {
   }>;
 };
 
-
 const INITIAL_LAUNCH_LIMIT = 5;
 const INITIAL_LAUNCH_INTERVAL_MS = 700;
 const RATE_LIMIT_RETRY_BASE_MS = 3000;
 const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
-const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
+const RATE_LIMIT_SUSPENDED_REASON = "Provider rate limit; subagent requeued for retry.";
 
-const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
+const AGENT_SWARM_MAX_CONCURRENCY_ENV = "KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY";
 
 export type QueuedAgentRunTask<T = unknown> = SessionSwarmTask<T>;
 
@@ -74,7 +72,7 @@ export type AgentRunBatchLauncher = {
 };
 
 type RateLimitedOutcome = {
-  readonly type: 'rate_limited';
+  readonly type: "rate_limited";
   readonly agentId: string;
   readonly error: string;
 };
@@ -149,14 +147,14 @@ export class AgentRunBatch<T> {
       if (isUserCancellation(this.batchSignal?.reason)) {
         this.finishWithUserCancellation();
       } else {
-        this.fail(this.batchSignal?.reason ?? new Error('Aborted'));
+        this.fail(this.batchSignal?.reason ?? new Error("Aborted"));
       }
     };
   }
 
   run(): Promise<Array<AgentRunResult<T>>> {
     if (this.started) {
-      throw new Error('AgentRunBatch.run() can only be called once.');
+      throw new Error("AgentRunBatch.run() can only be called once.");
     }
     this.started = true;
 
@@ -174,7 +172,7 @@ export class AgentRunBatch<T> {
         return;
       }
 
-      this.batchSignal?.addEventListener('abort', this.batchAbortListener, { once: true });
+      this.batchSignal?.addEventListener("abort", this.batchAbortListener, { once: true });
       this.schedule();
     });
   }
@@ -296,7 +294,7 @@ export class AgentRunBatch<T> {
       attempt.controller.signal.throwIfAborted();
       if (attempt.state.retryAgentId !== undefined) {
         handle = await this.launcher.retry(attempt.state.retryAgentId, runOptions);
-      } else if (task.kind === 'resume') {
+      } else if (task.kind === "resume") {
         handle = await this.launcher.resume(task.resumeAgentId, runOptions);
       } else {
         const spawnOptions: AgentSpawnAttemptOptions = {
@@ -317,16 +315,16 @@ export class AgentRunBatch<T> {
       return {
         task,
         agentId: handle.agentId,
-        status: 'completed',
+        status: "completed",
         result: completion.result,
         usage: completion.usage,
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
         return {
-          type: 'rate_limited',
+          type: "rate_limited",
           agentId: handle.agentId,
-          error: this.attemptErrorMessage(attempt, error, 'failed'),
+          error: this.attemptErrorMessage(attempt, error, "failed"),
         };
       }
 
@@ -337,13 +335,13 @@ export class AgentRunBatch<T> {
   private failedAttemptOutcome(attempt: ActiveAttempt<T>, error: unknown): AgentRunResult<T> {
     const status =
       attempt.controller.signal.aborted && isUserCancellation(attempt.controller.signal.reason)
-        ? 'aborted'
-        : 'failed';
+        ? "aborted"
+        : "failed";
     return {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
       status,
-      state: attempt.state.agentId === undefined ? 'not_started' : 'started',
+      state: attempt.state.agentId === undefined ? "not_started" : "started",
       error: this.attemptErrorMessage(attempt, error, status),
     };
   }
@@ -368,14 +366,14 @@ export class AgentRunBatch<T> {
     if (!this.releaseAttempt(attempt)) return;
     if (this.finished) return;
 
-    if ('status' in outcome) {
+    if ("status" in outcome) {
       this.results[attempt.state.index] = outcome;
     } else if (this.isOnlyUnfinishedTask(attempt.state)) {
       this.results[attempt.state.index] = {
         task: attempt.state.task,
         agentId: outcome.agentId,
-        status: 'failed',
-        state: 'started',
+        status: "failed",
+        state: "started",
         error: outcome.error,
       };
     } else {
@@ -390,7 +388,7 @@ export class AgentRunBatch<T> {
     this.results[attempt.state.index] = {
       task: attempt.state.task,
       agentId: attempt.state.agentId,
-      status: 'failed',
+      status: "failed",
       error: error instanceof Error ? error.message : String(error),
     };
     this.schedule();
@@ -482,10 +480,7 @@ export class AgentRunBatch<T> {
       return Number.POSITIVE_INFINITY;
     }
 
-    const latestCapacityChangeAt = Math.max(
-      this.lastRateLimitAt,
-      this.lastCapacityRecoveryAt ?? 0,
-    );
+    const latestCapacityChangeAt = Math.max(this.lastRateLimitAt, this.lastCapacityRecoveryAt ?? 0);
     return latestCapacityChangeAt + RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS;
   }
 
@@ -541,19 +536,19 @@ export class AgentRunBatch<T> {
           return {
             task: state.task,
             agentId: state.agentId,
-            status: 'aborted',
-            state: 'started',
+            status: "aborted",
+            state: "started",
             error:
-              'The user manually interrupted this subagent batch before this subagent finished.',
+              "The user manually interrupted this subagent batch before this subagent finished.",
           };
         }
 
         return {
           task: state.task,
-          status: 'aborted',
-          state: 'not_started',
+          status: "aborted",
+          state: "not_started",
           error:
-            'The user manually interrupted this subagent batch before this subagent was started.',
+            "The user manually interrupted this subagent batch before this subagent was started.",
         };
       }),
     );
@@ -574,7 +569,7 @@ export class AgentRunBatch<T> {
   }
 
   private cleanup(): void {
-    this.batchSignal?.removeEventListener('abort', this.batchAbortListener);
+    this.batchSignal?.removeEventListener("abort", this.batchAbortListener);
     this.clearNormalTimer();
     this.clearRateLimitTimer();
     for (const attempt of this.active.values()) {
@@ -605,7 +600,7 @@ export class AgentRunBatch<T> {
         ? undefined
         : setTimeout(() => {
             attempt.timedOut = true;
-            attempt.controller.abort(new Error('Aborted'));
+            attempt.controller.abort(new Error("Aborted"));
           }, task.timeout);
 
     if (this.controller.signal.aborted) {
@@ -613,26 +608,26 @@ export class AgentRunBatch<T> {
     } else if (task.signal?.aborted === true) {
       abortFromTask();
     } else {
-      this.controller.signal.addEventListener('abort', abortFromBatch, { once: true });
-      task.signal?.addEventListener('abort', abortFromTask, { once: true });
+      this.controller.signal.addEventListener("abort", abortFromBatch, { once: true });
+      task.signal?.addEventListener("abort", abortFromTask, { once: true });
     }
 
     return () => {
       if (timeout !== undefined) clearTimeout(timeout);
-      this.controller.signal.removeEventListener('abort', abortFromBatch);
-      task.signal?.removeEventListener('abort', abortFromTask);
+      this.controller.signal.removeEventListener("abort", abortFromBatch);
+      task.signal?.removeEventListener("abort", abortFromTask);
     };
   }
 
   private attemptErrorMessage(
     attempt: ActiveAttempt<T>,
     error: unknown,
-    status: AgentRunResult<T>['status'],
+    status: AgentRunResult<T>["status"],
   ): string {
     if (attempt.timedOut && attempt.state.task.timeout !== undefined) {
-      return 'Subagent timed out.';
+      return "Subagent timed out.";
     }
-    if (status === 'aborted') return 'The user manually interrupted this subagent batch.';
+    if (status === "aborted") return "The user manually interrupted this subagent batch.";
     return error instanceof Error ? error.message : String(error);
   }
 }
@@ -641,7 +636,7 @@ export function resolveSwarmMaxConcurrency(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): number | undefined {
   const raw = env[AGENT_SWARM_MAX_CONCURRENCY_ENV];
-  if (raw === undefined || raw.trim() === '') return undefined;
+  if (raw === undefined || raw.trim() === "") return undefined;
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(
@@ -650,4 +645,3 @@ export function resolveSwarmMaxConcurrency(
   }
   return value;
 }
-

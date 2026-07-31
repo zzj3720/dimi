@@ -8,12 +8,12 @@
  * turn. Bound at Session scope.
  */
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from "#/llmProtocol/message";
 
-import { createDecorator } from '#/_base/di/instantiation';
-import type { Turn } from '#/agent/loop/loop';
-import type { CronTask, CronTaskInit } from '#/app/cron/cronTask';
-import type { ParsedCronExpression } from '#/app/cron/cron-expr';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Turn } from "#/agent/loop/loop";
+import type { CronTask, CronTaskInit } from "#/app/cron/cronTask";
+import type { ParsedCronExpression } from "#/app/cron/cron-expr";
 
 export interface CronLoadOptions {
   readonly replace?: boolean;
@@ -50,4 +50,4 @@ export interface ISessionCronService {
   emitDeleted(taskId: string, agentId?: string): void;
 }
 
-export const ISessionCronService = createDecorator<ISessionCronService>('sessionCronService');
+export const ISessionCronService = createDecorator<ISessionCronService>("sessionCronService");

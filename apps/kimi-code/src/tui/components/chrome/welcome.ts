@@ -27,16 +27,17 @@ export class WelcomeComponent implements Component {
     const primary = (s: string): string => chalk.hex(currentTheme.palette.primary)(s);
     const isLoggedOut = !this.state.model;
     const activeModel = this.state.availableModels[this.state.model];
-    const effectiveActiveModel = activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
+    const effectiveActiveModel =
+      activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
 
     if (safeWidth < 24) {
       const title = chalk.bold.hex(currentTheme.palette.primary)('Welcome to Kimi Code!');
       const prompt = isLoggedOut
-        ? chalk.hex(currentTheme.palette.warning)('Run /login or /provider to get started.')
+        ? chalk.hex(currentTheme.palette.warning)('Run /login to connect a provider.')
         : chalk.hex(currentTheme.palette.textDim)('Send /help for help information.');
       const model = isLoggedOut
-        ? chalk.hex(currentTheme.palette.warning)('not set, run /login or /provider')
-        : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
+        ? chalk.hex(currentTheme.palette.warning)('not set, run /login')
+        : effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model;
       return ['', title, prompt, `Model: ${model}`].map((line) =>
         truncateToWidth(line, safeWidth, '…'),
       );
@@ -59,7 +60,7 @@ export class WelcomeComponent implements Component {
     const dim = chalk.hex(currentTheme.palette.textDim);
     const labelStyle = chalk.bold.hex(currentTheme.palette.textDim);
     const rightRow1 = truncateToWidth(
-      dim(isLoggedOut ? 'Run /login or /provider to get started.' : 'Send /help for help information.'),
+      dim(isLoggedOut ? 'Run /login to connect a provider.' : 'Send /help for help information.'),
       textWidth,
       '…',
     );
@@ -73,8 +74,8 @@ export class WelcomeComponent implements Component {
     }
 
     const modelValue = isLoggedOut
-      ? chalk.hex(currentTheme.palette.warning)('not set, run /login or /provider')
-      : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
+      ? chalk.hex(currentTheme.palette.warning)('not set, run /login')
+      : effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model;
 
     const infoLines = [
       labelStyle('Directory: ') + this.state.workDir,

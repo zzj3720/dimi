@@ -13,18 +13,18 @@
  * closure; media tooling doesn't need to know about tokens.
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
-import type { VideoUploadEvent } from '#/app/telemetry/events';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ModelCapability } from "#/llmProtocol/capability";
+import type { ModelRequester } from "#/app/modelCatalog/modelRequester";
+import type { VideoUploadEvent } from "#/app/telemetry/events";
+import type { ITelemetryService } from "#/app/telemetry/telemetry";
 
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import type { WorkspaceConfig } from '#/tool/path-access';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
-import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
+import type { WorkspaceConfig } from "#/tool/path-access";
+import type { IHostFileSystem } from "#/os/interface/hostFileSystem";
+import type { IHostEnvironment } from "#/os/interface/hostEnvironment";
+import type { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { ReadMediaFileTool } from "#/agent/tools/read-media-file/readMediaFileTool";
+import type { VideoUploader } from "#/agent/tools/read-media-file/read-media-file";
 
 export interface RegisterMediaToolsDeps {
   readonly fs: IHostFileSystem;
@@ -57,7 +57,7 @@ export function registerMediaTools(
 }
 
 export function createVideoUploader(
-  requester: Pick<ModelRequester, 'uploadVideo'> | undefined,
+  requester: Pick<ModelRequester, "uploadVideo"> | undefined,
   telemetry?: VideoUploadTelemetry,
 ): VideoUploader | undefined {
   const uploadVideo = requester?.uploadVideo;
@@ -74,20 +74,19 @@ export function createVideoUploader(
     };
     const track = (props: VideoUploadEvent): void => {
       try {
-        telemetry.client.track2('video_upload', props);
-      } catch {
-      }
+        telemetry.client.track2("video_upload", props);
+      } catch {}
     };
     try {
       const part = await bound(input, options);
-      track({ ...base, outcome: 'success', duration_ms: Date.now() - startedAt });
+      track({ ...base, outcome: "success", duration_ms: Date.now() - startedAt });
       return part;
     } catch (error) {
       track({
         ...base,
-        outcome: 'error',
+        outcome: "error",
         duration_ms: Date.now() - startedAt,
-        error_type: error instanceof Error ? error.name : 'Unknown',
+        error_type: error instanceof Error ? error.name : "Unknown",
       });
       throw error;
     }
@@ -96,5 +95,5 @@ export function createVideoUploader(
 
 export interface VideoUploadTelemetry {
   readonly client: ITelemetryService;
-  readonly props?: Pick<VideoUploadEvent, 'model' | 'provider_type' | 'protocol'>;
+  readonly props?: Pick<VideoUploadEvent, "model" | "provider_type" | "protocol">;
 }

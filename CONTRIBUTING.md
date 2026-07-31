@@ -30,7 +30,7 @@ This is a pnpm monorepo. The most relevant entry points are:
 - `apps/kimi-code` — CLI / TUI
 - `apps/vis` — session replay & debugging visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/agent-core-v2`, `kosong`, `kaos`, `oauth`, `telemetry` — internal runtime packages
+- `packages/agent-core-v2`, `kaos`, `oauth`, `telemetry` — internal runtime packages
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [AGENTS.md](AGENTS.md).
@@ -58,18 +58,18 @@ Useful scripts:
 
 All commits and PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/).
 
-| Type     | Use for                                     | Example                                   |
-|----------|---------------------------------------------|-------------------------------------------|
-| feat     | A new feature                               | feat(agent-core): add tool dedup          |
-| fix      | A bug fix                                   | fix(tui): correct status bar alignment    |
-| docs     | Documentation only                          | docs: clarify install instructions        |
-| chore    | Tooling / housekeeping                      | chore: bump dependencies                  |
-| refactor | Internal refactor without behavior change   | refactor(kosong): extract retry helper    |
-| test     | Adding or improving tests                   | test(agent-core): cover skill resolver    |
-| ci       | CI / build pipeline changes                 | ci: cache pnpm store                      |
-| build    | Build system / artifact changes             | build(native): add win32-arm64 target     |
-| perf     | Performance improvement                     | perf(session): batch event flushes        |
-| style    | Formatting only (no logic)                  | style: apply oxlint --fix                 |
+| Type     | Use for                                   | Example                                 |
+| -------- | ----------------------------------------- | --------------------------------------- |
+| feat     | A new feature                             | feat(agent-core): add tool dedup        |
+| fix      | A bug fix                                 | fix(tui): correct status bar alignment  |
+| docs     | Documentation only                        | docs: clarify install instructions      |
+| chore    | Tooling / housekeeping                    | chore: bump dependencies                |
+| refactor | Internal refactor without behavior change | refactor(runtime): extract retry helper |
+| test     | Adding or improving tests                 | test(agent-core): cover skill resolver  |
+| ci       | CI / build pipeline changes               | ci: cache pnpm store                    |
+| build    | Build system / artifact changes           | build(native): add win32-arm64 target   |
+| perf     | Performance improvement                   | perf(session): batch event flushes      |
+| style    | Formatting only (no logic)                | style: apply oxlint --fix               |
 
 PR titles are enforced by the `pr-title-checker` workflow — a non-conforming title will block merge.
 

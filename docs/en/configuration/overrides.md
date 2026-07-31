@@ -1,101 +1,75 @@
 # Config overrides
 
-Kimi Code CLI has three places where runtime parameters can be influenced: the config file, command-line options, and environment variables. They are not a simple "whoever has higher priority wins" relationship — the three serve different scenarios and have non-overlapping scopes:
+Kimi Code CLI keeps persistent preferences, provider credentials, and one-off runtime changes in separate channels:
 
-- **Config file** stores long-term preferences (model, keys, loop control, etc.); takes effect on every startup
-- **Command-line options** make one-off changes for the current startup; discarded after exit
-- **Environment variables** primarily handle data directory location, OAuth endpoint switching, and a small number of runtime switches — **not a general fallback mechanism for config fields**
+- **`config.toml`** stores preferences such as the default provider/model, thinking settings, and loop limits. It does not store provider credentials.
+- **`auth.json`** stores credentials saved through `kimi login`.
+- **Environment variables** can supply provider API keys, select a provider/model pair, relocate the data directory, or override a documented runtime setting.
+- **Command-line options** apply only to the current launch.
 
-This distinction matters: many users run `export KIMI_API_KEY=xxx` in the shell expecting the CLI to pick it up automatically, but it does not. See [Provider credentials](#provider-credentials) below for why.
+## Provider and model selection
 
-## Three roles of environment variables
+For a new session, provider/model selection is resolved in this order:
 
-Environment variables fall into three categories by function and cannot be collapsed into a single linear priority order:
+1. `-m, --model <provider>/<model>`
+2. `KIMI_MODEL_PROVIDER` together with `KIMI_MODEL_NAME`
+3. `default_provider` together with `default_model` in `config.toml`
 
-1. **Locating the config file**: `KIMI_CODE_HOME` sets the data root directory, making the config file path `$KIMI_CODE_HOME/config.toml`. This step runs before all other resolution and is not a fallback for individual parameters.
-2. **Runtime switches**: A small set of variables like `KIMI_DISABLE_TELEMETRY` directly shut down the corresponding subsystem — even if `config.toml` has `telemetry = true`, setting this variable to a truthy value disables telemetry. The semantics are "additionally disable", not "ordinary override".
-3. **Runtime endpoints and diagnostics**: Variables like `KIMI_CODE_OAUTH_HOST`, `KIMI_CODE_BASE_URL`, and `KIMI_LOG_LEVEL` are read when the OAuth or logging subsystems initialize. For the full list, see [Environment variables](./env-vars.md).
+The selected pair must exist in the runtime model catalog. When the provider supports remote discovery, `kimi provider refresh` updates that catalog; the cached result is stored in `models-store.json`.
 
-## Priority for ordinary runtime parameters
-
-For ordinary runtime parameters such as model alias, Plan mode, yolo mode, and Skills directories, priority from highest to lowest is:
-
-1. **Command-line options** (`-m`, `--plan`, `--yolo`, etc.): apply only to the current startup
-2. **User config file** (`~/.kimi-code/config.toml`): stores long-term preferences
-
-A small number of environment variables explicitly override specific config file fields — for example, `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` has higher priority than `[task].max_running_tasks`. These exceptions are noted in [Environment variables](./env-vars.md) and in the relevant field descriptions in [Configuration files](./config-files.md).
-
-::: warning
-**Ordinary runtime parameters do not fall back to shell environment variables.** Provider `api_key` / `base_url` are read only from `config.toml` (including the `[providers.<name>.env]` sub-table) and do not fall back to `export`-ed shell variables. The only exception is the explicit `KIMI_MODEL_*` channel — see [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-kimi-model).
-:::
-
-The CLI currently reads a single user-level config file and has no project-level config file mechanism. To isolate config between different projects, point `KIMI_CODE_HOME` at different data directories — see [Common scenarios](#common-scenarios) below.
+The CLI currently reads one user-level config file and has no project-level config mechanism. To isolate configurations, point `KIMI_CODE_HOME` at a different data directory.
 
 ## Provider credentials
 
-Provider credentials (`api_key`, `base_url`) follow their own resolution rules, separate from the ordinary parameter priority chain.
+Provider authentication is resolved separately from model selection:
 
-For a single provider, credentials are resolved in this order:
+1. A credential saved by `kimi login <provider>`
+2. The provider's standard API-key environment variable, when API-key authentication is supported
 
-1. `[providers.<name>].api_key` — key written directly in the config file; highest priority
-2. The matching key inside the `[providers.<name>.env]` sub-table (`KIMI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) — consulted only when `api_key` is empty
-3. If both are absent — startup fails with an error indicating the provider is missing credentials
+Use `kimi logout <provider>` to remove a saved credential. An exported environment variable remains available until you unset it or exit the shell.
 
-`base_url` is resolved the same way: first `[providers.<name>].base_url`, then the `*_BASE_URL` key in `[providers.<name>.env]`.
+For example, this uses a one-off Anthropic key without modifying local files:
 
-> The `[providers.<name>.env]` sub-table is just a TOML section in the config file — it does not write anything into the shell environment. It is only consulted when the corresponding direct field (`api_key` / `base_url`) is empty.
+```sh
+ANTHROPIC_API_KEY="YOUR_API_KEY" kimi -m anthropic/claude-sonnet-4-6
+```
 
-For the full list of credential key names, see [Environment variables: provider credential key names](./env-vars.md#provider-credential-key-names-written-in-config-toml).
+OpenAI Codex uses OAuth. Kimi Code and xAI support both OAuth and API keys. See [Providers and models](./providers.md) for the built-in provider list and login methods.
 
-## Command-line options
+## Other runtime parameters
 
-Options passed at startup have the highest priority and apply only to the current session:
+For ordinary parameters such as Plan mode, permission mode, and Skills directories, command-line options override `config.toml` for the current launch. A documented environment variable may override its matching config field; for example, `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` overrides `[task].max_running_tasks`.
 
-| Option | Effect |
-| --- | --- |
-| `-S, --session [id]` | Resume a specific session; enters interactive selection when no id is given |
-| `-c, --continue` | Resume the last session for the current working directory |
-| `-y, --yolo` | Auto-approve regular tool calls; the agent may still ask questions |
-| `--auto` | Start in auto permission mode: fully autonomous, the agent will not ask questions |
-| `--plan` | Start in Plan mode |
-| `-m, --model <model>` | Use a specific model alias for this session |
-| `-p, --prompt <prompt>` | Run in non-interactive mode: execute a single prompt and exit |
-| `--output-format <format>` | Output format for `-p` mode: `text` or `stream-json` |
-| `--skills-dir <dir>` | Replace auto-discovered Skills directories (repeatable; applies to this session only) |
-
-Mutual exclusion rules (startup fails if violated):
-
-- `--output-format` can only be used with `-p`
-- `--prompt` cannot be combined with `--yolo` or `--plan`
-- `--continue` and `--session` cannot be used together
-- In non-prompt mode, `--yolo` and `--plan` cannot be combined with `--continue` or `--session`
-
-::: tip
-`--skills-dir` is a one-shot replacement that only affects the current startup. To persistently add search directories, write `extra_skill_dirs` in `config.toml` (see [Agent Skills](../customization/skills.md)).
-:::
+| Option                           | Effect                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `-S, --session [id]`             | Resume a specific session; enter interactive selection when no ID is given |
+| `-c, --continue`                 | Resume the last session for the current working directory                  |
+| `-y, --yolo`                     | Auto-approve regular tool calls                                            |
+| `--auto`                         | Start in auto permission mode                                              |
+| `--plan`                         | Start in Plan mode                                                         |
+| `-m, --model <provider>/<model>` | Select a runtime catalog model                                             |
+| `-p, --prompt <prompt>`          | Run one prompt non-interactively                                           |
+| `--output-format <format>`       | Use `text` or `stream-json` output with `-p`                               |
+| `--skills-dir <dir>`             | Replace auto-discovered Skills directories for this launch                 |
 
 ## Common scenarios
 
-**Isolated test environment** — use a separate data directory to avoid polluting the main config and sessions:
+Isolate all local state:
 
 ```sh
 KIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
 ```
 
-**One-off test key** — since provider credentials are read only from the config file, write a test key into the `env` sub-table:
-
-```toml
-[providers.kimi.env]
-KIMI_API_KEY = "sk-test"
-```
-
-**Skip approval for batch tasks**:
+Temporarily select OpenAI without changing `config.toml`:
 
 ```sh
-kimi --yolo -p "Batch rename the following files..."
+OPENAI_API_KEY="YOUR_API_KEY" \
+  KIMI_MODEL_PROVIDER="openai" \
+  KIMI_MODEL_NAME="gpt-5.4" \
+  kimi
 ```
 
-**Enter Plan mode temporarily** (to make it permanent, set `default_plan_mode = true` in the config file):
+Enter Plan mode for one launch:
 
 ```sh
 kimi --plan
@@ -103,5 +77,6 @@ kimi --plan
 
 ## Next steps
 
-- [Configuration files](./config-files.md) — complete reference for all configurable fields
-- [Environment variables](./env-vars.md) — full list and description of `KIMI_CODE_HOME` and related variables
+- [Configuration files](./config-files.md) — persistent preference fields
+- [Environment variables](./env-vars.md) — provider keys and runtime overrides
+- [Data locations](./data-locations.md) — credential and model-cache files

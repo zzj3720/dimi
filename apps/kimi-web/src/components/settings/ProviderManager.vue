@@ -1,19 +1,18 @@
 <!-- apps/kimi-web/src/components/settings/ProviderManager.vue -->
-<!-- Modal overlay for managing providers: list, add, refresh, delete. -->
+<!-- Modal overlay for connecting, refreshing, and disconnecting providers. -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue';
-import { useI18n } from 'vue-i18n';
-import type { AppProvider } from '../../api/types';
-import { useDialogFocus } from '../../composables/useDialogFocus';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
-import Badge from '../ui/Badge.vue';
-import Spinner from '../ui/Spinner.vue';
-import Field from '../ui/Field.vue';
-import Input from '../ui/Input.vue';
-import Select from '../ui/Select.vue';
-import Icon from '../ui/Icon.vue';
-import Tooltip from '../ui/Tooltip.vue';
+import { onMounted, onUnmounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import type { AppProvider } from "../../api/types";
+import { useDialogFocus } from "../../composables/useDialogFocus";
+import Dialog from "../ui/Dialog.vue";
+import Button from "../ui/Button.vue";
+import Badge from "../ui/Badge.vue";
+import Spinner from "../ui/Spinner.vue";
+import Field from "../ui/Field.vue";
+import Input from "../ui/Input.vue";
+import Icon from "../ui/Icon.vue";
+import Tooltip from "../ui/Tooltip.vue";
 
 const { t } = useI18n();
 
@@ -29,45 +28,24 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  add: [input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }];
+  loginApiKey: [input: { providerId: string; value: string }];
   refresh: [id: string];
-  delete: [id: string];
-  /** Open the login dialog for the given platform (OAuth flow) */
-  openLogin: [platform: string];
+  logout: [id: string];
+  openLogin: [providerId: string];
   close: [];
 }>();
 
-// -------------------------------------------------------------------------
-// Delete confirmation
-// -------------------------------------------------------------------------
-
-// Delete — the modal confirm and the async delete live in App.vue
-// (confirmDeleteProvider); the manager only emits the intent.
-function onDeleteProvider(id: string): void {
-  emit('delete', id);
-}
-
-// -------------------------------------------------------------------------
-// Add-provider form
-// -------------------------------------------------------------------------
-
 const showAddForm = ref(false);
 const addForm = reactive({
-  type: 'moonshot',
-  apiKey: '',
-  baseUrl: '',
-  defaultModel: '',
+  providerId: "",
+  apiKey: "",
 });
-const addError = ref('');
+const addError = ref("");
 
-const PROVIDER_TYPES = ['moonshot', 'anthropic', 'openai', 'custom'];
-
-function openAdd(): void {
-  addForm.type = 'moonshot';
-  addForm.apiKey = '';
-  addForm.baseUrl = '';
-  addForm.defaultModel = '';
-  addError.value = '';
+function openAdd(providerId: string): void {
+  addForm.providerId = providerId;
+  addForm.apiKey = "";
+  addError.value = "";
   showAddForm.value = true;
 }
 function cancelAdd(): void {
@@ -75,15 +53,13 @@ function cancelAdd(): void {
 }
 function submitAdd(): void {
   if (!addForm.apiKey.trim()) {
-    addError.value = t('providers.apiKeyRequired');
+    addError.value = t("providers.apiKeyRequired");
     return;
   }
-  addError.value = '';
-  emit('add', {
-    type: addForm.type,
-    apiKey: addForm.apiKey.trim() || undefined,
-    baseUrl: addForm.baseUrl.trim() || undefined,
-    defaultModel: addForm.defaultModel.trim() || undefined,
+  addError.value = "";
+  emit("loginApiKey", {
+    providerId: addForm.providerId,
+    value: addForm.apiKey.trim(),
   });
   showAddForm.value = false;
 }
@@ -93,48 +69,58 @@ function submitAdd(): void {
 // -------------------------------------------------------------------------
 
 function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') {
-    if (showAddForm.value) { cancelAdd(); return; }
-    emit('close');
+  if (e.key === "Escape") {
+    if (showAddForm.value) {
+      cancelAdd();
+      return;
+    }
+    emit("close");
   }
 }
 
-onMounted(() => document.addEventListener('keydown', handleKeydown));
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
+onMounted(() => document.addEventListener("keydown", handleKeydown));
+onUnmounted(() => document.removeEventListener("keydown", handleKeydown));
 
 // -------------------------------------------------------------------------
 // Status helpers
 // -------------------------------------------------------------------------
 
-function statusColor(status: AppProvider['status']): string {
-  if (status === 'connected') return 'var(--color-success)';
-  if (status === 'error') return 'var(--color-danger)';
-  return 'var(--color-text-faint)';
+function statusColor(status: AppProvider["status"]): string {
+  if (status === "connected") return "var(--color-success)";
+  if (status === "error") return "var(--color-danger)";
+  return "var(--color-text-faint)";
 }
-function statusLabel(status: AppProvider['status']): string {
-  if (status === 'connected') return t('providers.status.connected');
-  if (status === 'error') return t('providers.status.error');
-  return t('providers.status.unconfigured');
+function statusLabel(status: AppProvider["status"]): string {
+  if (status === "connected") return t("providers.status.connected");
+  if (status === "error") return t("providers.status.error");
+  return t("providers.status.unconfigured");
 }
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('providers.title')" size="xl" height="fixed" @close="emit('close')">
+  <Dialog
+    :open="true"
+    :close-on-esc="false"
+    :title="t('providers.title')"
+    size="xl"
+    height="fixed"
+    @close="emit('close')"
+  >
     <div ref="dialogRef" class="pm">
       <!-- Provider list -->
       <div class="prov-list">
         <!-- Loading state -->
         <div v-if="loading" class="state-row">
           <Spinner size="sm" />
-          <span>{{ t('providers.loading') }}</span>
+          <span>{{ t("providers.loading") }}</span>
         </div>
         <!-- Unavailable (daemon 404) -->
         <div v-else-if="unavailable" class="state-row unavail">
           <Icon name="alert-triangle" size="md" />
-          <span>{{ t('providers.unavailable') }}</span>
+          <span>{{ t("providers.unavailable") }}</span>
         </div>
         <!-- Empty -->
-        <div v-else-if="providers.length === 0" class="empty">{{ t('providers.empty') }}</div>
+        <div v-else-if="providers.length === 0" class="empty">{{ t("providers.empty") }}</div>
         <!-- Provider rows -->
         <template v-else>
           <div v-for="p in providers" :key="p.id" class="prov-row">
@@ -143,59 +129,67 @@ function statusLabel(status: AppProvider['status']): string {
               <span
                 class="status-dot"
                 :class="{ 'status-dot--empty': p.status !== 'connected' && p.status !== 'error' }"
-                :style="p.status === 'connected' || p.status === 'error' ? { background: statusColor(p.status) } : undefined"
+                :style="
+                  p.status === 'connected' || p.status === 'error'
+                    ? { background: statusColor(p.status) }
+                    : undefined
+                "
               />
             </Tooltip>
             <div class="prov-info">
-              <span class="prov-type">{{ p.type }}</span>
+              <span class="prov-type">{{ p.name }}</span>
               <span v-if="p.baseUrl" class="prov-url">{{ p.baseUrl }}</span>
               <span class="prov-meta">
-                <Badge :variant="p.hasApiKey ? 'success' : 'neutral'" size="sm">
-                  {{ p.hasApiKey ? t('providers.keySet') : t('providers.keyNotSet') }}
+                <Badge :variant="p.status === 'connected' ? 'success' : 'neutral'" size="sm">
+                  {{ p.credentialType ?? t("providers.notConnected") }}
                 </Badge>
-                <span v-if="p.models && p.models.length > 0"> · {{ t('providers.modelCount', { count: p.models.length }) }}</span>
+                <span v-if="p.models && p.models.length > 0">
+                  · {{ t("providers.modelCount", { count: p.models.length }) }}</span
+                >
               </span>
             </div>
             <!-- Actions -->
             <div class="prov-actions">
-              <Tooltip :text="t('providers.refreshTitle', { type: p.type })">
-                <Button variant="secondary" size="sm" @click="emit('refresh', p.id)">{{ t('providers.refresh') }}</Button>
+              <Button
+                v-if="p.status !== 'connected' && p.authMethods.includes('oauth')"
+                variant="primary"
+                size="sm"
+                @click="emit('openLogin', p.id)"
+              >
+                {{ t("providers.signIn") }}
+              </Button>
+              <Button
+                v-if="p.status !== 'connected' && p.authMethods.includes('api_key')"
+                variant="secondary"
+                size="sm"
+                @click="openAdd(p.id)"
+              >
+                {{ t("providers.enterApiKey") }}
+              </Button>
+              <Tooltip :text="t('providers.refreshTitle', { type: p.name })">
+                <Button variant="secondary" size="sm" @click="emit('refresh', p.id)">{{
+                  t("providers.refresh")
+                }}</Button>
               </Tooltip>
-              <Tooltip :text="t('providers.deleteTitle', { type: p.type })">
-                <Button variant="danger-soft" size="sm" @click="onDeleteProvider(p.id)">{{ t('providers.delete') }}</Button>
+              <Tooltip
+                v-if="p.status === 'connected'"
+                :text="t('providers.logoutTitle', { type: p.name })"
+              >
+                <Button variant="danger-soft" size="sm" @click="emit('logout', p.id)">{{
+                  t("providers.logout")
+                }}</Button>
               </Tooltip>
             </div>
           </div>
         </template>
       </div>
 
-      <!-- Add provider form / button -->
-      <div v-if="!unavailable" class="add-section">
-        <template v-if="!showAddForm">
-          <div class="add-btns">
-            <!-- OAuth login shortcuts for common platforms -->
-            <Button variant="secondary" size="sm" @click="emit('openLogin', 'moonshot')">
-              <Icon name="user" size="sm" />
-              {{ t('providers.loginKimi') }}
-            </Button>
-            <Button variant="secondary" size="sm" @click="emit('openLogin', 'anthropic')">
-              <Icon name="user" size="sm" />
-              {{ t('providers.loginAnthropic') }}
-            </Button>
-            <Button variant="primary" size="sm" @click="openAdd">
-              <Icon name="plus" size="sm" />
-              {{ t('providers.enterApiKey') }}
-            </Button>
-          </div>
-        </template>
-        <template v-else>
+      <div v-if="!unavailable && showAddForm" class="add-section">
+        <template>
           <div class="add-form">
-            <Field :label="t('providers.fieldType')">
-              <Select v-model="addForm.type">
-                <option v-for="pt in PROVIDER_TYPES" :key="pt" :value="pt">{{ pt }}</option>
-              </Select>
-            </Field>
-            <Field :label="t('providers.fieldApiKey')">
+            <Field
+              :label="`${providers.find((provider) => provider.id === addForm.providerId)?.name ?? addForm.providerId} · ${t('providers.fieldApiKey')}`"
+            >
               <Input
                 v-model="addForm.apiKey"
                 type="password"
@@ -204,39 +198,31 @@ function statusLabel(status: AppProvider['status']): string {
                 spellcheck="false"
               />
             </Field>
-            <Field :label="t('providers.fieldBaseUrl')">
-              <Input
-                v-model="addForm.baseUrl"
-                :placeholder="t('providers.baseUrlPlaceholder')"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </Field>
-            <Field :label="t('providers.fieldDefaultModel')">
-              <Input
-                v-model="addForm.defaultModel"
-                :placeholder="t('providers.optional')"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </Field>
             <div v-if="addError" class="add-error">{{ addError }}</div>
             <div class="form-btns">
-              <Button variant="primary" size="sm" @click="submitAdd">{{ t('providers.add') }}</Button>
-              <Button variant="secondary" size="sm" @click="cancelAdd">{{ t('common.cancel') }}</Button>
+              <Button variant="primary" size="sm" @click="submitAdd">{{
+                t("providers.connect")
+              }}</Button>
+              <Button variant="secondary" size="sm" @click="cancelAdd">{{
+                t("common.cancel")
+              }}</Button>
             </div>
           </div>
         </template>
       </div>
 
       <!-- Footer -->
-      <div class="footer-hint">{{ t('providers.escClose') }}</div>
+      <div class="footer-hint">{{ t("providers.escClose") }}</div>
     </div>
   </Dialog>
 </template>
 
 <style scoped>
-.pm { display: flex; flex-direction: column; gap: var(--space-4); }
+.pm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
 /* Provider list */
 .prov-list {
@@ -253,7 +239,9 @@ function statusLabel(status: AppProvider['status']): string {
   font-family: var(--font-ui);
   font-size: var(--text-base);
 }
-.state-row.unavail { color: var(--color-warning); }
+.state-row.unavail {
+  color: var(--color-warning);
+}
 .empty {
   padding: var(--space-4) 0;
   color: var(--color-text-muted);
@@ -268,7 +256,9 @@ function statusLabel(status: AppProvider['status']): string {
   border-bottom: 1px solid var(--color-line);
   transition: background var(--duration-fast) var(--ease-out);
 }
-.prov-row:last-child { border-bottom: none; }
+.prov-row:last-child {
+  border-bottom: none;
+}
 
 .status-dot {
   width: 8px;
@@ -323,14 +313,12 @@ function statusLabel(status: AppProvider['status']): string {
   border-top: 1px solid var(--color-line);
   padding-top: var(--space-4);
 }
-.add-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
 /* Form */
-.add-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
 .add-error {
   font-family: var(--font-ui);
   font-size: var(--text-sm);

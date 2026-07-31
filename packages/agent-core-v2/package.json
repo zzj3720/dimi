@@ -3,25 +3,25 @@
   "version": "0.2.0",
   "private": true,
   "description": "The unified DI Scope agent engine for Kimi Code",
+  "keywords": [
+    "agent",
+    "ai",
+    "kimi",
+    "llm",
+    "session",
+    "tools"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/agent-core-v2#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/agent-core-v2#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/agent-core-v2"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "agent",
-    "ai",
-    "llm",
-    "session",
-    "tools"
-  ],
   "files": [
     "dist"
   ],
@@ -79,6 +79,7 @@
     "openai": "^6.34.0",
     "pathe": "^2.0.3",
     "picomatch": "^4.0.4",
+    "proper-lockfile": "4.1.2",
     "retry": "0.13.1",
     "smol-toml": "^1.6.1",
     "socks": "^2.8.9",
@@ -93,6 +94,7 @@
     "@dagrejs/dagre": "^1.1.4",
     "@types/js-yaml": "^4.0.9",
     "@types/picomatch": "^4.0.3",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@types/retry": "0.12.0",

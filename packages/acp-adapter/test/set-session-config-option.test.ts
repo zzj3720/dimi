@@ -22,7 +22,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 class CapturingClient implements Client {
   readonly notifications: SessionNotification[] = [];
@@ -94,13 +94,13 @@ function makeFakeSession(sessionId: string, statusEffort?: string): FakeSessionH
 
 function makeHarness(handle: FakeSessionHandle): KimiHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async () => handle.session,
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([
-        { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+      defaultModel: 'test/kimi-coder',
+      models: makeProviderModels([
+        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
         { id: 'kimi-v2', name: 'Kimi v2', thinkingSupported: false },
       ]),
     }),
@@ -167,25 +167,25 @@ describe('AcpServer session/set_config_option', () => {
     const response = await client.setSessionConfigOption({
       sessionId,
       configId: 'model',
-      value: 'kimi-coder,thinking',
+      value: 'test/kimi-coder,thinking',
     });
 
-    expect(handle.setModelCalls).toEqual(['kimi-coder']);
-    expect(handle.setThinkingCalls).toEqual(['on']);
+    expect(handle.setModelCalls).toEqual(['test/kimi-coder']);
+    expect(handle.setThinkingCalls).toEqual(['medium']);
     const respModel = response.configOptions.find((o) => o.id === 'model');
     if (respModel && respModel.type === 'select') {
       // Snapshot now carries the bare model id; thinking lives on a separate axis.
-      expect(respModel.currentValue).toBe('kimi-coder');
+      expect(respModel.currentValue).toBe('test/kimi-coder');
     }
     const respThinking = response.configOptions.find((o) => o.id === 'thinking');
     if (!respThinking || respThinking.type !== 'select') {
       throw new Error('expected thinking toggle in snapshot');
     }
-    expect(respThinking.currentValue).toBe('on');
+    expect(respThinking.currentValue).toBe('medium');
     expect(respThinking.category).toBe('thought_level');
   });
 
-  it('configId="thinking" + "on" → setThinking(<model default>) + 1 config_option_update with currentValue="on"', async () => {
+  it('configId="thinking" + "on" maps to the model default in the config snapshot', async () => {
     const handle = makeFakeSession('sess-thinking-on');
     const harness = makeHarness(handle);
     const { client, capturing, sessionId } = await openSession(harness);
@@ -197,7 +197,7 @@ describe('AcpServer session/set_config_option', () => {
       value: 'on',
     });
 
-    expect(handle.setThinkingCalls).toEqual(['on']);
+    expect(handle.setThinkingCalls).toEqual(['medium']);
     expect(handle.setModelCalls).toEqual([]);
     const updates = capturing.notifications.filter(
       (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
@@ -207,11 +207,11 @@ describe('AcpServer session/set_config_option', () => {
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const toggle = update.configOptions.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected select toggle');
-    expect(toggle.currentValue).toBe('on');
+    expect(toggle.currentValue).toBe('medium');
 
     const respToggle = response.configOptions.find((o) => o.id === 'thinking');
     if (!respToggle || respToggle.type !== 'select') throw new Error('expected select toggle');
-    expect(respToggle.currentValue).toBe('on');
+    expect(respToggle.currentValue).toBe('medium');
   });
 
   it('configId="thinking" + "off" → setThinking("off") + currentValue="off"', async () => {
@@ -234,15 +234,21 @@ describe('AcpServer session/set_config_option', () => {
 
   it('configId="thinking" + "off" on an always-thinking model → forwards setThinking("off"); snapshot stays locked on', async () => {
     const handle = makeFakeSession('sess-thinking-locked');
+    const models = makeProviderModels([
+      {
+        id: 'test/kimi-deep',
+        name: 'Kimi Deep',
+        alwaysThinking: true,
+        efforts: ['on'],
+      },
+    ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({ models }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-deep',
-        models: makeModelsMap([
-          { id: 'kimi-deep', name: 'Kimi Deep', thinkingSupported: true, alwaysThinking: true },
-        ]),
+        defaultModel: 'test/kimi-deep',
+        models,
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
@@ -272,21 +278,21 @@ describe('AcpServer session/set_config_option', () => {
 
   it('configId="thinking" + a declared effort level → setThinking(level) + snapshot carries per-level rows', async () => {
     const handle = makeFakeSession('sess-thinking-level');
+    const models = makeProviderModels([
+      {
+        id: 'test/kimi-k2',
+        name: 'Kimi K2',
+        thinkingSupported: true,
+        efforts: ['low', 'medium', 'high'],
+      },
+    ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({ models }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-k2',
-        models: makeModelsMap([
-          {
-            id: 'kimi-k2',
-            name: 'Kimi K2',
-            thinkingSupported: true,
-            efforts: ['low', 'medium', 'high'],
-            defaultEffort: 'medium',
-          },
-        ]),
+        defaultModel: 'test/kimi-k2',
+        models,
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
@@ -321,23 +327,23 @@ describe('AcpServer session/set_config_option', () => {
     expect(notifyPicker.currentValue).toBe('high');
   });
 
-  it('configId="thinking" + "on" maps to the model default effort for effort-capable models', async () => {
+  it('configId="thinking" + "on" maps to the middle declared effort', async () => {
     const handle = makeFakeSession('sess-thinking-default');
+    const models = makeProviderModels([
+      {
+        id: 'test/kimi-k2',
+        name: 'Kimi K2',
+        thinkingSupported: true,
+        efforts: ['low', 'medium', 'high'],
+      },
+    ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({ models }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-k2',
-        models: makeModelsMap([
-          {
-            id: 'kimi-k2',
-            name: 'Kimi K2',
-            thinkingSupported: true,
-            efforts: ['low', 'medium', 'high'],
-            defaultEffort: 'high',
-          },
-        ]),
+        defaultModel: 'test/kimi-k2',
+        models,
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
@@ -349,28 +355,29 @@ describe('AcpServer session/set_config_option', () => {
       value: 'on',
     });
 
-    expect(handle.setThinkingCalls).toEqual(['high']);
+    expect(handle.setThinkingCalls).toEqual(['medium']);
     const respPicker = response.configOptions.find((o) => o.id === 'thinking');
     if (!respPicker || respPicker.type !== 'select') throw new Error('expected select picker');
-    expect(respPicker.currentValue).toBe('high');
+    expect(respPicker.currentValue).toBe('medium');
   });
 
   it('configId="thinking" + an undeclared level → invalid_params (-32602) BEFORE any SDK call', async () => {
     const handle = makeFakeSession('sess-thinking-bogus');
+    const models = makeProviderModels([
+      {
+        id: 'test/kimi-k2',
+        name: 'Kimi K2',
+        thinkingSupported: true,
+        efforts: ['low', 'medium', 'high'],
+      },
+    ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({ models }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-k2',
-        models: makeModelsMap([
-          {
-            id: 'kimi-k2',
-            name: 'Kimi K2',
-            thinkingSupported: true,
-            efforts: ['low', 'medium', 'high'],
-          },
-        ]),
+        defaultModel: 'test/kimi-k2',
+        models,
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
@@ -392,22 +399,21 @@ describe('AcpServer session/set_config_option', () => {
     // clamps it back to the default level — the status channel is the
     // source of truth for what the snapshot renders.
     const handle = makeFakeSession('sess-thinking-clamped', 'high');
+    const models = makeProviderModels([
+      {
+        id: 'test/kimi-deep',
+        name: 'Kimi Deep',
+        alwaysThinking: true,
+        efforts: ['low', 'medium', 'high'],
+      },
+    ]);
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth({ models }),
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'kimi-deep',
-        models: makeModelsMap([
-          {
-            id: 'kimi-deep',
-            name: 'Kimi Deep',
-            thinkingSupported: true,
-            alwaysThinking: true,
-            efforts: ['low', 'medium', 'high'],
-            defaultEffort: 'high',
-          },
-        ]),
+        defaultModel: 'test/kimi-deep',
+        models,
       }),
     } as unknown as KimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);

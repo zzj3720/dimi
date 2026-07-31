@@ -1,40 +1,37 @@
-import { createControlledPromise } from '@antfu/utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createControlledPromise } from "@antfu/utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { LifecycleScope } from '#/_base/di/scope';
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
-import { Event } from '#/_base/event';
-import { userCancellationReason } from '#/_base/utils/abort';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { APIProviderRateLimitError } from '#/kosong/contract/errors';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { IAgentScopeHandle } from "#/_base/di/scope";
+import { LifecycleScope } from "#/_base/di/scope";
+import { SyncDescriptor } from "#/_base/di/descriptors";
+import { DisposableStore } from "#/_base/di/lifecycle";
+import { TestInstantiationService } from "#/_base/di/test";
+import { Event } from "#/_base/event";
+import { userCancellationReason } from "#/_base/utils/abort";
+import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
+import { IAgentProfileService, type ProfileData } from "#/agent/profile/profile";
+import { IAgentLoopService } from "#/agent/loop/loop";
+import { IAgentUserToolService } from "#/agent/userTool/userTool";
+import { IEventBus, type DomainEvent } from "#/app/event/eventBus";
+import { ISessionAgentProfileCatalog } from "#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog";
+import { APIProviderRateLimitError } from "#/llmProtocol/errors";
+import { IModelCatalog, type Model } from "#/app/modelCatalog/catalog";
+import { ITelemetryService, noopTelemetryService } from "#/app/telemetry/telemetry";
 import {
   IAgentLifecycleService,
   type CreateAgentOptions,
-} from '#/session/agentLifecycle/agentLifecycle';
-import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { createHooks } from '#/hooks';
-import {
-  type AgentTaskHooks,
-  ISessionSubagentService,
-} from '#/session/subagent/subagent';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+} from "#/session/agentLifecycle/agentLifecycle";
+import { labelsFromAgentMeta } from "#/session/agentLifecycle/subagentMetadata";
+import { createHooks } from "#/hooks";
+import { type AgentTaskHooks, ISessionSubagentService } from "#/session/subagent/subagent";
+import { ISessionContext, makeSessionContext } from "#/session/sessionContext/sessionContext";
 import {
   ISessionMetadata,
   type AgentMeta,
   type SessionMetadataChangedEvent,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ILogService } from '#/_base/log/log';
+} from "#/session/sessionMetadata/sessionMetadata";
+import { ISessionProcessRunner } from "#/session/process/processRunner";
+import { ILogService } from "#/_base/log/log";
 import {
   AgentRunBatch,
   resolveSwarmMaxConcurrency,
@@ -45,44 +42,48 @@ import {
   type AgentRunSuspendedEvent,
   type AgentSpawnAttemptOptions,
   type QueuedAgentRunTask,
-} from '#/session/swarm/agentRunBatch';
-import { ISessionSwarmService, type SessionSwarmSpawnTask, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
-import { Error2 } from '#/_base/errors/errors';
-import { ConfigErrors } from '#/app/config/errors';
-import { SessionSwarmService } from '#/session/swarm/sessionSwarmService';
+} from "#/session/swarm/agentRunBatch";
+import {
+  ISessionSwarmService,
+  type SessionSwarmSpawnTask,
+  type SessionSwarmTask,
+} from "#/session/swarm/sessionSwarm";
+import { Error2 } from "#/_base/errors/errors";
+import { ConfigErrors } from "#/app/config/errors";
+import { SessionSwarmService } from "#/session/swarm/sessionSwarmService";
 
-import { stubLog } from '../../_base/log/stubs';
+import { stubLog } from "../../_base/log/stubs";
 
-describe('resolveSwarmMaxConcurrency', () => {
-  it('returns undefined when the variable is unset', () => {
+describe("resolveSwarmMaxConcurrency", () => {
+  it("returns undefined when the variable is unset", () => {
     expect(resolveSwarmMaxConcurrency({})).toBeUndefined();
   });
 
-  it('returns undefined for empty or whitespace-only values', () => {
+  it("returns undefined for empty or whitespace-only values", () => {
     expect(
-      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: '' }),
+      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "" }),
     ).toBeUndefined();
     expect(
-      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: '   ' }),
+      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "   " }),
     ).toBeUndefined();
   });
 
-  it('throws for non-positive, non-integer, or non-numeric values', () => {
-    for (const raw of ['0', '-1', '2.5', 'abc']) {
+  it("throws for non-positive, non-integer, or non-numeric values", () => {
+    for (const raw of ["0", "-1", "2.5", "abc"]) {
       expect(() =>
         resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: raw }),
       ).toThrow(/KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY.*positive integer/);
     }
   });
 
-  it('returns the integer for a positive integer value', () => {
-    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: '3' })).toBe(3);
-    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: ' 8 ' })).toBe(8);
+  it("returns the integer for a positive integer value", () => {
+    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "3" })).toBe(3);
+    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: " 8 " })).toBe(8);
   });
 });
 
-describe('AgentRunBatch scheduling contract', () => {
-  it('normal phase starts five tasks immediately, then one task every 700ms', async () => {
+describe("AgentRunBatch scheduling contract", () => {
+  it("normal phase starts five tasks immediately, then one task every 700ms", async () => {
     vi.useFakeTimers();
     try {
       const { runBatch, attempts } = createMockAgentRunBatchRunner();
@@ -116,20 +117,20 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.outcome.resolve({
           task: attempt.task,
           agentId: `agent-${String(index + 1)}`,
-          status: 'completed',
+          status: "completed",
           result: `result ${String(index + 1)}`,
         });
       });
       const results = await running;
 
       expect(results).toHaveLength(9);
-      expect(results.every((result) => result.status === 'completed')).toBe(true);
+      expect(results.every((result) => result.status === "completed")).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('user cancellation returns completed, started, and not-started task results', async () => {
+  it("user cancellation returns completed, started, and not-started task results", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -144,9 +145,9 @@ describe('AgentRunBatch scheduling contract', () => {
 
       attempts[0]!.outcome.resolve({
         task: attempts[0]!.task,
-        agentId: 'agent-1',
-        status: 'completed',
-        result: 'completed 1',
+        agentId: "agent-1",
+        status: "completed",
+        result: "completed 1",
       });
       await vi.advanceTimersByTimeAsync(0);
 
@@ -165,52 +166,52 @@ describe('AgentRunBatch scheduling contract', () => {
       ).toEqual([
         {
           data: 1,
-          agentId: 'agent-1',
-          status: 'completed',
+          agentId: "agent-1",
+          status: "completed",
           state: undefined,
-          result: 'completed 1',
+          result: "completed 1",
           error: undefined,
         },
         {
           data: 2,
-          agentId: 'agent-2',
-          status: 'aborted',
-          state: 'started',
+          agentId: "agent-2",
+          status: "aborted",
+          state: "started",
           result: undefined,
-          error: 'The user manually interrupted this subagent batch before this subagent finished.',
+          error: "The user manually interrupted this subagent batch before this subagent finished.",
         },
         {
           data: 3,
-          agentId: 'agent-3',
-          status: 'aborted',
-          state: 'started',
+          agentId: "agent-3",
+          status: "aborted",
+          state: "started",
           result: undefined,
-          error: 'The user manually interrupted this subagent batch before this subagent finished.',
+          error: "The user manually interrupted this subagent batch before this subagent finished.",
         },
         {
           data: 4,
-          agentId: 'agent-4',
-          status: 'aborted',
-          state: 'started',
+          agentId: "agent-4",
+          status: "aborted",
+          state: "started",
           result: undefined,
-          error: 'The user manually interrupted this subagent batch before this subagent finished.',
+          error: "The user manually interrupted this subagent batch before this subagent finished.",
         },
         {
           data: 5,
-          agentId: 'agent-5',
-          status: 'aborted',
-          state: 'started',
+          agentId: "agent-5",
+          status: "aborted",
+          state: "started",
           result: undefined,
-          error: 'The user manually interrupted this subagent batch before this subagent finished.',
+          error: "The user manually interrupted this subagent batch before this subagent finished.",
         },
         {
           data: 6,
           agentId: undefined,
-          status: 'aborted',
-          state: 'not_started',
+          status: "aborted",
+          state: "not_started",
           result: undefined,
           error:
-            'The user manually interrupted this subagent batch before this subagent was started.',
+            "The user manually interrupted this subagent batch before this subagent was started.",
         },
       ]);
     } finally {
@@ -218,7 +219,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('normal phase keeps processing completions while waiting for the next launch', async () => {
+  it("normal phase keeps processing completions while waiting for the next launch", async () => {
     vi.useFakeTimers();
     try {
       const { runBatch, attempts } = createMockAgentRunBatchRunner();
@@ -231,9 +232,9 @@ describe('AgentRunBatch scheduling contract', () => {
       expect(attempts).toHaveLength(5);
       attempts[0]!.outcome.resolve({
         task: attempts[0]!.task,
-        agentId: 'agent-1',
-        status: 'completed',
-        result: 'completed 1',
+        agentId: "agent-1",
+        status: "completed",
+        result: "completed 1",
       });
 
       await vi.advanceTimersByTimeAsync(699);
@@ -246,7 +247,7 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.outcome.resolve({
           task: attempt.task,
           agentId: `agent-${String(index + 2)}`,
-          status: 'completed',
+          status: "completed",
           result: `completed ${String(index + 2)}`,
         });
       });
@@ -256,7 +257,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit phase starts when the first provider rate limit stops the normal ramp', async () => {
+  it("rate-limit phase starts when the first provider rate limit stops the normal ramp", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -273,7 +274,7 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.markReady();
       });
 
-      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
+      attempts[0]!.outcome.resolve({ type: "rate_limited", agentId: "agent-1" });
       await vi.advanceTimersByTimeAsync(0);
 
       await vi.advanceTimersByTimeAsync(700);
@@ -281,14 +282,14 @@ describe('AgentRunBatch scheduling contract', () => {
 
       attempts[1]!.outcome.resolve({
         task: attempts[1]!.task,
-        agentId: 'agent-2',
-        status: 'completed',
-        result: 'completed 2',
+        agentId: "agent-2",
+        status: "completed",
+        result: "completed 2",
       });
       await vi.advanceTimersByTimeAsync(3000);
       expect(attempts).toHaveLength(6);
       expect(attempts[5]!.task.data).toBe(1);
-      expect(attempts[5]!.retryAgentId).toBe('agent-1');
+      expect(attempts[5]!.retryAgentId).toBe("agent-1");
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -297,7 +298,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit phase requeues 429 tasks, emits suspended, and throttles launches', async () => {
+  it("rate-limit phase requeues 429 tasks, emits suspended, and throttles launches", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -315,8 +316,8 @@ describe('AgentRunBatch scheduling contract', () => {
       attempts.forEach((attempt) => {
         attempt.markReady();
       });
-      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
-      attempts[1]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-2' });
+      attempts[0]!.outcome.resolve({ type: "rate_limited", agentId: "agent-1" });
+      attempts[1]!.outcome.resolve({ type: "rate_limited", agentId: "agent-2" });
       await vi.advanceTimersByTimeAsync(0);
       expect(onSuspended).toHaveBeenCalledTimes(2);
       expect(attempts).toHaveLength(5);
@@ -327,7 +328,7 @@ describe('AgentRunBatch scheduling contract', () => {
       await vi.advanceTimersByTimeAsync(2500);
       expect(attempts).toHaveLength(6);
       expect(attempts[5]!.task.data).toBe(2);
-      expect(attempts[5]!.retryAgentId).toBe('agent-2');
+      expect(attempts[5]!.retryAgentId).toBe("agent-2");
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -336,7 +337,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('fails the only unfinished task on provider rate limit instead of suspending forever', async () => {
+  it("fails the only unfinished task on provider rate limit instead of suspending forever", async () => {
     vi.useFakeTimers();
     try {
       const onSuspended = vi.fn();
@@ -354,26 +355,26 @@ describe('AgentRunBatch scheduling contract', () => {
 
       attempts[0]!.outcome.resolve({
         task: attempts[0]!.task,
-        agentId: 'agent-1',
-        status: 'completed',
-        result: 'completed 1',
+        agentId: "agent-1",
+        status: "completed",
+        result: "completed 1",
       });
       await vi.advanceTimersByTimeAsync(0);
 
-      attempts[1]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-2' });
+      attempts[1]!.outcome.resolve({ type: "rate_limited", agentId: "agent-2" });
       await expect(running).resolves.toMatchObject([
         {
           task: { data: 1 },
-          agentId: 'agent-1',
-          status: 'completed',
-          result: 'completed 1',
+          agentId: "agent-1",
+          status: "completed",
+          result: "completed 1",
         },
         {
           task: { data: 2 },
-          agentId: 'agent-2',
-          status: 'failed',
-          state: 'started',
-          error: 'Rate limited',
+          agentId: "agent-2",
+          status: "failed",
+          state: "started",
+          error: "Rate limited",
         },
       ]);
       expect(onSuspended).not.toHaveBeenCalled();
@@ -382,7 +383,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit capacity blocks launches while active attempts fill all slots', async () => {
+  it("rate-limit capacity blocks launches while active attempts fill all slots", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -410,8 +411,8 @@ describe('AgentRunBatch scheduling contract', () => {
       });
 
       attempts[0]!.outcome.resolve({
-        type: 'rate_limited',
-        agentId: 'agent-1',
+        type: "rate_limited",
+        agentId: "agent-1",
       });
       await vi.advanceTimersByTimeAsync(0);
 
@@ -425,7 +426,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit recovery adds one capacity slot after three quiet minutes with queued work', async () => {
+  it("rate-limit recovery adds one capacity slot after three quiet minutes with queued work", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -442,22 +443,22 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.markReady();
       });
 
-      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
+      attempts[0]!.outcome.resolve({ type: "rate_limited", agentId: "agent-1" });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
 
       await vi.advanceTimersByTimeAsync(2000);
-      attempts[1]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-2' });
+      attempts[1]!.outcome.resolve({ type: "rate_limited", agentId: "agent-2" });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
 
       await vi.advanceTimersByTimeAsync(2000);
-      attempts[2]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-3' });
+      attempts[2]!.outcome.resolve({ type: "rate_limited", agentId: "agent-3" });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
 
       await vi.advanceTimersByTimeAsync(2000);
-      attempts[3]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-4' });
+      attempts[3]!.outcome.resolve({ type: "rate_limited", agentId: "agent-4" });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
 
@@ -467,7 +468,7 @@ describe('AgentRunBatch scheduling contract', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(attempts).toHaveLength(6);
       expect(attempts[5]!.task.data).toBe(4);
-      expect(attempts[5]!.retryAgentId).toBe('agent-4');
+      expect(attempts[5]!.retryAgentId).toBe("agent-4");
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -476,7 +477,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit phase keeps launches bounded after repeated 429s', async () => {
+  it("rate-limit phase keeps launches bounded after repeated 429s", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -495,7 +496,7 @@ describe('AgentRunBatch scheduling contract', () => {
 
       for (let index = 0; index < 3; index += 1) {
         attempts[index]!.outcome.resolve({
-          type: 'rate_limited',
+          type: "rate_limited",
           agentId: `agent-${String(index + 1)}`,
         });
         await vi.advanceTimersByTimeAsync(0);
@@ -504,12 +505,12 @@ describe('AgentRunBatch scheduling contract', () => {
       await vi.advanceTimersByTimeAsync(3000);
       expect(attempts).toHaveLength(6);
       expect(attempts[5]!.task.data).toBe(3);
-      expect(attempts[5]!.retryAgentId).toBe('agent-3');
+      expect(attempts[5]!.retryAgentId).toBe("agent-3");
 
       await vi.advanceTimersByTimeAsync(3000);
       expect(attempts).toHaveLength(7);
       expect(attempts[6]!.task.data).toBe(2);
-      expect(attempts[6]!.retryAgentId).toBe('agent-2');
+      expect(attempts[6]!.retryAgentId).toBe("agent-2");
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -518,7 +519,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit phase schedules another launch after starting while capacity remains', async () => {
+  it("rate-limit phase schedules another launch after starting while capacity remains", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -535,21 +536,21 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.markReady();
       });
 
-      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
+      attempts[0]!.outcome.resolve({ type: "rate_limited", agentId: "agent-1" });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
 
       attempts[1]!.outcome.resolve({
         task: attempts[1]!.task,
-        agentId: 'agent-2',
-        status: 'completed',
-        result: 'completed 2',
+        agentId: "agent-2",
+        status: "completed",
+        result: "completed 2",
       });
       attempts[2]!.outcome.resolve({
         task: attempts[2]!.task,
-        agentId: 'agent-3',
-        status: 'completed',
-        result: 'completed 3',
+        agentId: "agent-3",
+        status: "completed",
+        result: "completed 3",
       });
       await vi.advanceTimersByTimeAsync(0);
       expect(attempts).toHaveLength(5);
@@ -560,7 +561,7 @@ describe('AgentRunBatch scheduling contract', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(attempts).toHaveLength(6);
       expect(attempts[5]!.task.data).toBe(1);
-      expect(attempts[5]!.retryAgentId).toBe('agent-1');
+      expect(attempts[5]!.retryAgentId).toBe("agent-1");
 
       await vi.advanceTimersByTimeAsync(2_999);
       expect(attempts).toHaveLength(6);
@@ -577,7 +578,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('task timeout fails only that task', async () => {
+  it("task timeout fails only that task", async () => {
     vi.useFakeTimers();
     try {
       const { runBatch, attempts } = createMockAgentRunBatchRunner();
@@ -595,10 +596,10 @@ describe('AgentRunBatch scheduling contract', () => {
       await expect(running).resolves.toMatchObject([
         {
           task: { data: 1 },
-          agentId: 'agent-1',
-          status: 'failed',
-          state: 'started',
-          error: 'Subagent timed out.',
+          agentId: "agent-1",
+          status: "failed",
+          state: "started",
+          error: "Subagent timed out.",
         },
       ]);
     } finally {
@@ -606,7 +607,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('does not spend task timeout while the task is queued', async () => {
+  it("does not spend task timeout while the task is queued", async () => {
     vi.useFakeTimers();
     try {
       let settled = false;
@@ -638,24 +639,24 @@ describe('AgentRunBatch scheduling contract', () => {
         attempt.outcome.resolve({
           task: attempt.task,
           agentId: `agent-${String(index + 1)}`,
-          status: 'completed',
+          status: "completed",
           result: `completed ${String(index + 1)}`,
         });
       });
       await vi.advanceTimersByTimeAsync(1);
 
       await expect(running).resolves.toMatchObject([
-        { task: { data: 1 }, status: 'completed' },
-        { task: { data: 2 }, status: 'completed' },
-        { task: { data: 3 }, status: 'completed' },
-        { task: { data: 4 }, status: 'completed' },
-        { task: { data: 5 }, status: 'completed' },
+        { task: { data: 1 }, status: "completed" },
+        { task: { data: 2 }, status: "completed" },
+        { task: { data: 3 }, status: "completed" },
+        { task: { data: 4 }, status: "completed" },
+        { task: { data: 5 }, status: "completed" },
         {
           task: { data: 6 },
-          agentId: 'agent-6',
-          status: 'failed',
-          state: 'started',
-          error: 'Subagent timed out.',
+          agentId: "agent-6",
+          status: "failed",
+          state: "started",
+          error: "Subagent timed out.",
         },
       ]);
     } finally {
@@ -663,7 +664,7 @@ describe('AgentRunBatch scheduling contract', () => {
     }
   });
 
-  it('rate-limit phase continues launching after rate-limited attempts settle', async () => {
+  it("rate-limit phase continues launching after rate-limited attempts settle", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -689,24 +690,24 @@ describe('AgentRunBatch scheduling contract', () => {
       await vi.advanceTimersByTimeAsync(700);
       expect(attempts).toHaveLength(7);
 
-      attempts[5]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-6' });
-      attempts[6]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-7' });
+      attempts[5]!.outcome.resolve({ type: "rate_limited", agentId: "agent-6" });
+      attempts[6]!.outcome.resolve({ type: "rate_limited", agentId: "agent-7" });
       attempts[0]!.outcome.resolve({
         task: attempts[0]!.task,
-        agentId: 'agent-1',
-        status: 'completed',
-        result: 'completed 1',
+        agentId: "agent-1",
+        status: "completed",
+        result: "completed 1",
       });
       attempts[1]!.outcome.resolve({
         task: attempts[1]!.task,
-        agentId: 'agent-2',
-        status: 'completed',
-        result: 'completed 2',
+        agentId: "agent-2",
+        status: "completed",
+        result: "completed 2",
       });
       await vi.advanceTimersByTimeAsync(12_000);
       expect(attempts).toHaveLength(8);
       expect(attempts[7]!.task.data).toBe(7);
-      expect(attempts[7]!.retryAgentId).toBe('agent-7');
+      expect(attempts[7]!.retryAgentId).toBe("agent-7");
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -716,8 +717,8 @@ describe('AgentRunBatch scheduling contract', () => {
   });
 });
 
-describe('AgentRunBatch max concurrency cap', () => {
-  it('caps in-flight tasks at maxConcurrency during the normal phase', async () => {
+describe("AgentRunBatch max concurrency cap", () => {
+  it("caps in-flight tasks at maxConcurrency during the normal phase", async () => {
     vi.useFakeTimers();
     try {
       const { runBatch, attempts } = createMockAgentRunBatchRunner({ maxConcurrency: 3 });
@@ -732,7 +733,7 @@ describe('AgentRunBatch max concurrency cap', () => {
         attempt.outcome.resolve({
           task: attempt.task,
           agentId: `agent-${String(index + 1)}`,
-          status: 'completed',
+          status: "completed",
           result: `result ${String(index + 1)}`,
         });
       };
@@ -770,14 +771,14 @@ describe('AgentRunBatch max concurrency cap', () => {
 
       const results = await running;
       expect(results).toHaveLength(9);
-      expect(results.every((result) => result.status === 'completed')).toBe(true);
+      expect(results.every((result) => result.status === "completed")).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 });
 
-describe('AgentRunBatch swarm item forwarding', () => {
+describe("AgentRunBatch swarm item forwarding", () => {
   function recordingLauncher() {
     const spawned: AgentSpawnAttemptOptions[] = [];
     let nextId = 1;
@@ -787,14 +788,14 @@ describe('AgentRunBatch swarm item forwarding', () => {
         return {
           agentId: `agent-${String(nextId++)}`,
           profileName: options.profileName,
-          completion: Promise.resolve({ result: 'ok' }),
+          completion: Promise.resolve({ result: "ok" }),
         };
       }),
       resume: vi.fn(async () => {
-        throw new Error('unexpected resume');
+        throw new Error("unexpected resume");
       }),
       retry: vi.fn(async () => {
-        throw new Error('unexpected retry');
+        throw new Error("unexpected retry");
       }),
     };
     return { launcher, spawned };
@@ -802,31 +803,31 @@ describe('AgentRunBatch swarm item forwarding', () => {
 
   function spawnTask(swarmItem?: string): QueuedAgentRunTask {
     return {
-      kind: 'spawn',
+      kind: "spawn",
       data: {},
-      profileName: 'subagent',
-      parentToolCallId: 'call_swarm',
-      prompt: 'Review the file',
-      description: 'Review #1 (subagent)',
+      profileName: "subagent",
+      parentToolCallId: "call_swarm",
+      prompt: "Review the file",
+      description: "Review #1 (subagent)",
       swarmItem,
       runInBackground: false,
     };
   }
 
-  it('forwards swarmItem from a spawn task to launcher.spawn', async () => {
+  it("forwards swarmItem from a spawn task to launcher.spawn", async () => {
     const { launcher, spawned } = recordingLauncher();
 
-    const results = await new AgentRunBatch(launcher, [spawnTask('src/a.ts')]).run();
+    const results = await new AgentRunBatch(launcher, [spawnTask("src/a.ts")]).run();
 
     expect(launcher.spawn).toHaveBeenCalledOnce();
     expect(spawned[0]).toMatchObject({
-      profileName: 'subagent',
-      swarmItem: 'src/a.ts',
+      profileName: "subagent",
+      swarmItem: "src/a.ts",
     });
-    expect(results).toMatchObject([{ status: 'completed', agentId: 'agent-1' }]);
+    expect(results).toMatchObject([{ status: "completed", agentId: "agent-1" }]);
   });
 
-  it('leaves swarmItem undefined for spawn tasks without one', async () => {
+  it("leaves swarmItem undefined for spawn tasks without one", async () => {
     const { launcher, spawned } = recordingLauncher();
 
     await new AgentRunBatch(launcher, [spawnTask()]).run();
@@ -836,7 +837,7 @@ describe('AgentRunBatch swarm item forwarding', () => {
   });
 });
 
-describe('SessionSwarmService metadata compatibility', () => {
+describe("SessionSwarmService metadata compatibility", () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let agents: Record<string, AgentMeta>;
@@ -857,7 +858,7 @@ describe('SessionSwarmService metadata compatibility', () => {
     subagents = subagentStub();
     createAgent = lifecycle.create as ReturnType<typeof vi.fn>;
     runAgent = subagents.run as ReturnType<typeof vi.fn>;
-    handles.set('main', agentHandle('main', lifecycle, eventBus));
+    handles.set("main", agentHandle("main", lifecycle, eventBus));
 
     ix.stub(IAgentLifecycleService, lifecycle);
     ix.stub(ISessionSubagentService, subagents);
@@ -865,20 +866,18 @@ describe('SessionSwarmService metadata compatibility', () => {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       get: (name: string) =>
-        name === 'coder'
-          ? { name: 'coder', tools: [], systemPrompt: () => '' }
-          : undefined,
-      getDefault: () => ({ name: 'agent', tools: [], systemPrompt: () => '' }),
+        name === "coder" ? { name: "coder", tools: [], systemPrompt: () => "" } : undefined,
+      getDefault: () => ({ name: "agent", tools: [], systemPrompt: () => "" }),
       list: () => [],
     });
     ix.stub(
       ISessionContext,
       makeSessionContext({
-        sessionId: 's1',
-        workspaceId: 'w1',
-        sessionDir: '/tmp/kimi/s1',
-        sessionScope: 'sessions/w1/s1',
-        cwd: '/repo',
+        sessionId: "s1",
+        workspaceId: "w1",
+        sessionDir: "/tmp/kimi/s1",
+        sessionScope: "sessions/w1/s1",
+        cwd: "/repo",
       }),
     );
     ix.stub(ISessionMetadata, {
@@ -886,9 +885,9 @@ describe('SessionSwarmService metadata compatibility', () => {
       ready: Promise.resolve(),
       onDidChangeMetadata: Event.None as Event<SessionMetadataChangedEvent>,
       read: async () => ({
-        id: 's1',
+        id: "s1",
         version: 2,
-        cwd: '/repo',
+        cwd: "/repo",
         createdAt: 0,
         updatedAt: 0,
         archived: false,
@@ -905,18 +904,18 @@ describe('SessionSwarmService metadata compatibility', () => {
     ix.stub(ISessionProcessRunner, {
       _serviceBrand: undefined,
       exec: async () => {
-        throw new Error('unexpected process exec');
+        throw new Error("unexpected process exec");
       },
     });
     ix.stub(ILogService, stubLog());
     ix.stub(IModelCatalog, {
       _serviceBrand: undefined,
       get: (alias: string) => {
-        if (alias === 'provider/bad') {
+        if (alias === "provider/bad") {
           throw new Error2(
             ConfigErrors.codes.CONFIG_INVALID,
             'Model "provider/bad" is not configured in config.toml.',
-            { details: { model: 'provider/bad' } },
+            { details: { model: "provider/bad" } },
           );
         }
         return { id: alias } as Model;
@@ -929,120 +928,124 @@ describe('SessionSwarmService metadata compatibility', () => {
     disposables.dispose();
   });
 
-  it('reads swarm items from caller-owned v2 labels and legacy v1 metadata', async () => {
-    agents['v2-child'] = {
-      labels: { parentAgentId: 'main', swarmItem: 'src/a.ts' },
+  it("reads swarm items from caller-owned v2 labels and legacy v1 metadata", async () => {
+    agents["v2-child"] = {
+      labels: { parentAgentId: "main", swarmItem: "src/a.ts" },
     };
-    agents['legacy-child'] = {
-      type: 'sub',
-      parentAgentId: 'main',
-      swarmItem: 'src/legacy.ts',
+    agents["legacy-child"] = {
+      type: "sub",
+      parentAgentId: "main",
+      swarmItem: "src/legacy.ts",
     };
-    agents['other-child'] = {
-      labels: { parentAgentId: 'other', swarmItem: 'src/other.ts' },
-    };
-
-    const service = ix.get(ISessionSwarmService);
-
-    await expect(
-      service.getSwarmItem({ callerAgentId: 'main', agentId: 'v2-child' }),
-    ).resolves.toBe('src/a.ts');
-    await expect(
-      service.getSwarmItem({ callerAgentId: 'main', agentId: 'legacy-child' }),
-    ).resolves.toBe('src/legacy.ts');
-    await expect(
-      service.getSwarmItem({ callerAgentId: 'main', agentId: 'other-child' }),
-    ).resolves.toBeUndefined();
-    await expect(
-      service.getSwarmItem({ callerAgentId: 'main', agentId: 'missing' }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('prefers labels over legacy metadata fields when both are present', async () => {
-    agents['mixed-child'] = {
-      labels: { parentAgentId: 'main', swarmItem: 'src/labels.ts' },
-      type: 'sub',
-      parentAgentId: 'other',
-      swarmItem: 'src/legacy.ts',
+    agents["other-child"] = {
+      labels: { parentAgentId: "other", swarmItem: "src/other.ts" },
     };
 
     const service = ix.get(ISessionSwarmService);
 
     await expect(
-      service.getSwarmItem({ callerAgentId: 'main', agentId: 'mixed-child' }),
-    ).resolves.toBe('src/labels.ts');
+      service.getSwarmItem({ callerAgentId: "main", agentId: "v2-child" }),
+    ).resolves.toBe("src/a.ts");
     await expect(
-      service.getSwarmItem({ callerAgentId: 'other', agentId: 'mixed-child' }),
+      service.getSwarmItem({ callerAgentId: "main", agentId: "legacy-child" }),
+    ).resolves.toBe("src/legacy.ts");
+    await expect(
+      service.getSwarmItem({ callerAgentId: "main", agentId: "other-child" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      service.getSwarmItem({ callerAgentId: "main", agentId: "missing" }),
     ).resolves.toBeUndefined();
   });
 
-  it('normalizes legacy subagent metadata into labels for new writes', () => {
-    expect(
-      labelsFromAgentMeta({
-        type: 'sub',
-        parentAgentId: 'main',
-        swarmItem: 'src/legacy.ts',
-      }),
-    ).toEqual({ parentAgentId: 'main', swarmItem: 'src/legacy.ts' });
-    expect(
-      labelsFromAgentMeta({
-        labels: { parentAgentId: 'main', swarmItem: 'src/labels.ts', custom: 'kept' },
-        type: 'sub',
-        parentAgentId: 'other',
-        swarmItem: 'src/legacy.ts',
-      }),
-    ).toEqual({ parentAgentId: 'main', swarmItem: 'src/labels.ts', custom: 'kept' });
+  it("prefers labels over legacy metadata fields when both are present", async () => {
+    agents["mixed-child"] = {
+      labels: { parentAgentId: "main", swarmItem: "src/labels.ts" },
+      type: "sub",
+      parentAgentId: "other",
+      swarmItem: "src/legacy.ts",
+    };
+
+    const service = ix.get(ISessionSwarmService);
+
+    await expect(
+      service.getSwarmItem({ callerAgentId: "main", agentId: "mixed-child" }),
+    ).resolves.toBe("src/labels.ts");
+    await expect(
+      service.getSwarmItem({ callerAgentId: "other", agentId: "mixed-child" }),
+    ).resolves.toBeUndefined();
   });
 
-  it('persists caller ownership and swarm item labels on spawned children', async () => {
+  it("normalizes legacy subagent metadata into labels for new writes", () => {
+    expect(
+      labelsFromAgentMeta({
+        type: "sub",
+        parentAgentId: "main",
+        swarmItem: "src/legacy.ts",
+      }),
+    ).toEqual({ parentAgentId: "main", swarmItem: "src/legacy.ts" });
+    expect(
+      labelsFromAgentMeta({
+        labels: { parentAgentId: "main", swarmItem: "src/labels.ts", custom: "kept" },
+        type: "sub",
+        parentAgentId: "other",
+        swarmItem: "src/legacy.ts",
+      }),
+    ).toEqual({ parentAgentId: "main", swarmItem: "src/labels.ts", custom: "kept" });
+  });
+
+  it("persists caller ownership and swarm item labels on spawned children", async () => {
     const service = ix.get(ISessionSwarmService);
 
     await expect(
       service.run({
-        callerAgentId: 'main',
-        tasks: [spawnSessionTask('src/a.ts')],
+        callerAgentId: "main",
+        tasks: [spawnSessionTask("src/a.ts")],
       }),
     ).resolves.toMatchObject([
       {
-        agentId: 'agent-new',
-        status: 'completed',
-        result: 'child summary',
+        agentId: "agent-new",
+        status: "completed",
+        result: "child summary",
       },
     ]);
 
     expect(createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         binding: {
-          profile: 'coder',
-          model: 'kimi-test',
-          thinking: 'medium',
-          cwd: '/repo',
+          profile: "coder",
+          model: "kimi-test",
+          thinking: "medium",
+          cwd: "/repo",
         },
-        labels: { parentAgentId: 'main', swarmItem: 'src/a.ts' },
+        labels: { parentAgentId: "main", swarmItem: "src/a.ts" },
       }),
     );
   });
 
-  it('inherits parent user tools on spawned children', async () => {
+  it("inherits parent user tools on spawned children", async () => {
     const parentUserTools = userToolServiceStub();
     const childUserTools = userToolServiceStub();
     handles.set(
-      'main',
-      agentHandle('main', lifecycle, eventBus, {}, new Map([
-        [IAgentUserToolService, parentUserTools],
-      ])),
+      "main",
+      agentHandle(
+        "main",
+        lifecycle,
+        eventBus,
+        {},
+        new Map([[IAgentUserToolService, parentUserTools]]),
+      ),
     );
     createAgent.mockImplementationOnce((opts: CreateAgentOptions = {}) => {
-      const id = opts.agentId ?? 'agent-new';
+      const id = opts.agentId ?? "agent-new";
       const handle = agentHandle(
         id,
         lifecycle,
         eventBus,
         {
-          profileName: opts.binding?.profile ?? 'coder',
-          modelAlias: opts.binding?.model ?? 'kimi-test',
-          thinkingLevel: opts.binding?.thinking ?? 'medium',
-          cwd: opts.binding?.cwd ?? '/repo',
+          profileName: opts.binding?.profile ?? "coder",
+          modelAlias: opts.binding?.model ?? "kimi-test",
+          thinkingLevel: opts.binding?.thinking ?? "medium",
+          cwd: opts.binding?.cwd ?? "/repo",
         },
         new Map([[IAgentUserToolService, childUserTools]]),
       );
@@ -1052,122 +1055,124 @@ describe('SessionSwarmService metadata compatibility', () => {
     const service = ix.get(ISessionSwarmService);
 
     await service.run({
-      callerAgentId: 'main',
-      tasks: [spawnSessionTask('src/a.ts')],
+      callerAgentId: "main",
+      tasks: [spawnSessionTask("src/a.ts")],
     });
 
     expect(childUserTools.inheritUserTools).toHaveBeenCalledWith(parentUserTools);
   });
 
-  it('keeps v1 resume ownership errors inside the per-subagent result', async () => {
-    agents['other-child'] = {
-      labels: { parentAgentId: 'other', swarmItem: 'src/other.ts' },
+  it("keeps v1 resume ownership errors inside the per-subagent result", async () => {
+    agents["other-child"] = {
+      labels: { parentAgentId: "other", swarmItem: "src/other.ts" },
     };
-    handles.set('other-child', agentHandle('other-child', lifecycle, eventBusStub()));
+    handles.set("other-child", agentHandle("other-child", lifecycle, eventBusStub()));
     const service = ix.get(ISessionSwarmService);
 
     await expect(
       service.run({
-        callerAgentId: 'main',
-        tasks: [resumeSessionTask('other-child')],
+        callerAgentId: "main",
+        tasks: [resumeSessionTask("other-child")],
       }),
     ).resolves.toMatchObject([
       {
-        status: 'failed',
-        state: 'not_started',
+        status: "failed",
+        state: "not_started",
         error: 'Agent instance "other-child" does not belong to this parent agent',
       },
     ]);
     expect(runAgent).not.toHaveBeenCalled();
   });
 
-  it('keeps resumed children on their own recorded model', async () => {
-    agents['agent-existing'] = {
-      labels: { parentAgentId: 'main' },
+  it("keeps resumed children on their own recorded model", async () => {
+    agents["agent-existing"] = {
+      labels: { parentAgentId: "main" },
     };
-    const child = agentHandle('agent-existing', lifecycle, eventBus, {
-      profileName: 'explore',
-      modelAlias: 'stale-model',
+    const child = agentHandle("agent-existing", lifecycle, eventBus, {
+      profileName: "explore",
+      modelAlias: "stale-model",
     });
-    handles.set('agent-existing', child);
+    handles.set("agent-existing", child);
     const service = ix.get(ISessionSwarmService);
 
     await expect(
       service.run({
-        callerAgentId: 'main',
-        tasks: [resumeSessionTask('agent-existing')],
+        callerAgentId: "main",
+        tasks: [resumeSessionTask("agent-existing")],
       }),
-    ).resolves.toMatchObject([{ status: 'completed', agentId: 'agent-existing' }]);
+    ).resolves.toMatchObject([{ status: "completed", agentId: "agent-existing" }]);
 
     // No realign: resume must not drag the child back to the parent's model.
-    expect(child.accessor.get(IAgentProfileService).data().modelAlias).toBe('stale-model');
+    expect(child.accessor.get(IAgentProfileService).data().modelAlias).toBe("stale-model");
     expect(runAgent).toHaveBeenCalledWith(
-      'agent-existing',
-      { kind: 'prompt', prompt: 'Continue' },
+      "agent-existing",
+      { kind: "prompt", prompt: "Continue" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
-  it('prefers the spawn task binding over the caller model', async () => {
+  it("prefers the spawn task binding over the caller model", async () => {
     const service = ix.get(ISessionSwarmService);
     const spawnTask: SessionSwarmSpawnTask = {
-      ...spawnSessionTask('src/a.ts'),
-      kind: 'spawn',
-      binding: { model: 'provider/secondary', thinking: 'low' },
+      ...spawnSessionTask("src/a.ts"),
+      kind: "spawn",
+      binding: { model: "provider/secondary", thinking: "low" },
     };
 
     await expect(
       service.run({
-        callerAgentId: 'main',
+        callerAgentId: "main",
         tasks: [spawnTask],
       }),
-    ).resolves.toMatchObject([{ status: 'completed', agentId: 'agent-new' }]);
+    ).resolves.toMatchObject([{ status: "completed", agentId: "agent-new" }]);
 
     expect(createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         binding: {
-          profile: 'coder',
-          model: 'provider/secondary',
-          thinking: 'low',
-          cwd: '/repo',
+          profile: "coder",
+          model: "provider/secondary",
+          thinking: "low",
+          cwd: "/repo",
         },
       }),
     );
   });
 
-  it('points at the secondary model config when a spawn task binding is invalid', async () => {
+  it("points at the secondary model config when a spawn task binding is invalid", async () => {
     const service = ix.get(ISessionSwarmService);
     const spawnTask: SessionSwarmSpawnTask = {
-      ...spawnSessionTask('src/a.ts'),
-      kind: 'spawn',
-      binding: { model: 'provider/bad', thinking: 'low' },
+      ...spawnSessionTask("src/a.ts"),
+      kind: "spawn",
+      binding: { model: "provider/bad", thinking: "low" },
     };
 
     await expect(
       service.run({
-        callerAgentId: 'main',
+        callerAgentId: "main",
         tasks: [spawnTask],
       }),
     ).resolves.toMatchObject([
       {
-        status: 'failed',
-        error: expect.stringContaining('comes from [secondary_model].model / KIMI_SECONDARY_MODEL'),
+        status: "failed",
+        error: expect.stringContaining(
+          "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+        ),
       },
     ]);
     expect(createAgent).not.toHaveBeenCalled();
   });
 
-  it('does not emit spawned again when a rate-limited child retries', async () => {
+  it("does not emit spawned again when a rate-limited child retries", async () => {
     vi.useFakeTimers();
     try {
-      agents['agent-retry'] = {
-        labels: { parentAgentId: 'main' },
+      agents["agent-retry"] = {
+        labels: { parentAgentId: "main" },
       };
-      agents['agent-blocker'] = {
-        labels: { parentAgentId: 'main' },
+      agents["agent-blocker"] = {
+        labels: { parentAgentId: "main" },
       };
-      handles.set('agent-retry', agentHandle('agent-retry', lifecycle, eventBus));
-      handles.set('agent-blocker', agentHandle('agent-blocker', lifecycle, eventBus));
+      handles.set("agent-retry", agentHandle("agent-retry", lifecycle, eventBus));
+      handles.set("agent-blocker", agentHandle("agent-blocker", lifecycle, eventBus));
       const rateLimited = createControlledPromise<{ summary: string }>();
       const blocker = createControlledPromise<{ summary: string }>();
       const published: DomainEvent[] = [];
@@ -1177,15 +1182,13 @@ describe('SessionSwarmService metadata compatibility', () => {
       let retryRuns = 0;
       runAgent.mockImplementation((agentId, request, options) => {
         options?.onReady?.();
-        if (agentId === 'agent-retry') {
+        if (agentId === "agent-retry") {
           retryRuns += 1;
           return {
             agentId,
             turn: {} as never,
             completion:
-              retryRuns === 1
-                ? rateLimited
-                : Promise.resolve({ summary: 'recovered summary' }),
+              retryRuns === 1 ? rateLimited : Promise.resolve({ summary: "recovered summary" }),
           };
         }
         return { agentId, turn: {} as never, completion: blocker };
@@ -1193,77 +1196,87 @@ describe('SessionSwarmService metadata compatibility', () => {
       const service = ix.get(ISessionSwarmService);
 
       const running = service.run({
-        callerAgentId: 'main',
-        tasks: [resumeSessionTask('agent-retry'), resumeSessionTask('agent-blocker')],
+        callerAgentId: "main",
+        tasks: [resumeSessionTask("agent-retry"), resumeSessionTask("agent-blocker")],
       });
       await vi.advanceTimersByTimeAsync(0);
-      rateLimited.reject(new APIProviderRateLimitError('Rate limited'));
+      rateLimited.reject(new APIProviderRateLimitError("Rate limited"));
       await vi.advanceTimersByTimeAsync(0);
-      blocker.resolve({ summary: 'blocker summary' });
+      blocker.resolve({ summary: "blocker summary" });
       await vi.advanceTimersByTimeAsync(3_000);
       await running;
 
       expect(
         published
-          .filter((event) => event.type === 'subagent.spawned')
+          .filter((event) => event.type === "subagent.spawned")
           .map((event) => event.subagentId),
-      ).toEqual(['agent-retry', 'agent-blocker']);
+      ).toEqual(["agent-retry", "agent-blocker"]);
       expect(
         runAgent.mock.calls
-          .filter(([agentId]) => agentId === 'agent-retry')
+          .filter(([agentId]) => agentId === "agent-retry")
           .map(([, request]) => request),
-      ).toEqual([{ kind: 'prompt', prompt: 'Continue' }, { kind: 'retry' }]);
+      ).toEqual([{ kind: "prompt", prompt: "Continue" }, { kind: "retry" }]);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('rejects resume of an already running child before launching or emitting spawned', async () => {
-    agents['agent-existing'] = {
-      labels: { parentAgentId: 'main' },
+  it("rejects resume of an already running child before launching or emitting spawned", async () => {
+    agents["agent-existing"] = {
+      labels: { parentAgentId: "main" },
     };
     handles.set(
-      'agent-existing',
-      agentHandle('agent-existing', lifecycle, eventBus, {}, new Map([
-        [
-          IAgentLoopService,
-          {
-            _serviceBrand: undefined,
-            status: () => ({ state: 'running', activeTurnId: 1, pendingTurnIds: [], hasPendingRequests: true }),
-          },
-        ],
-      ])),
+      "agent-existing",
+      agentHandle(
+        "agent-existing",
+        lifecycle,
+        eventBus,
+        {},
+        new Map([
+          [
+            IAgentLoopService,
+            {
+              _serviceBrand: undefined,
+              status: () => ({
+                state: "running",
+                activeTurnId: 1,
+                pendingTurnIds: [],
+                hasPendingRequests: true,
+              }),
+            },
+          ],
+        ]),
+      ),
     );
     const service = ix.get(ISessionSwarmService);
 
     await expect(
       service.run({
-        callerAgentId: 'main',
-        tasks: [resumeSessionTask('agent-existing')],
+        callerAgentId: "main",
+        tasks: [resumeSessionTask("agent-existing")],
       }),
     ).resolves.toMatchObject([
       {
-        status: 'failed',
-        state: 'not_started',
-        error:
-          'Agent instance "agent-existing" is already running and cannot run concurrently',
+        status: "failed",
+        state: "not_started",
+        error: 'Agent instance "agent-existing" is already running and cannot run concurrently',
       },
     ]);
     expect(runAgent).not.toHaveBeenCalled();
     expect(eventBus.publish).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'subagent.spawned' }),
+      expect.objectContaining({ type: "subagent.spawned" }),
     );
   });
 });
 
 function spawnSessionTask(swarmItem?: string): SessionSwarmSpawnTask {
   return {
-    kind: 'spawn',
+    kind: "spawn",
     data: {},
-    profileName: 'coder',
-    parentToolCallId: 'call_swarm',
-    prompt: 'Review the file',
-    description: 'Review #1 (coder)',
+    profileName: "coder",
+    parentToolCallId: "call_swarm",
+    prompt: "Review the file",
+    description: "Review #1 (coder)",
     swarmIndex: 1,
     swarmItem,
     runInBackground: false,
@@ -1272,12 +1285,12 @@ function spawnSessionTask(swarmItem?: string): SessionSwarmSpawnTask {
 
 function resumeSessionTask(agentId: string): SessionSwarmTask {
   return {
-    kind: 'resume',
+    kind: "resume",
     data: {},
-    profileName: 'subagent',
-    parentToolCallId: 'call_swarm',
-    prompt: 'Continue',
-    description: 'Resume #1 (resume)',
+    profileName: "subagent",
+    parentToolCallId: "call_swarm",
+    prompt: "Continue",
+    description: "Resume #1 (resume)",
     swarmIndex: 1,
     runInBackground: false,
     resumeAgentId: agentId,
@@ -1297,12 +1310,12 @@ function lifecycleStub(
         const existing = handles.get(opts.agentId);
         if (existing !== undefined) return existing;
       }
-      const id = opts.agentId ?? 'agent-new';
+      const id = opts.agentId ?? "agent-new";
       const handle = agentHandle(id, lifecycle as IAgentLifecycleService, eventBus, {
-        profileName: opts.binding?.profile ?? 'coder',
-        modelAlias: opts.binding?.model ?? 'kimi-test',
-        thinkingLevel: opts.binding?.thinking ?? 'medium',
-        cwd: opts.binding?.cwd ?? '/repo',
+        profileName: opts.binding?.profile ?? "coder",
+        modelAlias: opts.binding?.model ?? "kimi-test",
+        thinkingLevel: opts.binding?.thinking ?? "medium",
+        cwd: opts.binding?.cwd ?? "/repo",
       });
       handles.set(id, handle);
       return handle;
@@ -1321,12 +1334,12 @@ function lifecycleStub(
 function subagentStub(): ISessionSubagentService {
   return {
     _serviceBrand: undefined,
-    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(["onWillStartAgentTask"]),
     onDidStopAgentTask: Event.None,
     run: vi.fn(async (agentId: string) => ({
       agentId,
       turn: {} as never,
-      completion: Promise.resolve({ summary: 'child summary' }),
+      completion: Promise.resolve({ summary: "child summary" }),
     })),
     notifyAgentTaskStopped: () => {},
   } as ISessionSubagentService;
@@ -1340,17 +1353,17 @@ function agentHandle(
   services: ReadonlyMap<unknown, unknown> = new Map(),
 ): IAgentScopeHandle {
   const profile = profileService({
-    cwd: '/repo',
-    modelAlias: 'kimi-test',
+    cwd: "/repo",
+    modelAlias: "kimi-test",
     modelCapabilities: {} as never,
-    profileName: 'agent',
-    thinkingLevel: 'medium',
-    systemPrompt: '',
+    profileName: "agent",
+    thinkingLevel: "medium",
+    systemPrompt: "",
     ...data,
   });
   const permissionMode = {
     _serviceBrand: undefined,
-    mode: 'auto',
+    mode: "auto",
     setMode: () => {},
     onDidChangeMode: Event.None,
   } as IAgentPermissionModeService;
@@ -1366,7 +1379,7 @@ function agentHandle(
         if (serviceId === IAgentLoopService) {
           return {
             _serviceBrand: undefined,
-            status: () => ({ state: 'idle', pendingTurnIds: [], hasPendingRequests: false }),
+            status: () => ({ state: "idle", pendingTurnIds: [], hasPendingRequests: false }),
           } as unknown as IAgentLoopService;
         }
         if (serviceId === IAgentUserToolService) return userToolServiceStub();
@@ -1374,7 +1387,7 @@ function agentHandle(
         if (serviceId === ITelemetryService) return noopTelemetryService;
         if (serviceId === IAgentLifecycleService) return lifecycle;
         return undefined;
-      }) as IAgentScopeHandle['accessor']['get'],
+      }) as IAgentScopeHandle["accessor"]["get"],
     },
     dispose: () => {},
   };
@@ -1406,14 +1419,14 @@ function eventBusStub(): IEventBus {
   return {
     _serviceBrand: undefined,
     publish: vi.fn((_: DomainEvent) => {}),
-    subscribe: vi.fn(() => ({ dispose: () => {} })) as IEventBus['subscribe'],
+    subscribe: vi.fn(() => ({ dispose: () => {} })) as IEventBus["subscribe"],
   };
 }
 
 type MockAgentRunAttemptOutcome<T> =
   | AgentRunResult<T>
   | {
-      readonly type: 'rate_limited';
+      readonly type: "rate_limited";
       readonly agentId: string;
     };
 
@@ -1430,9 +1443,7 @@ type MockAgentRunBatchRunnerOptions = {
   readonly maxConcurrency?: number;
 };
 
-function createMockAgentRunBatchRunner(
-  options: MockAgentRunBatchRunnerOptions = {},
-): {
+function createMockAgentRunBatchRunner(options: MockAgentRunBatchRunnerOptions = {}): {
   readonly runBatch: <T>(
     tasks: readonly QueuedAgentRunTask<T>[],
     options?: { readonly signal?: AbortSignal },
@@ -1442,7 +1453,7 @@ function createMockAgentRunBatchRunner(
   const attempts: MockAgentRunAttemptRecord[] = [];
   let activeTasks: readonly QueuedAgentRunTask<unknown>[] = [];
 
-  const createHandle = <T,>(
+  const createHandle = <T>(
     runOptions: AgentRunAttemptOptions,
     agentId: string,
     profileName: string,
@@ -1458,7 +1469,7 @@ function createMockAgentRunBatchRunner(
       task: task as unknown as QueuedAgentRunTask<number>,
       retryAgentId,
       markReady,
-      outcome: outcome as unknown as MockAgentRunAttemptRecord['outcome'],
+      outcome: outcome as unknown as MockAgentRunAttemptRecord["outcome"],
     });
 
     const delay = options.readyDelay?.(attemptIndex);
@@ -1480,15 +1491,15 @@ function createMockAgentRunBatchRunner(
         spawnOptions.profileName,
       );
     },
-    resume: async (agentId, runOptions) => createHandle(runOptions, agentId, 'subagent'),
-    retry: async (agentId, runOptions) => createHandle(runOptions, agentId, 'subagent', agentId),
+    resume: async (agentId, runOptions) => createHandle(runOptions, agentId, "subagent"),
+    retry: async (agentId, runOptions) => createHandle(runOptions, agentId, "subagent", agentId),
     suspended: (event) => {
       options.onSuspended?.(event);
     },
   };
 
   return {
-    runBatch: <T,>(
+    runBatch: <T>(
       tasks: readonly QueuedAgentRunTask<T>[],
       runOptions?: { readonly signal?: AbortSignal },
     ) => {
@@ -1520,34 +1531,34 @@ function findMockAgentRunTask<T>(
 }
 
 function mockAgentRunId(task: QueuedAgentRunTask<unknown>, attemptIndex: number): string {
-  if (typeof task.data === 'number') return `agent-${String(task.data)}`;
+  if (typeof task.data === "number") return `agent-${String(task.data)}`;
   return `agent-${String(attemptIndex + 1)}`;
 }
 
 function completionFromMockAgentRunOutcome<T>(
   outcome: ReturnType<typeof createControlledPromise<MockAgentRunAttemptOutcome<T>>>,
   signal: AbortSignal,
-): AgentRunAttemptHandle['completion'] {
+): AgentRunAttemptHandle["completion"] {
   return new Promise((resolve, reject) => {
     const abort = () => {
-      reject(signal.reason ?? new Error('Aborted'));
+      reject(signal.reason ?? new Error("Aborted"));
     };
-    signal.addEventListener('abort', abort, { once: true });
+    signal.addEventListener("abort", abort, { once: true });
     outcome.then(
       (result) => {
-        signal.removeEventListener('abort', abort);
+        signal.removeEventListener("abort", abort);
         if (isMockAgentRunRateLimitOutcome(result)) {
-          reject(new APIProviderRateLimitError('Rate limited', result.agentId));
+          reject(new APIProviderRateLimitError("Rate limited", result.agentId));
           return;
         }
-        if (result.status === 'completed') {
-          resolve({ result: result.result ?? '', usage: result.usage });
+        if (result.status === "completed") {
+          resolve({ result: result.result ?? "", usage: result.usage });
           return;
         }
         reject(new Error(result.error ?? result.status));
       },
       (error: unknown) => {
-        signal.removeEventListener('abort', abort);
+        signal.removeEventListener("abort", abort);
         reject(error);
       },
     );
@@ -1556,16 +1567,16 @@ function completionFromMockAgentRunOutcome<T>(
 
 function isMockAgentRunRateLimitOutcome<T>(
   outcome: MockAgentRunAttemptOutcome<T>,
-): outcome is Extract<MockAgentRunAttemptOutcome<T>, { readonly type: 'rate_limited' }> {
-  return 'type' in outcome && outcome.type === 'rate_limited';
+): outcome is Extract<MockAgentRunAttemptOutcome<T>, { readonly type: "rate_limited" }> {
+  return "type" in outcome && outcome.type === "rate_limited";
 }
 
 function queuedAgentRunTask(index: number): QueuedAgentRunTask<number> {
   return {
-    kind: 'spawn',
+    kind: "spawn",
     data: index,
-    profileName: 'coder',
-    parentToolCallId: 'call_swarm',
+    profileName: "coder",
+    parentToolCallId: "call_swarm",
     prompt: `Review item-${String(index)}`,
     description: `Review #${String(index)}`,
     runInBackground: false,

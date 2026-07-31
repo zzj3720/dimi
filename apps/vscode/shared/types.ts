@@ -66,6 +66,18 @@ export type UIStreamEvent =
 
 export interface LoginStatus {
   loggedIn: boolean;
+  providers: Array<{
+    id: string;
+    name: string;
+    configured: boolean;
+    methods: Array<{ type: "oauth" | "api_key"; label: string }>;
+  }>;
+}
+
+export interface LoginRequest {
+  providerId: string;
+  method: "oauth" | "api_key";
+  value?: string;
 }
 
 export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from "./legacy-sdk";

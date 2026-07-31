@@ -10,25 +10,25 @@
  * to subscribers. Constructed by `SessionMcpService`.
  */
 
-import { ErrorCodes, Error2 } from '#/errors';
-import type { McpServerConfig } from './config-schema';
-import type { ILogger as Logger } from '#/_base/log/log';
-import type { Tool } from '#/kosong/contract/tool';
+import { ErrorCodes, Error2 } from "#/errors";
+import type { McpServerConfig } from "./config-schema";
+import type { ILogger as Logger } from "#/_base/log/log";
+import type { Tool } from "#/llmProtocol/tool";
 
-import { abortable } from '#/_base/utils/abort';
-import { HttpMcpClient } from './client-http';
-import { isRemoteMcpConfig } from './client-remote';
-import { SseMcpClient } from './client-sse';
-import type { UnexpectedCloseReason } from './client-shared';
-import { StdioMcpClient } from './client-stdio';
-import type { McpOAuthService } from '#/agent/mcp/oauth/service';
-import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
+import { abortable } from "#/_base/utils/abort";
+import { HttpMcpClient } from "./client-http";
+import { isRemoteMcpConfig } from "./client-remote";
+import { SseMcpClient } from "./client-sse";
+import type { UnexpectedCloseReason } from "./client-shared";
+import { StdioMcpClient } from "./client-stdio";
+import type { McpOAuthService } from "#/agent/mcp/oauth/service";
+import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from "./types";
 
-export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
+export type McpServerStatus = "pending" | "connected" | "failed" | "disabled" | "needs-auth";
 
 export interface McpServerEntry {
   readonly name: string;
-  readonly transport: McpServerConfig['transport'];
+  readonly transport: McpServerConfig["transport"];
   readonly status: McpServerStatus;
   readonly toolCount: number;
   readonly error?: string;
@@ -121,9 +121,7 @@ export class McpConnectionManager {
     return entry !== undefined ? toPublicEntry(entry) : undefined;
   }
 
-  resolved(
-    name: string,
-  ):
+  resolved(name: string):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -133,7 +131,7 @@ export class McpConnectionManager {
     | undefined {
     const entry = this.entries.get(name);
     if (
-      entry?.status !== 'connected' ||
+      entry?.status !== "connected" ||
       entry.tools === undefined ||
       entry.rawTools === undefined ||
       entry.client === undefined
@@ -171,7 +169,7 @@ export class McpConnectionManager {
       name,
       config,
       attemptId: 0,
-      status: disabled ? 'disabled' : 'pending',
+      status: disabled ? "disabled" : "pending",
     };
     this.entries.set(name, entry);
     this.emit(entry);
@@ -184,7 +182,7 @@ export class McpConnectionManager {
     const entry = this.entries.get(name);
     if (entry === undefined) return false;
     await this.closeClient(entry);
-    entry.status = 'disabled';
+    entry.status = "disabled";
     entry.tools = undefined;
     entry.enabledNames = undefined;
     entry.rawTools = undefined;
@@ -214,7 +212,7 @@ export class McpConnectionManager {
         name,
         config,
         attemptId: 0,
-        status: disabled ? 'disabled' : 'pending',
+        status: disabled ? "disabled" : "pending",
       };
       this.entries.set(name, entry);
       this.emit(entry);
@@ -236,7 +234,7 @@ export class McpConnectionManager {
     const attemptId = this.beginConnectAttempt(entry);
     await this.closeClient(entry);
     if (!this.isCurrent(entry, attemptId)) return;
-    entry.status = 'pending';
+    entry.status = "pending";
     entry.tools = undefined;
     entry.enabledNames = undefined;
     entry.rawTools = undefined;
@@ -289,7 +287,7 @@ export class McpConnectionManager {
       entry.tools = discovered.tools;
       entry.rawTools = discovered.rawTools;
       entry.enabledNames = computeEnabledNames(entry.config, discovered.tools);
-      entry.status = 'connected';
+      entry.status = "connected";
       this.watchForUnexpectedClose(entry, startupClient, attemptId);
     } catch (error) {
       if (!this.isCurrent(entry, attemptId)) {
@@ -299,10 +297,10 @@ export class McpConnectionManager {
         return;
       }
       if (this.shouldMarkNeedsAuth(entry, error)) {
-        entry.status = 'needs-auth';
+        entry.status = "needs-auth";
         entry.error = `${entry.name} requires OAuth — run /mcp-config login ${entry.name}`;
       } else {
-        entry.status = 'failed';
+        entry.status = "failed";
         entry.error = formatStartupError(error, client);
       }
       entry.tools = undefined;
@@ -322,7 +320,7 @@ export class McpConnectionManager {
     client.onUnexpectedClose((reason) => {
       if (!this.isCurrent(entry, attemptId)) return;
       if (entry.client !== client) return;
-      entry.status = 'failed';
+      entry.status = "failed";
       entry.error = formatUnexpectedCloseError(entry.name, reason);
       entry.tools = undefined;
       entry.enabledNames = undefined;
@@ -345,14 +343,14 @@ export class McpConnectionManager {
   ): Promise<RuntimeMcpClient> {
     const toolCallTimeoutMs =
       config.toolTimeoutMs ?? this.options.resolveDefaultTimeouts?.().toolTimeoutMs;
-    if (config.transport === 'stdio') {
+    if (config.transport === "stdio") {
       return new StdioMcpClient(config, {
         startupTimeoutMs,
         toolCallTimeoutMs,
         defaultCwd: this.options.stdioCwd,
       });
     }
-    if (config.transport === 'sse') {
+    if (config.transport === "sse") {
       return new SseMcpClient(config, {
         startupTimeoutMs,
         toolCallTimeoutMs,
@@ -371,7 +369,7 @@ export class McpConnectionManager {
   private async resolveOAuthProvider(
     config: McpServerConfig,
     name: string,
-  ): Promise<ReturnType<McpOAuthService['getProvider']> | undefined> {
+  ): Promise<ReturnType<McpOAuthService["getProvider"]> | undefined> {
     const oauthService = this.oauthService;
     if (oauthService === undefined) return undefined;
     if (!isRemoteMcpConfig(config)) return undefined;
@@ -413,8 +411,7 @@ export class McpConnectionManager {
   private async closeRuntimeClient(client: RuntimeMcpClient): Promise<void> {
     try {
       await client.close();
-    } catch {
-    }
+    } catch {}
   }
 
   private isCurrent(entry: InternalEntry, attemptId: number): boolean {
@@ -423,8 +420,8 @@ export class McpConnectionManager {
 
   private emit(entry: InternalEntry): void {
     const view = toPublicEntry(entry);
-    if (view.status === 'failed' || view.status === 'needs-auth') {
-      this.log.error('mcp server unavailable', {
+    if (view.status === "failed" || view.status === "needs-auth") {
+      this.log.error("mcp server unavailable", {
         server: view.name,
         transport: view.transport,
         status: view.status,
@@ -434,8 +431,7 @@ export class McpConnectionManager {
     for (const listener of this.listeners) {
       try {
         listener(view);
-      } catch {
-      }
+      } catch {}
     }
   }
 }
@@ -446,7 +442,7 @@ function toPublicEntry(entry: InternalEntry): McpServerEntry {
     transport: entry.config.transport,
     status: entry.status,
     toolCount:
-      entry.status === 'connected' && entry.enabledNames !== undefined
+      entry.status === "connected" && entry.enabledNames !== undefined
         ? entry.enabledNames.size
         : 0,
     error: entry.error,
@@ -470,10 +466,10 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 
 function isUnauthorizedLikeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  if (error.name === 'UnauthorizedError') return true;
+  if (error.name === "UnauthorizedError") return true;
   const code = (error as { code?: unknown }).code;
-  if (typeof code === 'number' && code === 401) return true;
-  if (typeof code === 'string' && code === '401') return true;
+  if (typeof code === "number" && code === 401) return true;
+  if (typeof code === "string" && code === "401") return true;
   return /\b401\b/.test(error.message) || /unauthorized/i.test(error.message);
 }
 
@@ -492,7 +488,7 @@ function formatUnexpectedCloseError(name: string, reason: UnexpectedCloseReason)
   if (reason.stderr !== undefined && reason.stderr.length > 0) {
     parts.push(`stderr: ${reason.stderr.trimEnd()}`);
   }
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 function stderrTail(client: RuntimeMcpClient | undefined): string | undefined {
