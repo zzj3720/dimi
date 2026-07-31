@@ -45,7 +45,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
   Reflect.deleteProperty(globalThis, "__DEV__");
-}, 30_000);
+});
 
 describe("Android client real remote path", () => {
   it("pairs with a real Kap server, completes a prompt, and resyncs after bridge restart", async () => {
