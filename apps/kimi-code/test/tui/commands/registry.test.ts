@@ -4,6 +4,7 @@ import {
   parseSlashInput,
   resolveSlashCommandAvailability,
   addDirArgumentCompletions,
+  remoteArgumentCompletions,
   sortSlashCommands,
   swarmArgumentCompletions,
   type KimiSlashCommand,
@@ -72,6 +73,31 @@ describe('built-in slash command registry', () => {
     expect(values('on')).toBeNull();
     expect(values('off')).toBeNull();
     expect(values('Ship feature X')).toBeNull();
+  });
+
+  it('offers remote start, pair, and stop argument completions', () => {
+    expect(remoteArgumentCompletions('')).toEqual([
+      {
+        value: 'start',
+        label: 'start',
+        description: 'Connect this runtime to the mobile relay',
+      },
+      {
+        value: 'pair',
+        label: 'pair',
+        description: 'Pair a new mobile device',
+      },
+      {
+        value: 'stop',
+        label: 'stop',
+        description: 'Disconnect this runtime from the mobile relay',
+      },
+    ]);
+    expect(remoteArgumentCompletions('st')).toHaveLength(2);
+    expect(remoteArgumentCompletions('p')).toEqual([
+      { value: 'pair', label: 'pair', description: 'Pair a new mobile device' },
+    ]);
+    expect(remoteArgumentCompletions('start')).toBeNull();
   });
 
   it('offers add-dir list and directory argument completions', () => {
@@ -166,6 +192,7 @@ describe('built-in slash command registry', () => {
         'plan',
         'reload',
         'reload-tui',
+        'remote',
         'secondary_model',
         'sessions',
         'settings',

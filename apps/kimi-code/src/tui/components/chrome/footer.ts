@@ -37,7 +37,15 @@ import {
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = [
+  'mode',
+  'goal',
+  'model',
+  'tasks',
+  'remote',
+  'cwd',
+  'git',
+] as const;
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -305,9 +313,11 @@ export class FooterComponent implements Component {
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
       const left: string[] = [];
       for (const slot of order) {
-        const pieces = slots[slot as keyof typeof slots];
+        const pieces = slots[slot];
         if (pieces !== undefined) left.push(...pieces);
       }
+      const remotePieces = slots['remote'];
+      if (remotePieces !== undefined && !order.includes('remote')) left.push(...remotePieces);
 
       const leftLine = left.join('  ');
       const leftWidth = visibleWidth(leftLine);
@@ -384,6 +394,7 @@ export class FooterComponent implements Component {
       goal: [],
       model: [],
       tasks: [],
+      remote: [],
       cwd: [],
       git: [],
       tips: [],
@@ -445,6 +456,20 @@ export class FooterComponent implements Component {
       );
     }
     slots['tasks'] = taskBadges;
+
+    if (state.remoteStatus !== null && state.remoteStatus !== undefined) {
+      const dotColor =
+        state.remoteStatus === 'online'
+          ? colors.primary
+          : state.remoteStatus === 'connecting'
+            ? colors.warning
+            : colors.textMuted;
+      slots['remote'] = [
+        chalk.hex(colors.textMuted)('[remote ') +
+          chalk.hex(dotColor)('●') +
+          chalk.hex(colors.textMuted)(` ${state.remoteStatus}]`),
+      ];
+    }
 
     const cwd = shortenCwd(state.workDir);
     if (cwd) slots['cwd'] = [chalk.hex(colors.textDim)(cwd)];

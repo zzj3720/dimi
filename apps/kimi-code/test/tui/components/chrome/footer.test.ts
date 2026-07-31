@@ -93,6 +93,30 @@ describe('FooterComponent', () => {
     expect(codes.has(RAINBOW_GREEN)).toBe(false);
   });
 
+  it('shows the live remote state only while remote access is enabled', () => {
+    const footer = new FooterComponent({ ...appState, remoteStatus: 'connecting' });
+
+    expect(footer.render(120).join('\n')).toContain('remote');
+    expect(footer.render(120).join('\n')).toContain('connecting');
+
+    footer.setState({ ...appState, remoteStatus: 'online' });
+    expect(footer.render(120).join('\n')).toContain('online');
+
+    footer.setState({ ...appState, remoteStatus: null });
+    expect(footer.render(120).join('\n')).not.toContain('remote');
+  });
+
+  it('keeps active remote status visible with an older custom status line', () => {
+    const footer = new FooterComponent({
+      ...appState,
+      remoteStatus: 'online',
+      statusLine: { items: ['model', 'cwd'], command: null },
+    });
+
+    expect(footer.render(120).join('\n')).toContain('remote');
+    expect(footer.render(120).join('\n')).toContain('online');
+  });
+
   it('repaints from the active palette on the next render (no setColors needed)', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');
