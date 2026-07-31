@@ -42,6 +42,7 @@ export class TaskListTool implements ITaskListTool {
     const listScope = (args.active_only ?? true) ? 'active' : 'all';
     return {
       description: 'Listing background tasks',
+      taskMode: 'control',
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, listScope),
       execute: async () => {

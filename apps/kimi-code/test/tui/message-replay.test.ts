@@ -24,6 +24,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { ToolCallSequenceComponent } from '#/tui/components/messages/tool-call-sequence';
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
@@ -36,12 +37,26 @@ function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
+function countToolCalls(children: readonly unknown[]): number {
+  return children.reduce(
+    (count: number, child) =>
+      count +
+      (child instanceof ToolCallComponent
+        ? 1
+        : child instanceof ToolCallSequenceComponent
+          ? child.toolCount
+          : 0),
+    0,
+  );
+}
+
 interface ReplayDriver {
   readonly state: TUIState;
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   init(): Promise<boolean>;
   switchToSession(session: Session, statusMessage: string): Promise<void>;
+  toggleToolOutputExpansion(): void;
 }
 
 function makeStartupInput(): KimiTUIStartupInput {
@@ -62,6 +77,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -152,7 +168,6 @@ function baseAgentState(
     config: {
       cwd: '/tmp/proj-a',
       modelAlias: 'k2',
-      provider: undefined,
       modelCapabilities: {
         image_in: false,
         video_in: false,
@@ -161,7 +176,7 @@ function baseAgentState(
         tool_use: true,
         max_context_tokens: 100,
       },
-      thinkingEffort: 'off',
+      thinkingLevel: 'off',
       systemPrompt: '',
     },
     context: { history: [], tokenCount: 0 },
@@ -171,8 +186,8 @@ function baseAgentState(
     swarmMode: false,
     usage: {},
     tools: [],
-    toolStore: {},
-    background: [],
+    tasks: [],
+    todos: [],
     ...overrides,
   };
 }
@@ -640,7 +655,10 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
-    const group = driver.state.transcriptContainer.children.find(
+    const sequence = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    const group = sequence?.children.find(
       (child) => child instanceof AgentGroupComponent,
     );
 
@@ -673,7 +691,10 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
-    const group = driver.state.transcriptContainer.children.find(
+    const sequence = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    const group = sequence?.children.find(
       (child) => child instanceof ReadGroupComponent,
     );
 
@@ -712,6 +733,12 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(summary).toContain('Used 1 tool · ran 1 agent');
+    expect(summary).not.toContain('Agent swarm:');
+
+    driver.toggleToolOutputExpansion();
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
     expect(transcript).toContain('Agent swarm: ✓ 1 completed · ✗ 1 failed');
@@ -752,6 +779,12 @@ describe('KimiTUI resume message replay', () => {
     ];
 
     const driver = await replayIntoDriver(replay);
+    const summary = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(summary).toContain('Used 1 tool · ran 1 agent');
+    expect(summary).not.toContain('Agent swarm:');
+
+    driver.toggleToolOutputExpansion();
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
 
     expect(transcript).toContain('Agent swarm: ✗ 1 failed · ⊘ 1 aborted');
@@ -761,14 +794,12 @@ describe('KimiTUI resume message replay', () => {
 
   it('hydrates todo and background snapshot state from resumed main agent', async () => {
     const driver = await replayIntoDriver([], {
-      toolStore: {
-        todo: [
-          { title: 'Review resume snapshot', status: 'done' },
-          { title: 'Render replay transcript', status: 'in_progress' },
-          { title: '', status: 'pending' },
-        ],
-      },
-      background: [
+      todos: [
+        { title: 'Review resume snapshot', status: 'done' },
+        { title: 'Render replay transcript', status: 'in_progress' },
+        { title: '', status: 'pending' },
+      ],
+      tasks: [
         backgroundTask('agent-bg1', 'Review long-running work', 'running'),
         backgroundTask('bash-bg1', 'Build package', 'completed'),
       ],
@@ -785,7 +816,7 @@ describe('KimiTUI resume message replay', () => {
 
   it('matches completed resumed background agents by agent id when task id differs', async () => {
     const driver = await replayIntoDriver([], {
-      background: [
+      tasks: [
         {
           taskId: 'task-bg1',
           kind: 'agent',
@@ -840,14 +871,14 @@ describe('KimiTUI resume message replay', () => {
       endedAt: null,
       timeoutMs: 1000,
     };
-    const driver = await replayIntoDriver([], { background: [info] });
+    const driver = await replayIntoDriver([], { tasks: [info] });
     const applyTerminalStatus = vi
       .spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
       .mockReturnValue(true);
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         agentId: 'main',
         sessionId: 'ses-replay',
         info: { ...info, status: 'timed_out', endedAt: 2 },
@@ -885,7 +916,7 @@ describe('KimiTUI resume message replay', () => {
       [
         message('user', [{ type: 'text', text: 'Background task lost.' }], {
           origin: {
-            kind: 'background_task',
+            kind: 'task',
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',
@@ -893,7 +924,7 @@ describe('KimiTUI resume message replay', () => {
         }),
       ],
       {
-        background: [backgroundTask('bash-lost0000', 'Background timestamp logger', 'lost')],
+        tasks: [backgroundTask('bash-lost0000', 'Background timestamp logger', 'lost')],
       },
     );
 
@@ -904,6 +935,75 @@ describe('KimiTUI resume message replay', () => {
     expect(status?.backgroundAgentStatus?.headline).toBe('bash task lost');
     expect(status?.backgroundAgentStatus?.detail).toContain('Background timestamp logger');
     expect(status?.backgroundAgentStatus?.headline).not.toContain('agent');
+  });
+
+  it('does not render successful tool task notifications as transcript cards', async () => {
+    const toolTask: BackgroundTaskInfo = {
+      taskId: 'tool-ok000000',
+      kind: 'tool',
+      turnId: 1,
+      toolCallId: 'call-ok',
+      toolName: 'Lookup',
+      autoWaitTimeoutSeconds: 20,
+      description: 'Running Lookup',
+      status: 'completed',
+      detached: true,
+      startedAt: 1,
+      endedAt: 2,
+    };
+    const driver = await replayIntoDriver(
+      [
+        message('user', [{ type: 'text', text: 'Background tool completed.' }], {
+          origin: {
+            kind: 'task',
+            taskId: 'tool-ok000000',
+            status: 'completed',
+            notificationId: 'task:tool-ok000000:completed',
+          },
+        }),
+      ],
+      { tasks: [toolTask] },
+    );
+
+    expect(
+      driver.state.transcriptEntries.some((entry) => entry.backgroundAgentStatus !== undefined),
+    ).toBe(false);
+  });
+
+  it('renders failed tool task notifications as transcript cards', async () => {
+    const toolTask: BackgroundTaskInfo = {
+      taskId: 'tool-bad00000',
+      kind: 'tool',
+      turnId: 1,
+      toolCallId: 'call-bad',
+      toolName: 'Lookup',
+      autoWaitTimeoutSeconds: 20,
+      description: 'Running Lookup',
+      status: 'failed',
+      detached: true,
+      startedAt: 1,
+      endedAt: 2,
+      stopReason: 'tool error',
+    };
+    const driver = await replayIntoDriver(
+      [
+        message('user', [{ type: 'text', text: 'Background tool failed.' }], {
+          origin: {
+            kind: 'task',
+            taskId: 'tool-bad00000',
+            status: 'failed',
+            notificationId: 'task:tool-bad00000:failed',
+          },
+        }),
+      ],
+      { tasks: [toolTask] },
+    );
+
+    const status = driver.state.transcriptEntries.find(
+      (entry) => entry.backgroundAgentStatus !== undefined,
+    );
+    expect(status?.backgroundAgentStatus?.headline).toBe('tool task failed in background');
+    expect(status?.backgroundAgentStatus?.detail).toContain('Running Lookup');
   });
 
   it('renders only the most recent ten visible user turns', async () => {
@@ -1062,6 +1162,7 @@ describe('KimiTUI resume message replay', () => {
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
         instruction: 'preserve implementation notes',
       },
@@ -1084,6 +1185,7 @@ describe('KimiTUI resume message replay', () => {
     expect(collapsed).not.toContain('Compacted transcript summary.');
 
     driver.state.editor.onToggleToolExpand?.();
+    driver.state.editor.onToggleToolExpand?.();
     const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
     expect(expanded).toContain('Compacted transcript summary.');
   });
@@ -1099,11 +1201,12 @@ describe('KimiTUI resume message replay', () => {
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
       },
     ]);
     const driver = await makeDriver(initial);
-    driver.state.toolOutputExpanded = true;
+    driver.state.toolDisplayMode = 'full';
     await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));
@@ -1220,6 +1323,11 @@ describe('KimiTUI resume message replay', () => {
       { time: REPLAY_TIME, type: 'plan_updated', enabled: false },
     ]);
 
+    const summary = driver.state.transcriptContainer.render(120).join('\n');
+    expect(summary).toContain('Used 1 tool');
+    expect(summary).not.toContain('Final Plan');
+
+    driver.toggleToolOutputExpansion();
     const transcript = driver.state.transcriptContainer.render(120).join('\n');
 
     expect(transcript).toContain('Plan review rejected');
@@ -1253,11 +1361,7 @@ describe('KimiTUI resume message replay', () => {
     expect(transcript).not.toContain('round 14 summary');
     expect(transcript).toContain('round 15 summary');
     expect(transcript).toContain('round 24 summary');
-    expect(
-      driver.state.transcriptContainer.children.filter(
-        (child) => child instanceof ToolCallComponent,
-      ),
-    ).toHaveLength(10);
+    expect(countToolCalls(driver.state.transcriptContainer.children)).toBe(10);
   });
 
   it('folds oversized goal rounds even though continuation boundaries are hidden', async () => {
@@ -1295,8 +1399,7 @@ describe('KimiTUI resume message replay', () => {
 
     // The oversized round folds to the per-turn caps even with no visible
     // boundary component mounted for the continuation prompt.
-    const tools = children.filter((child) => child instanceof ToolCallComponent);
-    expect(tools).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
+    expect(countToolCalls(children)).toBe(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
     expect(assistants).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
 

@@ -265,7 +265,7 @@ describe('SkillTool', () => {
     });
   });
 
-  it('rejects non-inline skill types in the current v1 runtime', async () => {
+  it('rejects non-inline skill types in the current runtime', async () => {
     skills.register(stubSkill('flow-only', { metadata: { type: 'flow' } }));
 
     const result = await executeTool(

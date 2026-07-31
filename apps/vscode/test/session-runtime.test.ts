@@ -20,7 +20,7 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import { Events } from "../shared/bridge";
-import type { LegacyApprovalFlags } from "../src/runtime/legacy-approval";
+import type { ApprovalModes } from "../src/runtime/approval-modes";
 import { SessionRuntime } from "../src/runtime/session-runtime";
 
 interface BroadcastRecord {
@@ -53,7 +53,7 @@ interface FakeSessionBoundary {
   requestQuestion(request: QuestionRequest): Promise<Awaited<ReturnType<QuestionHandler>>>;
 }
 
-const DEFAULT_LEGACY_APPROVAL: LegacyApprovalFlags = { yolo: false, afk: false };
+const DEFAULT_APPROVAL_MODES: ApprovalModes = { yolo: false, afk: false };
 
 function createFakeSession(): FakeSessionBoundary {
   const listeners = new Set<(event: Event) => void>();
@@ -173,13 +173,13 @@ function createFakeSession(): FakeSessionBoundary {
   };
 }
 
-function createRuntime(legacyApproval = DEFAULT_LEGACY_APPROVAL) {
+function createRuntime(approvalModes = DEFAULT_APPROVAL_MODES) {
   const sdk = createFakeSession();
   const broadcasts: BroadcastRecord[] = [];
   const baselines: BaselineRecord[] = [];
   const runtime = new SessionRuntime({
     session: sdk.session,
-    legacyApproval,
+    approvalModes,
     broadcast: (event, data, webviewId) => broadcasts.push({ event, data, webviewId }),
     captureBaseline: (session, filePath, webviewIds) => {
       baselines.push({ session, filePath, webviewIds });
@@ -594,10 +594,10 @@ describe("session runtime (adapts one SDK session for subscribed Webviews)", () 
     const { runtime, sdk } = createRuntime();
     sdk.rejectNextMetadataUpdate(new Error("state is read-only"));
 
-    await expect(runtime.toggleLegacyApproval("afk")).rejects.toThrow("state is read-only");
+    await expect(runtime.toggleApprovalMode("afk")).rejects.toThrow("state is read-only");
 
     expect(sdk.setPermissions).toEqual(["auto", "manual"]);
-    expect(runtime.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    expect(runtime.approvalModes).toEqual({ yolo: false, afk: false });
   });
 
   it("resolves an SDK question when the Webview submits answers", async () => {

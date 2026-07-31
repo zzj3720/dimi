@@ -265,6 +265,6 @@ max_context_size = "large"
     expect(code).toBe(1);
     const err = stderr.join('');
     expect(err).toContain('Validation issues:');
-    expect(err).toContain('models.kimi.max_context_size:');
+    expect(err).toContain('kimi.max_context_size:');
   });
 });

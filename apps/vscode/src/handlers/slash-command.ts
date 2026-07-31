@@ -83,11 +83,11 @@ export async function runHostSlashCommand(
           emit("The context has been cleared.");
           break;
         case "yolo":
-          await toggleLegacyPermission(runtime, "yolo", emit);
+          await togglePermission(runtime, "yolo", emit);
           break;
         case "auto":
         case "afk":
-          await toggleLegacyPermission(runtime, "afk", emit);
+          await togglePermission(runtime, "afk", emit);
           break;
         case "plan":
           await runPlanCommand(runtime, command.args, emit);
@@ -113,12 +113,12 @@ export async function runHostSlashCommand(
   }
 }
 
-async function toggleLegacyPermission(
+async function togglePermission(
   runtime: SessionRuntime,
   kind: "yolo" | "afk",
   emit: (text: string) => void,
 ): Promise<void> {
-  const flags = await runtime.toggleLegacyApproval(kind);
+  const flags = await runtime.toggleApprovalMode(kind);
 
   if (kind === "yolo") {
     emit(flags.yolo

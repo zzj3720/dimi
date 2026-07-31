@@ -1,4 +1,4 @@
-import { readFile, rm, mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -73,15 +73,14 @@ export function waitForSDKEvent(
 }
 
 async function readWireEvents(homeDir: string, sessionId: string): Promise<readonly unknown[]> {
-  const sessionDir = await readIndexedSessionDir(homeDir, sessionId);
+  const sessionDir = await findSessionDir(homeDir, sessionId);
   if (sessionDir === undefined) return [];
 
   try {
     const raw = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown);
+    const lines = raw.split('\n');
+    lines.pop();
+    return lines.filter(Boolean).map((line) => JSON.parse(line) as unknown);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return [];
@@ -96,34 +95,19 @@ function toMainAgentWirePayload(value: unknown): AgentWirePayload | undefined {
   return value.event;
 }
 
-async function readIndexedSessionDir(
-  homeDir: string,
-  sessionId: string,
-): Promise<string | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(join(homeDir, 'session_index.jsonl'), 'utf-8');
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return undefined;
-    throw error;
-  }
-
-  let sessionDir: string | undefined;
-  for (const line of raw.split(/\r?\n/)) {
-    if (line.trim().length === 0) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line) as unknown;
-    } catch {
-      continue;
+async function findSessionDir(homeDir: string, sessionId: string): Promise<string | undefined> {
+  const sessionsDir = join(homeDir, 'sessions');
+  const workspaces = await readdir(sessionsDir, { withFileTypes: true }).catch(() => []);
+  for (const workspace of workspaces) {
+    if (!workspace.isDirectory()) continue;
+    const sessions = await readdir(join(sessionsDir, workspace.name), {
+      withFileTypes: true,
+    }).catch(() => []);
+    if (sessions.some((entry) => entry.isDirectory() && entry.name === sessionId)) {
+      return join(sessionsDir, workspace.name, sessionId);
     }
-    if (!isRecord(parsed)) continue;
-    if (parsed['sessionId'] !== sessionId) continue;
-    if (typeof parsed['sessionDir'] !== 'string') continue;
-    sessionDir = parsed['sessionDir'];
   }
-  return sessionDir;
+  return undefined;
 }
 
 function isAgentSessionWireRecord(value: unknown): value is AgentSessionWireRecord {

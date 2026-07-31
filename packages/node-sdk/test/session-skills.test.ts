@@ -19,7 +19,7 @@ import {
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
-import { normalizeWorkDir } from '../../agent-core/src/session/store';
+import { normalizeWorkDir } from '#/runtime/session-mapper';
 import {
   makeTempDir,
   removeTempDirs,
@@ -252,7 +252,6 @@ describe('Session skills', () => {
     });
 
     await expect(session.activateSkill('   ')).rejects.toMatchObject({
-      name: 'KimiError',
       code: 'skill.name_empty',
     } satisfies Partial<KimiError>);
     expect(activateSkill).not.toHaveBeenCalled();
@@ -261,11 +260,9 @@ describe('Session skills', () => {
     expect(closeSession).toHaveBeenCalledWith({ sessionId: session.id });
     expect(clearSessionHandlers).toHaveBeenCalledWith(session.id);
     await expect(session.listSkills()).rejects.toMatchObject({
-      name: 'KimiError',
       code: 'session.closed',
     } satisfies Partial<KimiError>);
     await expect(session.activateSkill('review')).rejects.toMatchObject({
-      name: 'KimiError',
       code: 'session.closed',
     } satisfies Partial<KimiError>);
   });
@@ -293,7 +290,6 @@ describe('Session skills', () => {
     expect(closeSession).toHaveBeenCalledTimes(1);
     expect(clearSessionHandlers).toHaveBeenCalledWith(session.id);
     await expect(session.listSkills()).rejects.toMatchObject({
-      name: 'KimiError',
       code: 'session.closed',
     } satisfies Partial<KimiError>);
   });
@@ -338,7 +334,6 @@ describe('KimiHarness workspace skills', () => {
 
     try {
       await expect(harness.listWorkspaceSkills('   ')).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'request.work_dir_required',
         message: 'listWorkspaceSkills requires workDir',
       } satisfies Partial<KimiError>);
@@ -353,7 +348,6 @@ describe('KimiHarness workspace skills', () => {
 
     try {
       await expect(harness.listWorkspaceSkills(null as never)).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'request.work_dir_required',
         message: 'listWorkspaceSkills requires workDir',
       } satisfies Partial<KimiError>);

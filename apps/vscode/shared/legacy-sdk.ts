@@ -189,7 +189,6 @@ export interface MCPServerConfig {
   args?: string[];
   env?: Record<string, string>;
   headers?: Record<string, string>;
-  auth?: 'oauth';
   bearerTokenEnvVar?: string;
 }
 

@@ -1,6 +1,6 @@
 /**
  * `AgentContextMemoryService` wire contract, exercised without the full agent
- * harness (mirror of `test/goal/goal-wire.test.ts`): a `TestInstantiationService`
+ * harness: a `TestInstantiationService`
  * + `InMemoryStorageService` + `AppendLogStore` + `WireService` + stub
  * `IAgentBlobService`. Covers the context Ops' NEW-reference + flat-record
  * shape, the live-only `context.spliced` event (silent on replay), and —
@@ -207,11 +207,18 @@ describe('AgentContextMemoryService (wire-backed)', () => {
 
     prev = model();
     host.wire.dispatch(
-      contextApplyCompaction({ summary: 'sum', compactedCount: 1, tokensBefore: 0, tokensAfter: 0 }),
+      contextApplyCompaction({
+        summary: 'sum',
+        contextSummary: 'sum',
+        compactedCount: 2,
+        tokensBefore: 0,
+        tokensAfter: 0,
+        keptUserMessageCount: 2,
+      }),
     );
     expect(model()).not.toBe(prev);
-    expect(model()).toHaveLength(2);
-    expect(model()![0]).toMatchObject({
+    expect(model()).toHaveLength(3);
+    expect(model()![2]).toMatchObject({
       role: 'user',
       content: [{ type: 'text', text: 'sum' }],
       origin: { kind: 'compaction_summary' },
@@ -235,7 +242,7 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     ]);
   });
 
-  it('folds v1 context.append_loop_event records into the ContextModel on replay', async () => {
+  it('folds context.append_loop_event records into the ContextModel on replay', async () => {
     const records: WireRecord[] = [
       { type: 'context.append_message', message: userMessage('q') },
       { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1', turnId: '0', step: 1 } },
@@ -294,37 +301,7 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(model[2]!.toolCallId).toBe('call_1');
   });
 
-  it('replays v1 context.apply_compaction records with contextSummary as the model summary', async () => {
-    const records: WireRecord[] = [
-      { type: 'context.append_message', message: userMessage('old') },
-      { type: 'context.append_message', message: userMessage('tail') },
-      {
-        type: 'context.apply_compaction',
-        summary: 'human-facing summary',
-        contextSummary: 'model-facing summary',
-        compactedCount: 1,
-        tokensBefore: 100,
-        tokensAfter: 20,
-      },
-    ];
-
-    const replay = buildHost(REPLAY_KEY);
-    await restoreTestAgentWire(
-      replay.wire,
-      replay.log,
-      testWireScope(SCOPE, REPLAY_KEY),
-      records,
-    );
-
-    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
-    expect(model.map(textOf)).toEqual(['model-facing summary', 'tail']);
-    expect(model[0]).toMatchObject({
-      role: 'user',
-      origin: { kind: 'compaction_summary' },
-    });
-  });
-
-  it('replays new context.apply_compaction records with kept user messages before contextSummary', async () => {
+  it('replays context.apply_compaction with kept user messages before contextSummary', async () => {
     const records: WireRecord[] = [
       { type: 'context.append_message', message: userMessage('old user') },
       {
@@ -361,67 +338,6 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(model[2]).toMatchObject({
       origin: { kind: 'compaction_summary' },
     });
-  });
-
-  it('replays pre-contextSummary kept-user records without adding a new prefix', async () => {
-    const records: WireRecord[] = [
-      { type: 'context.append_message', message: userMessage('old user') },
-      { type: 'context.append_message', message: userMessage('recent user') },
-      {
-        type: 'context.apply_compaction',
-        summary: 'OLD SUMMARY',
-        compactedCount: 2,
-        tokensBefore: 100,
-        tokensAfter: 20,
-        keptUserMessageCount: 2,
-      },
-    ];
-
-    const replay = buildHost(REPLAY_KEY);
-    await restoreTestAgentWire(
-      replay.wire,
-      replay.log,
-      testWireScope(SCOPE, REPLAY_KEY),
-      records,
-    );
-
-    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
-    expect(model.map(textOf)).toEqual(['old user', 'recent user', 'OLD SUMMARY']);
-    expect(model[2]).toMatchObject({
-      role: 'user',
-      origin: { kind: 'compaction_summary' },
-    });
-  });
-
-  it('replays legacy v2 context.apply_compaction records with count and summary message', async () => {
-    const legacySummary: ContextMessage = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'legacy summary message' }],
-      toolCalls: [],
-      origin: { kind: 'compaction_summary' },
-    };
-    const records: WireRecord[] = [
-      { type: 'context.append_message', message: userMessage('old') },
-      { type: 'context.append_message', message: userMessage('tail') },
-      {
-        type: 'context.apply_compaction',
-        count: 1,
-        summary: legacySummary,
-      },
-    ];
-
-    const replay = buildHost(REPLAY_KEY);
-    await restoreTestAgentWire(
-      replay.wire,
-      replay.log,
-      testWireScope(SCOPE, REPLAY_KEY),
-      records,
-    );
-
-    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
-    expect(model).toHaveLength(2);
-    expect(model[0]).toEqual(legacySummary);
-    expect(textOf(model[1]!)).toBe('tail');
   });
 
   it('offloads an oversized content part on dispatch and rehydrates it byte-for-byte on replay', async () => {

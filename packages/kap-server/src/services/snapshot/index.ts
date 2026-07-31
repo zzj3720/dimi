@@ -7,4 +7,4 @@ export {
   type SnapshotReaderLogger,
 } from './snapshotReader';
 export { loadSnapshotConfig } from './snapshotConfig';
-export type { SnapshotConfig, SnapshotReaderMode } from './snapshotConfig';
+export type { SnapshotConfig } from './snapshotConfig';

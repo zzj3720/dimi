@@ -32,7 +32,7 @@ import { stubQueryStore } from '../../persistence/interface/stubs';
 const WORK_DIR = '/home/user/repo';
 const SESSION_COLLECTION = 'session';
 
-describe('FileSessionIndex (legacy)', () => {
+describe('FileSessionIndex (disk)', () => {
   let homeDir: string;
   let sessionsDir: string;
   let workspaceId: string;
@@ -79,7 +79,7 @@ describe('FileSessionIndex (legacy)', () => {
     meta: Record<string, unknown>,
     wsId: string = workspaceId,
   ): Promise<void> {
-    const dir = join(sessionsDir, wsId, sessionId, 'session-meta');
+    const dir = join(sessionsDir, wsId, sessionId);
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(join(dir, 'state.json'), JSON.stringify(meta));
   }
@@ -119,16 +119,12 @@ describe('FileSessionIndex (legacy)', () => {
     expect(await store.get('missing')).toBeUndefined();
   });
 
-  it('recovers cwd from the metadata document (v2 cwd, v1 workDir, custom.cwd)', async () => {
-    await seedSession('v2', { cwd: '/repo/v2' });
-    await seedSession('v1', { workDir: '/repo/v1' });
-    await seedSession('old', { custom: { cwd: '/repo/old' } });
+  it('reads cwd from the current metadata field', async () => {
+    await seedSession('current', { cwd: '/repo/current' });
     await seedSession('none', { title: 'no cwd' });
 
     const store = build();
-    expect((await store.get('v2'))?.cwd).toBe('/repo/v2');
-    expect((await store.get('v1'))?.cwd).toBe('/repo/v1');
-    expect((await store.get('old'))?.cwd).toBe('/repo/old');
+    expect((await store.get('current'))?.cwd).toBe('/repo/current');
     expect((await store.get('none'))?.cwd).toBeUndefined();
   });
 
@@ -290,7 +286,7 @@ describe('FileSessionIndex (read model)', () => {
     meta: Record<string, unknown>,
     wsId: string = workspaceId,
   ): Promise<void> {
-    const dir = join(sessionsDir, wsId, sessionId, 'session-meta');
+    const dir = join(sessionsDir, wsId, sessionId);
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(join(dir, 'state.json'), JSON.stringify(meta));
   }
@@ -393,7 +389,7 @@ describe('FileSessionIndex (read model)', () => {
     expect(await store.countActive([otherId])).toBe(1);
   });
 
-  it('falls back to the legacy disk path when the query store is locked', async () => {
+  it('falls back to the disk path when the query store is locked', async () => {
     await seedSession('active', { title: 'from disk', createdAt: 1, updatedAt: 2 });
 
     // The minidb cluster backend shares the store across processes and no

@@ -625,14 +625,14 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     expect(cronTurn?.kind === 'turn' && cronTurn.origin.kind).toBe('cron');
   });
 
-  it('maps legacy background_task origins to task turns, preserving the taskId', () => {
+  it('maps task origins to task turns, preserving the taskId', () => {
     const snapshot = groupMessagesIntoSnapshot([
       { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [], origin: { kind: 'user' } },
       {
         role: 'user',
         content: [{ type: 'text', text: 'task done' }],
         toolCalls: [],
-        origin: { kind: 'background_task', taskId: 'b83rhswvs' } as { kind: string },
+        origin: { kind: 'task', taskId: 'b83rhswvs' } as { kind: string },
       },
     ]);
     const taskTurn = snapshot.items[1];

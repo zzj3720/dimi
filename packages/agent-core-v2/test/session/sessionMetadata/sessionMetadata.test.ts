@@ -21,7 +21,7 @@ import { stubFlag } from '../../app/flag/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubQueryStore } from '../../persistence/interface/stubs';
 
-const META_SCOPE = 'sessions/wd_test/s1/session-meta';
+const META_SCOPE = 'sessions/wd_test/s1';
 
 // A re-constructed SessionMetadata stands for a new session lifetime: it gets
 // its own state registry, so the shared `sessionMetadata.data` key registers
@@ -66,9 +66,9 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
     expect(await meta.read()).toMatchObject({
       id: 's1',
+      version: 2,
+      cwd: '/tmp/sessions/wd_test/s1',
       archived: false,
-      // Seeded so released v1 builds can open a v2-created state.json
-      // (v1's Session.resume() indexes `agents` unconditionally).
       agents: {},
       custom: {},
     });
@@ -101,35 +101,12 @@ describe('SessionMetadata', () => {
     expect(await fresh.read()).toMatchObject({ id: 's1', title: 'persisted' });
   });
 
-  it('backfills and persists missing agents/custom maps on a pre-fix document', async () => {
-    // Written by a v2 build predating the create-path map seeding: no
-    // agents / custom keys at all.
-    const store = ix.get(IAtomicDocumentStore);
-    await store.set(META_SCOPE, 'state.json', {
-      id: 's1',
-      version: 2,
-      createdAt: 1700000000000,
-      updatedAt: 1700000000000,
-      archived: false,
-    });
-
-    const meta = ix.get(ISessionMetadata);
-    expect(await meta.read()).toMatchObject({ agents: {}, custom: {} });
-
-    // The heal is persisted: a fresh instance reads the maps from disk, and
-    // updatedAt is untouched so session listings keep their order.
-    const fresh = createFreshMetadata(ix);
-    const healed = await fresh.read();
-    expect(healed.agents).toEqual({});
-    expect(healed.custom).toEqual({});
-    expect(healed.updatedAt).toBe(1700000000000);
-  });
-
   it('leaves existing agents/custom maps untouched', async () => {
     const store = ix.get(IAtomicDocumentStore);
     await store.set(META_SCOPE, 'state.json', {
       id: 's1',
       version: 2,
+      cwd: '/tmp/sessions/wd_test/s1',
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
       archived: false,
@@ -210,13 +187,13 @@ describe('SessionMetadata', () => {
   });
 
   it('stays a no-op when re-registering against a persisted document', async () => {
-    // The document as it lands on disk: keys with undefined values are gone,
-    // and a legacy writer stored parentAgentId: null. A server restart then
-    // re-registers `main` with explicit undefineds — still no update.
+    // The document as it lands on disk: keys with undefined values are gone.
+    // A server restart re-registers `main` with explicit undefineds.
     const store = ix.get(IAtomicDocumentStore);
     await store.set(META_SCOPE, 'state.json', {
       id: 's1',
       version: 2,
+      cwd: '/tmp/sessions/wd_test/s1',
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
       archived: false,
@@ -227,6 +204,7 @@ describe('SessionMetadata', () => {
           parentAgentId: null,
         },
       },
+      custom: {},
     });
 
     const meta = ix.get(ISessionMetadata);

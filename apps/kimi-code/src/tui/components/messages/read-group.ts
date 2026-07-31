@@ -56,6 +56,10 @@ export class ReadGroupComponent extends Container {
     return this.entries.length;
   }
 
+  getToolComponents(): readonly ToolCallComponent[] {
+    return this.entries.map((entry) => entry.tc);
+  }
+
   /**
    * Borrows a standalone `ToolCallComponent` into the group as a hidden state
    * container. Snapshot changes trigger throttled refreshes. Re-attaching the

@@ -9,9 +9,6 @@
 
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { ToolCall } from '#/kosong/contract/message';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
@@ -54,7 +51,6 @@ import {
 } from '#/app/kosongConfig/configSection';
 import { type ThinkingConfig } from '#/kosong/model/thinking';
 import {
-  KEEP_ALIVE_ON_EXIT_ENV,
   MAX_RUNNING_TASKS_ENV,
   resolveAgentTaskConfig,
   resolvePrintBackgroundMode,
@@ -340,6 +336,9 @@ describe('Agent config', () => {
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.append_loop_event   { "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
+      [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [ { "kind": "tool", "id": "<task-1>", "since": "<time>" } ] }
+      [wire] task.terminated             { "info": { "taskId": "<task-1>", "description": "Running Lookup", "status": "completed", "detached": false, "startedAt": "<time>", "endedAt": "<time>", "kind": "tool", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "autoWaitTimeoutSeconds": 20 }, "outputTail": "original-result", "time": "<time>" }
+      [emit] task.terminated             { "info": { "taskId": "<task-1>", "description": "Running Lookup", "status": "completed", "detached": false, "startedAt": "<time>", "endedAt": "<time>", "kind": "tool", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "autoWaitTimeoutSeconds": 20 } }
       [emit] agent.activity.updated      { "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [] }
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_lookup", "result": { "output": "original-result" } }, "time": "<time>" }
       [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
@@ -1036,62 +1035,6 @@ describe('loopControl config section', () => {
 });
 
 describe('task config section', () => {
-  it('re-applies the keepAliveOnExit env binding on every get()', async () => {
-    const env: Record<string, string> = {};
-    const disposables = new DisposableStore();
-    const ix = disposables.add(new TestInstantiationService());
-    ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
-    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    const config = ix.get(IConfigService);
-    await config.ready;
-
-    expect(config.get<AgentTaskConfig>('task')?.keepAliveOnExit).toBeUndefined();
-
-    env[KEEP_ALIVE_ON_EXIT_ENV] = '1';
-    expect(config.get<AgentTaskConfig>('task')?.keepAliveOnExit).toBe(true);
-    env[KEEP_ALIVE_ON_EXIT_ENV] = '0';
-    expect(config.get<AgentTaskConfig>('task')?.keepAliveOnExit).toBe(false);
-
-    env[KEEP_ALIVE_ON_EXIT_ENV] = 'true';
-    expect(config.get<AgentTaskConfig>('background')?.keepAliveOnExit).toBe(true);
-
-    disposables.dispose();
-  });
-
-  it('preserves legacy task limits when the env binding creates a task overlay', async () => {
-    const env: Record<string, string> = { [KEEP_ALIVE_ON_EXIT_ENV]: 'true' };
-    const disposables = new DisposableStore();
-    const ix = disposables.add(new TestInstantiationService());
-    const storage = new InMemoryStorageService();
-    await storage.write(
-      '',
-      'config.toml',
-      new TextEncoder().encode(
-        '[background]\nmax_running_tasks = 3\nkill_grace_period_ms = 25\n',
-      ),
-    );
-    ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
-    ix.stub(IFileSystemStorageService, storage);
-    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    const config = ix.get(IConfigService);
-    await config.ready;
-
-    expect(resolveAgentTaskConfig(config)).toEqual({
-      maxRunningTasks: 3,
-      killGracePeriodMs: 25,
-      keepAliveOnExit: true,
-    });
-
-    disposables.dispose();
-  });
-
   it('re-applies the maxRunningTasks env binding on every get() and ignores invalid env', async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createTaskConfig(env);
@@ -1105,7 +1048,6 @@ describe('task config section', () => {
 
     env[MAX_RUNNING_TASKS_ENV] = '4';
     expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBe(4);
-    expect(config.get<AgentTaskConfig>('background')?.maxRunningTasks).toBe(4);
 
     env[MAX_RUNNING_TASKS_ENV] = '2';
     expect(config.get<AgentTaskConfig>('task')?.maxRunningTasks).toBe(2);
@@ -1117,7 +1059,7 @@ describe('task config section', () => {
     const env: Record<string, string> = { [MAX_RUNNING_TASKS_ENV]: '8' };
     const { config, disposables } = await createTaskConfig(
       env,
-      '[background]\nmax_running_tasks = 3\n',
+      '[task]\nmax_running_tasks = 3\n',
     );
 
     expect(resolveAgentTaskConfig(config)?.maxRunningTasks).toBe(8);
@@ -1127,46 +1069,28 @@ describe('task config section', () => {
 
   it('restores env-owned fields to the raw value on set() while the env var is set', async () => {
     const env: Record<string, string> = {
-      [KEEP_ALIVE_ON_EXIT_ENV]: 'true',
       [MAX_RUNNING_TASKS_ENV]: '8',
     };
     const { config, disposables } = await createTaskConfig(
       env,
-      '[background]\nmax_running_tasks = 3\n',
+      '[task]\nmax_running_tasks = 3\n',
     );
 
     // A client echoing the env-overlaid section back (plus a genuine edit).
-    await config.set('background', {
-      keepAliveOnExit: true,
+    await config.set('task', {
       maxRunningTasks: 8,
       killGracePeriodMs: 25,
     });
 
     // Runtime resolution still lets the env win…
-    expect(config.get<AgentTaskConfig>('background')).toEqual({
-      keepAliveOnExit: true,
+    expect(config.get<AgentTaskConfig>('task')).toEqual({
       maxRunningTasks: 8,
       killGracePeriodMs: 25,
     });
     // …but persistence keeps the raw value and drops the env-only field.
-    expect(config.inspect<AgentTaskConfig>('background').userValue).toEqual({
+    expect(config.inspect<AgentTaskConfig>('task').userValue).toEqual({
       maxRunningTasks: 3,
       killGracePeriodMs: 25,
-    });
-
-    disposables.dispose();
-  });
-
-  it('does not strip a field whose env value fails to parse', async () => {
-    const env: Record<string, string> = { [KEEP_ALIVE_ON_EXIT_ENV]: 'abc' };
-    const { config, disposables } = await createTaskConfig(env);
-
-    await config.set('background', { keepAliveOnExit: true });
-
-    // The invalid env value is ignored on both the read and the write path.
-    expect(config.get<AgentTaskConfig>('background')?.keepAliveOnExit).toBe(true);
-    expect(config.inspect<AgentTaskConfig>('background').userValue).toEqual({
-      keepAliveOnExit: true,
     });
 
     disposables.dispose();
@@ -1190,11 +1114,10 @@ describe('task config section', () => {
     return { config, disposables };
   }
 
-  it('parses print policy fields and merges legacy background with task overrides', async () => {
+  it('parses print policy fields', async () => {
     const { config, disposables } = await createTaskConfig(
       {},
-      '[background]\nprint_background_mode = "steer"\nprint_wait_ceiling_s = 60\n\n' +
-        '[task]\nprint_max_turns = 5\n',
+      '[task]\nprint_background_mode = "steer"\nprint_wait_ceiling_s = 60\nprint_max_turns = 5\n',
     );
 
     expect(resolveAgentTaskConfig(config)).toEqual({
@@ -1220,24 +1143,10 @@ describe('task config section', () => {
     disposables.dispose();
   });
 
-  it('resolvePrintBackgroundMode prefers the explicit mode over keepAliveOnExit', async () => {
-    const { config, disposables } = await createTaskConfig(
-      {},
-      '[task]\nprint_background_mode = "exit"\nkeep_alive_on_exit = true\n',
-    );
-    expect(resolvePrintBackgroundMode(config)).toBe('exit');
-    disposables.dispose();
-  });
-
-  it('resolvePrintBackgroundMode falls back to keepAliveOnExit then steer', async () => {
-    const env: Record<string, string> = {};
-    const { config, disposables } = await createTaskConfig(env);
+  it('resolvePrintBackgroundMode defaults to steer', async () => {
+    const { config, disposables } = await createTaskConfig({});
 
     expect(resolvePrintBackgroundMode(config)).toBe('steer');
-
-    env[KEEP_ALIVE_ON_EXIT_ENV] = 'true';
-    expect(resolvePrintBackgroundMode(config)).toBe('drain');
-
     disposables.dispose();
   });
 });
@@ -1294,19 +1203,6 @@ describe('applyPrintModeConfigDefaults', () => {
     expect(config.inspect('task').memoryValue).toBeUndefined();
     expect(config.inspect(LOOP_CONTROL_SECTION).memoryValue).toBeUndefined();
     expect(config.inspect('subagent').memoryValue).toBeUndefined();
-
-    disposables.dispose();
-  });
-
-  it('treats a legacy [background] bash_task_timeout_s as user-set', async () => {
-    const { config, disposables } = await createConfig(
-      {},
-      '[background]\nbash_task_timeout_s = 15\n',
-    );
-
-    await applyPrintModeConfigDefaults(config);
-
-    expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(15);
 
     disposables.dispose();
   });
@@ -1819,73 +1715,3 @@ function toolNames(value: unknown): string[] {
     })
     .filter((name): name is string => name !== null);
 }
-
-describe('ConfigService thinking effort max migration', () => {
-  let homeDir: string;
-
-  beforeEach(() => {
-    homeDir = mkdtempSync(join(tmpdir(), 'kimi-v2-cfg-migrate-'));
-  });
-
-  afterEach(() => {
-    rmSync(homeDir, { recursive: true, force: true });
-  });
-
-  async function createMigratingConfig(toml: string) {
-    const disposables = new DisposableStore();
-    const ix = disposables.add(new TestInstantiationService());
-    const storage = new InMemoryStorageService();
-    await storage.write('', 'config.toml', new TextEncoder().encode(toml));
-    ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap(homeDir));
-    ix.stub(IFileSystemStorageService, storage);
-    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    const config = ix.get(IConfigService);
-    await config.ready;
-    return { config, disposables };
-  }
-
-  function readMarkers(): Record<string, string> {
-    return JSON.parse(readFileSync(join(homeDir, 'migrations-effort.json'), 'utf-8')) as Record<
-      string,
-      string
-    >;
-  }
-
-  it('rewrites a persisted max to high on first load and records the marker', async () => {
-    const { config, disposables } = await createMigratingConfig(
-      '[thinking]\nenabled = true\neffort = "max"\n',
-    );
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({
-      enabled: true,
-      effort: 'high',
-    });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-
-  it('honors a hand-set max once the marker exists', async () => {
-    writeFileSync(
-      join(homeDir, 'migrations-effort.json'),
-      JSON.stringify({ 'thinking-effort-max-to-high': new Date().toISOString() }),
-    );
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "max"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'max' });
-
-    disposables.dispose();
-  });
-
-  it('records the marker even when nothing needs migrating', async () => {
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "low"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'low' });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-});

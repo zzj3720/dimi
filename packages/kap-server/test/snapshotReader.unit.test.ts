@@ -4,7 +4,7 @@
  * Constructs `SnapshotReader` with stub core services and a real tmp `homeDir`,
  * writing `state.json` + `agents/main/wire.jsonl` directly — exercising the
  * disk read, the `context.*` reduction, the `(size, mtimeMs)` transcript cache,
- * `state.json` normalization, and `KIMI_SNAPSHOT_*` config parsing without
+ * current `state.json` schema, and `KIMI_SNAPSHOT_*` config parsing without
  * booting a Fastify daemon.
  */
 
@@ -14,9 +14,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  IAgentLifecycleService,
+  IAgentPromptService,
+  ISessionActivityView,
   ISessionIndex,
+  ISessionInteractionService,
   ISessionLifecycleService,
-  IWorkspaceService,
   type ContextMessage,
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
@@ -49,6 +52,7 @@ interface Fixture {
   workspaceId: string;
   sessionDir: (sid: string) => string;
   index: Map<string, SessionSummary>;
+  liveSessions: Map<string, unknown>;
   reader: SnapshotReader;
   broadcaster: { seq: number; epoch: string; inFlightTurn: unknown };
 }
@@ -60,14 +64,12 @@ async function makeFixtureAsync(opts?: { cacheLimit?: number }): Promise<Fixture
   tmpDirs.push(homeDir);
   const workspaceId = 'wd_unittest_012345abcdef';
   const index = new Map<string, SessionSummary>();
-  const workspaces = new Map([[workspaceId, { root: join(homeDir, 'workspace') }]]);
+  const liveSessions = new Map<string, unknown>();
 
   const core = {
     accessor: fakeAccessor([
       [ISessionIndex, { get: async (sid: string) => index.get(sid) }],
-      [IWorkspaceService, { get: async (ws: string) => workspaces.get(ws) }],
-      // Cold by default — no live handle.
-      [ISessionLifecycleService, { get: () => undefined }],
+      [ISessionLifecycleService, { get: (sid: string) => liveSessions.get(sid) }],
     ]),
   };
   const broadcaster = { seq: 0, epoch: 'ep_unit', inFlightTurn: null };
@@ -83,13 +85,14 @@ async function makeFixtureAsync(opts?: { cacheLimit?: number }): Promise<Fixture
       }),
     } as never,
     logger: noopLogger,
-    config: { mode: 'auto', timeoutMs: 4000, cacheLimit: opts?.cacheLimit ?? 32 },
+    config: { timeoutMs: 4000, cacheLimit: opts?.cacheLimit ?? 32 },
   };
   return {
     homeDir,
     workspaceId,
     sessionDir: (sid) => join(homeDir, 'sessions', workspaceId, sid),
     index,
+    liveSessions,
     reader: new SnapshotReader(deps),
     broadcaster,
   };
@@ -102,7 +105,7 @@ function userMessage(text: string): ContextMessage {
 async function seedSession(
   f: Fixture,
   sid: string,
-  opts?: { createdAt?: number; title?: string; rawState?: Record<string, unknown> },
+  opts?: { createdAt?: number; title?: string },
 ): Promise<void> {
   const createdAt = opts?.createdAt ?? 1700000000000;
   f.index.set(sid, {
@@ -113,12 +116,15 @@ async function seedSession(
     updatedAt: createdAt,
     archived: false,
   });
-  const state = opts?.rawState ?? {
+  const state = {
     id: sid,
     version: 2,
     createdAt,
     updatedAt: createdAt,
     archived: false,
+    cwd: join(f.homeDir, 'workspace'),
+    agents: {},
+    custom: {},
     title: opts?.title,
   };
   await mkdir(f.sessionDir(sid), { recursive: true });
@@ -144,16 +150,11 @@ describe('SnapshotReader.read', () => {
     await expect(f.reader.read('sess_missing')).rejects.toBeInstanceOf(SnapshotNotFoundError);
   });
 
-  it('throws SnapshotNotFoundError when the workspace is gone', async () => {
+  it('uses the cwd owned by current session metadata', async () => {
     const f = await makeFixtureAsync();
-    f.index.set('sess_orphan', {
-      id: 'sess_orphan',
-      workspaceId: 'wd_gone_000000000000',
-      createdAt: 1,
-      updatedAt: 1,
-      archived: false,
-    });
-    await expect(f.reader.read('sess_orphan')).rejects.toBeInstanceOf(SnapshotNotFoundError);
+    await seedSession(f, 'sess_cwd');
+    const snap = await f.reader.read('sess_cwd');
+    expect(snap.session.metadata.cwd).toBe(join(f.homeDir, 'workspace'));
   });
 
   it('returns empty messages for a session with no wire.jsonl', async () => {
@@ -169,6 +170,44 @@ describe('SnapshotReader.read', () => {
     expect(snap.pending_approvals).toEqual([]);
     expect(snap.as_of_seq).toBe(0);
     expect(snap.epoch).toBe('ep_unit');
+  });
+
+  it('attaches the active prompt id to an in-flight turn', async () => {
+    const f = await makeFixtureAsync();
+    const sid = 'sess_prompt';
+    await seedSession(f, sid);
+    f.broadcaster.inFlightTurn = {
+      turn_id: 7,
+      assistant_text: 'Hello',
+      thinking_text: '',
+      running_tools: [],
+    };
+    const main = {
+      accessor: fakeAccessor([
+        [IAgentPromptService, { list: () => ({ active: { id: 'msg_prompt' }, pending: [] }) }],
+      ]),
+    };
+    f.liveSessions.set(sid, {
+      accessor: fakeAccessor([
+        [IAgentLifecycleService, { get: () => main }],
+        [ISessionInteractionService, { listPending: () => [] }],
+        [
+          ISessionActivityView,
+          {
+            state: () => ({
+              busy: false,
+              mainTurnActive: false,
+              pendingInteraction: 'none',
+            }),
+          },
+        ],
+      ]),
+    });
+
+    expect((await f.reader.read(sid)).in_flight_turn).toMatchObject({
+      turn_id: 7,
+      current_prompt_id: 'msg_prompt',
+    });
   });
 
   it('builds messages from context.append_message records', async () => {
@@ -241,47 +280,6 @@ describe('SnapshotReader.read', () => {
     const tool = snap.messages.items[2]!;
     expect(tool.role).toBe('tool');
     expect((tool.content[0] as { tool_call_id: string }).tool_call_id).toBe('call_1');
-  });
-
-  it('keeps the full history across context.apply_compaction and appends a summary marker', async () => {
-    const f = await makeFixtureAsync();
-    await seedSession(f, 'sess_compact');
-    await writeWire(f.sessionDir('sess_compact'), [
-      { type: 'context.append_message', message: userMessage('old-1') },
-      { type: 'context.append_message', message: userMessage('old-2') },
-      {
-        type: 'context.apply_compaction',
-        count: 2,
-        summary: { role: 'user', content: [{ type: 'text', text: 'summary' }], toolCalls: [] },
-      },
-      { type: 'context.append_message', message: userMessage('after') },
-    ]);
-    const snap = await f.reader.read('sess_compact');
-    const texts = snap.messages.items.map((m) => (m.content[0] as { text: string }).text);
-    expect(texts).toEqual(['old-1', 'old-2', 'summary', 'after']);
-    expect(snap.messages.items[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
-  });
-
-  it('keeps the full history across v1-shaped string summary compaction records', async () => {
-    const f = await makeFixtureAsync();
-    await seedSession(f, 'sess_compact_v1');
-    await writeWire(f.sessionDir('sess_compact_v1'), [
-      { type: 'context.append_message', message: userMessage('old-1') },
-      { type: 'context.append_message', message: userMessage('old-2') },
-      {
-        type: 'context.apply_compaction',
-        summary: 'summary',
-        compactedCount: 2,
-        tokensBefore: 100,
-        tokensAfter: 20,
-      },
-      { type: 'context.append_message', message: userMessage('after') },
-    ]);
-    const snap = await f.reader.read('sess_compact_v1');
-    const messages = snap.messages.items;
-    const texts = messages.map((m) => (m.content[0] as { text: string }).text);
-    expect(texts).toEqual(['old-1', 'old-2', 'summary', 'after']);
-    expect(messages[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
   });
 
   it('keeps compacted-away assistant messages and uses the raw summary as the marker', async () => {
@@ -436,22 +434,6 @@ describe('SnapshotReader.read', () => {
     expect(Date.parse(snap.messages.items.at(-1)!.created_at)).toBe(base + 101 * 1000);
   });
 
-  it('normalizes a v1-layout state.json (ISO timestamps, no id)', async () => {
-    const f = await makeFixtureAsync();
-    await seedSession(f, 'sess_v1', {
-      rawState: {
-        title: 'v1 session',
-        createdAt: '2026-06-01T10:00:00.000Z',
-        updatedAt: '2026-06-01T11:00:00.000Z',
-        archived: false,
-      },
-    });
-    const snap = await f.reader.read('sess_v1');
-    expect(snap.session.id).toBe('sess_v1');
-    expect(snap.session.title).toBe('v1 session');
-    expect(Number.isNaN(Date.parse(snap.session.created_at))).toBe(false);
-  });
-
   it('serves repeated reads from the (size, mtime) cache', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_cache');
@@ -508,18 +490,16 @@ describe('readWireRecords', () => {
 });
 
 describe('loadSnapshotConfig', () => {
-  it('defaults to auto / 4000ms / 32', () => {
+  it('defaults to 4000ms / 32', () => {
     const c = loadSnapshotConfig({});
-    expect(c).toEqual({ mode: 'auto', timeoutMs: 4000, cacheLimit: 32 });
+    expect(c).toEqual({ timeoutMs: 4000, cacheLimit: 32 });
   });
 
-  it('parses legacy mode and integer knobs with floors', () => {
+  it('parses integer knobs with floors', () => {
     const c = loadSnapshotConfig({
-      KIMI_SNAPSHOT_READER: 'legacy',
       KIMI_SNAPSHOT_TIMEOUT_MS: '2500',
       KIMI_SNAPSHOT_CACHE_LIMIT: '0', // below min → default
     });
-    expect(c.mode).toBe('legacy');
     expect(c.timeoutMs).toBe(2500);
     expect(c.cacheLimit).toBe(32);
   });

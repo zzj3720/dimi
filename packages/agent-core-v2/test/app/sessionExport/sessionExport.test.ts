@@ -88,7 +88,7 @@ describe('sessionExport', () => {
     disposables.dispose();
   });
 
-  it('exports a v2 session directory with per-agent wire activity and optional global log', async () => {
+  it('exports a session directory with per-agent wire activity and optional global log', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
     const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_demo');
     await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
@@ -401,7 +401,7 @@ describe('sessionExport', () => {
         },
       }),
     ).rejects.toMatchObject({
-      name: 'Error2',
+      name: 'KimiError',
       code: 'session.export_output_conflict',
       details: { outputPath, source: outputPath },
     });
@@ -743,7 +743,7 @@ describe('sessionExport', () => {
         version: '1.0.0-test',
       }),
     ).rejects.toMatchObject({
-      name: 'Error2',
+      name: 'KimiError',
       code: 'session.not_found',
       details: { sessionId: 'ses_missing' },
     } satisfies Partial<Error2>);
@@ -760,10 +760,14 @@ describe('sessionExport', () => {
     const liveHandle = liveSessionHandle({
       meta: {
         id: 'ses_live',
+        version: 2,
+        cwd: '/repo',
         title: 'Fresh title',
         createdAt: 1,
         updatedAt: 2,
         archived: false,
+        agents: {},
+        custom: {},
       },
       sessionLog: {
         ...stubLog(),
@@ -811,10 +815,14 @@ describe('sessionExport', () => {
     const liveHandle = liveSessionHandle({
       meta: {
         id: 'ses_flush_failure',
+        version: 2,
+        cwd: '/repo',
         title: 'Fresh title',
         createdAt: 1,
         updatedAt: 2,
         archived: false,
+        agents: {},
+        custom: {},
       },
       sessionLog: {
         ...stubLog(),

@@ -124,8 +124,7 @@ describe('Session.setModel', () => {
       const session = await harness.createSession({ id: 'ses_model_empty', workDir });
 
       await expect(session.setModel('   ')).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'session.model_empty',
+        code: 'request.invalid',
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
@@ -143,7 +142,6 @@ describe('Session.setModel', () => {
       await session.close();
 
       await expect(session.setModel('next-model')).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'session.closed',
       } satisfies Partial<KimiError>);
     } finally {

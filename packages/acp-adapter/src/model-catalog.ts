@@ -31,7 +31,7 @@
  * declare `protocol`.
  */
 
-import { effectiveModelAlias, type ProviderType } from '@moonshot-ai/agent-core';
+import { effectiveModelConfig, type ProviderType } from '@moonshot-ai/agent-core-v2';
 import type { KimiHarness, ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
 /**
@@ -74,12 +74,13 @@ export interface AcpModelEntry {
 const TOGGLEABLE_THINKING_MODELS = new Set(['kimi-for-coding', 'kimi-code']);
 
 export function deriveThinkingSupported(alias: ModelAlias, providerType?: ProviderType): boolean {
-  const effective = effectiveModelAlias(alias, providerType);
+  const effective = effectiveModelConfig(alias, providerType);
   const declared = effective.capabilities ?? [];
   if (declared.includes('thinking') || declared.includes('always_thinking')) return true;
-  const lower = effective.model.toLowerCase();
+  const modelName = effective.name ?? effective.model ?? '';
+  const lower = modelName.toLowerCase();
   if (lower.includes('thinking') || lower.includes('reason')) return true;
-  if (TOGGLEABLE_THINKING_MODELS.has(effective.model)) return true;
+  if (TOGGLEABLE_THINKING_MODELS.has(modelName)) return true;
   return false;
 }
 
@@ -91,7 +92,7 @@ export function deriveThinkingSupported(alias: ModelAlias, providerType?: Provid
  * may remove the off option from the client.
  */
 export function deriveAlwaysThinking(alias: ModelAlias, providerType?: ProviderType): boolean {
-  return (effectiveModelAlias(alias, providerType).capabilities ?? []).includes(
+  return (effectiveModelConfig(alias, providerType).capabilities ?? []).includes(
     'always_thinking',
   );
 }
@@ -106,7 +107,7 @@ export function deriveSupportEfforts(
   alias: ModelAlias,
   providerType?: ProviderType,
 ): readonly string[] {
-  return (effectiveModelAlias(alias, providerType).supportEfforts ?? []).filter(
+  return (effectiveModelConfig(alias, providerType).supportEfforts ?? []).filter(
     (effort) => effort.length > 0,
   );
 }
@@ -120,7 +121,7 @@ export function deriveDefaultThinkingEffort(
   alias: ModelAlias,
   providerType?: ProviderType,
 ): string {
-  const effective = effectiveModelAlias(alias, providerType);
+  const effective = effectiveModelConfig(alias, providerType);
   const efforts = effective.supportEfforts;
   if (efforts !== undefined && efforts.length > 0) {
     return effective.defaultEffort ?? efforts[Math.floor(efforts.length / 2)]!;
@@ -151,10 +152,10 @@ export async function listModelsFromHarness(
   const out: AcpModelEntry[] = [];
   for (const [id, alias] of Object.entries(models)) {
     const providerType = providerTypeOf(alias, config);
-    const effective = effectiveModelAlias(alias, providerType);
+    const effective = effectiveModelConfig(alias, providerType);
     out.push({
       id,
-      name: effective.displayName ?? effective.model ?? id,
+      name: effective.displayName ?? effective.name ?? effective.model ?? id,
       thinkingSupported: deriveThinkingSupported(alias, providerType),
       alwaysThinking: deriveAlwaysThinking(alias, providerType),
       supportEfforts: deriveSupportEfforts(alias, providerType),
@@ -181,7 +182,7 @@ function providerTypeOf(
     defaultProvider?: string | undefined;
   },
 ): ProviderType | undefined {
-  const providerName = alias.provider ?? config.defaultProvider;
+  const providerName = alias.providerId ?? alias.provider ?? config.defaultProvider;
   const providerType =
     providerName === undefined ? undefined : config.providers?.[providerName]?.type;
   // Flat models (inline base_url, no named provider) have no provider entry to

@@ -29,8 +29,6 @@
     "dist",
     "dist-web",
     "native",
-    "scripts/postinstall.mjs",
-    "scripts/postinstall",
     "README.md"
   ],
   "type": "module",
@@ -74,14 +72,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",
-    "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
-    "postinstall": "node scripts/postinstall.mjs"
+    "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts"
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
+    "@k-3720/remote": "workspace:^",
     "@moonshot-ai/acp-adapter": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kap-server": "workspace:^",
@@ -89,10 +87,10 @@
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",
     "@moonshot-ai/kimi-web": "workspace:^",
-    "@moonshot-ai/migration-legacy": "workspace:^",
     "@moonshot-ai/pi-tui": "workspace:^",
     "@moonshot-ai/vis-server": "workspace:^",
     "@moonshot-ai/vis-web": "workspace:*",
+    "@types/qrcode": "1.5.6",
     "@types/semver": "^7.7.0",
     "@types/yazl": "^2.4.6",
     "chalk": "^5.4.1",
@@ -101,6 +99,7 @@
     "jimp": "^1.6.1",
     "pathe": "^2.0.3",
     "postject": "1.0.0-alpha.6",
+    "qrcode": "1.5.4",
     "semver": "^7.7.4",
     "smol-toml": "^1.6.1",
     "tsx": "^4.21.0",

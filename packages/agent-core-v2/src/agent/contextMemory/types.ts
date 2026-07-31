@@ -1,4 +1,5 @@
 import type { ContentPart, Message } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { AgentTaskStatus } from '#/agent/task/task';
 
@@ -105,6 +106,7 @@ export type ContextMessage = Message & {
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
   readonly note?: string;
+  readonly toolCallDisplays?: Readonly<Record<string, ToolInputDisplay>>;
 };
 
 export interface UserMessageRecord {

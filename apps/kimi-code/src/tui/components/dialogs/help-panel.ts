@@ -33,7 +33,7 @@ export interface HelpPanelCommand {
 export const DEFAULT_KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { keys: 'Shift-Tab', description: 'Toggle plan mode' },
   { keys: 'Ctrl-G', description: 'Edit in external editor ($VISUAL / $EDITOR)' },
-  { keys: 'Ctrl-O', description: 'Toggle tool output / compaction summary expansion' },
+  { keys: 'Ctrl-O', description: 'Cycle tool summary / tool cards / full output' },
   { keys: 'Ctrl-T', description: 'Expand / collapse the todo list (when truncated)' },
   { keys: 'Ctrl-S', description: 'Steer — inject a follow-up during streaming' },
   { keys: 'Shift-Enter / Ctrl-J', description: 'Insert newline' },
@@ -41,7 +41,10 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { keys: 'Ctrl-D', description: 'Exit (on empty input)' },
   { keys: 'Esc', description: 'Close dialogs / interrupt streaming' },
   { keys: '↑ / ↓', description: 'Browse input history' },
-  { keys: 'Enter', description: 'Submit' },
+  {
+    keys: 'Enter',
+    description: 'Submit (steers mid-turn by default; Settings → Busy input can make it queue)',
+  },
 ];
 
 export interface HelpPanelOptions {

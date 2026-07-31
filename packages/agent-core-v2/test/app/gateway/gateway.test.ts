@@ -51,6 +51,7 @@ describe('RestGateway', () => {
     const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
       enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve(undefined) } as never); },
+      enqueueOrSteer: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', state: 'steered', launched: Promise.resolve(undefined) } as never); },
       steer: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
@@ -106,6 +107,14 @@ describe('RestGateway', () => {
     expect(promptCalls).toHaveLength(1);
     expect(textOf(promptCalls[0]!)).toBe('hello');
     expect(promptCalls[0]!.origin).toMatchObject({ kind: 'user' });
+  });
+
+  it('routes steer through atomic prompt admission', async () => {
+    const gw = ix.get(IRestGateway);
+    await gw.steer('s1', 'main', 'continue');
+
+    expect(promptCalls).toHaveLength(1);
+    expect(textOf(promptCalls[0]!)).toBe('continue');
   });
 
   it('aborts the active turn signal on cancel', async () => {

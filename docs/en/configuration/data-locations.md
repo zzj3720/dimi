@@ -35,13 +35,18 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── plugins/
 │   ├── installed.json      # Installed plugin records and enabled state
 │   └── managed/            # Plugin copies installed from zip/local paths
-├── session_index.jsonl     # Session index
+├── workspaces.json         # Workspace catalog
 ├── credentials/            # OAuth credentials (dir 0700, files 0600)
 │   ├── <name>.json
 │   └── mcp/
 │       └── <key>-<suffix>.json
 ├── sessions/               # Session data (see below)
-│   └── <workDirKey>/<sessionId>/
+│   └── <workspaceId>/<sessionId>/
+├── cron/                   # Scheduled tasks grouped by workspace
+│   └── <workspaceId>/<taskId>.json
+├── blobs/                  # Runtime-managed binary and document blobs
+├── store/                  # Runtime-managed stores
+├── cache/                  # Runtime caches
 ├── bin/
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
 │   └── fd                  # managed fd binary for file references (fd.exe on Windows)
@@ -66,22 +71,26 @@ Each top-level file under the data root serves a specific purpose; most are mana
 - **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.kimi-code/mcp.json` on startup. See [MCP](../customization/mcp.md).
 - **`skills/`**: Kimi-specific user-level Skills. This directory moves with `KIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
 - **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
+- **`workspaces.json`**: maps stable workspace IDs to their root directories and display names. Session directories use these IDs instead of path-derived buckets.
 - **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Managed provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
 
 ## Session data
 
-Each session's data is stored under `sessions/<workDirKey>/<sessionId>/`, and a top-level `session_index.jsonl` index is maintained (one record per line, each containing `sessionId`, `sessionDir`, and `workDir`). `workDirKey` is a bucket name derived from the working directory path, in the format `wd_<slug>_<first-12-chars-of-sha256>`.
+Each session is stored under `sessions/<workspaceId>/<sessionId>/`. The runtime enumerates these directories directly and reads `state.json`; there is no separate session index.
 
 Inside each session directory:
 
 - **`state.json`**: session metadata including title, `lastPrompt`, creation/update timestamps, and `forkedFrom`.
 - **`upcoming-goals.json`**: the TUI-only queue created by `/goal next <objective>`. It is not part of the agent conversation until a queued goal is promoted after the current goal completes.
-- **`agents/main/wire.jsonl`**: the main Agent's complete communication record, used for session resumption and replay.
-- **`agents/main/plans/`**: plan files written in Plan mode, named by plan id (`<id>.md`).
-- **`agents/agent-0/` etc.**: sub-Agent instance directories, each containing their own `wire.jsonl`.
+- **`agents/main/wire.jsonl`**: the main agent's complete communication record, used for session resumption and replay.
+- **`agents/<agentId>/wire.jsonl`**: every subagent has the same independent event log.
+- **`agents/<agentId>/plans/<id>.md`**: the editable Plan mode working file.
+- **`agents/<agentId>/plan/<id>/v<N>.md`**: immutable submitted plan revisions referenced by the wire log.
+- **`agents/<agentId>/tasks/<taskId>.json`**: persisted background and asynchronous tool task state.
+- **`agents/<agentId>/tasks/<taskId>/output.log`**: persisted task output.
 - **`logs/kimi-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
-- **`tasks/`**: background task persistence — `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
-- **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
+
+Scheduled tasks are stored separately at `cron/<workspaceId>/<taskId>.json` so they are available independently of a live session. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 
 ## Built-in tool cache
 
@@ -108,7 +117,7 @@ Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_
 | --- | --- |
 | Reset configuration | Delete `~/.kimi-code/config.toml` |
 | Reset terminal UI preferences | Delete `~/.kimi-code/tui.toml` |
-| Clear all sessions | Delete `~/.kimi-code/sessions/` and `session_index.jsonl` |
+| Clear all sessions | Delete `~/.kimi-code/sessions/` |
 | Clear diagnostic logs | Delete `~/.kimi-code/logs/` |
 | Clear input history | Delete `~/.kimi-code/user-history/` |
 | Reset update state | Delete `~/.kimi-code/updates/latest.json` |

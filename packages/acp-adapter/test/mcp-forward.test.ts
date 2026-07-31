@@ -19,9 +19,12 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  KimiHarness,
+  Session,
+  SessionMcpServerConfig,
+} from '@moonshot-ai/kimi-code-sdk';
 import { log } from '@moonshot-ai/kimi-code-sdk';
-import type { McpServerConfig } from '@moonshot-ai/agent-core';
 
 import { acpMcpServersToConfigs } from '../src/mcp';
 import { AcpServer } from '../src/server';
@@ -53,7 +56,7 @@ function makeInMemoryStreamPair(): {
 }
 
 interface CapturedCall {
-  options: { workDir: string; mcpServers?: Record<string, McpServerConfig> };
+  options: { workDir: string; mcpServers?: Record<string, SessionMcpServerConfig> };
 }
 
 function makeHarness(

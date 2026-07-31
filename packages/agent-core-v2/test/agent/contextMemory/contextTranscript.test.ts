@@ -1,7 +1,7 @@
 /**
  * Tests for `reduceContextTranscript` — the wire-transcript reducer used by the
- * snapshot and messages endpoints. Mirrors v1 `reduceWireRecords` expectations:
- * compaction keeps the prefix and appends a summary marker; undo removes the
+ * snapshot and messages endpoints. Compaction keeps the prefix and appends a
+ * summary marker; undo removes the
  * tail but stops at compaction summaries / clear floors; clear keeps the
  * transcript but resets the folded view.
  */
@@ -48,7 +48,7 @@ function assistantStep(uuid: string, text: string): WireRecord[] {
 function compaction(
   summary: string,
   compactedCount: number,
-  keptUserMessageCount?: number,
+  keptUserMessageCount: number,
   keptHeadUserMessageCount?: number,
 ): WireRecord {
   return {
@@ -58,7 +58,7 @@ function compaction(
     compactedCount,
     tokensBefore: 1000,
     tokensAfter: 100,
-    ...(keptUserMessageCount === undefined ? {} : { keptUserMessageCount }),
+    keptUserMessageCount,
     ...(keptHeadUserMessageCount === undefined ? {} : { keptHeadUserMessageCount }),
   };
 }
@@ -90,7 +90,7 @@ describe('reduceContextTranscript', () => {
       ...assistantStep('s1', 'a1'),
       appendMessage(userMessage('u2')),
       ...assistantStep('s2', 'a2'),
-      compaction('SUM', 4),
+      compaction('SUM', 4, 2),
       appendMessage(userMessage('u3')),
     ]);
     expect(texts(result)).toEqual(['u1', 'a1', 'u2', 'a2', 'SUM', 'u3']);

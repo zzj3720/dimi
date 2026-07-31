@@ -27,6 +27,7 @@ import {
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { ToolCallSequenceComponent } from '#/tui/components/messages/tool-call-sequence';
 import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
@@ -103,6 +104,7 @@ interface MessageDriver {
   };
   init(): Promise<boolean>;
   handleUserInput(text: string): void;
+  toggleToolOutputExpansion(): void;
   persistInputHistory(text: string): Promise<void>;
   sendQueuedMessage(session: unknown, item: QueuedMessage): void;
   getCurrentSessionId(): string;
@@ -146,6 +148,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      busyInputMode: 'steer',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -1294,7 +1297,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.started',
+        type: 'task.started',
         agentId: 'main',
         sessionId: 'ses-1',
         turnId: 1,
@@ -1336,6 +1339,115 @@ command = "vim"
         (child) => child instanceof WelcomeComponent,
       ),
     ).toHaveLength(1);
+  });
+
+  it('does not append transcript cards for foreground or successful tool tasks', async () => {
+    const { driver } = await makeDriver();
+    const base = {
+      agentId: 'main',
+      sessionId: 'ses-1',
+      turnId: 1,
+    } as const;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.started',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-fg000001',
+          turnId: 1,
+          toolCallId: 'call-fg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'running',
+          detached: false,
+          startedAt: Date.now(),
+          endedAt: null,
+        },
+      } as Event,
+      () => {},
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.started',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg000001',
+          turnId: 1,
+          toolCallId: 'call-bg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'running',
+          detached: true,
+          startedAt: Date.now(),
+          endedAt: null,
+        },
+      } as Event,
+      () => {},
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.terminated',
+        ...base,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg000001',
+          turnId: 1,
+          toolCallId: 'call-bg',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'completed',
+          detached: true,
+          startedAt: Date.now() - 100,
+          endedAt: Date.now(),
+        },
+      } as Event,
+      () => {},
+    );
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).not.toContain('tool task started in background');
+    expect(transcript).not.toContain('tool task completed in background');
+    expect(
+      driver.state.transcriptEntries.some((entry) => entry.backgroundAgentStatus !== undefined),
+    ).toBe(false);
+  });
+
+  it('appends a transcript card for a failed background tool task', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'task.terminated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        info: {
+          kind: 'tool',
+          taskId: 'tool-bg-fail01',
+          turnId: 1,
+          toolCallId: 'call-fail',
+          toolName: 'Lookup',
+          autoWaitTimeoutSeconds: 20,
+          description: 'Running Lookup',
+          status: 'failed',
+          detached: true,
+          startedAt: Date.now() - 100,
+          endedAt: Date.now(),
+          stopReason: 'tool error',
+        },
+      } as Event,
+      () => {},
+    );
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('tool task failed in background');
+    expect(transcript).toContain('Running Lookup');
   });
 
   it('removes AgentSwarm progress from undone turns', async () => {
@@ -1615,6 +1727,7 @@ command = "vim"
   it('queues a pasted video (file:// part) while a turn is streaming', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session);
+    driver.state.appState.busyInputMode = 'queue';
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const dir = await mkdtemp(join(tmpdir(), 'tui-video-'));
     try {
@@ -1663,6 +1776,7 @@ command = "vim"
 
   it('queues editor input instead of prompting while a turn is already streaming', async () => {
     const { driver, session, harness } = await makeDriver();
+    driver.state.appState.busyInputMode = 'queue';
     driver.state.appState.streamingPhase = 'waiting';
     harness.track.mockClear();
 
@@ -1710,6 +1824,7 @@ command = "vim"
 
   it('steers a queued message at a turn boundary while a goal is active', async () => {
     const { driver, session } = await makeDriver();
+    driver.state.appState.busyInputMode = 'queue';
     driver.state.appState.goal = makeActiveGoalSnapshot();
     driver.state.appState.streamingPhase = 'waiting';
     driver.handleUserInput('mid-goal note');
@@ -1737,6 +1852,7 @@ command = "vim"
 
   it('prompts the queued message as a new turn when no goal is active', async () => {
     const { driver, session } = await makeDriver();
+    driver.state.appState.busyInputMode = 'queue';
     driver.state.appState.streamingPhase = 'waiting';
     driver.handleUserInput('after the turn');
 
@@ -1922,6 +2038,7 @@ command = "vim"
   it('drains a queued image message with its media parts', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session);
+    driver.state.appState.busyInputMode = 'queue';
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const attachment = imageStore.addImage(new Uint8Array([0xaa, 0xbb]), 'image/png', 1, 1);
     driver.state.appState.streamingPhase = 'waiting';
@@ -2347,6 +2464,81 @@ command = "vim"
     }
   });
 
+  it('cycles completed tool runs through summary, tool cards, and full output', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('inspect the code');
+
+    for (const [id, name, args] of [
+      ['call_read', 'Read', { path: 'src/a.ts' }],
+      ['call_grep', 'Grep', { pattern: 'TODO', path: 'src' }],
+    ] as const) {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          name,
+          args,
+        } as Event,
+        sendQueued,
+      );
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.result',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          output: 'result line 1\nresult line 2',
+        } as Event,
+        sendQueued,
+      );
+      if (id === 'call_read') {
+        driver.streamingUI.onThinkingUpdate('Now search the source tree.');
+        driver.streamingUI.onThinkingEnd();
+      }
+    }
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        delta: 'Inspection complete.',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+
+    const sequence = driver.state.transcriptContainer.children.find(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequence).toBeInstanceOf(ToolCallSequenceComponent);
+    let transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('inspect the code');
+    expect(transcript).toContain('Used 2 tools · read 1 file · searched 1 time');
+    expect(countOccurrences(transcript, 'Used 2 tools')).toBe(1);
+    expect(transcript).not.toContain('Now search the source tree.');
+    expect(transcript).toContain('Inspection complete.');
+
+    driver.state.editor.onToggleToolExpand?.();
+    expect(driver.state.toolDisplayMode).toBe('tools');
+    expect((sequence as ToolCallSequenceComponent).render(120).length).toBeGreaterThan(1);
+    expect(stripSgr(renderTranscript(driver))).toContain('Now search the source tree.');
+
+    driver.state.editor.onToggleToolExpand?.();
+    expect(driver.state.toolDisplayMode).toBe('full');
+
+    driver.state.editor.onToggleToolExpand?.();
+    expect(driver.state.toolDisplayMode).toBe('summary');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Used 2 tools · read 1 file · searched 1 time');
+  });
+
   it('cancels manual compaction from the editor', async () => {
     const { driver, session } = await makeDriver();
     driver.sessionEventHandler.handleEvent(
@@ -2456,6 +2648,7 @@ command = "vim"
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
       } as Event,
       sendQueued,
@@ -2466,9 +2659,11 @@ command = "vim"
     expect(collapsed).not.toContain('Keep the src/tui compaction notes.');
 
     driver.state.editor.onToggleToolExpand?.();
+    expect(driver.state.toolDisplayMode).toBe('tools');
+    driver.state.editor.onToggleToolExpand?.();
 
     const expanded = driver.state.transcriptContainer.render(120).map(stripSgr).join('\n');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.toolDisplayMode).toBe('full');
     expect(expanded).toContain('Keep the src/tui compaction notes.');
   });
 
@@ -2477,7 +2672,8 @@ command = "vim"
     const sendQueued = vi.fn();
 
     driver.state.editor.onToggleToolExpand?.();
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    driver.state.editor.onToggleToolExpand?.();
+    expect(driver.state.toolDisplayMode).toBe('full');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2499,6 +2695,7 @@ command = "vim"
           compactedCount: 4,
           tokensBefore: 120,
           tokensAfter: 24,
+          keptUserMessageCount: 1,
         },
       } as Event,
       sendQueued,
@@ -2869,7 +3066,7 @@ command = "vim"
 
     requestRender.mockClear();
     driver.state.editor.onToggleToolExpand?.();
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.toolDisplayMode).toBe('tools');
     expect(panel.render(80).map(stripSgr)).toEqual(tiny);
   });
 
@@ -5376,6 +5573,8 @@ command = "vim"
     driver.streamingUI.onThinkingUpdate('visible reasoning');
     driver.streamingUI.onThinkingEnd();
 
+    expect(stripSgr(renderTranscript(driver))).not.toContain('visible reasoning');
+    driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).toContain('visible reasoning');
   });
 
@@ -5465,7 +5664,7 @@ command = "vim"
 
   it('renders newly streamed thinking expanded when ctrl+o toggle was already active', async () => {
     const { driver } = await makeDriver();
-    driver.state.toolOutputExpanded = true;
+    driver.state.toolDisplayMode = 'full';
 
     const longThinking = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'].join('\n');
     driver.sessionEventHandler.handleEvent(
@@ -5761,6 +5960,14 @@ describe('/effort support_efforts override', () => {
 });
 
 describe('transcript step and assistant folding', () => {
+  function toolCount(driver: MessageDriver): number {
+    return driver.state.transcriptContainer.children.reduce((count, child) => {
+      if (child instanceof ToolCallComponent) return count + 1;
+      if (child instanceof ToolCallSequenceComponent) return count + child.toolCount;
+      return count;
+    }, 0);
+  }
+
   function driveSteps(driver: MessageDriver, cycles: number): void {
     for (let i = 0; i < cycles; i++) {
       driver.sessionEventHandler.handleEvent(
@@ -5811,9 +6018,9 @@ describe('transcript step and assistant folding', () => {
     const assistantCount = children.filter(
       (child) => child instanceof AssistantMessageComponent,
     ).length;
-    const toolCount = children.filter((child) => child instanceof ToolCallComponent).length;
+    const mountedToolCount = toolCount(driver);
     expect(assistantCount).toBe(TRANSCRIPT_KEEP_RECENT_ASSISTANT);
-    expect(toolCount).toBe(TRANSCRIPT_KEEP_RECENT_STEPS);
+    expect(mountedToolCount).toBe(TRANSCRIPT_KEEP_RECENT_STEPS);
 
     const summaries = children.filter((child) => child instanceof StepSummaryComponent);
     expect(summaries).toHaveLength(1);
@@ -5835,7 +6042,7 @@ describe('transcript step and assistant folding', () => {
 
     const children = driver.state.transcriptContainer.children;
     expect(children.filter((child) => child instanceof AssistantMessageComponent)).toHaveLength(3);
-    expect(children.filter((child) => child instanceof ToolCallComponent)).toHaveLength(3);
+    expect(toolCount(driver)).toBe(3);
     expect(children.filter((child) => child instanceof StepSummaryComponent)).toHaveLength(0);
   });
 
@@ -5872,7 +6079,7 @@ describe('transcript step and assistant folding', () => {
     expect(summaryText).toContain(`${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
 
     // Steps below the step cap are untouched by the completed-turn fold.
-    expect(children.filter((child) => child instanceof ToolCallComponent)).toHaveLength(cycles);
+    expect(toolCount(driver)).toBe(cycles);
 
     // The conclusion stays mounted.
     const lastAssistant = assistants.at(-1)!;

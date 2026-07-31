@@ -1,6 +1,6 @@
 # 权限系统设计（Permission）
 
-本文系统整理 agent-core 权限系统的目标方案，并与 `packages/agent-core`（v1）现状对比。结论先行：
+本文系统整理当前 agent runtime 权限系统及其演进方向。结论先行：
 
 > **权限系统应是一个「可组合、可注册的责任链（微内核）」**：内核只负责按顺序跑链、首个命中赢；具体权限维度（policy）由各自的 Domain Service 通过注册表插入；工具只需在 `resolveExecution` 里声明标准化的资源访问（`accesses`），通用维度集中消费这份元数据。
 >
@@ -22,9 +22,9 @@
 
 ---
 
-## 二、现状（agent-core v1）
+## 二、当前实现
 
-代码位于 `packages/agent-core/src/agent/permission/`。
+代码位于 `packages/agent-core-v2/src/agent/permissionPolicy/`、`permissionRules/` 与 `permissionGate/`。
 
 ### 2.1 架构：有序责任链 + 首个命中赢
 
@@ -70,7 +70,7 @@ type PermissionPolicyResult =
 
 ### 2.3 资源访问声明：`resolveExecution` + `accesses`
 
-工具通过 `resolveExecution(input)` 在执行前声明自己访问的资源（`packages/agent-core/src/loop/types.ts`、`tool-access.ts`）：
+工具通过 `resolveExecution(input)` 在执行前声明自己访问的资源（见 `packages/agent-core-v2/src/tool/toolContract.ts`）：
 
 ```ts
 interface RunnableToolExecution {
@@ -229,7 +229,7 @@ constructor(@IAgentToolExecutorService executor, ...) {
 工具在 `resolveExecution(input)` 里、执行前，用 `ToolAccesses.*` builder 声明访问的资源：
 
 ```ts
-// packages/agent-core/src/tools/builtin/file/write.ts
+// packages/agent-core-v2/src/agent/tools/os/write/writeTool.ts
 resolveExecution(args: WriteInput): ToolExecution {
   const path = resolvePathAccessPath(args.path, { kaos, workspace, operation: 'write' });
   return {
@@ -295,7 +295,7 @@ type ToolResourceAccess =
 
 ## 六、现状 vs 方案 对比
 
-| 方面 | 现状（v1） | 目标方案 |
+| 方面 | 当前实现 | 目标方案 |
 |---|---|---|
 | 链的构造 | `policies/index.ts` 硬编码 19 个 `new` | `IPermissionPolicyRegistry` 收集，`compose(agent, mode)` 组装 |
 | mode 处理 | policy 内部 `if (mode !== 'x') return` | 声明式 `modes` 元数据，compose 时过滤 |
@@ -329,5 +329,5 @@ type ToolResourceAccess =
 1. **Composite 节点的边界**：哪些 domain 内部用复合节点（隐藏子顺序），哪些直接注册多个 phase 节点？
 2. **同 phase 多节点的排序**：注册顺序是否足够，还是需要显式 `order` 逃生舱？
 3. **`ToolResourceAccess` 扩展节奏**：哪些非文件资源优先纳入（shell / network / datastore）？
-4. **v1 → v2 迁移时机**：v2 权限子系统目前是 v1 类型/逻辑的薄包装，何时把 `accesses`、`PermissionPolicyResult` 等提升为正式 v2 类型？
+4. **注册表演进时机**：何时把 `accesses`、`PermissionPolicyResult` 等收敛为面向扩展的正式契约？
 5. **运行时性能阈值**：节点数达到多少时引入工具名索引（`byTool` 分派）优化？当前 12 个节点、首个命中短路，远未触及。

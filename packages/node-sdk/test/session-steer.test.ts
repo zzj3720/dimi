@@ -1,66 +1,103 @@
-import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError } from '#/index';
+import { createKimiHarness, type Event, type KimiError } from '#/index';
 
+import {
+  createFakeProviderHarness,
+  type FakeProviderHarness,
+} from '../../kosong/test/e2e/fake-provider-harness';
 import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-const fakeProviderState = vi.hoisted(() => ({
-  responseText: 'steer response',
-}));
-
-vi.mock('@moonshot-ai/kosong', async (importOriginal) => {
-  const actual = await importOriginal<typeof KosongModule>();
-  return {
-    ...actual,
-    createProvider: () => ({
-      name: 'fake',
-      modelName: 'fake-model',
-      thinkingEffort: null,
-      async generate() {
-        return {
-          id: 'fake-response',
-          usage: {
-            inputOther: 0,
-            output: 1,
-            inputCacheRead: 0,
-            inputCacheCreation: 0,
-          },
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-          async *[Symbol.asyncIterator]() {
-            yield { type: 'text', text: fakeProviderState.responseText };
-          },
-        };
-      },
-      withThinking() {
-        return this;
-      },
-    }),
-  };
-});
-
 const tempDirs: string[] = [];
-
-beforeEach(() => {
-  fakeProviderState.responseText = 'steer response';
-});
+let provider: FakeProviderHarness | undefined;
 
 afterEach(async () => {
+  await provider?.close();
+  provider = undefined;
   await removeTempDirs(tempDirs);
 });
 
 describe('Session.steer', () => {
+  it('starts a new turn when the session is idle', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      provider = await createFakeProviderHarness();
+      provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
+        await reply.sseJson(200, [
+          completionChunk({ content: 'idle steer response' }),
+          completionChunk({}, 'stop'),
+        ]);
+      });
+      await harness.setConfig({
+        providers: {
+          local: { type: 'kimi', baseUrl: `${provider.baseUrl}/v1`, apiKey: 'sk-test' },
+        },
+        models: {
+          'fake-model': { provider: 'local', model: 'fake-model', maxContextSize: 262144 },
+        },
+        defaultModel: 'fake-model',
+      });
+      const session = await harness.createSession({ id: 'ses_steer_idle', workDir });
+      const ended = waitForEvent(session, (event) => event.type === 'turn.ended');
+
+      await expect(session.steer('start from idle')).resolves.toBeUndefined();
+      await ended;
+      await expect(
+        waitForAgentWireEvent(homeDir, session.id, 'turn.prompt', (event) =>
+          Array.isArray(event['input']),
+        ),
+      ).resolves.toMatchObject({
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: 'start from idle' }],
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('sends turn.steer to the core session runtime', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
+      provider = await createFakeProviderHarness();
+      let markStarted!: () => void;
+      let release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
+        markStarted();
+        await blocked;
+        await reply.sseJson(200, [
+          completionChunk({ content: 'steer response' }),
+          completionChunk({}, 'stop'),
+        ]);
+      });
+      await harness.setConfig({
+        providers: {
+          local: { type: 'kimi', baseUrl: `${provider.baseUrl}/v1`, apiKey: 'sk-test' },
+        },
+        models: {
+          'fake-model': { provider: 'local', model: 'fake-model', maxContextSize: 262144 },
+        },
+        defaultModel: 'fake-model',
+      });
       const session = await harness.createSession({ id: 'ses_steer_wire', workDir });
+      const ended = waitForEvent(session, (event) => event.type === 'turn.ended');
+      await session.prompt('start the turn');
+      await started;
 
       await session.steer('also do this');
+      release();
 
       await expect(
         waitForAgentWireEvent(homeDir, session.id, 'turn.steer', (event) =>
@@ -70,6 +107,7 @@ describe('Session.steer', () => {
         type: 'turn.steer',
         input: [{ type: 'text', text: 'also do this' }],
       });
+      await ended;
     } finally {
       await harness.close();
     }
@@ -110,3 +148,34 @@ describe('Session.steer', () => {
     }
   });
 });
+
+function completionChunk(
+  delta: Record<string, unknown>,
+  finishReason: string | null = null,
+): Record<string, unknown> {
+  return {
+    id: 'chatcmpl-node-sdk-steer',
+    object: 'chat.completion.chunk',
+    created: 1,
+    model: 'fake-model',
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  };
+}
+
+function waitForEvent(
+  session: { onEvent(listener: (event: Event) => void): () => void },
+  predicate: (event: Event) => boolean,
+): Promise<Event> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      unsubscribe();
+      reject(new Error('Timed out waiting for session event'));
+    }, 5_000);
+    const unsubscribe = session.onEvent((event) => {
+      if (!predicate(event)) return;
+      clearTimeout(timeout);
+      unsubscribe();
+      resolve(event);
+    });
+  });
+}

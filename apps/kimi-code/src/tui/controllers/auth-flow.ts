@@ -59,6 +59,8 @@ export class AuthFlowController {
       contextTokens: 0,
       maxContextTokens: 0,
       contextUsage: 0,
+      sessionUsage: null,
+      latestPromptUsage: null,
       sessionTitle: null,
     });
     this.host.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
@@ -154,6 +156,8 @@ export class AuthFlowController {
       maxContextTokens: 0,
       contextUsage: 0,
       contextTokens: 0,
+      sessionUsage: null,
+      latestPromptUsage: null,
     });
   }
 

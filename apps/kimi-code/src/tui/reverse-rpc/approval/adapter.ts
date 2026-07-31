@@ -17,10 +17,12 @@ const PLAN_REJECT_CHOICES: ApprovalPanelChoice[] = [
 ];
 
 export function adaptApprovalRequest(event: ApprovalRequest): ApprovalPanelData {
+  const toolCallId = event.toolCallId ?? event.id;
+  if (toolCallId === undefined) throw new Error('Approval request is missing an id');
   const resolved = resolveDisplay(event.toolName, event.display, event.action);
   return {
-    id: event.toolCallId,
-    tool_call_id: event.toolCallId,
+    id: toolCallId,
+    tool_call_id: toolCallId,
     tool_name: event.toolName,
     action: event.action,
     description: resolved.description,

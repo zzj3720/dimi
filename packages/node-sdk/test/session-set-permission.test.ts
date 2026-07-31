@@ -52,8 +52,7 @@ describe('Session.setPermission', () => {
       const session = await harness.createSession({ id: 'ses_permission_invalid', workDir });
 
       await expect(session.setPermission('invalid' as never)).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'session.permission_mode_invalid',
+        code: 'request.invalid',
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
@@ -70,7 +69,6 @@ describe('Session.setPermission', () => {
       await session.close();
 
       await expect(session.setPermission('yolo')).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'session.closed',
       } satisfies Partial<KimiError>);
     } finally {

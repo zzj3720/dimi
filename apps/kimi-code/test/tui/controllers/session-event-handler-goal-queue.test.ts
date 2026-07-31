@@ -56,7 +56,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
       queuedMessages: [],
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
-      toolOutputExpanded: false,
+      toolDisplayMode: 'summary',
       todoPanel: { getTodos: vi.fn(() => []) },
       transcriptContainer: { addChild: vi.fn() },
       ui: { requestRender: vi.fn() },
@@ -154,6 +154,7 @@ function compactionCompletedEvent() {
       tokensBefore: 100,
       tokensAfter: 10,
       compactedCount: 1,
+      keptUserMessageCount: 1,
     },
   } as const;
 }

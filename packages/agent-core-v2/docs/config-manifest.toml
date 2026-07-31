@@ -8,8 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (22 sections · 3 overlay(s))
-#   background               src/agent/task/configSection.ts
+# Index (21 sections · 3 overlay(s))
 #   cron                     src/app/cron/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/agent/plan/configSection.ts
@@ -34,26 +33,6 @@
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
 #   (overlay) secondaryModelOverlay  src/app/kosongConfig/secondaryModelOverlay.ts
-
-# ##########################################################################
-# background
-#   owner: src/agent/task/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
-#     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
-# ##########################################################################
-
-[background]
-# max_running_tasks: integer
-# keep_alive_on_exit: boolean
-# bash_auto_background_on_timeout: boolean
-# bash_task_timeout_s: integer
-# kill_grace_period_ms: integer
-# print_wait_ceiling_s: integer
-# print_background_mode: "exit" | "drain" | "steer"
-# print_max_turns: integer
 
 # ##########################################################################
 # cron
@@ -358,13 +337,11 @@ timeout_ms = 7200000
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
 #     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
 # ##########################################################################
 
 [task]
 # max_running_tasks: integer
-# keep_alive_on_exit: boolean
 # bash_auto_background_on_timeout: boolean
 # bash_task_timeout_s: integer
 # kill_grace_period_ms: integer

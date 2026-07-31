@@ -3,8 +3,6 @@ import type {
   AgentStatusUpdatedEvent,
   AssistantDeltaEvent,
   BackgroundTaskInfo,
-  BackgroundTaskStartedEvent,
-  BackgroundTaskTerminatedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
@@ -19,6 +17,8 @@ import type {
   SkillActivatedEvent,
   PluginCommandActivatedEvent,
   ThinkingDeltaEvent,
+  TaskStartedEvent,
+  TaskTerminatedEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
   ToolProgressEvent,
@@ -57,7 +57,10 @@ import {
   restoreGoalQueueItem,
   type UpcomingGoal,
 } from '../goal-queue-store';
-import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
+import {
+  formatBackgroundTaskTranscript,
+  shouldShowBackgroundTaskTranscript,
+} from '../utils/background-task-status';
 import { formatHookResultMarkdown } from '../utils/hook-result-format';
 import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
 import {
@@ -290,8 +293,8 @@ export class SessionEventHandler {
       case 'subagent.completed':
       case 'subagent.failed':
         this.subAgentEventHandler.handleLifecycleEvent(event); break;
-      case 'background.task.started':
-      case 'background.task.terminated':
+      case 'task.started':
+      case 'task.terminated':
         this.handleBackgroundTaskEvent(event); break;
       case 'cron.fired': this.handleCronFired(event); break;
       case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
@@ -407,6 +410,12 @@ export class SessionEventHandler {
     this.host.streamingUI.flushNow();
     this.maybeShowDebugTiming(event);
 
+    // Keep the latest per-step usage for the footer CH% badge. Prefer this
+    // over session totals so the rate reflects the most recent prompt, as pi does.
+    if (event.usage !== undefined) {
+      this.host.setAppState({ latestPromptUsage: event.usage });
+    }
+
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
         'Provider safety policy blocked the response.',
@@ -454,7 +463,8 @@ export class SessionEventHandler {
     const model = state.appState.availableModels[state.appState.model];
     if (model === undefined) return false;
     if (model.protocol === 'anthropic') return true;
-    return state.appState.availableProviders[model.provider]?.type === 'anthropic';
+    const providerId = model.providerId ?? model.provider;
+    return providerId !== undefined && state.appState.availableProviders[providerId]?.type === 'anthropic';
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
@@ -651,6 +661,7 @@ export class SessionEventHandler {
     if (event.contextUsage !== undefined) patch.contextUsage = event.contextUsage;
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
+    if (event.usage !== undefined) patch.sessionUsage = event.usage;
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
     if (event.permission !== undefined) {
@@ -720,7 +731,7 @@ export class SessionEventHandler {
     } else if (change.kind === 'lifecycle') {
       this.pendingModelBlockedFallback = undefined;
     }
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, change.actor);
+    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', change.actor);
     if (marker !== null) {
       state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
@@ -732,7 +743,7 @@ export class SessionEventHandler {
     if (change === undefined) return;
     this.pendingModelBlockedFallback = undefined;
     const { state } = this.host;
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, 'model');
+    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', 'model');
     if (marker !== null) {
       state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
@@ -1080,7 +1091,7 @@ export class SessionEventHandler {
   // ---------------------------------------------------------------------------
 
   private handleBackgroundTaskEvent(
-    event: BackgroundTaskStartedEvent | BackgroundTaskTerminatedEvent,
+    event: TaskStartedEvent | TaskTerminatedEvent,
   ): void {
     const { state } = this.host;
     const { info } = event;
@@ -1099,7 +1110,7 @@ export class SessionEventHandler {
       info.status === 'killed' ||
       info.status === 'lost';
 
-    if (event.type === 'background.task.started') {
+    if (event.type === 'task.started') {
       if (info.kind === 'agent') {
         // A foreground subagent detached via Ctrl+B: flip its card to
         // `◐ backgrounded` so it doesn't look like it completed.
@@ -1108,13 +1119,18 @@ export class SessionEventHandler {
         this.host.tasksBrowserController.repaint();
         return;
       }
-      this.appendBackgroundTaskEntry(info);
+      // Default-async tools emit task.started for nearly every call; only
+      // process/question (and tool failures via terminated) belong in the
+      // transcript — see shouldShowBackgroundTaskTranscript.
+      if (shouldShowBackgroundTaskTranscript(info)) {
+        this.appendBackgroundTaskEntry(info);
+      }
       this.syncBackgroundTaskBadge();
       this.host.tasksBrowserController.repaint();
       return;
     }
 
-    if (event.type === 'background.task.terminated' && isTerminal) {
+    if (event.type === 'task.terminated' && isTerminal) {
       if (info.kind === 'agent') {
         // The Agent tool's spawn-success ToolResult is not an error, so the
         // parent toolCall card would otherwise render `✓ Completed` for any
@@ -1127,7 +1143,7 @@ export class SessionEventHandler {
         });
       }
       if (!this.backgroundTaskTranscriptedTerminal.has(info.taskId)) {
-        if (info.kind === 'process' || info.kind === 'question') {
+        if (shouldShowBackgroundTaskTranscript(info)) {
           this.appendBackgroundTaskEntry(info);
         }
         this.backgroundTaskTranscriptedTerminal.add(info.taskId);

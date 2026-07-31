@@ -179,9 +179,11 @@ export async function handleProviderList(
 
   const modelsByProvider = new Map<string, string[]>();
   for (const [alias, model] of Object.entries(config.models ?? {})) {
-    const list = modelsByProvider.get(model.provider) ?? [];
+    const providerId = model.providerId ?? model.provider;
+    if (providerId === undefined) continue;
+    const list = modelsByProvider.get(providerId) ?? [];
     list.push(alias);
-    modelsByProvider.set(model.provider, list);
+    modelsByProvider.set(providerId, list);
   }
 
   const providerIds = Object.keys(config.providers).toSorted();

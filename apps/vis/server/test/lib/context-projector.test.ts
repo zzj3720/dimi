@@ -273,7 +273,7 @@ describe('context-projector', () => {
   it('applies compaction summary as a synthetic message', async () => {
     const entries = [
       { lineNo: 2, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'old' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const, summary: 'old stuff', compactedCount: 1, tokensBefore: 100, tokensAfter: 30 }, raw: {} },
+      { lineNo: 3, data: { type: 'context.apply_compaction' as const, summary: 'old stuff', contextSummary: 'old stuff', compactedCount: 1, tokensBefore: 100, tokensAfter: 30, keptUserMessageCount: 1 }, raw: {} },
       { lineNo: 4, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'new' }], toolCalls: [] } }, raw: {} },
     ];
     const proj = projectContext(entries as any);
@@ -295,7 +295,7 @@ describe('context-projector', () => {
       { lineNo: 1, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'old' }], toolCalls: [] } }, raw: {} },
       { lineNo: 2, data: { type: 'context.apply_compaction' as const,
-          summary: 'raw summary', contextSummary: 'prefixed summary', compactedCount: 1, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'raw summary', contextSummary: 'prefixed summary', compactedCount: 1, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 1 }, raw: {} },
     ];
 
     const model = projectContext(entries as any);
@@ -320,7 +320,7 @@ describe('context-projector', () => {
       { lineNo: 3, data: { type: 'context.append_message' as const,
           message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'm2 (dropped)' }], toolCalls: [] } }, raw: {} },
       { lineNo: 4, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 2 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
     // [m0, m1, summary] — real user prompts are kept verbatim, the assistant
@@ -335,36 +335,6 @@ describe('context-projector', () => {
     expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: 'sum' });
   });
 
-  it('apply_compaction mirrors the legacy verbatim tail for records without keptUserMessageCount (model)', () => {
-    // A pre-rework record has no keptUserMessageCount. agent-core's restore keeps
-    // the old `[summary, ...history.slice(compactedCount)]` tail (assistant/tool
-    // included), so the model view must do the same instead of applying the new
-    // kept-user selection — otherwise it would hide the assistant tail the resumed
-    // agent still has, and surface a pre-compaction user message the agent dropped.
-    const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u0 (compacted away)' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u2 (tail)' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a3 (tail)' }], toolCalls: [] } }, raw: {} },
-      // Legacy record: no keptUserMessageCount, compactedCount(2) < history(4).
-      { lineNo: 5, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
-    ];
-
-    const model = projectContext(entries as any);
-    // [summary, u2, a3] — the verbatim tail beyond compactedCount, summary first.
-    expect(model.messages.map((m) => m.source)).toEqual([
-      'compaction_summary', 'append_message', 'append_message',
-    ]);
-    expect(model.messages.map((m) => m.message.content[0])).toMatchObject([
-      { text: 'sum' }, { text: 'u2 (tail)' }, { text: 'a3 (tail)' },
-    ]);
-  });
-
   it('apply_compaction splits an oversized user pool into head + elision marker + tail (model)', () => {
     const first = `FIRST ${'a'.repeat(4_000)}`; // ~1k tokens
     const middle = 'b'.repeat(88_000); // ~22k tokens, over the 20k budget on its own
@@ -377,7 +347,7 @@ describe('context-projector', () => {
       { lineNo: 3, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: last }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
       { lineNo: 4, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 24_000, tokensAfter: 20_000,
+          summary: 'sum', contextSummary: 'sum', compactedCount: 3, tokensBefore: 24_000, tokensAfter: 20_000,
           keptUserMessageCount: 4, keptHeadUserMessageCount: 2 }, raw: {} },
     ];
 
@@ -414,11 +384,11 @@ describe('context-projector', () => {
       { lineNo: 3, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'local output' }], toolCalls: [], origin: { kind: 'injection' as const, variant: 'local-command-stdout' } } }, raw: {} },
       { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'background done' }], toolCalls: [], origin: { kind: 'background_task' as const, taskId: 'task', status: 'completed' as const, notificationId: 'notification' } } }, raw: {} },
+          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'background done' }], toolCalls: [], origin: { kind: 'task' as const, taskId: 'task', status: 'completed' as const, notificationId: 'notification' } } }, raw: {} },
       { lineNo: 5, data: { type: 'context.append_message' as const,
           message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'assistant reply' }], toolCalls: [] } }, raw: {} },
       { lineNo: 6, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 5, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 5, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 1 }, raw: {} },
       { lineNo: 7, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'new' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
     ];
@@ -469,7 +439,7 @@ describe('context-projector', () => {
       { lineNo: 4, data: { type: 'context.append_message' as const, message: userMsg('u3') }, raw: {} },
       { lineNo: 5, data: { type: 'context.append_message' as const, message: userMsg('u4') }, raw: {} },
       { lineNo: 6, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 3 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
     // Correct: [u1, u3, u4, summary]. The marker is gone, all real prompts kept.
@@ -653,7 +623,7 @@ describe('context-projector', () => {
       { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
       { lineNo: 2, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
       { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 1, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 1, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 0 }, raw: {} },
       { lineNo: 4, data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) }, raw: {} },
     ];
     const proj = projectContext(entries as any);
@@ -825,7 +795,7 @@ describe('context-projector', () => {
         // applyCompaction is the last token-affecting event → contextTokens must
         // be tokensAfter (30), not the pre-compaction step.end snapshot (100).
         { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-            summary: 'sum', compactedCount: 0, tokensBefore: 100, tokensAfter: 30 }, raw: {} },
+            summary: 'sum', contextSummary: 'sum', compactedCount: 0, tokensBefore: 100, tokensAfter: 30, keptUserMessageCount: 0 }, raw: {} },
       ];
       const proj = projectContext(entries as any, mode);
       expect(proj.contextTokens).toBe(30);
@@ -844,7 +814,7 @@ describe('context-projector', () => {
       { lineNo: 2, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm1' }], toolCalls: [] } }, raw: {} },
       { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 2 }, raw: {} },
     ];
     // No 2nd arg → 'model' default: the real user prompts are kept verbatim and
     // the summary is appended after them.
@@ -863,7 +833,7 @@ describe('context-projector', () => {
       { lineNo: 2, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm1' }], toolCalls: [] } }, raw: {} },
       { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+          summary: 'sum', contextSummary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10, keptUserMessageCount: 2 }, raw: {} },
       { lineNo: 4, data: { type: 'context.append_message' as const,
           message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm3' }], toolCalls: [] } }, raw: {} },
     ];

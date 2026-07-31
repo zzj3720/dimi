@@ -3,7 +3,6 @@ import type {
   ContextMessage,
   GoalChange,
   PermissionMode,
-  PromptOrigin,
   ResumedAgentState,
   Session,
   ToolCall,
@@ -13,21 +12,17 @@ import { ToolCallComponent } from '../components/messages/tool-call';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
 import { currentTheme } from '../theme';
 import type { TodoItem } from '../components/chrome/todo-panel';
-import type {
-  AppState,
-  BackgroundAgentMetadata,
-  ToolResultBlockData,
-  TranscriptEntry,
-} from '../types';
+import type { AppState, ToolResultBlockData, TranscriptEntry } from '../types';
 import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
-import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
-import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import {
+  formatBackgroundTaskTranscript,
+  shouldShowBackgroundTaskTranscript,
+} from '../utils/background-task-status';
 import { formatBashOutputForDisplay } from '../utils/shell-output';
 import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
-  backgroundOrigin,
   collectReplayMessageContent,
   contentPartsToText,
   countActiveBackgroundTasks,
@@ -117,13 +112,7 @@ export class SessionReplayRenderer {
   }
 
   private hydrateTodoPanel(agent: ResumedAgentState): void {
-    const rawTodos = agent.toolStore?.['todo'];
-    if (!Array.isArray(rawTodos)) {
-      this.host.streamingUI.setTodoList([]);
-      return;
-    }
-
-    const todos = rawTodos
+    const todos = agent.todos
       .filter((todo): todo is TodoItem => isTodoItemShape(todo))
       .map((todo) => ({ title: todo.title, status: todo.status }));
     if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
@@ -144,7 +133,7 @@ export class SessionReplayRenderer {
    * default of `✓ Completed`.
    */
   private applyTerminalBackgroundAgentStatuses(agent: ResumedAgentState): void {
-    for (const info of agent.background) {
+    for (const info of agent.tasks) {
       if (info.kind !== 'agent') continue;
       if (!isTerminalBackgroundTask(info)) continue;
       const status = info.status;
@@ -167,16 +156,16 @@ export class SessionReplayRenderer {
 
   private hydrateBackgroundState(agent: ResumedAgentState): void {
     const { state, sessionEventHandler } = this.host;
-    const projection = replayBackgroundProjection(agent.background);
+    const projection = replayBackgroundProjection(agent.tasks);
     sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata = new Map(
       projection.backgroundAgentMetadata,
     );
     sessionEventHandler.backgroundTasks.clear();
-    for (const info of agent.background) {
+    for (const info of agent.tasks) {
       sessionEventHandler.backgroundTasks.set(info.taskId, info);
     }
     sessionEventHandler.backgroundTaskTranscriptedTerminal.clear();
-    for (const info of agent.background) {
+    for (const info of agent.tasks) {
       if (isTerminalBackgroundTask(info)) {
         sessionEventHandler.backgroundTaskTranscriptedTerminal.add(info.taskId);
       }
@@ -260,17 +249,26 @@ export class SessionReplayRenderer {
   }
 
   private renderUserMessage(context: ReplayRenderContext, message: ContextMessage): void {
-    const origin = backgroundOrigin(message);
-    if (origin !== undefined) {
-      this.flushAssistant(context);
-      this.renderBackgroundTaskNotification(context, origin);
-      return;
-    }
     if (message.origin?.kind === 'hook_result') {
       this.renderHookResult(context, message);
       return;
     }
     if (message.origin?.kind === 'injection') {
+      return;
+    }
+    if (message.origin?.kind === 'task') {
+      this.flushAssistant(context);
+      const info = this.host.sessionEventHandler.backgroundTasks.get(message.origin.taskId);
+      if (info === undefined) return;
+      // Match live policy: successful / foreground tool tasks stay out of the
+      // transcript (tool cards + /tasks cover them); process/question and tool
+      // failures still render.
+      if (!shouldShowBackgroundTaskTranscript(info)) return;
+      const status = formatBackgroundTaskTranscript(info);
+      this.host.appendTranscriptEntry({
+        ...replayEntry(context, 'status', status.headline, 'plain', { detail: status.detail }),
+        backgroundAgentStatus: status,
+      });
       return;
     }
     if (message.origin?.kind === 'shell_command') {
@@ -665,55 +663,6 @@ export class SessionReplayRenderer {
     }
   }
 
-  private renderBackgroundTaskNotification(
-    context: ReplayRenderContext,
-    origin: Extract<PromptOrigin, { kind: 'background_task' }>,
-  ): void {
-    const { sessionEventHandler } = this.host;
-    const task = sessionEventHandler.backgroundTasks.get(origin.taskId);
-    if (task !== undefined && task.kind !== 'agent') {
-      const status = formatBackgroundTaskTranscript({ ...task, status: origin.status });
-      this.host.appendTranscriptEntry({
-        ...replayEntry(context, 'status', status.headline, 'plain'),
-        detail: status.detail,
-        backgroundAgentStatus: status,
-      });
-      sessionEventHandler.backgroundTaskTranscriptedTerminal.add(origin.taskId);
-      return;
-    }
-
-    const meta: BackgroundAgentMetadata = {
-      agentId: origin.taskId,
-      parentToolCallId: origin.taskId,
-      description: task?.description,
-    };
-    let status = formatBackgroundAgentTranscript(
-      origin.status === 'completed' ? 'completed' : 'failed',
-      meta,
-    );
-    if (origin.status === 'lost') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' lost in background'),
-      };
-    } else if (origin.status === 'killed') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' stopped'),
-      };
-    } else if (origin.status === 'timed_out') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' timed out'),
-      };
-    }
-    this.host.appendTranscriptEntry({
-      ...replayEntry(context, 'status', status.headline, 'plain'),
-      detail: status.detail,
-      backgroundAgentStatus: status,
-    });
-    sessionEventHandler.subAgentEventHandler.backgroundAgentMetadata.delete(meta.agentId);
-  }
 }
 
 const RESUME_NORMALIZATION_GOAL_PAUSE_REASONS = new Set([

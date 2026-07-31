@@ -1,10 +1,7 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   createKimiHarness,
-  createKimiHarnessV2,
   flushDiagnosticLogsSync,
   log,
   type KimiHarness,
@@ -20,7 +17,6 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
-import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -32,15 +28,10 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import type { CLIOptions } from './options';
 import { resolveAgentProfileSelection } from './agent-selection';
-import { isKimiV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
-export async function runShell(
-  opts: CLIOptions,
-  version: string,
-  runOptions: { readonly migrateOnly?: boolean } = {},
-): Promise<void> {
+export async function runShell(opts: CLIOptions, version: string): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
   let tuiConfig: TuiConfig;
@@ -81,12 +72,7 @@ export async function runShell(
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
-  // Experimental agent-core-v2 route (same master switch as `kimi -p`): the
-  // harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine.
-  const harness = isKimiV2Enabled()
-    ? createKimiHarnessV2(harnessOptions)
-    : createKimiHarness(harnessOptions);
+  const harness = createKimiHarness(harnessOptions);
   log.info('kimi-code starting', {
     version,
     uiMode: CLI_UI_MODE,
@@ -96,16 +82,6 @@ export async function runShell(
   });
 
   await harness.ensureConfigFile();
-  const migrationPlan = await detectPendingMigration({
-    sourceHome: join(homedir(), '.kimi'),
-    targetHome: harness.homeDir,
-    ignoreMarker: runOptions.migrateOnly,
-  });
-  if (runOptions.migrateOnly === true && migrationPlan === null) {
-    process.stdout.write('  Nothing to migrate from ~/.kimi/.\n');
-    await harness.close();
-    return;
-  }
   const config = await harness.getConfig();
   for (const warning of (await harness.getConfigDiagnostics()).warnings) {
     configWarning = combineStartupNotice(configWarning, warning);
@@ -122,8 +98,6 @@ export async function runShell(
     version,
     workDir,
     startupNotice: configWarning,
-    migrationPlan,
-    migrateOnly: runOptions.migrateOnly,
   });
 
   initializeCliTelemetry({

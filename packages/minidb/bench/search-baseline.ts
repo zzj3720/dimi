@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { listKimiSessions, loadKimiWorkspaces } from './kimi-sessions.js';
 
 const argv = process.argv.slice(2);
 const arg = (name: string, def: string) => {
@@ -123,36 +124,23 @@ function med<T>(fn: () => T, runs = 7): { value: T; ms: number } {
 async function main() {
   console.log(`data: ${DATA}`);
 
-  const wsRaw = JSON.parse(readFileSync(path.join(DATA, 'workspaces.json'), 'utf8'));
-  const workspaces = wsRaw.workspaces || wsRaw;
-  const lines = readFileSync(path.join(DATA, 'session_index.jsonl'), 'utf8').trim().split('\n');
+  const workspaces = loadKimiWorkspaces(DATA);
 
   const t0 = performance.now();
   const docs: Doc[] = [];
   let totalTextBytes = 0;
   let skipped = 0;
-  for (const line of lines) {
-    let meta: any;
-    try {
-      meta = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const { sessionId, sessionDir } = meta;
+  for (const meta of listKimiSessions(DATA)) {
+    const { sessionId, sessionDir, state, workspaceId } = meta;
     const wirePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
     if (!existsSync(wirePath)) {
       skipped++;
       continue;
     }
-    let state: any = {};
-    try {
-      state = JSON.parse(readFileSync(path.join(sessionDir, 'state.json'), 'utf8'));
-    } catch {}
     const body = extractWireText(wirePath, FULL);
     const text = (state.title ? state.title + '\n' : '') + body;
     totalTextBytes += Buffer.byteLength(text, 'utf8');
-    const wsId = path.basename(path.dirname(sessionDir));
-    const ws = workspaces[wsId] || {};
+    const ws = workspaces[workspaceId] || {};
     docs.push({
       sessionId,
       title: state.title || '',

@@ -1,21 +1,11 @@
 /**
- * Output rendering for `kimi -p` (print mode) — shared by the v1 driver
- * (`run-prompt.ts`) and the native v2 runner (`v2/run-v2-print.ts`).
- *
- * Both engines feed the same writer classes: v1 via the SDK `Event` stream, v2
- * via the main agent's native `IEventBus` (whose `DomainEvent` payloads are
- * already v1-protocol-shaped). Keeping the writers here lets v2 reuse them
- * without re-implementing rendering, while v1's `runPromptTurn` keeps its own
- * event-filtering / completion flow intact.
+ * Output rendering for native `kimi -p` (print mode).
  */
 
 import type { PromptOutputFormat } from './options';
 
 /**
- * Structural hook-result shape the renderer reads. Both the v1 SDK
- * `HookResultEvent` and the v2 native `hook.result` `DomainEvent` satisfy it,
- * so the renderer stays engine-agnostic without depending on either event
- * definition.
+ * Structural hook-result shape consumed by the print renderer.
  */
 interface HookResultEventLike {
   readonly hookEvent: string;
@@ -24,11 +14,7 @@ interface HookResultEventLike {
 }
 
 /**
- * Structural retry shape the renderer reads. Mirrors the v1 SDK
- * `turn.step.retrying` event fields the stream-json meta line surfaces. Both
- * drivers forward retries to `writeRetrying`: v1 from its SDK event stream,
- * v2 from the native `turn.step.retrying` `DomainEvent` (same field names),
- * after discarding the failed attempt's partial output.
+ * Structural retry shape consumed from the native `turn.step.retrying` event.
  */
 interface RetryingEventLike {
   readonly failedAttempt: number;
@@ -369,7 +355,7 @@ interface PromptJsonVersionMetaMessage {
   version: string;
 }
 
-export function writeExperimentalVersion(
+export function writeVersion(
   version: string,
   outputFormat: PromptOutputFormat,
   stdout: PromptOutput,

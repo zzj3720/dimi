@@ -1420,8 +1420,7 @@ function mapTurnOrigin(origin: unknown): TurnOrigin {
         payload: origin,
       };
     }
-    case 'task':
-    case 'background_task': {
+    case 'task': {
       const taskId = (candidate as { taskId?: unknown }).taskId;
       return typeof taskId === 'string'
         ? { kind: 'task', taskId, payload: origin }

@@ -5,11 +5,8 @@
  * `server_id` (ULID minted at boot), and `started_at`.
  *
  * **Capabilities**: the wire schema (`metaCapabilitiesSchema`) only permits the
- * literal `true` for each capability, so this mirrors the v1 response exactly to
- * keep the interface unchanged. server-v2 v0.1 does not yet back every
- * capability (no WebSocket / file upload / fs query / mcp / terminal); clients
- * must treat unbacked capabilities as not-yet-available until the corresponding
- * routes are wired.
+ * literal `true` for each capability, so the response declares only supported
+ * capabilities.
  *
  * **No DI**: pure server-self info; the payload is frozen at registration time.
  */
@@ -56,7 +53,6 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     started_at: opts.startedAt,
     open_in_apps: [],
     dangerous_bypass_auth: opts.dangerousBypassAuth,
-    backend: 'v2' as const,
   });
 
   const route = defineRoute(

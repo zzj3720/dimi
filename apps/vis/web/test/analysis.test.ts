@@ -19,7 +19,7 @@ describe('analyzeWire', () => {
       e({ type: 'turn.prompt', input: [{ type: 'text', text: 'hello' }], origin: { kind: 'user' } }, 1000),
       loop({ type: 'step.begin', uuid: 's1', turnId: 'T1', step: 0 }, 1100),
       loop({ type: 'tool.call', uuid: 'tc1', turnId: 'T1', step: 0, stepUuid: 's1', toolCallId: 'c1', name: 'Read' }, 1200),
-      loop({ type: 'tool.result', parentUuid: 'tc1', toolCallId: 'c1', result: { output: 'x'.repeat(50), truncated: true } }, 1500),
+      loop({ type: 'tool.result', parentUuid: 'tc1', toolCallId: 'c1', result: { output: 'x'.repeat(50) } }, 1500),
       loop({ type: 'step.end', uuid: 's1', turnId: 'T1', step: 0, finishReason: 'tool_use', llmFirstTokenLatencyMs: 40, usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 10 } }, 1600),
       loop({ type: 'step.begin', uuid: 's2', turnId: 'T1', step: 1 }, 1700),
       loop({ type: 'step.end', uuid: 's2', turnId: 'T1', step: 1, finishReason: 'end_turn', usage: { inputOther: 200, output: 50, inputCacheRead: 150, inputCacheCreation: 0 } }, 2000),
@@ -40,10 +40,9 @@ describe('analyzeWire', () => {
     expect(a.turns[0]!.steps).toHaveLength(2);
     expect(a.turns[1]!.steps).toHaveLength(1);
 
-    // Tool duration + truncation + size
+    // Tool duration + size
     const tc = a.turns[0]!.steps[0]!.toolCalls[0]!;
     expect(tc.durationMs).toBe(300);
-    expect(tc.truncated).toBe(true);
     expect(tc.outputBytes).toBe(50);
     expect(tc.isError).toBe(false);
 
@@ -70,13 +69,11 @@ describe('analyzeWire', () => {
     expect(a.summary.stepCount).toBe(3);
     expect(a.summary.toolCallCount).toBe(2);
     expect(a.summary.toolErrorCount).toBe(1);
-    expect(a.summary.truncatedToolCount).toBe(1);
 
     // Tool stats
     const read = a.toolStats.find((s) => s.name === 'Read')!;
     expect(read.count).toBe(2);
     expect(read.errorCount).toBe(1);
-    expect(read.truncatedCount).toBe(1);
     expect(read.timedCount).toBe(2);
     expect(read.totalMs).toBe(350); // 300 + 50
     expect(read.avgMs).toBe(175);

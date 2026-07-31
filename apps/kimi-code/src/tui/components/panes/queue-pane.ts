@@ -9,6 +9,11 @@ export interface QueuePaneOptions {
   readonly isCompacting: boolean;
   readonly isStreaming: boolean;
   readonly canSteerImmediately: boolean;
+  /**
+   * When true, Enter already steers mid-turn (busy_input_mode = "steer"), so
+   * the pane should not advertise Ctrl-S as the only way to inject.
+   */
+  readonly enterSteersByDefault?: boolean;
 }
 
 const ELLIPSIS = '…';
@@ -26,11 +31,15 @@ export class QueuePaneComponent extends Container {
       // there is at least one plain-text item that steering would actually send.
       const hasSteerable = options.messages.some((m) => m.mode !== 'bash');
       const canSteer = options.canSteerImmediately && hasSteerable;
+      // When Enter steers by default, still list Ctrl-S for flushing the queue.
+      const steerHint = options.enterSteersByDefault
+        ? '  ↑ to edit · enter steers · ctrl-s flushes queue'
+        : '  ↑ to edit · ctrl-s to steer immediately';
       this.hint =
         options.isCompacting && !options.isStreaming
           ? '  ↑ to edit · will send after compaction'
           : canSteer
-            ? '  ↑ to edit · ctrl-s to steer immediately'
+            ? steerHint
             : '  ↑ to edit · will send after current task';
     }
   }

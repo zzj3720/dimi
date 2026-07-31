@@ -1,5 +1,5 @@
 {
-  "name": "@moonshot-ai/monorepo",
+  "name": "@k-3720/monorepo",
   "version": "0.1.1",
   "private": true,
   "license": "MIT",
@@ -9,12 +9,11 @@
     "build": "pnpm -r run build",
     "build:packages": "pnpm -r --filter './packages/*' run build",
     "dev:cli": "pnpm -C apps/kimi-code run dev",
-    "dev:cli:v2": "KIMI_CODE_EXPERIMENTAL_FLAG=1 pnpm -C apps/kimi-code run dev",
     "dev:cli:marketplace": "KIMI_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/kimi-code/plugins/marketplace.json pnpm -C apps/kimi-code run dev",
     "dev:web": "pnpm -C apps/kimi-web run dev",
     "dev:server": "pnpm -C apps/kimi-code run dev:server",
     "dev:kap-server": "pnpm -C apps/kimi-code run dev:kap-server",
-    "dev:v2": "pnpm -C apps/kimi-code run dev:kap-server:multi",
+    "dev:server:multi": "pnpm -C apps/kimi-code run dev:kap-server:multi",
     "build:plugin-marketplace": "pnpm -C apps/kimi-code run build:plugin-marketplace",
     "vis": "pnpm -C apps/vis run dev",
     "dev:docs": "pnpm -C docs install --ignore-workspace && pnpm -C docs run dev",
@@ -63,5 +62,11 @@
   "engines": {
     "node": ">=24.15.0"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "sherif": {
+    "ignoreDependency": [
+      "react",
+      "react-dom"
+    ]
+  }
 }

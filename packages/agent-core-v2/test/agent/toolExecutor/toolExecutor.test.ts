@@ -15,7 +15,10 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import {
+  IAgentToolExecutorService,
+  type ToolTaskLifecycleController,
+} from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
@@ -31,8 +34,11 @@ import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/st
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 
-type ToolExecutorEvent =
-  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
+type ToolExecutorEvent = {
+  readonly type: 'tool.result';
+  readonly toolCallId: string;
+  readonly result: ToolResult;
+};
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -55,7 +61,10 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+      reg.defineInstance(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+      );
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
@@ -168,11 +177,9 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
 
-    await execute(
-      [toolCall('call_traced', 'echo', { text: 'hi' })],
-      undefined,
-      { traceId: 'trace-tool-1' },
-    );
+    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
+      traceId: 'trace-tool-1',
+    });
 
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
@@ -369,7 +376,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
+  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -438,23 +445,24 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-      expect.objectContaining({
-        output: 'Tool skipped because a previous tool call stopped the turn.',
-        isError: true,
-      }),
-    ]));
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
+        expect.objectContaining({
+          output: 'Tool skipped because a previous tool call stopped the turn.',
+          isError: true,
+        }),
+      ]),
+    );
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
   });
 
-  it('yields independent tool results as each call finishes', async () => {
+  it('starts independent calls concurrently and yields results in provider order', async () => {
     const slowRelease = deferred();
     const fastRelease = deferred();
     const slowStarted = deferred();
     const fastStarted = deferred();
-    const firstYielded = deferred();
     const slow = new TestTool('slow', {
       accesses: ToolAccesses.readFile('/repo/slow.txt'),
       execute: async () => {
@@ -477,29 +485,102 @@ describe('AgentToolExecutorService', () => {
     const yielded: string[] = [];
     const execution = (async () => {
       for await (const item of executor.execute(
-        [
-          toolCall('call_slow', 'slow', {}),
-          toolCall('call_fast', 'fast', {}),
-        ],
+        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
         { turnId: 0, signal: new AbortController().signal },
       )) {
         const output = item.result.output;
         yielded.push(typeof output === 'string' ? output : JSON.stringify(output));
-        if (yielded.length === 1) firstYielded.resolve();
       }
     })();
 
     await Promise.all([slowStarted.promise, fastStarted.promise]);
     fastRelease.resolve();
-    await firstYielded.promise;
-
-    expect(yielded).toEqual(['fast']);
+    await Promise.resolve();
+    expect(yielded).toEqual([]);
 
     slowRelease.resolve();
     await execution;
 
-    expect(yielded).toEqual(['fast', 'slow']);
+    expect(yielded).toEqual(['slow', 'fast']);
   });
+
+  it('records the batch before execution and backgrounds pending calls on one shared deadline', async () => {
+    const firstRelease = deferred();
+    const secondRelease = deferred();
+    const firstStarted = deferred();
+    const secondStarted = deferred();
+    const lifecycleEvents: string[] = [];
+    let nextTask = 0;
+    const controller: ToolTaskLifecycleController = {
+      prepare: async (context) => {
+        const taskId = `tool-recorded${String(nextTask++).padStart(2, '0')}`;
+        lifecycleEvents.push(`record:${context.toolName}`);
+        return {
+          taskId,
+          signal: new AbortController().signal,
+          bindExecution: () => {},
+          detach: async () => {
+            lifecycleEvents.push(`detach:${context.toolName}`);
+          },
+          settle: async (result) => {
+            const output =
+              typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+            lifecycleEvents.push(`settle:${context.toolName}:${output}`);
+          },
+        };
+      },
+      beginAutoWait: async (_turnId, tasks) => {
+        lifecycleEvents.push(`wait:${tasks.map((task) => task.taskId).join(',')}`);
+      },
+    };
+    executor.registerTaskLifecycleController(controller);
+
+    const first = new TestTool('first', {
+      accesses: ToolAccesses.writeFile('/repo/shared.txt'),
+      execute: async () => {
+        lifecycleEvents.push('execute:first');
+        firstStarted.resolve();
+        await firstRelease.promise;
+        return { output: 'first done' };
+      },
+    });
+    const second = new TestTool('second', {
+      accesses: ToolAccesses.writeFile('/repo/shared.txt'),
+      execute: async () => {
+        lifecycleEvents.push('execute:second');
+        secondStarted.resolve();
+        await secondRelease.promise;
+        return { output: 'second done' };
+      },
+    });
+    registry.register(first);
+    registry.register(second);
+
+    const pending = execute([
+      toolCall('call_first', 'first', {}),
+      toolCall('call_second', 'second', {}),
+    ]);
+    await firstStarted.promise;
+    expect(lifecycleEvents.slice(0, 3)).toEqual(['record:first', 'record:second', 'execute:first']);
+    expect(second.calls).toEqual([]);
+
+    const placeholders = await pending;
+    expect(placeholders.map((result) => result.output)).toEqual([
+      expect.stringContaining('tool-recorded00'),
+      expect.stringContaining('tool-recorded01'),
+    ]);
+    expect(lifecycleEvents).toContain('detach:first');
+    expect(lifecycleEvents).toContain('detach:second');
+    expect(lifecycleEvents).toContain('wait:tool-recorded00,tool-recorded01');
+
+    firstRelease.resolve();
+    await secondStarted.promise;
+    secondRelease.resolve();
+    await vi.waitFor(() => {
+      expect(lifecycleEvents).toContain('settle:first:first done');
+      expect(lifecycleEvents).toContain('settle:second:second done');
+    });
+  }, 10_000);
 
   it('writes resolveExecution description and display onto tool.call.started events', async () => {
     const tool = new TestTool('display', {
@@ -839,9 +920,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([
-      expect.objectContaining({ output: 'second-denied', isError: true }),
-    ]);
+    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
     expect(tool.calls).toEqual([]);
   });
 
@@ -1044,9 +1123,11 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return this.options.result ?? {
-          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-        };
+        return (
+          this.options.result ?? {
+            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+          }
+        );
       },
     };
   }

@@ -257,24 +257,11 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             <FieldRow label="turnId">
               <Mono>{event.turnId}</Mono>
             </FieldRow>
-            {event.description ? (
-              <FieldRow label="description" wide>
-                <pre className="whitespace-pre-wrap break-words text-fg-1">
-                  {event.description}
-                </pre>
-              </FieldRow>
-            ) : null}
           </div>
           <div>
             <div className="mb-1 text-fg-2">args</div>
             <JsonViewer value={parsed} defaultOpenDepth={2} />
           </div>
-          {event.display ? (
-            <div>
-              <div className="mb-1 text-fg-2">display</div>
-              <JsonViewer value={event.display} defaultOpenDepth={1} />
-            </div>
-          ) : null}
         </div>
       );
     }
@@ -299,17 +286,10 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
                 {String(isError)}
               </span>
             </FieldRow>
-            {event.result.truncated === true ? (
-              <FieldRow label="truncated">
-                <span className="text-[var(--color-sev-warning)]">
-                  true · output was paged or dropped before the model saw it
-                </span>
-              </FieldRow>
-            ) : null}
-            {event.result.message !== undefined ? (
-              <FieldRow label="message" wide>
+            {event.result.note !== undefined ? (
+              <FieldRow label="note" wide>
                 <pre className="whitespace-pre-wrap break-words text-fg-1">
-                  {event.result.message}
+                  {event.result.note}
                 </pre>
               </FieldRow>
             ) : null}

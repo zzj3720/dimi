@@ -1,67 +1,63 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CoreAPI, RPCMethods } from '@moonshot-ai/agent-core';
 
-import { SDKRpcClientBase } from '../src/rpc';
+import { SDKRpcClientBase, type SetSessionModelRpcInput, type SessionPromptRpcInput, type SetSessionPlanModeRpcInput, type SessionIdRpcInput } from '../src/rpc';
 import { Session } from '../src/session';
+import type { SessionPlan } from '../src/types';
 
 class CapturingRpc extends SDKRpcClientBase {
   readonly promptCalls: unknown[] = [];
-  readonly enterPlanCalls: unknown[] = [];
-  readonly cancelPlanCalls: unknown[] = [];
+  readonly planModeCalls: unknown[] = [];
   readonly getPlanCalls: unknown[] = [];
   readonly clearPlanCalls: unknown[] = [];
   readonly setModelCalls: unknown[] = [];
-  private getRpcDelay: Promise<void> | undefined;
-  private getRpcCallCount = 0;
-  private readonly getRpcWaiters = new Set<() => void>();
+  private setModelDelay: Promise<void> | undefined;
+  private setModelCallCount = 0;
+  private readonly setModelWaiters = new Set<() => void>();
 
-  delayGetRpcUntil(promise: Promise<void>): void {
-    this.getRpcDelay = promise;
+  delaySetModelUntil(promise: Promise<void>): void {
+    this.setModelDelay = promise;
   }
 
-  waitForGetRpcCalls(count: number): Promise<void> {
-    if (this.getRpcCallCount >= count) return Promise.resolve();
+  waitForSetModelCalls(count: number): Promise<void> {
+    if (this.setModelCallCount >= count) return Promise.resolve();
     return new Promise<void>((resolve) => {
       const check = () => {
-        if (this.getRpcCallCount < count) return;
-        this.getRpcWaiters.delete(check);
+        if (this.setModelCallCount < count) return;
+        this.setModelWaiters.delete(check);
         resolve();
       };
-      this.getRpcWaiters.add(check);
+      this.setModelWaiters.add(check);
     });
   }
 
-  protected async getRpc(): Promise<RPCMethods<CoreAPI>> {
-    this.getRpcCallCount += 1;
-    for (const waiter of this.getRpcWaiters) waiter();
-    if (this.getRpcDelay !== undefined) await this.getRpcDelay;
-    return {
-      prompt: async (input: unknown) => {
-        this.promptCalls.push(input);
-      },
-      setModel: async (input: unknown) => {
-        this.setModelCalls.push(input);
-        return { model: 'captured-model' };
-      },
-      enterPlan: async (input: unknown) => {
-        this.enterPlanCalls.push(input);
-      },
-      cancelPlan: async (input: unknown) => {
-        this.cancelPlanCalls.push(input);
-      },
-      getPlan: async (input: unknown) => {
-        this.getPlanCalls.push(input);
-        return null;
-      },
-      clearPlan: async (input: unknown) => {
-        this.clearPlanCalls.push(input);
-      },
-    } as unknown as RPCMethods<CoreAPI>;
+  override async prompt(input: SessionPromptRpcInput): Promise<void> {
+    this.promptCalls.push({ ...input, agentId: this.interactiveAgentId });
+  }
+
+  override async setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void> {
+    this.planModeCalls.push({ ...input, agentId: this.interactiveAgentId });
+  }
+
+  override async getPlan(input: SessionIdRpcInput): Promise<SessionPlan> {
+    this.getPlanCalls.push({ ...input, agentId: this.interactiveAgentId });
+    return null;
+  }
+
+  override async clearPlan(input: SessionIdRpcInput): Promise<void> {
+    this.clearPlanCalls.push({ ...input, agentId: this.interactiveAgentId });
+  }
+
+  override async setModel(input: SetSessionModelRpcInput): Promise<{ model: string }> {
+    this.setModelCallCount += 1;
+    for (const waiter of this.setModelWaiters) waiter();
+    if (this.setModelDelay !== undefined) await this.setModelDelay;
+    this.setModelCalls.push({ ...input, agentId: this.interactiveAgentId });
+    return { model: input.model };
   }
 }
 
-describe('Session.prompt input normalization', () => {
-  it('passes multimodal prompt parts through to the core RPC client', async () => {
+describe('Session prompt input', () => {
+  it('passes multimodal parts to the runtime', async () => {
     const prompt = vi.fn(async () => {});
     const session = new Session({
       id: 'ses_multimodal_prompt',
@@ -76,10 +72,7 @@ describe('Session.prompt input normalization', () => {
 
     await session.prompt(input);
 
-    expect(prompt).toHaveBeenCalledWith({
-      sessionId: 'ses_multimodal_prompt',
-      input,
-    });
+    expect(prompt).toHaveBeenCalledWith({ sessionId: 'ses_multimodal_prompt', input });
   });
 
   it('starts btw and returns the forked agent id', async () => {
@@ -91,21 +84,14 @@ describe('Session.prompt input normalization', () => {
     });
 
     await expect(session.startBtw()).resolves.toBe('agent-btw');
-    expect(startBtw).toHaveBeenCalledWith({
-      sessionId: 'ses_btw_start',
-    });
+    expect(startBtw).toHaveBeenCalledWith({ sessionId: 'ses_btw_start' });
   });
 
-  it('scopes interactive agent id across awaited session operations', async () => {
+  it('scopes an interactive agent across awaited session operations', async () => {
     const rpc = new CapturingRpc();
-    const session = new Session({
-      id: 'ses_scoped_agent',
-      workDir: '/tmp/work',
-      rpc,
-    });
+    const session = new Session({ id: 'ses_scoped_agent', workDir: '/tmp/work', rpc });
 
     await rpc.withInteractiveAgent('agent-btw', async () => {
-      await Promise.resolve();
       await session.prompt('side question');
       await session.setPlanMode(true);
       await session.getPlan();
@@ -115,47 +101,31 @@ describe('Session.prompt input normalization', () => {
     });
 
     expect(rpc.interactiveAgentId).toBe('main');
-    expect(rpc.promptCalls).toEqual([
-      {
-        sessionId: 'ses_scoped_agent',
-        agentId: 'agent-btw',
-        input: [{ type: 'text', text: 'side question' }],
-      },
+    expect(rpc.promptCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw', input: [{ type: 'text', text: 'side question' }] }]);
+    expect(rpc.planModeCalls).toEqual([
+      { sessionId: 'ses_scoped_agent', agentId: 'agent-btw', enabled: true },
+      { sessionId: 'ses_scoped_agent', agentId: 'agent-btw', enabled: false },
     ]);
-    expect(rpc.enterPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
     expect(rpc.getPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
     expect(rpc.clearPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
-    expect(rpc.cancelPlanCalls).toEqual([{ sessionId: 'ses_scoped_agent', agentId: 'agent-btw' }]);
   });
 
-  it('isolates overlapping interactive agent scopes while RPC resolution is pending', async () => {
-    let releaseRpc!: () => void;
-    const getRpcDelay = new Promise<void>((resolve) => {
-      releaseRpc = resolve;
-    });
+  it('isolates overlapping interactive agent scopes while calls are pending', async () => {
+    let release!: () => void;
     const rpc = new CapturingRpc();
-    rpc.delayGetRpcUntil(getRpcDelay);
-    const session = new Session({
-      id: 'ses_overlapping_agents',
-      workDir: '/tmp/work',
-      rpc,
-    });
+    rpc.delaySetModelUntil(new Promise<void>((resolve) => { release = resolve; }));
+    const session = new Session({ id: 'ses_overlapping_agents', workDir: '/tmp/work', rpc });
 
     const first = rpc.withInteractiveAgent('agent-a', () => session.setModel('model-a'));
     const second = rpc.withInteractiveAgent('agent-b', () => session.setModel('model-b'));
-    await rpc.waitForGetRpcCalls(2);
-
-    expect(rpc.setModelCalls).toEqual([]);
-    releaseRpc();
+    await rpc.waitForSetModelCalls(2);
+    release();
     await Promise.all([first, second]);
 
     expect(rpc.interactiveAgentId).toBe('main');
-    expect(rpc.setModelCalls).toHaveLength(2);
-    expect(rpc.setModelCalls).toEqual(
-      expect.arrayContaining([
-        { sessionId: 'ses_overlapping_agents', agentId: 'agent-a', model: 'model-a' },
-        { sessionId: 'ses_overlapping_agents', agentId: 'agent-b', model: 'model-b' },
-      ]),
-    );
+    expect(rpc.setModelCalls).toEqual(expect.arrayContaining([
+      { sessionId: 'ses_overlapping_agents', agentId: 'agent-a', model: 'model-a' },
+      { sessionId: 'ses_overlapping_agents', agentId: 'agent-b', model: 'model-b' },
+    ]));
   });
 });

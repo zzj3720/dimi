@@ -1245,7 +1245,7 @@ export class ToolCallComponent extends Container {
 
   /**
    * Mark a foreground subagent as detached-to-background. Called when a
-   * `background.task.started` event arrives for this agent (i.e. the user
+   * `task.started` event arrives for this agent (i.e. the user
    * pressed Ctrl+B). Keeps the card showing `◐ backgrounded` instead of
    * flipping to `✓ Completed` when the spawn-success ToolResult lands.
    */
@@ -1275,7 +1275,7 @@ export class ToolCallComponent extends Container {
    *      emits `agent_id: agent-N` for every Agent call (foreground and
    *      background). Parsing it gives the stable identifier even when the
    *      in-memory field is empty, which is the only way the resume path
-   *      can reliably route a `background.task.terminated` to the right
+   *      can reliably route a `task.terminated` to the right
    *      card and the only way the live path avoids matching by description
    *      and accidentally updating an unrelated Agent card that happens to
    *      share the same `args.description`.

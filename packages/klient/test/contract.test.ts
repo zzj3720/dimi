@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pluginManifestSchema } from '../src/contract/global/plugins.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
+import { agentTaskInfoSchema } from '../src/contract/agent/rpc.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
@@ -46,5 +47,25 @@ describe('MCP timeout contract validation', () => {
 
   it.each(timeoutCases)('rejects an above-maximum $field for $surface', ({ field, parse }) => {
     expect(parse(field, 2_147_483_648).success).toBe(false);
+  });
+});
+
+describe('agent task contract validation', () => {
+  it('accepts a durable generic tool task returned by agentTaskService.list', () => {
+    expect(
+      agentTaskInfoSchema.safeParse({
+        taskId: 'tool-aaaaaaaa',
+        kind: 'tool',
+        description: 'Running SlowLookup',
+        status: 'running',
+        detached: true,
+        startedAt: Date.now(),
+        endedAt: null,
+        turnId: 2,
+        toolCallId: 'call_slow_lookup',
+        toolName: 'SlowLookup',
+        autoWaitTimeoutSeconds: 20,
+      }).success,
+    ).toBe(true);
   });
 });

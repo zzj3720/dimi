@@ -1,7 +1,7 @@
 /**
- * Scenario: VSCode-owned file baselines for new, migrated, and forked sessions.
- * Responsibilities: capture originals, show changes, keep/undo, persist legacy tombstones, and reject unsafe paths.
- * Wiring: real temporary workspace/global-storage/legacy files; no stubbed collaborators.
+ * Scenario: VSCode-owned file baselines for current and forked sessions.
+ * Responsibilities: capture originals, show changes, keep/undo, fork, and reject unsafe paths.
+ * Wiring: real temporary workspace/global-storage files; no stubbed collaborators.
  * Run: pnpm --filter kimi-code test -- baseline.manager.test.ts
  */
 import { existsSync, writeFileSync } from 'node:fs';
@@ -205,86 +205,29 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
   });
 });
 
-describe('legacy baselines (fallback, tombstones, and fork isolation)', () => {
-  it('returns the legacy original when no local baseline exists', async () => {
-    const { session } = await createLegacySession('legacy original\n');
-    await writeFile(join(workDir, 'app.ts'), 'current content\n', 'utf-8');
-
-    await expect(manager.getContent(session, 'app.ts')).resolves.toBe('legacy original\n');
-  });
-
-  it('reports a legacy file when current content differs from its original', async () => {
-    const { session } = await createLegacySession('legacy original\n');
-    await writeFile(join(workDir, 'app.ts'), 'current content\n', 'utf-8');
-
-    await expect(manager.getChanges(session)).resolves.toEqual([
-      { path: 'app.ts', status: 'Modified', additions: 1, deletions: 1 },
-    ]);
-  });
-
-  it('restores a legacy original without mutating its snapshot when undo runs', async () => {
-    const { session, baselinePath } = await createLegacySession('legacy original\n');
-    await writeFile(join(workDir, 'app.ts'), 'current content\n', 'utf-8');
-
-    await manager.undo(session, 'app.ts');
-
-    await expect(readFile(join(workDir, 'app.ts'), 'utf-8')).resolves.toBe('legacy original\n');
-    await expect(readFile(baselinePath, 'utf-8')).resolves.toBe('legacy original\n');
-  });
-
-  it('persists a keep tombstone for legacy content without deleting the old snapshot', async () => {
-    const { session, baselinePath } = await createLegacySession('legacy original\n');
-    await writeFile(join(workDir, 'app.ts'), 'accepted content\n', 'utf-8');
-    await manager.keep(session, 'app.ts');
-
-    const reloadedManager = new BaselineManager(storageRoot);
-
-    await expect(reloadedManager.getChanges(session)).resolves.toEqual([]);
-    await expect(readFile(baselinePath, 'utf-8')).resolves.toBe('legacy original\n');
-  });
-
-  it('uses a materialized local original before the fork target legacy fallback', async () => {
+describe('forked baselines', () => {
+  it('materializes the captured original into the target session', async () => {
     const source = createSession('ses-source');
     const filePath = join(workDir, 'app.ts');
     await writeFile(filePath, 'local original\n', 'utf-8');
     await manager.capture(source, filePath);
-    const { session: target } = await createLegacySession('legacy original\n', 'ses-target');
+    const target = createSession('ses-target');
 
     await manager.materializeToFork(source, target);
 
     await expect(manager.getContent(target, 'app.ts')).resolves.toBe('local original\n');
   });
 
-  it('keeps a fork baseline readable when the legacy source is later deleted', async () => {
-    const { session: source, legacySessionDir } = await createLegacySession(
-      'legacy original\n',
-      'ses-source',
-    );
-    const target = createSession('ses-target', source.metadata);
-    await manager.materializeToFork(source, target);
-    await rm(legacySessionDir, { recursive: true, force: true });
-
-    await expect(manager.getContent(target, 'app.ts')).resolves.toBe('legacy original\n');
-  });
-
   it('keeps the source baseline visible when the fork accepts its own copy', async () => {
-    const { session: source } = await createLegacySession('legacy original\n', 'ses-source');
-    const target = createSession('ses-target', source.metadata);
+    const source = createSession('ses-source');
+    const target = createSession('ses-target');
+    await writeFile(join(workDir, 'app.ts'), 'original\n', 'utf-8');
+    await manager.capture(source, 'app.ts');
     await manager.materializeToFork(source, target);
 
     await manager.keep(target, 'app.ts');
 
-    await expect(manager.getContent(source, 'app.ts')).resolves.toBe('legacy original\n');
-  });
-
-  it('preserves accepted legacy paths when a fork is materialized', async () => {
-    const { session: source } = await createLegacySession('legacy original\n', 'ses-source');
-    const target = createSession('ses-target', source.metadata);
-    await manager.keep(source, 'app.ts');
-
-    await manager.materializeToFork(source, target);
-
-    await expect(manager.getContent(target, 'app.ts')).rejects.toThrow('No baseline exists');
+    await expect(manager.getContent(source, 'app.ts')).resolves.toBe('original\n');
   });
 });
 
@@ -390,23 +333,4 @@ function createSession(
   metadata?: Readonly<Record<string, unknown>>,
 ): BaselineSession {
   return { id, workDir, metadata };
-}
-
-async function createLegacySession(
-  content: string,
-  id = 'ses-legacy',
-): Promise<{
-  session: BaselineSession;
-  legacySessionDir: string;
-  baselinePath: string;
-}> {
-  const legacySessionDir = join(root, `legacy-${id}`);
-  const baselinePath = join(legacySessionDir, 'baseline', 'app.ts');
-  await mkdir(join(legacySessionDir, 'baseline'), { recursive: true });
-  await writeFile(baselinePath, content, 'utf-8');
-  return {
-    session: createSession(id, { kimi_cli_source_path: legacySessionDir }),
-    legacySessionDir,
-    baselinePath,
-  };
 }

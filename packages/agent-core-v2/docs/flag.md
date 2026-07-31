@@ -1,8 +1,8 @@
 # flag
 
-> Experimental feature-flag gating for agent-core-v2 — a App-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
+> Experimental feature-flag gating for the runtime — an App-scope `IFlagService` resolver plus a writable `IFlagRegistry` catalog that domains contribute their flags to, backed by the `[experimental]` config section.
 
-Gates not-yet-public features behind `IFlagService.enabled(id)`, per the repository hard rule that unreleased behavior must be flag-gated. Ported from `packages/agent-core/src/flags/**`; v1 was a process-global `FlagResolver` singleton over a central `FLAG_DEFINITIONS` array, v2 is a scoped DI service whose flag definitions are registered **decentrally** by each owning domain — there is no central catalog to edit.
+Gates not-yet-public features behind `IFlagService.enabled(id)`, per the repository hard rule that unreleased behavior must be flag-gated. Flag definitions are registered **decentrally** by each owning domain, so there is no central catalog to edit.
 
 ## Layout
 
@@ -38,7 +38,7 @@ Highest wins; env is read live on every call (nothing cached):
 - `IConfigRegistry.registerSection` throws if a domain is registered twice — `experimental` is owned exclusively by `FlagService`.
 - `setConfigOverrides(overrides)` is an imperative escape hatch for tests and hosts without an `IConfigService`; hosts on `IConfigService` should set the `[experimental]` section instead.
 
-Config shape mirrors v1:
+Config shape:
 
 ```toml
 [experimental]
@@ -105,7 +105,6 @@ if (!this.flags.enabled('my_feature')) return;
 - `packages/agent-core-v2/src/flag/` — implementation (`IFlagRegistry` + `IFlagService`).
 - `packages/agent-core-v2/src/agent/toolSelect/flag.ts` — example per-domain flag contribution.
 - `packages/agent-core-v2/test/flag/flag.test.ts` — precedence + config subscription tests.
-- `packages/agent-core/src/flags/` — v1 source this was ported from.
 - `plan/PLAN.md` §2/§3 — domain placement (`flag` at L3, not `_base/flags`).
 - `packages/agent-core-v2/GAP_ANALYSIS.md` §2.1 — gap closure note.
 - Root `AGENTS.md` — experimental-feature gating rule.

@@ -242,12 +242,12 @@ export interface ContextProjectionRepairedEvent {
 
 export interface BackgroundTaskCreatedEvent {
   task_id: string;
-  kind: 'bash' | 'agent' | 'question';
+  kind: 'bash' | 'agent' | 'question' | 'tool';
 }
 
 export interface BackgroundTaskCompletedEvent {
   task_id: string;
-  kind: 'agent' | 'process' | 'question';
+  kind: 'agent' | 'process' | 'question' | 'tool';
   duration_ms: number | null;
   status: 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
 }

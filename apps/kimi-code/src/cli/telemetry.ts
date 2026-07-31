@@ -1,24 +1,24 @@
+import { readFileSync } from 'node:fs';
+
 import { createKimiDeviceId, KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
+import { ConfigRegistry } from '@moonshot-ai/agent-core-v2';
+import { transformTomlData } from '@moonshot-ai/agent-core-v2/app/config/toml';
 import {
-  KimiAuthFacade,
-  loadRuntimeConfigSafe,
   resolveConfigPath,
   resolveKimiHome,
   type KimiConfig,
+  type KimiHarness,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
-
-import type { PromptHarness } from './prompt-session';
 import {
   initializeTelemetry,
   setTelemetryContext,
   track,
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
+import { parse as parseToml } from 'smol-toml';
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
-
-import { createKimiCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;
@@ -27,7 +27,7 @@ export interface CliTelemetryBootstrap {
 }
 
 export interface InitializeCliTelemetryOptions {
-  readonly harness: PromptHarness;
+  readonly harness: Pick<KimiHarness, 'homeDir' | 'auth' | 'track'>;
   readonly bootstrap: CliTelemetryBootstrap;
   readonly config: Pick<KimiConfig, 'defaultModel' | 'telemetry'>;
   readonly version: string;
@@ -91,12 +91,6 @@ export function initializeServerTelemetry(
   const bootstrap = createCliTelemetryBootstrap();
   const configPath = resolveConfigPath({ homeDir: bootstrap.homeDir });
   const config = readServerTelemetryConfig(configPath);
-  const auth = new KimiAuthFacade({
-    homeDir: bootstrap.homeDir,
-    configPath,
-    identity: createKimiCodeHostIdentity(options.version),
-  });
-
   initializeTelemetry({
     homeDir: bootstrap.homeDir,
     deviceId: bootstrap.deviceId,
@@ -105,7 +99,6 @@ export function initializeServerTelemetry(
     version: options.version,
     uiMode: WEB_UI_MODE,
     model: config.defaultModel,
-    getAccessToken: async () => (await auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
   });
 
   return {
@@ -119,11 +112,15 @@ function readServerTelemetryConfig(
   configPath: string,
 ): Pick<KimiConfig, 'telemetry' | 'defaultModel'> {
   try {
-    const { config, fileError } = loadRuntimeConfigSafe(configPath);
-    // A broken config fails the server on its own inside KimiCore; for
-    // telemetry just degrade to "enabled, no model" so we never block startup.
-    if (fileError !== undefined) return {};
-    return config;
+    const config = transformTomlData(
+      parseToml(readFileSync(configPath, 'utf8')),
+      new ConfigRegistry(),
+    );
+    return {
+      telemetry: typeof config['telemetry'] === 'boolean' ? config['telemetry'] : undefined,
+      defaultModel:
+        typeof config['defaultModel'] === 'string' ? config['defaultModel'] : undefined,
+    };
   } catch {
     return {};
   }

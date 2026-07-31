@@ -29,7 +29,7 @@ function makeHost() {
       queuedMessages: [],
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
-      toolOutputExpanded: false,
+      toolDisplayMode: 'summary',
       todoPanel: { getTodos: vi.fn(() => []) },
       transcriptContainer: { addChild: vi.fn() },
       ui: { requestRender: vi.fn() },

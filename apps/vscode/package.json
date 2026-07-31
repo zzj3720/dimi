@@ -142,10 +142,6 @@
         "command": "kimi.logout",
         "title": "Kimi Code: Logout",
         "icon": "$(sign-out)"
-      },
-      {
-        "command": "kimi.migrateLegacyData",
-        "title": "Kimi Code: Migrate Legacy Data"
       }
     ],
     "keybindings": [
@@ -228,10 +224,6 @@
         {
           "command": "kimi.logout",
           "when": "kimi.isLoggedIn"
-        },
-        {
-          "command": "kimi.migrateLegacyData",
-          "when": "true"
         }
       ],
       "editor/context": [
@@ -285,7 +277,6 @@
     "@base-ui/react": "^1.0.0",
     "@fontsource-variable/inter": "5.2.8",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
-    "@moonshot-ai/migration-legacy": "workspace:^",
     "@radix-ui/react-accordion": "^1.2.12",
     "@tabler/icons-react": "^3.36.0",
     "ahooks": "^3.9.6",

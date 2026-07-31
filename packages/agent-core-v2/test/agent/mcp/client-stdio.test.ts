@@ -24,7 +24,7 @@ describe('StdioMcpClient', () => {
           executor: 'kaos',
         }),
     ).toThrow(
-      expect.objectContaining({ name: 'Error2', code: 'not_implemented' }) as unknown as Error,
+      expect.objectContaining({ name: 'KimiError', code: 'not_implemented' }) as unknown as Error,
     );
 
     let thrown: unknown;

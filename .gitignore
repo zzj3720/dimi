@@ -23,6 +23,7 @@ plugins/cdn/
 !apps/vscode/.vscode/
 !apps/vscode/.vscode/*.json
 apps/vscode/artifacts/
+apps/mobile/modules/*/android/build/
 
 Dockerfile
 docker-compose.yml

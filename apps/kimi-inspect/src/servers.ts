@@ -54,8 +54,7 @@ export function useServerDiscovery() {
 }
 
 /** Pick the auto-connect target: the remembered pick when it is still alive,
- * else the dev-proxy target (the standard `pnpm dev:v2` flow), else the
- * longest-running instance. */
+ * else the dev-proxy target, else the longest-running instance. */
 export function pickDefaultServer(
   discovery: ServerDiscoveryResult,
   rememberedUrl?: string | null,

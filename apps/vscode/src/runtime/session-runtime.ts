@@ -18,17 +18,17 @@ import {
   type TurnTerminalMetadata,
 } from "./event-adapter";
 import {
-  corePermissionForLegacyApproval,
-  legacyApprovalMetadata,
-  type LegacyApprovalFlags,
-} from "./legacy-approval";
+  approvalModesMetadata,
+  permissionForApprovalModes,
+  type ApprovalModes,
+} from "./approval-modes";
 import { ReverseRpcController } from "./reverse-rpc";
 
 export type RuntimeBroadcast = (event: string, data: unknown, webviewId?: string) => void;
 
 export interface SessionRuntimeOptions {
   readonly session: Session;
-  readonly legacyApproval: LegacyApprovalFlags;
+  readonly approvalModes: ApprovalModes;
   readonly broadcast: RuntimeBroadcast;
   readonly captureBaseline: (
     session: Pick<SessionSummary, "id" | "workDir" | "metadata">,
@@ -87,7 +87,7 @@ export class SessionRuntime {
   private exclusiveActionActive = false;
   private readonly terminalKeys = new Set<string>();
   private suppressedError: SuppressedError | undefined;
-  private legacyApproval: LegacyApprovalFlags;
+  private approvalModesValue: ApprovalModes;
   private closed = false;
 
   constructor(options: SessionRuntimeOptions) {
@@ -95,11 +95,11 @@ export class SessionRuntime {
     this.broadcast = options.broadcast;
     this.captureBaseline = options.captureBaseline;
     this.log = options.log;
-    this.legacyApproval = options.legacyApproval;
+    this.approvalModesValue = options.approvalModes;
     this.reverseRpc = new ReverseRpcController((event) => this.emitStreamEvent(event));
 
     // Forward every approval request to the user. The engine permission mode
-    // (mapped from the legacy flags) already auto-approves what yolo/auto
+    // (mapped from the session approval modes) already auto-approves what yolo/auto
     // allow internally; anything that reaches this handler is an exception
     // (sensitive file, plan review, ask rule) the user must decide on.
     this.session.setApprovalHandler((request) => this.reverseRpc.requestApproval(request));
@@ -123,19 +123,19 @@ export class SessionRuntime {
     return this.hasActiveWork || this.exclusiveActionActive;
   }
 
-  get legacyApprovalFlags(): LegacyApprovalFlags {
-    return this.legacyApproval;
+  get approvalModes(): ApprovalModes {
+    return this.approvalModesValue;
   }
 
-  async toggleLegacyApproval(kind: keyof LegacyApprovalFlags): Promise<LegacyApprovalFlags> {
-    const next = { ...this.legacyApproval, [kind]: !this.legacyApproval[kind] };
-    await this.applyLegacyApproval(next);
+  async toggleApprovalMode(kind: keyof ApprovalModes): Promise<ApprovalModes> {
+    const next = { ...this.approvalModesValue, [kind]: !this.approvalModesValue[kind] };
+    await this.applyApprovalModes(next);
     return next;
   }
 
-  async setLegacyYoloMode(enabled: boolean): Promise<void> {
-    if (this.legacyApproval.yolo === enabled) return;
-    await this.applyLegacyApproval({ ...this.legacyApproval, yolo: enabled });
+  async setYoloMode(enabled: boolean): Promise<void> {
+    if (this.approvalModesValue.yolo === enabled) return;
+    await this.applyApprovalModes({ ...this.approvalModesValue, yolo: enabled });
   }
 
   subscribe(webviewId: string): void {
@@ -417,14 +417,14 @@ export class SessionRuntime {
     this.webviewIds.clear();
   }
 
-  private async applyLegacyApproval(flags: LegacyApprovalFlags): Promise<void> {
+  private async applyApprovalModes(modes: ApprovalModes): Promise<void> {
     this.ensureOpen();
-    const permission = corePermissionForLegacyApproval(flags);
+    const permission = permissionForApprovalModes(modes);
     const status = await this.session.getStatus();
     const permissionChanged = status.permission !== permission;
     if (permissionChanged) await this.session.setPermission(permission);
     try {
-      await this.session.updateMetadata(legacyApprovalMetadata(flags));
+      await this.session.updateMetadata(approvalModesMetadata(modes));
     } catch (error) {
       if (permissionChanged) {
         await this.session.setPermission(status.permission).catch((rollbackError: unknown) => {
@@ -433,7 +433,7 @@ export class SessionRuntime {
       }
       throw error;
     }
-    this.legacyApproval = flags;
+    this.approvalModesValue = modes;
   }
 
   private onSdkEvent(event: Event): void {

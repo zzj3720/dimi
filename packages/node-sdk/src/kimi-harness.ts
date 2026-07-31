@@ -1,12 +1,10 @@
 import type { Kaos } from '@moonshot-ai/kaos';
 import {
-  ErrorCodes,
-  KimiError,
-  ImageLimits,
-  withTelemetryContext,
   type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
 
+import { ErrorCodes, KimiError } from '#/errors';
+import type { ImageLimits } from '#/image-limits';
 import { Session } from '#/session';
 import type { KimiAuthFacade } from '#/auth';
 import type { SDKRpcClientBase } from '#/rpc';
@@ -335,7 +333,7 @@ export class KimiHarness {
   }
 
   private trackSessionEvent(eventSessionId: string, event: string): void {
-    withTelemetryContext(this.telemetry, { sessionId: eventSessionId }).track(event);
+    (this.telemetry.withContext?.({ sessionId: eventSessionId }) ?? this.telemetry).track(event);
   }
 
   private trackSessionStarted(
@@ -343,7 +341,7 @@ export class KimiHarness {
     resumed: boolean,
     sessionScoped?: TelemetryProperties,
   ): void {
-    withTelemetryContext(this.telemetry, { sessionId: eventSessionId }).track('session_started', {
+    (this.telemetry.withContext?.({ sessionId: eventSessionId }) ?? this.telemetry).track('session_started', {
       ...this.sessionStartedProperties,
       ...sessionScoped,
       // Canonical fields are owned by the harness and must win over any
@@ -365,11 +363,11 @@ const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
 function normalizeSessionId(value: string): string {
   if (typeof value !== 'string') {
-    throw new KimiError(ErrorCodes.SESSION_ID_REQUIRED, 'Session id is required.');
+    throw new KimiError(ErrorCodes.SESSION_ID_INVALID, 'Session id is required.');
   }
   const normalized = value.trim();
   if (normalized.length === 0) {
-    throw new KimiError(ErrorCodes.SESSION_ID_EMPTY, 'Session id cannot be empty.');
+    throw new KimiError(ErrorCodes.SESSION_ID_INVALID, 'Session id cannot be empty.');
   }
   return normalized;
 }

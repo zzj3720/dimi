@@ -16,6 +16,7 @@ import { defineState } from '#/_base/state/stateRegistry';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { IWireService } from '#/wire/wire';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -50,9 +51,15 @@ export class SessionWorkspaceCommandService
     this._register(
       this.agents.onDidCreate((handle) => {
         if (handle.id !== MAIN_AGENT_ID) return;
-        if (this.pendingMainInjections.length === 0) return;
-        const pending = this.pendingMainInjections.splice(0);
-        handle.accessor.get(IAgentContextMemoryService).append(...pending);
+        handle.accessor.get(IWireService).hooks.onDidRestore.register(
+          'workspace-command',
+          async (_context, next) => {
+            await next();
+            if (this.pendingMainInjections.length === 0) return;
+            const pending = this.pendingMainInjections.splice(0);
+            handle.accessor.get(IAgentContextMemoryService).append(...pending);
+          },
+        );
       }),
     );
   }

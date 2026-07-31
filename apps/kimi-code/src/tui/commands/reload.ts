@@ -50,6 +50,7 @@ export async function applyReloadedTuiConfig(
   host.setAppState({
     editorCommand: config.editorCommand,
     disablePasteBurst: config.disablePasteBurst,
+    busyInputMode: config.busyInputMode,
     notifications: config.notifications,
     upgrade: config.upgrade,
     statusLine: config.statusLine,

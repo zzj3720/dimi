@@ -1,0 +1,9 @@
+{
+  "date": "2026-07-31",
+  "target": "internal Android distribution page",
+  "framework": "vanilla HTML/CSS/JavaScript served by Cloudflare Workers static assets",
+  "existingDesignSystem": false,
+  "existingAssets": ["apps/mobile/src/theme.ts", "apps/mobile/assets/icon.png"],
+  "motionLibrary": null,
+  "constraints": ["internal utility", "mobile-first", "no marketing hero", "generated QR only"]
+}

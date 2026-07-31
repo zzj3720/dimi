@@ -79,6 +79,17 @@ describe('AgentPromptService', () => {
     expect(prompt.list().pending.map((item) => item.id)).toEqual([first.id, second.id]);
   });
 
+  it('atomically steers into an active prompt or starts an idle prompt', async () => {
+    const { prompt } = harness();
+    const active = await prompt.enqueueOrSteer({ message: message('start') });
+    const steered = await prompt.enqueueOrSteer({ message: message('continue') });
+
+    expect(active.state).toBe('running');
+    expect(steered.state).toBe('steered');
+    expect((await steered.launched)?.id).toBe((await active.launched)?.id);
+    expect(prompt.list().pending).toEqual([]);
+  });
+
   it('atomically rejects steer when any id is not pending', async () => {
     const { prompt } = harness();
     await prompt.enqueue({ message: message('active') });

@@ -5,11 +5,18 @@ import type {
   PermissionMode,
   ProviderConfig,
   PromptPart,
+  SessionUsage,
   ThinkingEffort,
+  TokenUsage,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import type { NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
+import type {
+  BusyInputMode,
+  NotificationsConfig,
+  StatusLineConfig,
+  UpgradePreferences,
+} from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 
@@ -41,6 +48,16 @@ export interface AppState {
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
+  /**
+   * Accumulated session token usage (by model / total / current turn).
+   * Updated from `agent.status.updated` and `session.getStatus()`.
+   */
+  sessionUsage?: SessionUsage | null;
+  /**
+   * Token usage of the most recent completed LLM step — drives the
+   * footer cache-hit (`CH`) badge, matching pi's per-assistant-message rate.
+   */
+  latestPromptUsage?: TokenUsage | null;
   isCompacting: boolean;
   isReplaying: boolean;
   streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
@@ -50,6 +67,11 @@ export interface AppState {
   editorCommand: string | null;
   /** Mirrors the TUI config toggle; defaults to false when absent from older fixtures. */
   disablePasteBurst?: boolean;
+  /**
+   * What Enter does while a turn is in progress.
+   * Defaults to `steer` when absent from older fixtures / partial state patches.
+   */
+  busyInputMode?: BusyInputMode;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */

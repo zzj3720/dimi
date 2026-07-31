@@ -1562,45 +1562,45 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes[1]!.payload).toMatchObject({ question_id: 'q0' });
   });
 
-  it('fans out the legacy background.task.* alias alongside native task.* for v1 clients', async () => {
-    // v2 emits `task.started`/`task.terminated`; unchanged v1 consumers
-    // (kimi-code TUI / `kimi -p`, node-sdk) only understand
-    // `background.task.*`. The broadcaster must emit both spellings so web
-    // (handles `task.*`, ignores the alias) and TUI (handles the alias, ignores
-    // `task.*`) both work without consumer changes.
+  it('fans out native task lifecycle events once', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
     sessions.set('s1', lc);
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    const info = { taskId: 't1', status: 'running', description: 'ls' };
+    const info = {
+      taskId: 'tool-aaaaaaaa',
+      kind: 'tool' as const,
+      status: 'running' as const,
+      description: 'Running SlowLookup',
+      detached: true,
+      turnId: 2,
+      toolCallId: 'call_slow_lookup',
+      toolName: 'SlowLookup',
+      autoWaitTimeoutSeconds: 20,
+      startedAt: Date.now(),
+      endedAt: null,
+    };
     main.bus.emit(agentEvent('task.started', { info }));
     main.bus.emit(agentEvent('task.terminated', { info: { ...info, status: 'completed' } }));
     await bc.getCursor('s1');
 
-    expect(envelopes.map((e) => e.type)).toEqual([
-      'task.started',
-      'background.task.started',
-      'task.terminated',
-      'background.task.terminated',
-    ]);
-    // Alias carries the same payload, stamped with agentId/sessionId.
-    expect(envelopes[1]!.payload).toMatchObject({
-      type: 'background.task.started',
+    expect(envelopes.map((e) => e.type)).toEqual(['task.started', 'task.terminated']);
+    expect(envelopes[0]!.payload).toMatchObject({
+      type: 'task.started',
       info,
       agentId: 'main',
       sessionId: 's1',
     });
-    expect(envelopes[3]!.payload).toMatchObject({
-      type: 'background.task.terminated',
+    expect(envelopes[1]!.payload).toMatchObject({
+      type: 'task.terminated',
+      info: { ...info, status: 'completed' },
       agentId: 'main',
       sessionId: 's1',
     });
-    // Native durability is preserved and the alias mirrors it (both journaled,
-    // monotonic seq), so reconnecting v1 clients rebuild task state from replay.
     expect(envelopes.every((e) => e.volatile === undefined)).toBe(true);
-    expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    expect(envelopes.map((e) => e.seq)).toEqual([1, 2]);
   });
 
   // -------------------------------------------------------------------------

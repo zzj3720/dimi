@@ -330,7 +330,15 @@ describe('analyzeWireLine turn effects', () => {
     // The transcript's cold replay keeps full history and groupTurns numbers
     // it continuously, so these records have no turn effect.
     expect(
-      turnOf(line({ type: 'context.apply_compaction', summary: 's', compactedCount: 2 })),
+      turnOf(line({
+        type: 'context.apply_compaction',
+        summary: 's',
+        contextSummary: 's',
+        compactedCount: 2,
+        tokensBefore: 0,
+        tokensAfter: 0,
+        keptUserMessageCount: 0,
+      })),
     ).toEqual({ kind: 'none' });
     expect(turnOf(line({ type: 'context.clear' }))).toEqual({ kind: 'none' });
     expect(turnOf(line({ type: 'context.undo', count: 2 }))).toEqual({ kind: 'undo', count: 2 });

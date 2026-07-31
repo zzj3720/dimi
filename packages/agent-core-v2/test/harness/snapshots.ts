@@ -56,12 +56,14 @@ export function eventSnapshot(
 interface SnapshotLabels {
   readonly uuidLabels: Map<string, string>;
   readonly msgLabels: Map<string, string>;
+  readonly taskLabels: Map<string, string>;
 }
 
 export function createEventSnapshotter() {
   const labels: SnapshotLabels = {
     uuidLabels: new Map<string, string>(),
     msgLabels: new Map<string, string>(),
+    taskLabels: new Map<string, string>(),
   };
 
   return (events: readonly EventSnapshotEntry[]): EventSnapshot => eventSnapshot(events, labels);
@@ -263,6 +265,7 @@ function normalizeValue(value: unknown, labels: SnapshotLabels): unknown {
     if (isPlanModeReminder(value)) return '<plan-mode-reminder>';
     if (isUuid(value)) return labelFor(value, labels.uuidLabels, 'uuid');
     if (isMessageId(value)) return labelFor(value, labels.msgLabels, 'msg');
+    if (isToolTaskId(value)) return labelFor(value, labels.taskLabels, 'task');
     return value;
   }
 
@@ -283,7 +286,12 @@ function normalizeValue(value: unknown, labels: SnapshotLabels): unknown {
 
 function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabels): unknown {
   if (
-    (key === 'time' || key === 'created_at' || key === 'since' || key === 'at') &&
+    (key === 'time' ||
+      key === 'created_at' ||
+      key === 'since' ||
+      key === 'at' ||
+      key === 'startedAt' ||
+      key === 'endedAt') &&
     typeof value === 'number'
   ) {
     return '<time>';
@@ -318,6 +326,10 @@ function isUuid(value: string): boolean {
 
 function isMessageId(value: string): boolean {
   return /^msg_[0-9A-Z]{26}$/.test(value);
+}
+
+function isToolTaskId(value: string): boolean {
+  return /^tool-[0-9a-z]{8}$/.test(value);
 }
 
 function labelFor(value: string, labels: Map<string, string>, kind: string): string {

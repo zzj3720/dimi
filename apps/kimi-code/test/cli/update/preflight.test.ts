@@ -162,6 +162,7 @@ function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
     disablePasteBurst: false,
+    busyInputMode: 'steer',
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
@@ -256,17 +257,6 @@ describe('runUpdatePreflight', () => {
     expect(refreshUpdateCache).not.toHaveBeenCalled();
     expect(detectInstallSource).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it('also honors the legacy KIMI_CLI_NO_AUTO_UPDATE alias', async () => {
-    vi.stubEnv('KIMI_CLI_NO_AUTO_UPDATE', 'true');
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-    const { options } = captureOutput();
-
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-
-    expect(readUpdateCache).not.toHaveBeenCalled();
-    expect(detectInstallSource).not.toHaveBeenCalled();
   });
 
   it('starts an automatic update from the first fresh check when the cache is empty', async () => {

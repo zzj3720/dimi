@@ -1,5 +1,5 @@
 {
-  description = "Kimi Code CLI";
+  description = "k-3720 coding agent";
 
   inputs = {
     # Pinned to the 25.11 release channel because nixpkgs-unstable currently
@@ -42,7 +42,7 @@
           node
         else
           throw ''
-            Kimi Code requires Node.js >= ${minNodeVersion},
+            k-3720 requires Node.js >= ${minNodeVersion},
             but nixpkgs only offers ${node.version}.
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
@@ -63,18 +63,17 @@
       # -------------------------------------------------------------------
       workspacePaths = [
         ./packages/acp-adapter
-        ./packages/agent-core
         ./packages/agent-core-v2
         ./packages/kap-server
         ./packages/kaos
         ./packages/klient
         ./packages/kosong
-        ./packages/migration-legacy
         ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol
+        ./packages/remote
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
@@ -82,6 +81,8 @@
         ./apps/vscode
         ./apps/kimi-inspect
         ./apps/kimi-web
+        ./apps/mobile
+        ./apps/relay
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -90,18 +91,17 @@
 
       workspaceNames = [
         "@moonshot-ai/acp-adapter"
-        "@moonshot-ai/agent-core"
         "@moonshot-ai/agent-core-v2"
         "@moonshot-ai/kap-server"
         "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"
-        "@moonshot-ai/migration-legacy"
         "@moonshot-ai/minidb"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
         "@moonshot-ai/klient"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
+        "@k-3720/remote"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/transcript"
         "@moonshot-ai/tree-sitter-bash"
@@ -109,6 +109,8 @@
         "kimi-code"
         "@moonshot-ai/kimi-inspect"
         "@moonshot-ai/kimi-web"
+        "@k-3720/mobile"
+        "@k-3720/relay"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"
@@ -132,7 +134,7 @@
             else if pkgs.stdenv.hostPlatform.isDarwin then
               "darwin-x64"
             else
-              throw "Unsupported Kimi Code native target for ${pkgs.stdenv.hostPlatform.system}";
+              throw "Unsupported k-3720 native target for ${pkgs.stdenv.hostPlatform.system}";
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code";
@@ -162,7 +164,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-bL1AaInlb8dE+ua7a6llvQWkibEwEzfI3oQW5IOpX6I=";
+              hash = "sha256-f5Reo/6A2kV2G/yBY86eb2yHzL9m4OqcPbYRkwKQoxE=";
             };
 
             nativeBuildInputs = [
@@ -224,8 +226,8 @@
             '';
 
             meta = {
-              description = "Kimi Code CLI";
-              homepage = "https://github.com/MoonshotAI/kimi-code";
+              description = "k-3720 coding agent";
+              homepage = "https://github.com/zzj3720/k-3720";
               license = lib.licenses.mit;
               mainProgram = "kimi";
               platforms = systems;

@@ -133,7 +133,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `remote` (connect a native client through an encrypted relay), `doctor` (validate configuration files), `export` (export a session), `upgrade` (check for updates), and `provider` (manage providers).
 
 ### `kimi login`
 
@@ -195,6 +195,23 @@ Deprecated — only stops a server started by a version before 0.28.0. Those ver
 
 Generate a new persistent bearer token (written to `~/.kimi-code/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
 
+### `kimi remote`
+
+Connect this runtime to a native client through an end-to-end encrypted relay. The relay forwards ciphertext and cannot read prompts or responses. The command reuses a running local server when available, otherwise it starts one, then prints a QR code and pairing URI. Keep the command running while the client is connected; press `Ctrl-C` to stop remote access.
+
+```sh
+kimi remote
+kimi remote --relay wss://relay.example.test --name "Workstation"
+```
+
+| Option | Description |
+| --- | --- |
+| `--relay <url>` | Relay WebSocket URL; uses the built-in relay when omitted |
+| `--server <url>` | Existing local server URL; reuses or starts a local server when omitted |
+| `--name <name>` | Runtime name shown on paired devices; defaults to the machine hostname |
+
+Scan the displayed QR code in the Android client. The pairing identity is stored in Android secure storage, so later bridge restarts reconnect without pairing again.
+
 ### `kimi doctor`
 
 Validate `config.toml` and `tui.toml` without starting the TUI or modifying either file. By default, the command checks the files under `KIMI_CODE_HOME` (or `~/.kimi-code` when the environment variable is unset). Missing default files are reported as skipped because built-in defaults can apply.
@@ -249,16 +266,6 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 # Exclude the global diagnostic log
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
-
-### `kimi migrate`
-
-Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
-
-```sh
-kimi migrate
-```
-
-For full migration instructions, see [Migrating from kimi-cli](../guides/migration.md).
 
 ### `kimi upgrade`
 

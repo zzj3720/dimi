@@ -104,19 +104,6 @@ export interface TaskOrigin {
   readonly notificationId: string;
 }
 
-/**
- * Legacy spelling of `TaskOrigin` emitted by the pre-v2 agent core, which
- * identifies background-task notifications with `kind: 'background_task'`.
- * Retained so the wire `PromptOrigin` accepts turns steered by the legacy
- * engine; new code should emit `TaskOrigin` (`kind: 'task'`).
- */
-export interface BackgroundTaskOrigin {
-  readonly kind: 'background_task';
-  readonly taskId: string;
-  readonly status: TaskLifecycleStatus;
-  readonly notificationId: string;
-}
-
 export interface CronJobOrigin {
   readonly kind: 'cron_job';
   readonly jobId: string;
@@ -151,7 +138,6 @@ export type PromptOrigin =
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
   | TaskOrigin
-  | BackgroundTaskOrigin
   | CronJobOrigin
   | CronMissedOrigin
   | HookResultOrigin
@@ -364,10 +350,19 @@ export interface QuestionTaskInfo extends TaskInfoBase {
   readonly toolCallId?: string;
 }
 
+export interface ToolTaskInfo extends TaskInfoBase {
+  readonly kind: 'tool';
+  readonly turnId: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly autoWaitTimeoutSeconds: number;
+}
+
 export type TaskInfo =
   | ProcessTaskInfo
   | AgentTaskInfo
-  | QuestionTaskInfo;
+  | QuestionTaskInfo
+  | ToolTaskInfo;
 
 export interface CompactionResult {
   readonly summary: string;
@@ -380,9 +375,8 @@ export interface CompactionResult {
    * reproduce the live folded length without re-deriving it from the full
    * transcript (which still holds the untruncated originals of messages the
    * live context may have truncated, so the two would otherwise diverge).
-   * Optional for backward compatibility with older wire records.
    */
-  readonly keptUserMessageCount?: number;
+  readonly keptUserMessageCount: number;
   /**
    * Of `keptUserMessageCount`, how many messages form the head segment (the
    * oldest user input kept when the pool overflowed the budget). Present iff
@@ -828,22 +822,6 @@ export interface TaskTerminatedEvent {
   readonly info: TaskInfo;
 }
 
-/**
- * Legacy background-task lifecycle events emitted by the pre-v2 agent core
- * (`background.task.started` / `background.task.terminated`). The v2 engine
- * emits `task.started` / `task.terminated` instead; both spellings are kept in
- * the union so clients see a consistent event stream across engines.
- */
-export interface BackgroundTaskStartedEvent {
-  readonly type: 'background.task.started';
-  readonly info: TaskInfo;
-}
-
-export interface BackgroundTaskTerminatedEvent {
-  readonly type: 'background.task.terminated';
-  readonly info: TaskInfo;
-}
-
 export interface CronFiredEvent {
   readonly type: 'cron.fired';
   readonly origin: CronJobOrigin;
@@ -946,8 +924,6 @@ export type AgentEvent =
   | CompactionCompletedEvent
   | TaskStartedEvent
   | TaskTerminatedEvent
-  | BackgroundTaskStartedEvent
-  | BackgroundTaskTerminatedEvent
   | CronFiredEvent
   | PromptSubmittedEvent
   | PromptCompletedEvent
@@ -1042,13 +1018,6 @@ export const taskOriginSchema = z.object({
   notificationId: z.string(),
 }) satisfies z.ZodType<TaskOrigin>;
 
-export const backgroundTaskOriginSchema = z.object({
-  kind: z.literal('background_task'),
-  taskId: z.string(),
-  status: taskLifecycleStatusSchema,
-  notificationId: z.string(),
-}) satisfies z.ZodType<BackgroundTaskOrigin>;
-
 export const cronJobOriginSchema = z.object({
   kind: z.literal('cron_job'),
   jobId: z.string(),
@@ -1083,7 +1052,6 @@ export const promptOriginSchema = z.discriminatedUnion('kind', [
   compactionSummaryOriginSchema,
   systemTriggerOriginSchema,
   taskOriginSchema,
-  backgroundTaskOriginSchema,
   cronJobOriginSchema,
   cronMissedOriginSchema,
   hookResultOriginSchema,
@@ -1285,10 +1253,19 @@ export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
   toolCallId: z.string().optional(),
 }) satisfies z.ZodType<QuestionTaskInfo>;
 
+export const toolTaskInfoSchema = taskInfoBaseSchema.extend({
+  kind: z.literal('tool'),
+  turnId: z.number(),
+  toolCallId: z.string(),
+  toolName: z.string(),
+  autoWaitTimeoutSeconds: z.number(),
+}) satisfies z.ZodType<ToolTaskInfo>;
+
 export const taskInfoSchema = z.discriminatedUnion('kind', [
   processTaskInfoSchema,
   agentTaskInfoSchema,
   questionTaskInfoSchema,
+  toolTaskInfoSchema,
 ]) satisfies z.ZodType<TaskInfo>;
 
 export const compactionResultSchema = z.object({
@@ -1296,7 +1273,7 @@ export const compactionResultSchema = z.object({
   compactedCount: z.number(),
   tokensBefore: z.number(),
   tokensAfter: z.number(),
-  keptUserMessageCount: z.number().optional(),
+  keptUserMessageCount: z.number(),
   keptHeadUserMessageCount: z.number().optional(),
   droppedCount: z.number().optional(),
 }) satisfies z.ZodType<CompactionResult>;
@@ -1689,16 +1666,6 @@ export const taskTerminatedEventSchema = z.object({
   info: taskInfoSchema,
 }) satisfies z.ZodType<TaskTerminatedEvent>;
 
-export const backgroundTaskStartedEventSchema = z.object({
-  type: z.literal('background.task.started'),
-  info: taskInfoSchema,
-}) satisfies z.ZodType<BackgroundTaskStartedEvent>;
-
-export const backgroundTaskTerminatedEventSchema = z.object({
-  type: z.literal('background.task.terminated'),
-  info: taskInfoSchema,
-}) satisfies z.ZodType<BackgroundTaskTerminatedEvent>;
-
 export const cronFiredEventSchema = z.object({
   type: z.literal('cron.fired'),
   origin: cronJobOriginSchema,
@@ -1804,8 +1771,6 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   compactionCompletedEventSchema,
   taskStartedEventSchema,
   taskTerminatedEventSchema,
-  backgroundTaskStartedEventSchema,
-  backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
   promptCompletedEventSchema,

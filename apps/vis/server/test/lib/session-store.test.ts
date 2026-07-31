@@ -54,17 +54,6 @@ describe('session-store', () => {
     expect(sessions[0]!.wireProtocolVersion).toBe('2.2');
   });
 
-  it('falls back to empty workDir when session is not in the index', async () => {
-    const { home, cleanup: c } = await buildSessionFixture('sample-main');
-    cleanup = c;
-    const { rm } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    await rm(join(home, 'session_index.jsonl'));
-    const sessions = await listSessions(home);
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]!.workDir).toBe('');
-  });
-
   it('skips imported_from_kimi_cli sessions', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
@@ -147,31 +136,6 @@ describe('session-store', () => {
     expect(d!.agents.map((a) => a.agentId).sort()).toEqual(['agent-0', 'main']);
   });
 
-  it('rejects session_index entries that point outside KIMI_CODE_HOME', async () => {
-    const { home, cleanup: c } = await buildSessionFixture('sample-main');
-    cleanup = c;
-    const { writeFile, mkdir } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    // Poison the index: claim session_fixture lives at /tmp/elsewhere.
-    const elsewhere = '/tmp/vis-poison-test-' + Date.now();
-    await mkdir(elsewhere, { recursive: true });
-    await writeFile(
-      join(home, 'session_index.jsonl'),
-      JSON.stringify({
-        sessionId: 'session_fixture',
-        sessionDir: elsewhere,
-        workDir: '/somewhere',
-      }) + '\n',
-    );
-    // Detail must fall back to bucket scanning (legit path under home)
-    // rather than honour the poisoned index entry.
-    const d = await readSessionDetail(home, 'session_fixture');
-    expect(d).not.toBeNull();
-    expect(d!.sessionDir.startsWith(home)).toBe(true);
-    const { rm } = await import('node:fs/promises');
-    await rm(elsewhere, { recursive: true, force: true });
-  });
-
   it('reports an unreadable subagent wire as wireExists=false in agent inventory', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
@@ -209,7 +173,7 @@ describe('session-store', () => {
     const d = await readSessionDetail(home, 'session_fixture');
     expect(d).not.toBeNull();
     expect(d!.state).toBeNull();
-    expect(d!.workDir).toBe('/tmp/work');
+    expect(d!.workDir).toBe('');
     // Even with state.json broken, the on-disk agent directories should
     // still be inventoried so users can open wire/context.
     expect(d!.agents.map((a) => a.agentId).sort()).toEqual(['agent-0', 'main']);

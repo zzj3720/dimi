@@ -1,9 +1,8 @@
 /**
- * Scenario: Agent task document/output persistence and legacy-root compatibility.
+ * Scenario: Agent task document/output persistence.
  *
  * Constructs the plain `AgentTaskPersistence` helper over real node-fs storage
- * resolved by interface, covering primary writes, local-first reads, the
- * previous v2 session-root fallback, and exact output paths. Run with
+ * resolved by interface, covering per-agent writes, reads, and exact output paths. Run with
  * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/agent/task/persist.test.ts`.
  */
 
@@ -64,7 +63,7 @@ beforeEach(async () => {
   ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));
   docs = ix.get(IAtomicDocumentStore);
   bytes = ix.get(IFileSystemStorageService);
-  persistence = new AgentTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);
+  persistence = new AgentTaskPersistence(join(sessionDir, AGENT_SCOPE), AGENT_SCOPE, docs, bytes);
 });
 
 afterEach(async () => {
@@ -73,17 +72,6 @@ afterEach(async () => {
 });
 
 describe('AgentTaskPersistence', () => {
-  function rootedPersistence(
-    scope: string,
-    fallbackRoot?: { readonly dir: string; readonly scope: string },
-  ): AgentTaskPersistence {
-    return new AgentTaskPersistence(join(sessionDir, scope), scope, docs, bytes, fallbackRoot);
-  }
-
-  function sessionRoot(): { readonly dir: string; readonly scope: string } {
-    return { dir: join(sessionDir, SESSION_SCOPE), scope: SESSION_SCOPE };
-  }
-
   it('round-trips a task via write/read', async () => {
     await persistence.writeTask(sample());
     const loaded = await persistence.readTask('bash-11111111');
@@ -125,14 +113,14 @@ describe('AgentTaskPersistence', () => {
 
   it('listTasks skips corrupt files', async () => {
     await persistence.writeTask(sample());
-    await writeFile(join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-baaaaaaa.json'), '{not json', 'utf-8');
+    await writeFile(join(sessionDir, AGENT_SCOPE, 'tasks', 'bash-baaaaaaa.json'), '{not json', 'utf-8');
     const all = await persistence.listTasks();
     expect(all.map((task) => task.taskId)).toEqual(['bash-11111111']);
   });
 
   it('writeTask creates tasks dir with mode 0700', async () => {
     await persistence.writeTask(sample());
-    const st = await stat(join(sessionDir, SESSION_SCOPE, 'tasks'));
+    const st = await stat(join(sessionDir, AGENT_SCOPE, 'tasks'));
     // eslint-disable-next-line no-bitwise
     expect(st.mode & 0o777).toBe(0o700);
   });
@@ -148,7 +136,7 @@ describe('AgentTaskPersistence', () => {
   it('listTasks silently skips non-validating task id files', async () => {
     await persistence.writeTask(sample());
     await writeFile(
-      join(sessionDir, SESSION_SCOPE, 'tasks', 'BAD-ID!!!.json'),
+      join(sessionDir, AGENT_SCOPE, 'tasks', 'BAD-ID!!!.json'),
       JSON.stringify(sample({ taskId: 'BAD-ID!!!' })),
       'utf-8',
     );
@@ -159,7 +147,7 @@ describe('AgentTaskPersistence', () => {
   it('listTasks skips unrecognized records', async () => {
     await persistence.writeTask(sample());
     await writeFile(
-      join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-cccccccc.json'),
+      join(sessionDir, AGENT_SCOPE, 'tasks', 'bash-cccccccc.json'),
       JSON.stringify({ oops: 1 }),
       'utf-8',
     );
@@ -198,94 +186,4 @@ describe('AgentTaskPersistence', () => {
     });
   });
 
-  describe('legacy session-root fallback', () => {
-    it('reads a legacy task and reports its real output path when the agent root is empty', async () => {
-      const task = sample({
-        taskId: 'bash-legacy01',
-        description: 'legacy task',
-        status: 'completed',
-        endedAt: 1_700_000_100,
-        exitCode: 0,
-      });
-      const legacy = rootedPersistence(SESSION_SCOPE);
-      const primary = rootedPersistence(AGENT_SCOPE, sessionRoot());
-      await legacy.writeTask(task);
-      await legacy.appendTaskOutput(task.taskId, 'legacy output');
-
-      expect(await primary.readTask(task.taskId)).toEqual(task);
-      expect(await primary.listTasks()).toEqual([task]);
-      expect(await primary.readTaskOutputSnapshot(task.taskId, 6)).toEqual({
-        outputPath: join(sessionDir, SESSION_SCOPE, 'tasks', task.taskId, 'output.log'),
-        outputSizeBytes: 13,
-        previewBytes: 6,
-        truncated: true,
-        preview: 'output',
-      });
-    });
-
-    it('keeps agent-local task and output authoritative without changing either root', async () => {
-      const taskId = 'bash-shared01';
-      const legacyTask = sample({ taskId, description: 'legacy task' });
-      const localTask = sample({ taskId, description: 'local task' });
-      const legacy = rootedPersistence(SESSION_SCOPE);
-      const primary = rootedPersistence(AGENT_SCOPE, sessionRoot());
-      await legacy.writeTask(legacyTask);
-      await legacy.appendTaskOutput(taskId, 'legacy output');
-      await primary.writeTask(localTask);
-      await primary.appendTaskOutput(taskId, 'local output');
-
-      expect(await primary.readTask(taskId)).toEqual(localTask);
-      expect(await primary.listTasks()).toEqual([localTask]);
-      expect(await primary.readTaskOutputSnapshot(taskId, 100)).toEqual({
-        outputPath: join(sessionDir, AGENT_SCOPE, 'tasks', taskId, 'output.log'),
-        outputSizeBytes: 12,
-        previewBytes: 12,
-        truncated: false,
-        preview: 'local output',
-      });
-      expect(await primary.readTask(taskId)).toEqual(localTask);
-      expect(await legacy.readTask(taskId)).toEqual(legacyTask);
-      expect(await legacy.readTaskOutputBytes(taskId, 0, 100)).toBe('legacy output');
-      expect(await primary.readTaskOutputBytes(taskId, 0, 100)).toBe('local output');
-    });
-
-    it('treats a corrupt agent-local task key as authoritative over legacy data', async () => {
-      const taskId = 'bash-corrupt1';
-      const legacy = rootedPersistence(SESSION_SCOPE);
-      const primary = rootedPersistence(AGENT_SCOPE, sessionRoot());
-      await legacy.writeTask(sample({ taskId, description: 'legacy task' }));
-      await mkdir(join(sessionDir, AGENT_SCOPE, 'tasks'), { recursive: true });
-      await writeFile(join(sessionDir, AGENT_SCOPE, 'tasks', `${taskId}.json`), '{not json');
-
-      await expect(primary.readTask(taskId)).rejects.toThrow();
-      expect(await primary.listTasks()).toEqual([]);
-    });
-
-    it('treats an unrecognized agent-local task document as authoritative over legacy data', async () => {
-      const taskId = 'bash-invalid1';
-      const legacy = rootedPersistence(SESSION_SCOPE);
-      const primary = rootedPersistence(AGENT_SCOPE, sessionRoot());
-      await legacy.writeTask(sample({ taskId, description: 'legacy task' }));
-      await docs.set(`${AGENT_SCOPE}/tasks`, `${taskId}.json`, { unexpected: true });
-
-      expect(await primary.readTask(taskId)).toBeUndefined();
-      expect(await primary.listTasks()).toEqual([]);
-    });
-
-    it('treats an empty agent-local output file as authoritative over legacy output', async () => {
-      const taskId = 'bash-empty001';
-      const legacy = rootedPersistence(SESSION_SCOPE);
-      const primary = rootedPersistence(AGENT_SCOPE, sessionRoot());
-      await legacy.appendTaskOutput(taskId, 'legacy output');
-      await bytes.write(`${AGENT_SCOPE}/tasks/${taskId}`, 'output.log', new Uint8Array(0));
-
-      expect(await primary.readTaskOutputSnapshot(taskId, 100)).toEqual({
-        outputPath: join(sessionDir, AGENT_SCOPE, 'tasks', taskId, 'output.log'),
-        outputSizeBytes: 0,
-        previewBytes: 0,
-        truncated: false,
-        preview: '',
-      });
-    });
-  });
 });

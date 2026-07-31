@@ -32,7 +32,17 @@ export interface AgentTaskInfoBase {
   readonly timeoutMs?: number;
 }
 
-export interface AgentTaskInfoByKind {}
+export interface ToolAgentTaskInfo extends AgentTaskInfoBase {
+  readonly kind: 'tool';
+  readonly turnId: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly autoWaitTimeoutSeconds: number;
+}
+
+export interface AgentTaskInfoByKind {
+  readonly tool: ToolAgentTaskInfo;
+}
 
 export type AgentTaskKind = Extract<keyof AgentTaskInfoByKind, string>;
 

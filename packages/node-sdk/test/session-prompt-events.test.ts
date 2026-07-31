@@ -10,67 +10,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { KIMI_CODE_PLATFORM } from '@moonshot-ai/kimi-code-oauth';
-import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type Event, type KimiHarness } from '#/index';
 
+import {
+  createFakeProviderHarness,
+  type FakeProviderHarness,
+} from '../../kosong/test/e2e/fake-provider-harness';
 import { TEST_IDENTITY } from './test-identity';
 
-const fakeProviderState = vi.hoisted(() => ({
-  calls: [] as Array<{
-    readonly systemPrompt: string;
-    readonly history: unknown;
-  }>,
-  providerConfigs: [] as unknown[],
-  responseText: 'hello from fake provider',
-}));
-
-vi.mock('@moonshot-ai/kosong', async (importOriginal) => {
-  const actual = await importOriginal<typeof KosongModule>();
-  return {
-    ...actual,
-    createProvider: (config: unknown) => {
-      fakeProviderState.providerConfigs.push(config);
-      return {
-        name: 'fake',
-        modelName: 'fake-model',
-        thinkingEffort: null,
-        async generate(systemPrompt: string, _tools: unknown, history: unknown) {
-          fakeProviderState.calls.push({ systemPrompt, history });
-          return {
-            id: 'fake-response',
-            usage: {
-              inputOther: 0,
-              output: 1,
-              inputCacheRead: 0,
-              inputCacheCreation: 0,
-            },
-            finishReason: 'completed',
-            rawFinishReason: 'stop',
-            async *[Symbol.asyncIterator]() {
-              yield { type: 'text', text: fakeProviderState.responseText };
-            },
-          };
-        },
-        withThinking() {
-          return this;
-        },
-      };
-    },
-  };
-});
-
 const tempDirs: string[] = [];
+let provider: FakeProviderHarness;
+let responseText: string;
 
-beforeEach(() => {
-  fakeProviderState.calls.length = 0;
-  fakeProviderState.providerConfigs.length = 0;
-  fakeProviderState.responseText = 'hello from fake provider';
+beforeEach(async () => {
+  responseText = 'hello from fake provider';
+  provider = await createFakeProviderHarness();
+  provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
+    await reply.sseJson(200, [
+      completionChunk({ content: responseText }),
+      completionChunk({}, 'stop'),
+    ]);
+  });
 });
 
 afterEach(async () => {
+  await provider.close();
   for (const dir of tempDirs.splice(0)) {
     await removeTempDir(dir);
   }
@@ -246,15 +212,14 @@ describe('Session.prompt events', () => {
           reason: 'completed',
         }),
       );
-      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('You are Kimi Code CLI');
-      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('Available skills');
-      expect(fakeProviderState.providerConfigs[0]).toMatchObject({
-        type: 'kimi',
-        defaultHeaders: expect.objectContaining({
-          'X-Msh-Platform': KIMI_CODE_PLATFORM,
-          'User-Agent': 'kimi-code-cli/0.0.0-test',
-        }),
+      const request = provider.requests[0];
+      expect(requestMessages(request?.bodyJson)[0]).toMatchObject({
+        role: 'system',
+        content: expect.stringContaining('You are Kimi Code CLI'),
       });
+      expect(JSON.stringify(requestMessages(request?.bodyJson)[0])).toContain('Available skills');
+      expect(request?.headers['user-agent']).toBe('kimi-code-cli/0.0.0-test');
+      expect(request?.headers['x-msh-platform']).toBe('kimi_code_cli');
       expect(existsSync(join(homeDir, 'device_id'))).toBe(true);
     } finally {
       await harness.close();
@@ -328,14 +293,10 @@ describe('Session.prompt events', () => {
           type: 'session.meta.updated',
         }),
       );
-      expect(fakeProviderState.calls[0]?.history).toMatchObject([
+      expect(requestMessages(provider.requests[0]?.bodyJson).slice(1)).toMatchObject([
         {
           role: 'user',
-          content: [
-            expect.objectContaining({
-              text: expect.stringContaining('Task requirements:'),
-            }),
-          ],
+          content: expect.stringContaining('Task requirements:'),
         },
       ]);
 
@@ -402,7 +363,7 @@ describe('Session.prompt events', () => {
       await session.prompt('main task context');
       await done;
 
-      fakeProviderState.responseText = 'The main agent is working from the existing context.';
+      responseText = 'The main agent is working from the existing context.';
       events.length = 0;
       done = waitForEvent(
         session,
@@ -440,10 +401,10 @@ describe('Session.prompt events', () => {
           type: 'session.meta.updated',
         }),
       );
-      expect(fakeProviderState.calls[1]?.systemPrompt).toBe(
-        fakeProviderState.calls[0]?.systemPrompt,
-      );
-      const btwHistoryText = JSON.stringify(fakeProviderState.calls[1]?.history);
+      const firstMessages = requestMessages(provider.requests[0]?.bodyJson);
+      const secondMessages = requestMessages(provider.requests[1]?.bodyJson);
+      expect(secondMessages[0]).toEqual(firstMessages[0]);
+      const btwHistoryText = JSON.stringify(secondMessages.slice(1));
       expect(btwHistoryText).toContain('main task context');
       expect(btwHistoryText).toContain('What are you working on right now?');
 
@@ -451,14 +412,14 @@ describe('Session.prompt events', () => {
       const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
       expect(state['lastPrompt']).toBe('main task context');
       expect(state['agents']).toMatchObject({ main: expect.any(Object) });
-      expect(state['agents']).not.toHaveProperty(agentId);
+      expect(state['agents']).toHaveProperty(agentId);
 
       await harness.closeSession(session.id);
       const resumed = await harness.resumeSession({ id: session.id });
       const resumeState = resumed.getResumeState();
       expect(resumeState?.agents).toMatchObject({ main: expect.any(Object) });
       expect(resumeState?.agents).not.toHaveProperty(agentId);
-      expect(resumeState?.sessionMetadata.agents).not.toHaveProperty(agentId);
+      expect(resumeState?.sessionMetadata.agents).toHaveProperty(agentId);
     } finally {
       await harness.close();
     }
@@ -682,7 +643,7 @@ async function runPrompt(
   input: string,
   response: string,
 ): Promise<void> {
-  fakeProviderState.responseText = response;
+  responseText = response;
   const done = waitForEvent(session, (event) => event.type === 'turn.ended');
   await session.prompt(input);
   await done;
@@ -718,6 +679,7 @@ async function configureFakeProvider(harness: KimiHarness): Promise<void> {
     providers: {
       local: {
         type: 'kimi',
+        baseUrl: `${provider.baseUrl}/v1`,
         apiKey: 'sk-test',
       },
     },
@@ -730,6 +692,30 @@ async function configureFakeProvider(harness: KimiHarness): Promise<void> {
     },
     defaultModel: 'fake-model',
   });
+}
+
+function completionChunk(
+  delta: Record<string, unknown>,
+  finishReason: string | null = null,
+): Record<string, unknown> {
+  return {
+    id: 'chatcmpl-node-sdk-test',
+    object: 'chat.completion.chunk',
+    created: 1,
+    model: 'fake-model',
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  };
+}
+
+function requestMessages(body: unknown): readonly Record<string, unknown>[] {
+  if (typeof body !== 'object' || body === null || !('messages' in body)) return [];
+  const messages = (body as { readonly messages?: unknown }).messages;
+  return Array.isArray(messages)
+    ? messages.filter(
+        (message): message is Record<string, unknown> =>
+          typeof message === 'object' && message !== null,
+      )
+    : [];
 }
 
 function waitForEvent(

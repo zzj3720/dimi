@@ -133,7 +133,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`remote`（通过加密 relay 连接原生客户端）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `kimi login`
 
@@ -195,6 +195,23 @@ kimi web --port 58628    # 指定绑定端口
 
 生成新的持久化 bearer token（写入 `~/.kimi-code/server.token`），旧 token 立即失效。token 是整个 home 目录共享的，所有运行中的实例会在下一次鉴权校验时自动换用新 token，无需重启。
 
+### `kimi remote`
+
+通过端到端加密的 relay 将当前 Runtime 连接到原生客户端。relay 只转发密文，无法读取提示词或回复。命令会优先复用正在运行的本地 server；没有可用实例时会启动一个，然后打印二维码和配对 URI。客户端连接期间需保持命令运行；按 `Ctrl-C` 停止远程访问。
+
+```sh
+kimi remote
+kimi remote --relay wss://relay.example.test --name "Workstation"
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--relay <url>` | Relay WebSocket 地址；省略时使用内置 relay |
+| `--server <url>` | 已有本地 server 地址；省略时复用或启动本地 server |
+| `--name <name>` | 配对设备上显示的 Runtime 名称；默认使用机器主机名 |
+
+在 Android 客户端中扫描命令显示的二维码。配对身份保存在 Android 安全存储中，之后重启 bridge 时无需再次配对。
+
 ### `kimi doctor`
 
 校验 `config.toml` 和 `tui.toml`，不会启动 TUI，也不会修改任一文件。默认检查 `KIMI_CODE_HOME` 下的文件；未设置该环境变量时检查 `~/.kimi-code`。默认路径缺失时会显示为跳过，因为内置默认值仍可生效。
@@ -249,16 +266,6 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 # 排除全局诊断日志
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
-
-### `kimi migrate`
-
-将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。纯交互式运行，会引导你完成全流程。
-
-```sh
-kimi migrate
-```
-
-完整迁移说明见[从 kimi-cli 迁移](../guides/migration.md)。
 
 ### `kimi upgrade`
 

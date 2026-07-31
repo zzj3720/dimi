@@ -50,7 +50,7 @@ function resumedAgent(
   replay: readonly AgentReplayRecord[],
   options: {
     readonly modelAlias?: string;
-    readonly thinkingEffort?: string;
+    readonly thinkingLevel?: string;
     readonly plan?: ResumedAgentState["plan"];
     readonly contextTokenCount?: number;
     readonly usage?: ResumedAgentState["usage"];
@@ -70,7 +70,7 @@ function resumedAgent(
         tool_use: true,
         max_context_tokens: 128_000,
       },
-      thinkingEffort: options.thinkingEffort ?? "off",
+      thinkingLevel: options.thinkingLevel ?? "off",
       systemPrompt: "",
     },
     context: { history: [], tokenCount: options.contextTokenCount ?? 0 },
@@ -79,7 +79,8 @@ function resumedAgent(
     plan: options.plan ?? null,
     usage: options.usage ?? {},
     tools: [],
-    background: [],
+    tasks: [],
+    todos: [],
   };
 }
 
@@ -98,7 +99,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
   });
 
   it("restores thinking effort before transcript events", () => {
-    const agent = resumedAgent([], { thinkingEffort: "high" });
+    const agent = resumedAgent([], { thinkingLevel: "high" });
 
     expect(replayToWebviewEvents(agent, "session-1")[0]).toMatchObject({
       type: "StatusUpdate",
@@ -335,6 +336,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
           compactedCount: 6,
           tokensBefore: 1000,
           tokensAfter: 200,
+          keptUserMessageCount: 1,
         },
       },
     ]);
@@ -536,10 +538,14 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
     ], { type: "sub" });
     const state: ResumedSessionState = {
       sessionMetadata: {
-        createdAt: "",
-        updatedAt: "",
+        id: "session-1",
+        version: 2,
+        createdAt: 1,
+        updatedAt: 1,
         title: "",
         isCustomTitle: false,
+        archived: false,
+        cwd: "/workspace",
         agents: {
           main: { type: "main", parentAgentId: null },
           "sub-1": { type: "sub", parentAgentId: "main" },

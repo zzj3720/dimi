@@ -1,15 +1,12 @@
 /**
  * `task` domain (L5) — print-mode (`kimi -p`) config-section defaults.
  *
- * Ports v1's `applyPrintModeConfigDefaults`
- * (`packages/agent-core/src/config/print-defaults.ts`): a headless run should
- * not be cut short by limits meant for interactive use, so every filled value
+ * A headless run should not be cut short by limits meant for interactive use, so every filled value
  * is "effectively unbounded". Fills land in the config memory layer via
  * `IConfigService.set(…, ConfigTarget.Memory)`, never on disk.
  *
  * Only keys the user left unset are filled. A key counts as set when it has a
- * user-config value (for `bashTaskTimeoutS`, in either `[task]` or the legacy
- * `[background]` section), a memory-layer value, or an env-overlay value (an
+ * user-config value, a memory-layer value, or an env-overlay value (an
  * effective value with no user/memory source and different from the section
  * default). Because the memory layer shadows a whole section on read, each
  * patch spreads the section's current effective value so sibling user keys
@@ -20,7 +17,7 @@ import { ConfigTarget, type ConfigInspectValue, type IConfigService } from '#/ap
 import { LOOP_CONTROL_SECTION } from '#/agent/loop/configSection';
 import { SUBAGENT_SECTION } from '#/session/subagent/configSection';
 
-import { LEGACY_BACKGROUND_SECTION, TASK_SECTION } from './configSection';
+import { TASK_SECTION } from './configSection';
 
 /**
  * Wall-clock ceiling (seconds) for the drain/steer wait once the main turn
@@ -61,22 +58,14 @@ async function fillSectionDefault(
   domain: string,
   key: string,
   value: number,
-  legacyUserValue?: SectionValue,
 ): Promise<void> {
   const inspected = config.inspect<SectionValue>(domain);
   if (!isUnset(inspected, key)) return;
-  if (legacyUserValue?.[key] !== undefined) return;
   await config.set(domain, { ...inspected.value, [key]: value }, ConfigTarget.Memory);
 }
 
 export async function applyPrintModeConfigDefaults(config: IConfigService): Promise<void> {
-  await fillSectionDefault(
-    config,
-    TASK_SECTION,
-    'bashTaskTimeoutS',
-    PRINT_BASH_TASK_TIMEOUT_S_DEFAULT,
-    config.inspect<SectionValue>(LEGACY_BACKGROUND_SECTION).userValue,
-  );
+  await fillSectionDefault(config, TASK_SECTION, 'bashTaskTimeoutS', PRINT_BASH_TASK_TIMEOUT_S_DEFAULT);
   await fillSectionDefault(config, LOOP_CONTROL_SECTION, 'maxStepsPerTurn', 0);
   await fillSectionDefault(
     config,

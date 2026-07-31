@@ -67,9 +67,9 @@ Pressing `Ctrl-S` causes the model to see your message at the next interruptible
 
 | Shortcut | Function |
 | --- | --- |
-| `Ctrl-O` | Expand or collapse tool output and compaction summaries |
+| `Ctrl-O` | Cycle tool summaries, tool cards, and full output |
 
-When collapsed tool call results exist in the history, press `Ctrl-O` to toggle between collapsed and expanded views. After compaction, the same shortcut shows or hides the compaction summary in the compaction block.
+Completed consecutive tool calls default to one summary line. Press `Ctrl-O` once to restore the regular collapsed tool cards, again to expand full output, and a third time to return to the clean summary view. After compaction, the same detail cycle also controls compaction summaries.
 
 ## Approval Panel
 

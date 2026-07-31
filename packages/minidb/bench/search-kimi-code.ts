@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { MiniDb } from '../src/index.js';
+import { listKimiSessions, loadKimiWorkspaces } from './kimi-sessions.js';
 
 const argv = process.argv.slice(2);
 const FULL = argv.includes('--full');
@@ -70,34 +71,22 @@ async function main() {
   const OUT = path.join(os.tmpdir(), 'minidb-search-' + Date.now());
   await fs.rm(OUT, { recursive: true, force: true });
 
-  const workspaces = JSON.parse(readFileSync(path.join(DATA, 'workspaces.json'), 'utf8')).workspaces || {};
-  const lines = readFileSync(path.join(DATA, 'session_index.jsonl'), 'utf8').trim().split('\n');
+  const workspaces = loadKimiWorkspaces(DATA);
 
   const db = await MiniDb.open({ dir: OUT, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
   await db.createTextIndex('body', { fields: ['text'] });
 
   const t0 = performance.now();
   let n = 0;
-  for (const line of lines) {
-    let meta;
-    try {
-      meta = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  for (const meta of listKimiSessions(DATA)) {
     const wirePath = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');
     if (!existsSync(wirePath)) continue;
-    let state = {};
-    try {
-      state = JSON.parse(readFileSync(path.join(meta.sessionDir, 'state.json'), 'utf8'));
-    } catch {}
-    const wsId = path.basename(path.dirname(meta.sessionDir));
-    const ws = workspaces[wsId] || {};
-    const text = (state.title ? state.title + '\n' : '') + extractWireText(wirePath, FULL);
+    const ws = workspaces[meta.workspaceId] || {};
+    const text = (meta.state.title ? meta.state.title + '\n' : '') + extractWireText(wirePath, FULL);
     await db.set(meta.sessionId, {
-      title: state.title || '',
+      title: meta.state.title || '',
       workspaceName: ws.name || '',
-      workDir: meta.workDir || '',
+      workDir: meta.workDir,
       text,
     });
     n++;

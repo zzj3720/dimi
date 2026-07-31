@@ -144,26 +144,19 @@ export interface QuestionTaskInfo extends TaskInfoBase {
   readonly toolCallId?: string;
 }
 
+export interface ToolTaskInfo extends TaskInfoBase {
+  readonly kind: 'tool';
+  readonly turnId: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly autoWaitTimeoutSeconds: number;
+}
+
 export type TaskInfo =
   | ProcessTaskInfo
   | AgentTaskInfo
-  | QuestionTaskInfo;
-
-/**
- * Legacy background-task lifecycle events (`background.task.started` /
- * `background.task.terminated`). The v2 engine emits `task.started` /
- * `task.terminated`; the broadcaster re-spells them onto these legacy names so
- * older clients see a consistent stream.
- */
-export interface BackgroundTaskStartedEvent {
-  readonly type: 'background.task.started';
-  readonly info: TaskInfo;
-}
-
-export interface BackgroundTaskTerminatedEvent {
-  readonly type: 'background.task.terminated';
-  readonly info: TaskInfo;
-}
+  | QuestionTaskInfo
+  | ToolTaskInfo;
 
 export type AgentEvent =
   | DomainEvent
@@ -178,9 +171,7 @@ export type AgentEvent =
   | SessionWorkChangedEvent
   | SessionStatusChangedEvent
   | ConfigChangedEvent
-  | PromptSubmittedEvent
-  | BackgroundTaskStartedEvent
-  | BackgroundTaskTerminatedEvent;
+  | PromptSubmittedEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 

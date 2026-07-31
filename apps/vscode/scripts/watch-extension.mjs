@@ -10,10 +10,9 @@ const sourceDirectories = [
   join(extensionRoot, 'src'),
   join(extensionRoot, 'shared'),
   ...[
-    'agent-core',
+    'agent-core-v2',
     'kaos',
     'kosong',
-    'migration-legacy',
     'node-sdk',
     'oauth',
     'protocol',

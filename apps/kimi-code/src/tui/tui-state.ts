@@ -10,6 +10,7 @@ import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
+import type { ToolDisplayMode } from './components/messages/tool-call-sequence';
 import { DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
@@ -44,7 +45,7 @@ export interface TUIState {
   transcriptEntries: TranscriptEntry[];
   terminalState: TerminalState;
   activitySpinner: { instance: MoonLoader; style: SpinnerStyle } | null;
-  toolOutputExpanded: boolean;
+  toolDisplayMode: ToolDisplayMode;
   sessions: SessionRow[];
   loadingSessions: boolean;
   sessionsScope: 'cwd' | 'all';
@@ -102,7 +103,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     transcriptEntries: [],
     terminalState: createTerminalState(),
     activitySpinner: null,
-    toolOutputExpanded: false,
+    toolDisplayMode: 'summary',
     sessions: [],
     loadingSessions: false,
     sessionsScope: 'cwd',

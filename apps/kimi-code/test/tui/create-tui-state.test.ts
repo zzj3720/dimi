@@ -77,7 +77,7 @@ describe('createTUIState', () => {
     expect(state.queuedMessages).toHaveLength(0);
 
     // Boolean, counter, and optional-field defaults.
-    expect(state.toolOutputExpanded).toBe(false);
+    expect(state.toolDisplayMode).toBe('summary');
     expect(state.activeDialog).toBeNull();
     expect(state.externalEditorRunning).toBe(false);
     expect(state.loadingSessions).toBe(false);

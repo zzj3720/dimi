@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  cacheHitRatePercent,
+  formatCacheHitRate,
   formatTokenCount,
+  promptTokenTotal,
   renderProgressBar,
   ratioSeverity,
   safeUsageRatio,
@@ -132,5 +135,68 @@ describe('ratioSeverity', () => {
   it('red at or above 0.85', () => {
     expect(ratioSeverity(0.85)).toBe('danger');
     expect(ratioSeverity(1)).toBe('danger');
+  });
+});
+
+describe('promptTokenTotal / cacheHitRatePercent', () => {
+  it('sums input + cache read + cache write', () => {
+    expect(
+      promptTokenTotal({
+        inputOther: 100,
+        output: 50,
+        inputCacheRead: 800,
+        inputCacheCreation: 100,
+      }),
+    ).toBe(1000);
+  });
+
+  it('ignores non-finite / non-positive buckets', () => {
+    expect(
+      promptTokenTotal({
+        inputOther: Number.NaN,
+        output: 10,
+        inputCacheRead: -1,
+        inputCacheCreation: 0,
+      }),
+    ).toBe(0);
+  });
+
+  it('returns undefined when no cache activity was reported', () => {
+    expect(
+      cacheHitRatePercent({
+        inputOther: 1000,
+        output: 10,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('computes CH% from cache read / prompt total (pi semantics)', () => {
+    expect(
+      cacheHitRatePercent({
+        inputOther: 100,
+        output: 20,
+        inputCacheRead: 800,
+        inputCacheCreation: 100,
+      }),
+    ).toBeCloseTo(80, 5);
+  });
+
+  it('counts a pure cache-write as 0% hit (not undefined)', () => {
+    expect(
+      cacheHitRatePercent({
+        inputOther: 0,
+        output: 0,
+        inputCacheRead: 0,
+        inputCacheCreation: 500,
+      }),
+    ).toBe(0);
+  });
+
+  it('formats compact CH labels', () => {
+    expect(formatCacheHitRate(85)).toBe('CH85.0%');
+    expect(formatCacheHitRate(99.82)).toBe('CH99.8%');
+    expect(formatCacheHitRate(Number.NaN)).toBe('CH?%');
   });
 });

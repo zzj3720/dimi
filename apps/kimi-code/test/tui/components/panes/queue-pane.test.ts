@@ -119,4 +119,19 @@ describe('QueuePaneComponent', () => {
     const output = stripAnsi(component.render(120).join('\n'));
     expect(output).toContain('ctrl-s to steer immediately');
   });
+
+  it('advertises Enter-steers when busy_input_mode defaults to steer', () => {
+    const component = new QueuePaneComponent({
+      isCompacting: false,
+      isStreaming: true,
+      canSteerImmediately: true,
+      enterSteersByDefault: true,
+      messages: [{ text: 'focus on tests' }],
+    });
+
+    const output = stripAnsi(component.render(120).join('\n'));
+    expect(output).toContain('enter steers');
+    expect(output).toContain('ctrl-s flushes queue');
+    expect(output).not.toContain('ctrl-s to steer immediately');
+  });
 });

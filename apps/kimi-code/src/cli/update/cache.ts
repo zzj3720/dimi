@@ -14,7 +14,8 @@ const UpdateCacheSchema = z
     checkedAt: z.string().min(1).nullable(),
     latest: z.string().min(1).nullable(),
     manifest: z.preprocess((value) => {
-      const parsed = UpdateManifestSchema.nullable().safeParse(value === undefined ? null : value);
+      if (value === undefined) return value;
+      const parsed = UpdateManifestSchema.nullable().safeParse(value);
       return parsed.success ? parsed.data : null;
     }, z.union([UpdateManifestSchema, z.null()])),
   })

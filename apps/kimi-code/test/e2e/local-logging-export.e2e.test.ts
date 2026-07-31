@@ -1,47 +1,53 @@
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
-import { createKimiHarness, log } from '@moonshot-ai/kimi-code-sdk';
-import { __resetRootLoggerForTest } from '../../../../packages/agent-core/src/logging/logger';
+import {
+  createKimiHarness,
+  flushDiagnosticLogs,
+  log,
+} from '@moonshot-ai/kimi-code-sdk';
 
 const SESSION_LOG = 'logs/kimi-code.log';
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
-const MAIN_WIRE = 'agents/main/wire.jsonl';
 const ENABLED = process.env['KIMI_E2E'] === '1';
 
-let homeDir: string;
-let workDir: string;
-let oldHome: string | undefined;
-let oldLogLevel: string | undefined;
-
-beforeEach(async () => {
-  await __resetRootLoggerForTest();
-  homeDir = await mkdtemp(join(tmpdir(), 'kimi-cli-log-home-'));
-  workDir = await mkdtemp(join(tmpdir(), 'kimi-cli-log-work-'));
-  oldHome = process.env['KIMI_CODE_HOME'];
-  oldLogLevel = process.env['KIMI_LOG_LEVEL'];
+const loggingEnv = vi.hoisted(() => {
+  const tempRoot = process.env['TMPDIR'] ?? process.env['TEMP'] ?? process.env['TMP'] ?? '/tmp';
+  const homeDir = `${tempRoot.replace(/[\\/]$/, '')}/kimi-cli-log-home-${String(process.pid)}`;
+  const previousHome = process.env['KIMI_CODE_HOME'];
+  const previousLogLevel = process.env['KIMI_LOG_LEVEL'];
   process.env['KIMI_CODE_HOME'] = homeDir;
   process.env['KIMI_LOG_LEVEL'] = 'info';
+  return { homeDir, previousHome, previousLogLevel };
 });
 
-afterEach(async () => {
-  await __resetRootLoggerForTest();
-  if (oldHome === undefined) {
+const homeDir = loggingEnv.homeDir;
+let workDir: string;
+
+beforeAll(async () => {
+  await rm(homeDir, { recursive: true, force: true });
+  await mkdir(homeDir, { recursive: true });
+  workDir = await mkdtemp(join(tmpdir(), 'kimi-cli-log-work-'));
+});
+
+afterAll(async () => {
+  await flushDiagnosticLogs();
+  if (loggingEnv.previousHome === undefined) {
     delete process.env['KIMI_CODE_HOME'];
   } else {
-    process.env['KIMI_CODE_HOME'] = oldHome;
+    process.env['KIMI_CODE_HOME'] = loggingEnv.previousHome;
   }
-  if (oldLogLevel === undefined) {
+  if (loggingEnv.previousLogLevel === undefined) {
     delete process.env['KIMI_LOG_LEVEL'];
   } else {
-    process.env['KIMI_LOG_LEVEL'] = oldLogLevel;
+    process.env['KIMI_LOG_LEVEL'] = loggingEnv.previousLogLevel;
   }
   await rm(homeDir, { recursive: true, force: true });
   await rm(workDir, { recursive: true, force: true });
@@ -57,19 +63,24 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
       const session = await harness.createSession({
         id: 'ses_cli_logging_export',
         workDir,
+        mcpServers: {
+          missing: {
+            transport: 'stdio',
+            command: '/definitely/not/a/real/mcp-executable',
+          },
+        },
       });
-      log.warn('cli logging export marker', { sessionId: session.id });
+      await session.listMcpServers();
       log.warn('cli global marker');
+      await flushDiagnosticLogs();
+      await session.close();
 
       const defaultZip = join(workDir, 'default.zip');
       await runKimiExport([session.id, '-o', defaultZip]);
       const defaultEntries = readZipEntries(await readFile(defaultZip));
-      expect(defaultEntries.has(MAIN_WIRE)).toBe(true);
       expect(defaultEntries.has(SESSION_LOG)).toBe(true);
       expect(defaultEntries.has(GLOBAL_LOG)).toBe(true);
-      expect(defaultEntries.get(SESSION_LOG)!.toString('utf-8')).toContain(
-        'cli logging export marker',
-      );
+      expect(defaultEntries.get(SESSION_LOG)!.toString('utf-8')).toContain('mcp server unavailable');
       expect(defaultEntries.get(GLOBAL_LOG)!.toString('utf-8')).toContain('cli global marker');
       const defaultManifest = JSON.parse(
         defaultEntries.get('manifest.json')!.toString('utf-8'),

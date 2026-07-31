@@ -22,7 +22,6 @@ const KIND_LABEL: Record<Issue['kind'], string> = {
   orphan_tool_call: 'orphan tool.call',
   missing_tool_result: 'missing tool.result',
   tool_error: 'tool error',
-  tool_truncated: 'tool output truncated',
   model_filtered: 'response filtered',
   model_max_tokens: 'hit max_tokens',
   incomplete_step: 'incomplete step',

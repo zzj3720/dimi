@@ -87,26 +87,6 @@ describe('update cache', () => {
     await expect(readUpdateCache()).resolves.toEqual(cache);
   });
 
-  it('reads a legacy cache file without a manifest field as manifest null', async () => {
-    mkdirSync(join(dir, 'updates'), { recursive: true });
-    writeFileSync(
-      getUpdateStateFile(),
-      JSON.stringify({
-        source: 'cdn',
-        checkedAt: '2026-04-23T08:00:00.000Z',
-        latest: '0.5.0',
-      }),
-      'utf-8',
-    );
-
-    await expect(readUpdateCache()).resolves.toEqual({
-      source: 'cdn',
-      checkedAt: '2026-04-23T08:00:00.000Z',
-      latest: '0.5.0',
-      manifest: null,
-    });
-  });
-
   it('keeps latest and treats a malformed manifest field as null', async () => {
     mkdirSync(join(dir, 'updates'), { recursive: true });
     writeFileSync(

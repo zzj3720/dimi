@@ -335,16 +335,16 @@ export interface SessionStateSnapshot {
   // src/session/sessionMetadata/sessionMetadataService.ts
   'sessionMetadata.data': /* SessionMeta — packages/agent-core-v2/src/session/sessionMetadata/sessionMetadata.ts */ {
     readonly id: string;
-    readonly version?: number;
+    readonly version: 2;
     readonly title?: string;
     readonly isCustomTitle?: boolean;
     readonly lastPrompt?: string;
     readonly createdAt: number;
     readonly updatedAt: number;
     readonly archived: boolean;
-    readonly cwd?: string;
+    readonly cwd: string;
     readonly forkedFrom?: string;
-    readonly agents?: Readonly<Record<string, /* AgentMeta — packages/agent-core-v2/src/session/sessionMetadata/sessionMetadata.ts */ {
+    readonly agents: Readonly<Record<string, /* AgentMeta — packages/agent-core-v2/src/session/sessionMetadata/sessionMetadata.ts */ {
       readonly homedir?: string;
       readonly type?: 'main' | 'sub' | 'independent';
       readonly parentAgentId?: string | null;
@@ -352,7 +352,7 @@ export interface SessionStateSnapshot {
       readonly labels?: Readonly<Record<string, string>>;
       readonly swarmItem?: string;
     }>>;
-    readonly custom?: Record<string, unknown>;
+    readonly custom: Record<string, unknown>;
   } | undefined;
   // src/session/sessionSkillCatalog/skillCatalogService.ts
   'sessionSkillCatalog.contributions': Map<string, {
@@ -695,6 +695,77 @@ export interface SessionStateSnapshot {
     };
     readonly isError?: boolean;
     readonly note?: string;
+    readonly toolCallDisplays?: Readonly<Record<string, /* ToolInputDisplay — packages/agent-core-v2/src/tool/toolInputDisplay.ts */ {
+      kind: 'command';
+      command: string;
+      cwd?: string;
+      description?: string;
+      language?: 'bash';
+    } | {
+      kind: 'file_io';
+      operation: 'read' | 'write' | 'edit' | 'glob' | 'grep';
+      path: string;
+      detail?: string;
+      content?: string;
+      before?: string;
+      after?: string;
+    } | {
+      kind: 'diff';
+      path: string;
+      before: string;
+      after: string;
+      hunks?: number;
+    } | {
+      kind: 'search';
+      query: string;
+      scope?: string;
+    } | {
+      kind: 'url_fetch';
+      url: string;
+      method?: string;
+    } | {
+      kind: 'agent_call';
+      agent_name: string;
+      prompt: string;
+      background?: boolean;
+    } | {
+      kind: 'skill_call';
+      skill_name: string;
+      args?: string;
+    } | {
+      kind: 'todo_list';
+      items: {
+        title: string;
+        status: string;
+      }[];
+    } | {
+      kind: 'task';
+      task_id: string;
+      status: string;
+      description: string;
+      task_kind?: string;
+    } | {
+      kind: 'task_stop';
+      task_id: string;
+      task_description: string;
+    } | {
+      kind: 'plan_review';
+      plan: string;
+      path?: string;
+      options?: readonly {
+        label: string;
+        description: string;
+      }[];
+    } | {
+      kind: 'goal_start';
+      objective: string;
+      completionCriterion?: string;
+      mode: 'manual' | 'yolo';
+    } | {
+      kind: 'generic';
+      summary: string;
+      detail?: unknown;
+    }>>;
   })[];
   // src/session/workspaceContext/workspaceContextService.ts
   'workspaceContext.additionalDirs': string[];
@@ -1013,7 +1084,7 @@ export interface AgentStateSnapshot {
   'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.mediaDegradedTurns': Set<number>;
   'llmRequester.mediaStrippedTurns': Map<number, /* MediaStripSnapshot — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
-    readonly "__@mediaStripSnapshotBrand@2681": undefined;
+    readonly "__@mediaStripSnapshotBrand@2768": undefined;
   }>;
   'llmRequester.turnConfigs': Map<number, /* TurnRequestConfig — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly resolved: /* ProfileModelContext — packages/agent-core-v2/src/agent/profile/profile.ts */ {
@@ -1109,6 +1180,21 @@ export interface AgentStateSnapshot {
     readonly kind: 'question';
     readonly questionCount: number;
     readonly toolCallId?: string;
+    readonly taskId: string;
+    readonly description: string;
+    readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
+    readonly detached?: boolean;
+    readonly startedAt: number;
+    readonly endedAt: number | null;
+    readonly stopReason?: string;
+    readonly terminalNotificationSuppressed?: boolean;
+    readonly timeoutMs?: number;
+  } | /* ToolAgentTaskInfo — packages/agent-core-v2/src/agent/task/types.ts */ {
+    readonly kind: 'tool';
+    readonly turnId: number;
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly autoWaitTimeoutSeconds: number;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';

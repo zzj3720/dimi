@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, ErrorCodes, KimiError } from '#/index';
 
-import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 import { TEST_IDENTITY } from './test-identity';
 
 let homeDir: string;
@@ -248,11 +247,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
       displayName: 'Kimi for Coding',
     });
-    expect(new ProviderManager({ config }).resolveProviderConfig(config.defaultModel!)).toMatchObject({
-      modelCapabilities: {
-        tool_use: true,
-      },
-    });
+    expect(config.models?.['kimi-code/kimi-for-coding']?.capabilities).toContain('tool_use');
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'kimi',
       apiKey: '',
@@ -458,7 +453,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     });
   });
 
-  it('starts degraded when a configured model alias does not have max_context_size', async () => {
+  it('accepts a configured model alias without max_context_size', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
     await writeFile(
       join(homeDir, 'config.toml'),
@@ -495,14 +490,15 @@ model = "kimi-for-coding"
       ),
     );
 
-    // A broken config must not prevent startup: the invalid model alias is
-    // dropped, the rest of the config survives, and a warning is reported.
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const config = await harness.getConfig();
-    expect(config.models?.['kimi-code/kimi-for-coding']).toBeUndefined();
+    expect(config.models?.['kimi-code/kimi-for-coding']).toMatchObject({
+      provider: 'managed:kimi-code',
+      model: 'kimi-for-coding',
+    });
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeDefined();
     const { warnings } = await harness.getConfigDiagnostics();
-    expect(warnings.some((w) => w.includes('models.kimi-code/kimi-for-coding'))).toBe(true);
+    expect(warnings.some((warning) => warning.includes('models.kimi-code/kimi-for-coding'))).toBe(false);
   });
 
   it('removes managed Kimi config on logout', async () => {

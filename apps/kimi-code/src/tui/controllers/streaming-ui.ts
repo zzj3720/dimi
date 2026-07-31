@@ -35,6 +35,7 @@ export interface StreamingUIHost {
   deferUserMessages: boolean;
   shiftQueuedMessage(): QueuedMessage | undefined;
   pushTranscriptEntry(entry: TranscriptEntry): void;
+  collapseTrailingToolCalls(): void;
   mergeCurrentTurnSteps(): void;
   mergeCompletedTurnAssistants(): void;
 }
@@ -270,10 +271,10 @@ export class StreamingUIController {
 
   /**
    * Mark a foreground subagent card as detached-to-background (`◐ backgrounded`).
-   * Routed from a `background.task.started` event whose `info.kind === 'agent'`,
+   * Routed from a `task.started` event whose `info.kind === 'agent'`,
    * keyed by `agentId`. Returns true iff a matching component was found.
    *
-   * Gated to cards that are currently foreground-running: `background.task.started`
+   * Gated to cards that are currently foreground-running: `task.started`
    * also fires for `Agent(run_in_background=true)` launches and for background
    * resumes, and those must not mutate older completed rows that happen to share
    * the same `agentId` (a resume's new card has no parsed `agent_id` yet, so the
@@ -384,6 +385,7 @@ export class StreamingUIController {
 
   /** Tears down replay-specific state after session history has been rendered. */
   cleanupAfterReplay(completedToolCallIds: Set<string>): void {
+    this.host.collapseTrailingToolCalls();
     this._activeToolCalls.clear();
     for (const toolCallId of completedToolCallIds) {
       this._pendingToolComponents.delete(toolCallId);
@@ -556,6 +558,7 @@ export class StreamingUIController {
     const completedTurnKey =
       this._currentTurnId ?? `local:${String(state.appState.streamingStartTime)}`;
     this.finalizeLiveTextBuffers('idle');
+    this.host.collapseTrailingToolCalls();
     // The finished turn keeps only its conclusion-bearing tail; intermediate
     // chatter folds into the step summary.
     this.host.mergeCompletedTurnAssistants();
@@ -594,6 +597,7 @@ export class StreamingUIController {
     const { state } = this.host;
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
+    this.host.collapseTrailingToolCalls();
     const entry = {
       id: nextTranscriptId(),
       kind: 'assistant' as const,
@@ -642,7 +646,7 @@ export class StreamingUIController {
         'live',
         state.ui,
       );
-      if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
+      if (state.toolDisplayMode === 'full') this._activeThinkingComponent.setExpanded(true);
       state.transcriptContainer.addChild(this._activeThinkingComponent);
     } else {
       this._activeThinkingComponent.setText(fullText);
@@ -653,6 +657,7 @@ export class StreamingUIController {
   onThinkingEnd(): void {
     if (this._activeThinkingComponent === undefined) return;
     this._activeThinkingComponent.finalize();
+    this._activeThinkingComponent.setHidden(this.host.state.toolDisplayMode === 'summary');
     this._activeThinkingComponent = undefined;
     this.host.state.ui.requestRender();
     this.host.mergeCurrentTurnSteps();
@@ -668,7 +673,7 @@ export class StreamingUIController {
       state.ui,
       state.appState.workDir,
     );
-    if (state.toolOutputExpanded) tc.setExpanded(true);
+    if (state.toolDisplayMode === 'full') tc.setExpanded(true);
     this._pendingToolComponents.set(toolCall.id, tc);
 
     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
@@ -713,7 +718,7 @@ export class StreamingUIController {
         state.ui,
         state.appState.workDir,
       );
-      if (state.toolOutputExpanded) completed.setExpanded(true);
+      if (state.toolDisplayMode === 'full') completed.setExpanded(true);
       state.transcriptContainer.addChild(completed);
       state.ui.requestRender();
     }
@@ -732,6 +737,7 @@ export class StreamingUIController {
 
   beginCompaction(instruction?: string): void {
     const { state } = this.host;
+    this.host.collapseTrailingToolCalls();
     if (this._activeCompactionBlock !== undefined) {
       this._activeCompactionBlock.markDone();
       this._activeCompactionBlock = undefined;
@@ -739,7 +745,7 @@ export class StreamingUIController {
     const block = new CompactionComponent(state.ui, instruction, currentWorkingTip()?.text);
     this._activeCompactionBlock = block;
     state.transcriptContainer.addChild(block);
-    if (state.toolOutputExpanded) {
+    if (state.toolDisplayMode === 'full') {
       block.setExpanded(true);
     }
     state.ui.requestRender();

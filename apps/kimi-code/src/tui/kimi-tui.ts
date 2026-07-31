@@ -1,6 +1,3 @@
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type {
   ApprovalRequest,
@@ -12,7 +9,6 @@ import type {
   PromptPart,
   Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import {
   deleteAllKittyImages,
   type Component,
@@ -23,7 +19,6 @@ import {
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
-import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
@@ -85,6 +80,11 @@ import {
 import { StepSummaryComponent } from './components/messages/step-summary';
 import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
+import {
+  ToolCallSequenceComponent,
+  toolCallsIn,
+  type ToolDisplayMode,
+} from './components/messages/tool-call-sequence';
 import {
   ReplayTurnBoundaryComponent,
   UserMessageComponent,
@@ -181,9 +181,6 @@ export interface KimiTUIStartupInput {
   readonly version: string;
   readonly workDir: string;
   readonly startupNotice?: string;
-  readonly migrationPlan?: MigrationPlan | null;
-  /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
-  readonly migrateOnly?: boolean;
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
@@ -222,6 +219,8 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    sessionUsage: null,
+    latestPromptUsage: null,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -230,6 +229,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
+    busyInputMode: input.tuiConfig.busyInputMode,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
@@ -320,8 +320,6 @@ export class KimiTUI {
   private uninstallRainbowDance: () => void;
   private signalCleanupHandlers: Array<() => void> = [];
   private isShuttingDown = false;
-  private readonly migrationPlan: MigrationPlan | null;
-  private readonly migrateOnly: boolean;
   private startupNotice: string | undefined;
   private lastActivityMode: string | undefined;
   private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
@@ -393,8 +391,6 @@ export class KimiTUI {
       },
     };
     this.options = tuiOptions;
-    this.migrationPlan = startupInput.migrationPlan ?? null;
-    this.migrateOnly = startupInput.migrateOnly ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.uninstallRainbowDance = installRainbowDance(() => {
@@ -531,29 +527,6 @@ export class KimiTUI {
     this.registerSignalHandlers();
     // Outer try rolls back signal listeners on startup failure.
     try {
-      if (this.migrationPlan !== null) {
-        // Migration needs the event loop running first (pi-tui component).
-        this.startEventLoop();
-        try {
-          const migrationResult = await this.runMigrationScreen(this.migrationPlan);
-          if (this.migrateOnly) {
-            const failed = migrationResult.decision === 'now' && migrationResult.migrated === false;
-            this.disposeTerminalTracking();
-            this.state.ui.stop();
-            await this.onExit?.(failed ? 1 : 0);
-            return;
-          }
-          const shouldReplayHistory = await this.initMainTui();
-          this.startBackgroundFdAutocomplete();
-          await this.finishStartup(shouldReplayHistory);
-        } catch (error) {
-          this.disposeTerminalTracking();
-          this.state.ui.stop();
-          throw error;
-        }
-        return;
-      }
-
       const shouldReplayHistory = await this.initMainTui();
       this.startEventLoop();
       try {
@@ -1050,7 +1023,9 @@ export class KimiTUI {
       renderMode: 'plain',
       content: '',
     };
-    const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
+    const outputComponent = new ShellRunComponent(() => {
+      this.state.ui.requestRender();
+    });
     this.shellOutputStreams.set(commandId, { entry: outputEntry, component: outputComponent });
     this.state.transcriptEntries.push(outputEntry);
     markTranscriptComponent(outputComponent, outputEntry);
@@ -1389,11 +1364,23 @@ export class KimiTUI {
   }
 
   private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
-    if (
-      this.deferUserMessages ||
-      this.state.appState.streamingPhase !== 'idle' ||
-      this.state.appState.isCompacting
-    ) {
+    if (this.deferUserMessages || this.state.appState.isCompacting) {
+      this.enqueueMessage(input, options);
+      return;
+    }
+    // Mid-turn Enter: either queue (default) or steer immediately, per
+    // tui.toml `busy_input_mode` / Settings → Busy input.
+    if (this.state.appState.streamingPhase !== 'idle') {
+      if (this.state.appState.busyInputMode === 'steer') {
+        this.steerMessage(session, [
+          {
+            text: input,
+            parts: options?.parts,
+            imageAttachmentIds: options?.imageAttachmentIds,
+          },
+        ]);
+        return;
+      }
       this.enqueueMessage(input, options);
       return;
     }
@@ -1587,6 +1574,14 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
+      sessionUsage: status.usage ?? null,
+      // Prefer current-turn usage when present. Otherwise keep a same-session
+      // step-level reading (from turn.step.completed); never carry CH% across sessions.
+      latestPromptUsage:
+        status.usage?.currentTurn ??
+        (session.id === this.state.appState.sessionId
+          ? (this.state.appState.latestPromptUsage ?? null)
+          : null),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -1880,7 +1875,7 @@ export class KimiTUI {
         block.markCanceled();
       } else {
         block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
-        if (this.state.toolOutputExpanded) {
+        if (this.state.toolDisplayMode === 'full') {
           block.setExpanded(true);
         }
       }
@@ -1912,7 +1907,7 @@ export class KimiTUI {
           return new GoalSetMessageComponent();
         }
         if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded);
+          return buildGoalMarker(entry.goalData.change, this.state.toolDisplayMode === 'full');
         }
         return null;
       case 'assistant': {
@@ -1925,7 +1920,8 @@ export class KimiTUI {
       }
       case 'thinking': {
         const thinking = new ThinkingComponent(entry.content, true);
-        if (this.state.toolOutputExpanded) thinking.setExpanded(true);
+        thinking.setHidden(this.state.toolDisplayMode === 'summary');
+        if (this.state.toolDisplayMode === 'full') thinking.setExpanded(true);
         return thinking;
       }
       case 'tool_call':
@@ -1936,7 +1932,7 @@ export class KimiTUI {
             this.state.ui,
             this.state.appState.workDir,
           );
-          if (this.state.toolOutputExpanded) tc.setExpanded(true);
+          if (this.state.toolDisplayMode === 'full') tc.setExpanded(true);
           return tc;
         }
         if (entry.backgroundAgentStatus !== undefined) {
@@ -1960,6 +1956,9 @@ export class KimiTUI {
   }
 
   appendTranscriptEntry(entry: TranscriptEntry): void {
+    if (entry.kind !== 'thinking' && entry.kind !== 'tool_call') {
+      this.collapseTrailingToolCalls();
+    }
     this.state.transcriptEntries.push(entry);
     const component = this.createTranscriptComponent(entry);
     if (component) {
@@ -2154,6 +2153,28 @@ export class KimiTUI {
     );
   }
 
+  collapseTrailingToolCalls(): void {
+    const children = this.state.transcriptContainer.children;
+    let start = children.length;
+    const toolCalls: ToolCallComponent[] = [];
+    while (start > 0) {
+      const child = children[start - 1]!;
+      const calls = toolCallsIn(child);
+      if (calls === undefined && !(child instanceof ThinkingComponent)) break;
+      start -= 1;
+      if (calls !== undefined) toolCalls.unshift(...calls);
+    }
+    if (toolCalls.length === 0) return;
+
+    const sequence = new ToolCallSequenceComponent(
+      children.slice(start),
+      toolCalls,
+      this.state.toolDisplayMode,
+    );
+    children.splice(start, children.length - start, sequence);
+    this.state.transcriptContainer.invalidate();
+  }
+
   /**
    * Fold the just-finished turn's assistant messages down to the completed-turn
    * cap: while a turn is live it may keep TRANSCRIPT_KEEP_RECENT_ASSISTANT
@@ -2217,6 +2238,10 @@ export class KimiTUI {
       const child = children[idx]!;
       if (child instanceof ThinkingComponent) thinkingCount++;
       else if (child instanceof ToolCallComponent) toolCount++;
+      else if (child instanceof ToolCallSequenceComponent) {
+        thinkingCount += child.thinkingCount;
+        toolCount += child.toolCount;
+      }
     }
     if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
 
@@ -2301,6 +2326,10 @@ export class KimiTUI {
           const child = children[idx]!;
           if (child instanceof ThinkingComponent) thinkingCount++;
           else if (child instanceof ToolCallComponent) toolCount++;
+          else if (child instanceof ToolCallSequenceComponent) {
+            thinkingCount += child.thinkingCount;
+            toolCount += child.toolCount;
+          }
         }
         let summary: StepSummaryComponent;
         if (summaryIndex >= 0) {
@@ -2330,11 +2359,13 @@ export class KimiTUI {
   }
 
   showStatus(message: string, color?: ColorToken): void {
+    this.collapseTrailingToolCalls();
     this.state.transcriptContainer.addChild(new StatusMessageComponent(message, color));
     this.state.ui.requestRender();
   }
 
   showNotice(title: string, detail?: string): void {
+    this.collapseTrailingToolCalls();
     this.state.transcriptContainer.addChild(new NoticeMessageComponent(title, detail));
     this.state.ui.requestRender();
   }
@@ -2518,12 +2549,19 @@ export class KimiTUI {
         isCompacting: this.state.appState.isCompacting,
         isStreaming: this.state.appState.streamingPhase !== 'idle',
         canSteerImmediately: !this.deferUserMessages,
+        enterSteersByDefault: this.state.appState.busyInputMode === 'steer',
       }),
     );
   }
 
   toggleToolOutputExpansion(): void {
-    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
+    const nextMode: ToolDisplayMode =
+      this.state.toolDisplayMode === 'summary'
+        ? 'tools'
+        : this.state.toolDisplayMode === 'tools'
+          ? 'full'
+          : 'summary';
+    this.state.toolDisplayMode = nextMode;
     const children = this.state.transcriptContainer.children;
 
     // A component is expandable only if it sits at or after the start of the
@@ -2543,8 +2581,15 @@ export class KimiTUI {
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;
+      if (child instanceof ToolCallSequenceComponent) {
+        child.setDisplayMode(i >= expandCutoff ? nextMode : 'summary');
+        continue;
+      }
+      if (child instanceof ThinkingComponent) {
+        child.setHidden(nextMode === 'summary');
+      }
       if (!isExpandable(child)) continue;
-      child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
+      child.setExpanded(nextMode === 'full' && i >= expandCutoff);
     }
     // Expanding/collapsing shifts content above the viewport; the clamped
     // differential render would paint a second copy below the stale one in
@@ -2808,35 +2853,6 @@ export class KimiTUI {
     this.state.editor.setText(text);
     this.updateEditorBorderHighlight(text);
     this.state.ui.requestRender();
-  }
-
-  private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
-    const result = await new Promise<MigrationScreenResult>((resolve) => {
-      const screen = new MigrationScreenComponent({
-        plan,
-        sourceHome: plan.sourceHome,
-        targetHome: this.harness.homeDir,
-        skipDecisionStep: this.migrateOnly,
-        requestRender: () => {
-          this.state.ui.requestRender();
-        },
-        onComplete: (r) => {
-          resolve(r);
-        },
-      });
-      this.mountEditorReplacement(screen);
-    });
-    this.restoreEditor();
-    if (result.decision === 'never') {
-      // Persist the skip marker `detectPendingMigration` checks, so "Never ask
-      // again" actually stops the prompt from reappearing every launch.
-      try {
-        writeFileSync(join(this.harness.homeDir, '.skip-migration-from-kimi-cli'), '', 'utf-8');
-      } catch {
-        // Non-blocking: a failed marker write must never crash startup.
-      }
-    }
-    return result;
   }
 
   showHelpPanel(): void {

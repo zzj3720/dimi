@@ -18,6 +18,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { MiniDb } from '../src/index.js';
+import { listKimiSessions, loadKimiWorkspaces } from './kimi-sessions.js';
 
 export interface WorkspaceDoc {
   name: string;
@@ -113,11 +114,7 @@ export class SessionStore {
   // ---- ingest -------------------------------------------------------------
 
   async ingestKimiCode(homeDir: string): Promise<{ workspaces: number; sessions: number; textBytes: number }> {
-    const wsRaw = JSON.parse(readFileSync(path.join(homeDir, 'workspaces.json'), 'utf8')) as {
-      workspaces?: Record<string, { name: string; root: string; created_at?: string; last_opened_at?: string }>;
-    };
-    const workspaces = wsRaw.workspaces ?? {};
-    const lines = readFileSync(path.join(homeDir, 'session_index.jsonl'), 'utf8').trim().split('\n');
+    const workspaces = loadKimiWorkspaces(homeDir);
 
     let wsCount = 0;
     let sessCount = 0;
@@ -139,33 +136,19 @@ export class SessionStore {
     }
 
     // sessions
-    for (const line of lines) {
-      let meta: { sessionId: string; sessionDir: string; workDir: string };
-      try {
-        meta = JSON.parse(line) as typeof meta;
-      } catch {
-        continue;
-      }
+    for (const meta of listKimiSessions(homeDir)) {
       const wirePath = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');
       if (!existsSync(wirePath)) continue;
 
-      let state: { title?: string; lastPrompt?: string; createdAt?: string; updatedAt?: string } = {};
-      try {
-        state = JSON.parse(readFileSync(path.join(meta.sessionDir, 'state.json'), 'utf8')) as typeof state;
-      } catch {
-        /* no state.json */
-      }
-
       const { text, messages } = extractWireText(wirePath);
-      const wsId = path.basename(path.dirname(meta.sessionDir));
-      const ws = workspaces[wsId];
+      const ws = workspaces[meta.workspaceId];
       const doc: SessionDoc = {
-        workspaceId: wsId,
+        workspaceId: meta.workspaceId,
         workspaceName: ws?.name ?? '',
         workDir: meta.workDir,
-        title: state.title ?? '',
-        lastPrompt: state.lastPrompt ?? '',
-        text: (state.title ? state.title + '\n' : '') + text,
+        title: meta.state.title ?? '',
+        lastPrompt: meta.state.lastPrompt ?? '',
+        text: (meta.state.title ? meta.state.title + '\n' : '') + text,
         sessionDir: meta.sessionDir,
         messageCount: messages,
       };
@@ -175,8 +158,8 @@ export class SessionStore {
         key: 'sess:' + meta.sessionId,
         value: doc,
         dt: {
-          updatedAt: state.updatedAt ? Date.parse(state.updatedAt) : 0,
-          createdAt: state.createdAt ? Date.parse(state.createdAt) : 0,
+          updatedAt: meta.state.updatedAt ?? 0,
+          createdAt: meta.state.createdAt ?? 0,
         },
       });
       sessCount++;

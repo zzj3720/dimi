@@ -259,7 +259,7 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
         model: "kimi-k2",
         thinking: "high",
         permission: "yolo",
-        metadata: { vscode_legacy_approval: { yolo: true, afk: false } },
+        metadata: { vscode_approval_modes: { yolo: true, afk: false } },
       },
     ]);
     expect(opened.subscribers).toEqual(["view-1"]);
@@ -401,7 +401,7 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
     await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
     expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: true, afk: false } },
+      { vscode_approval_modes: { yolo: true, afk: false } },
     ]);
   });
 
@@ -411,16 +411,16 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: false } },
+      { vscode_approval_modes: { yolo: false, afk: false } },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
     expect(session.setPermissions).toEqual(["yolo"]);
     expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: true, afk: false } },
+      { vscode_approval_modes: { yolo: true, afk: false } },
     ]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    expect(opened.approvalModes).toEqual({ yolo: true, afk: false });
   });
 
   it("lets the global yolo setting disable a persisted session yolo flag on resume", async () => {
@@ -429,16 +429,16 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
       "saved-1",
       "/workspace",
       { permission: "yolo" },
-      { vscode_legacy_approval: { yolo: true, afk: false } },
+      { vscode_approval_modes: { yolo: true, afk: false } },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
 
     expect(session.setPermissions).toEqual(["manual"]);
     expect(session.metadataUpdates).toEqual([
-      { vscode_legacy_approval: { yolo: false, afk: false } },
+      { vscode_approval_modes: { yolo: false, afk: false } },
     ]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    expect(opened.approvalModes).toEqual({ yolo: false, afk: false });
   });
 
   it("keeps the persisted afk flag while applying the global yolo setting on resume", async () => {
@@ -447,13 +447,13 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: true } },
+      { vscode_approval_modes: { yolo: false, afk: true } },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
     expect(session.setPermissions).toEqual(["auto"]);
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    expect(opened.approvalModes).toEqual({ yolo: true, afk: true });
   });
 
   it("restores persisted afk with core auto permission", async () => {
@@ -462,7 +462,7 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_legacy_approval: { yolo: false, afk: true } },
+      { vscode_approval_modes: { yolo: false, afk: true } },
     );
 
     await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
@@ -473,11 +473,11 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
   it("changes the setting-backed yolo flag without clearing session afk", async () => {
     const { runtime } = createRuntime();
     const opened = await runtime.openSession(openOptions());
-    await opened.toggleLegacyApproval("afk");
+    await opened.toggleApprovalMode("afk");
 
     await runtime.setYoloModeForActiveSessions(true);
 
-    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    expect(opened.approvalModes).toEqual({ yolo: true, afk: true });
     await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
   });
 

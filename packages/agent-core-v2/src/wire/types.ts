@@ -33,6 +33,17 @@ export type OpPayload<K extends OpType> = K extends PersistedOpType
     ? PayloadOf<TransientOpMap[K]>
     : never;
 
+type PersistedWireRecordOf<K extends PersistedOpType> = {
+  readonly type: K;
+  readonly time?: number;
+} & (OpPayload<K> extends object
+  ? OpPayload<K>
+  : { readonly payload: OpPayload<K> });
+
+export type PersistedWireRecord = {
+  [K in PersistedOpType]: PersistedWireRecordOf<K>;
+}[PersistedOpType];
+
 export type ModelReducers<S> = {
   [K in OpType]?: (state: S, payload: OpPayload<K>) => S;
 };

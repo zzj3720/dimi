@@ -130,6 +130,59 @@ describe('FooterComponent — context NaN resilience', () => {
     expect(strip(line2 ?? '')).toContain('context: 0%');
   });
 
+  it('appends CH% from latestPromptUsage when cache activity is present', () => {
+    const footer = new FooterComponent(
+      baseState({
+        contextUsage: 0.42,
+        contextTokens: 430_080,
+        maxContextTokens: 1_048_576,
+        latestPromptUsage: {
+          inputOther: 100,
+          output: 20,
+          inputCacheRead: 800,
+          inputCacheCreation: 100,
+        },
+      }),
+    );
+    const out = strip(footer.render(200).join(''));
+    expect(out).toMatch(/context: 42% \(420k\/1M\)\s+CH80\.0%/);
+  });
+
+  it('falls back to sessionUsage.currentTurn when latestPromptUsage is absent', () => {
+    const footer = new FooterComponent(
+      baseState({
+        contextUsage: 0.1,
+        sessionUsage: {
+          currentTurn: {
+            inputOther: 0,
+            output: 5,
+            inputCacheRead: 900,
+            inputCacheCreation: 100,
+          },
+        },
+      }),
+    );
+    const out = strip(footer.render(200).join(''));
+    expect(out).toMatch(/context: 10%\s+CH90\.0%/);
+  });
+
+  it('omits CH% when the provider reported no cache activity', () => {
+    const footer = new FooterComponent(
+      baseState({
+        contextUsage: 0.2,
+        latestPromptUsage: {
+          inputOther: 1000,
+          output: 10,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+        },
+      }),
+    );
+    const out = strip(footer.render(200).join(''));
+    expect(out).toMatch(/context: 20%/);
+    expect(out).not.toMatch(/CH/);
+  });
+
   it('highlights the pull request badge separately from git status text', () => {
     const previousLevel = chalk.level;
     chalk.level = 3;

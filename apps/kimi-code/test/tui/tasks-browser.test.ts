@@ -176,6 +176,31 @@ describe('TasksBrowserApp — full-screen rendering', () => {
     expect(out).toContain('call_question');
   });
 
+  it('renders a detached generic tool task through the shared task model', () => {
+    const out = strip(
+      makeApp({
+        tasks: [
+          task({
+            taskId: 'tool-aaaaaaaa',
+            kind: 'tool',
+            description: 'Running SlowLookup',
+            detached: true,
+            turnId: 2,
+            toolCallId: 'call_slow_lookup',
+            toolName: 'SlowLookup',
+            autoWaitTimeoutSeconds: 20,
+          }),
+        ],
+        selectedTaskId: 'tool-aaaaaaaa',
+      })
+        .render(120)
+        .join('\n'),
+    );
+    expect(out).toContain('tool-aaaaaaaa');
+    expect(out).toContain('Running SlowLookup');
+    expect(out).toContain('running');
+  });
+
   it('renders tail output in the Preview Output pane', () => {
     const out = strip(
       makeApp({

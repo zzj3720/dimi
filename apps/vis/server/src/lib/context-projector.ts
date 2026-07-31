@@ -1,13 +1,12 @@
 import {
-  COMPACT_USER_MESSAGE_MAX_TOKENS,
   COMPACTION_ELISION_VARIANT,
   buildCompactionElisionText,
   collectCompactableUserMessages,
   isRealUserInput,
+  readContextCompactionRecord,
   renderToolResultForModel,
   selectCompactionUserMessages,
-  selectRecentUserMessages,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   ContentPart,
   ContextMessage,
@@ -224,8 +223,6 @@ export function projectContext(
         if (mode === 'model') {
           messages = [];
           openSteps = new Map();
-          // Mirror agent-core clear() → microCompaction.reset() (cutoff → 0):
-          // the message indices are wiped, so any prior cutoff is meaningless.
           microCutoff = 0;
         } else {
           // Full history: keep all preceding messages and openSteps as-is, just
@@ -249,15 +246,17 @@ export function projectContext(
         break;
       case 'context.apply_compaction': {
         openSteps = new Map();
+        const compaction = readContextCompactionRecord(rec);
         // Mirror agent-core's `applyCompaction`
-        // (`packages/agent-core/src/agent/context/index.ts`): the live history
+        // (`packages/agent-core-v2/src/agent/contextMemory/contextMemoryService.ts`):
+        // the live history
         // becomes the kept real user messages (verbatim, within a token budget
         // — the oldest head plus the most recent tail, separated by an elision
         // marker when the pool overflowed) followed by a single user-role
         // summary tagged `origin.kind = 'compaction_summary'`. Assistant
         // messages, tool calls, and tool results are dropped. The selection
-        // rules (`selectCompactionUserMessages` / `selectRecentUserMessages` /
-        // `collectCompactableUserMessages`) are the same helpers agent-core's
+        // rules (`selectCompactionUserMessages` /
+        // `collectCompactableUserMessages`) are the same helpers the runtime's
         // `ContextMemory` and the web transcript reducer apply, so all three
         // views stay in sync.
         const summaryBubble: ProjectedMessage = {
@@ -266,94 +265,46 @@ export function projectContext(
           source: 'compaction_summary',
           message: {
             role: 'user',
-            content: [{ type: 'text', text: rec.summary }],
+            content: [{ type: 'text', text: compaction.summary }],
             toolCalls: [],
             origin: { kind: 'compaction_summary' },
           } as ContextMessage,
           toolStepUuids: [],
           compaction: {
-            compactedCount: rec.compactedCount,
-            tokensBefore: rec.tokensBefore,
-            tokensAfter: rec.tokensAfter,
+            compactedCount: compaction.compactedCount,
+            tokensBefore: compaction.tokensBefore,
+            tokensAfter: compaction.tokensAfter ?? 0,
           },
         };
-        const modelSummaryBubble: ProjectedMessage =
-          rec.contextSummary === undefined
-            ? summaryBubble
-            : {
-                ...summaryBubble,
-                message: {
-                  ...summaryBubble.message,
-                  content: [{ type: 'text', text: rec.contextSummary }],
-                } as ContextMessage,
-              };
+        const modelSummaryBubble: ProjectedMessage = {
+          ...summaryBubble,
+          message: {
+            ...summaryBubble.message,
+            content: [{ type: 'text', text: compaction.contextSummary }],
+          } as ContextMessage,
+        };
         if (mode === 'model') {
-          // Rebuild the model's-eye view. New records carry `keptUserMessageCount`
-          // and use the kept-user selection below; legacy records fall back to the
-          // old verbatim-tail shape (handled first).
           const historyEntries = messages.filter(isHistoryEntry);
-          if (rec.keptUserMessageCount === undefined && rec.compactedCount < historyEntries.length) {
-            // Legacy (pre-rework) record: it has no `keptUserMessageCount`, so
-            // agent-core's ContextMemory restore reproduces the old
-            // `[summary, ...history.slice(compactedCount)]` semantics — a verbatim
-            // recent tail (assistant/tool included), not the new kept-user
-            // selection. Mirror that exact shape so opening an older compacted
-            // session in model mode shows the same tail the resumed agent still
-            // holds, instead of hiding it behind the new selection.
-            messages = [modelSummaryBubble, ...historyEntries.slice(rec.compactedCount)];
-          } else if (rec.keptHeadUserMessageCount === undefined) {
-            // Tail-only record: written before the head/tail split, or by new
-            // code whose user pool fit the budget (the two selections agree in
-            // that case). `realUserEntries` is filtered with the exact
-            // `collectCompactableUserMessages` predicate so it stays aligned with
-            // the selection below (genuine user input only — no injections, system
-            // triggers, or prior summaries). `selectRecentUserMessages` keeps a
-            // contiguous suffix of that subsequence, with only the oldest kept
-            // message possibly truncated, so each kept message maps back onto its
-            // original ProjectedMessage wrapper (preserving line/time); we swap in
-            // the (possibly truncated) message object.
-            const realUserEntries = historyEntries.filter(
-              (pm) => collectCompactableUserMessages([pm.message]).length === 1,
-            );
-            const keptUserMessages = selectRecentUserMessages(
-              realUserEntries.map((pm) => pm.message),
-              COMPACT_USER_MESSAGE_MAX_TOKENS,
-            );
-            const suffixStart = realUserEntries.length - keptUserMessages.length;
-            const keptEntries: ProjectedMessage[] = keptUserMessages.map((message, i) => {
-              const original = realUserEntries[suffixStart + i]!;
-              return original.message === message ? original : { ...original, message };
-            });
-            messages = [...keptEntries, modelSummaryBubble];
-          } else {
-            // Head/tail record: mirror `selectCompactionUserMessages` and the
-            // elision marker `ContextMemory.applyCompaction` inserts between the
-            // segments. `tail` is a contiguous suffix of `realUserEntries` and
-            // `head` a contiguous prefix, except that the head's last item may be
-            // a slice of the SAME message whose end anchors the tail (the head
-            // extends into the tail boundary's cut-off beginning) — map that one
-            // onto the tail-boundary original. Fractional lineNos keep the
-            // synthesized entries' React keys unique; ContextTab renders in array
-            // order, so they never affect placement.
-            const realUserEntries = historyEntries.filter(
-              (pm) => collectCompactableUserMessages([pm.message]).length === 1,
-            );
-            const selection = selectCompactionUserMessages(
-              realUserEntries.map((pm) => pm.message),
-            );
-            const tailStart = realUserEntries.length - selection.tail.length;
-            const headEntries: ProjectedMessage[] = selection.head.map((message, i) => {
-              const original = i < tailStart ? realUserEntries[i]! : realUserEntries[tailStart]!;
-              if (original.message === message) return original;
-              return i < tailStart
-                ? { ...original, message }
-                : { ...original, lineNo: original.lineNo - 0.5, message };
-            });
-            const tailEntries: ProjectedMessage[] = selection.tail.map((message, i) => {
-              const original = realUserEntries[tailStart + i]!;
-              return original.message === message ? original : { ...original, message };
-            });
-            const markerBubble: ProjectedMessage = {
+          const realUserEntries = historyEntries.filter(
+            (pm) => collectCompactableUserMessages([pm.message]).length === 1,
+          );
+          const selection = selectCompactionUserMessages(
+            realUserEntries.map((pm) => pm.message),
+          );
+          const tailStart = realUserEntries.length - selection.tail.length;
+          const headEntries: ProjectedMessage[] = selection.head.map((message, i) => {
+            const original = i < tailStart ? realUserEntries[i]! : realUserEntries[tailStart]!;
+            if (original.message === message) return original;
+            return i < tailStart
+              ? { ...original, message }
+              : { ...original, lineNo: original.lineNo - 0.5, message };
+          });
+          const tailEntries: ProjectedMessage[] = selection.tail.map((message, i) => {
+            const original = realUserEntries[tailStart + i]!;
+            return original.message === message ? original : { ...original, message };
+          });
+          const markerBubble: ProjectedMessage[] = selection.elided
+            ? [{
               lineNo: entry.lineNo - 0.5,
               time: rec.time,
               source: 'append_message',
@@ -366,23 +317,19 @@ export function projectContext(
                 origin: { kind: 'injection', variant: COMPACTION_ELISION_VARIANT },
               } as ContextMessage,
               toolStepUuids: [],
-            };
-            messages = [...headEntries, markerBubble, ...tailEntries, modelSummaryBubble];
-          }
+            }]
+            : [];
+          messages = [...headEntries, ...markerBubble, ...tailEntries, modelSummaryBubble];
         } else {
           // Full history: keep ALL preceding messages, just append the summary
           // marker inline so the compacted prefix stays visible.
           messages.push(summaryBubble);
         }
-        // Mirror agent-core applyCompaction() → microCompaction.reset() (cutoff
-        // → 0): the message list is rebuilt, so the old index-based cutoff no
-        // longer points at the same messages. (In full mode the blanking pass
-        // does not run, so this is a no-op there.)
         microCutoff = 0;
         // Mirror agent-core applyCompaction() → _tokenCount = result.tokensAfter:
         // the live context-window fill is now the post-compaction count. Derived
         // state, so it is mode-INDEPENDENT.
-        contextTokens = rec.tokensAfter;
+        contextTokens = compaction.tokensAfter;
         break;
       }
       case 'usage.record': {
@@ -400,7 +347,7 @@ export function projectContext(
         if (upd.cwd !== undefined) config.cwd = upd.cwd;
         if (upd.modelAlias !== undefined) config.modelAlias = upd.modelAlias;
         if (upd.profileName !== undefined) config.profileName = upd.profileName;
-        if (upd.thinkingEffort !== undefined) config.thinkingEffort = upd.thinkingEffort;
+        if (upd.thinkingLevel !== undefined) config.thinkingEffort = upd.thinkingLevel;
         if (upd.systemPrompt !== undefined) config.systemPrompt = upd.systemPrompt;
         break;
       }
@@ -432,16 +379,10 @@ export function projectContext(
             (pm, i) => i < cutoff || pm.message.origin?.kind === 'injection',
           );
           openSteps = new Map();
-          // Mirror agent-core undo() → microCompaction.reset(this._history.length):
-          // clamp the cutoff to the post-undo HISTORY-entry count so a later append
-          // does not get blanked by a now-too-large stale cutoff. Count only history
-          // entries (`isHistoryEntry`) — `messages.length` would include any surviving
-          // synthetic undo/clear marker, which agent-core's `_history.length` does
-          // NOT, so an array-length clamp could be too high by the marker count.
-          // (Clamp before pushing the undo marker, which is a non-tool pseudo-message
-          // and unaffected by blanking regardless.) With no markers, historyCount ===
-          // messages.length, so this is a no-op then.
-          const historyCount = messages.reduce((n, pm) => (isHistoryEntry(pm) ? n + 1 : n), 0);
+          const historyCount = messages.reduce(
+            (count, message) => count + (isHistoryEntry(message) ? 1 : 0),
+            0,
+          );
           microCutoff = Math.min(microCutoff, historyCount);
         }
         // In 'full' mode: do NOT remove — keep the undone messages and openSteps
@@ -463,9 +404,6 @@ export function projectContext(
         break;
       }
       case 'micro_compaction.apply':
-        // Track the latest cutoff; the actual content blanking is applied
-        // after the loop (mirrors agent-core MicroCompaction.compact, which
-        // runs over the full history at projection time).
         microCutoff = rec.cutoff;
         break;
       case 'goal.create':
@@ -501,7 +439,6 @@ export function projectContext(
       // Kinds that don't affect the projected timeline / derived state,
       // including the observability records (request trace — `llm.*`,
       // `mcp.tools_discovered`), which are never part of context state:
-      case 'metadata':
       case 'forked':
       case 'turn.prompt':
       case 'turn.steer':
@@ -519,35 +456,27 @@ export function projectContext(
       case 'mcp.tools_discovered':
         break;
       default: {
-        const _exhaustive: never = rec;
-        void _exhaustive;
         break;
       }
     }
   }
 
-  // Micro-compaction blanking (mirrors agent-core MicroCompaction.compact):
-  // blank any message whose HISTORY index < cutoff that is a `role: 'tool'`
-  // result with a defined toolCallId and content large enough (≥ the
-  // min-content gate), replacing its content with the truncation marker. The
-  // cutoff is an agent-core `_history` index, which never includes our synthetic
-  // 'undo'/'clear' markers, so we count only history entries (`isHistoryEntry`)
-  // — array indices would be offset by any preceding marker. This rewrite is the
-  // model's-eye view, so it runs ONLY in 'model' mode — in 'full' mode the
-  // original tool results are shown un-blanked.
   if (mode === 'model' && microCutoff > 0) {
     let historyIndex = 0;
-    for (const pm of messages) {
-      if (!isHistoryEntry(pm)) continue;
+    for (const projected of messages) {
+      if (!isHistoryEntry(projected)) continue;
       if (historyIndex >= microCutoff) break;
       historyIndex++;
-      const m = pm.message;
+      const message = projected.message;
       if (
-        m.role === 'tool' &&
-        m.toolCallId !== undefined &&
-        estimateContentTokens(m.content) >= MICRO_MIN_CONTENT_TOKENS
+        message.role === 'tool' &&
+        message.toolCallId !== undefined &&
+        estimateContentTokens(message.content) >= MICRO_MIN_CONTENT_TOKENS
       ) {
-        pm.message = { ...m, content: [{ type: 'text', text: MICRO_TRUNCATED_MARKER }] };
+        projected.message = {
+          ...message,
+          content: [{ type: 'text', text: MICRO_TRUNCATED_MARKER }],
+        };
       }
     }
   }
@@ -574,33 +503,23 @@ function addUsage(into: TokenUsage, src: TokenUsage): void {
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';
 const MICRO_MIN_CONTENT_TOKENS = 100;
 
-/** Replicates agent-core's per-char token weighting exactly, over the same
- *  `text` + `think` parts its gate counts. agent-core
- *  (`packages/agent-core/src/utils/tokens.ts`) sums per-part estimates, each
- *  `estimateTokens(s) = Math.ceil(asciiCount / 4) + nonAsciiCount` (ASCII ~4
- *  chars/token, every non-ASCII/CJK code point a full token); other part types
- *  contribute 0. Matching it ensures Chinese-heavy tool results blank at the
- *  same gate as the agent. */
+function estimateContentTokens(content: readonly ContentPart[]): number {
+  let total = 0;
+  for (const part of content) {
+    if (part.type === 'text') total += estimateTokens(part.text);
+    else if (part.type === 'think') total += estimateTokens(part.think);
+  }
+  return total;
+}
+
 function estimateTokens(text: string): number {
   let asciiCount = 0;
   let nonAsciiCount = 0;
   for (const char of text) {
-    if (char.codePointAt(0)! <= 127) {
-      asciiCount++;
-    } else {
-      nonAsciiCount++;
-    }
+    if (char.codePointAt(0)! <= 127) asciiCount++;
+    else nonAsciiCount++;
   }
   return Math.ceil(asciiCount / 4) + nonAsciiCount;
-}
-
-function estimateContentTokens(content: readonly ContentPart[]): number {
-  let total = 0;
-  for (const p of content) {
-    if (p.type === 'text') total += estimateTokens(p.text);
-    else if (p.type === 'think') total += estimateTokens(p.think);
-  }
-  return total;
 }
 
 /** True for messages that correspond to a real agent-core `_history` entry —

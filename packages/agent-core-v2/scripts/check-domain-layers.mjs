@@ -2,11 +2,11 @@
 /**
  * Domain-layer import boundary checker for `agent-core-v2`.
  *
- * Enforces three rules over `packages/agent-core-v2/src/**` (and the v1-import
- * ban over `test/**` too):
+ * Enforces three rules over `packages/agent-core-v2/src/**` (and the removed
+ * runtime import ban over `test/**` too):
  *
- *  1. **No v1 imports** — v2 must never `import '@moonshot-ai/agent-core'`
- *     (or any subpath). v2 ports logic; it never depends on v1.
+ *  1. **No removed runtime imports** — the current runtime must never import
+ *     the deleted `@moonshot-ai/agent-core` package or any subpath.
  *  2. **Domain layering** — a domain at layer L may only import domains at
  *     layer `<= L`. Lower layers must not reach upward. See
  *     `plan/PLAN.md` §3 / §5 for the layer table.
@@ -30,7 +30,7 @@
  *
  * Intra-package relative imports and `#/`-alias imports are resolved to a
  * domain by the first path segment under `src/`. Sibling packages
- * (`@moonshot-ai/*` other than v1) and third-party imports are out of scope
+ * (`@moonshot-ai/*` other than the removed runtime) and third-party imports are out of scope
  * (except for the kosong purity bans above).
  *
  * Run: `node scripts/check-domain-layers.mjs`. Exits non-zero on violation.
@@ -207,6 +207,7 @@ const DOMAIN_LAYER = new Map([
   ['faultInjection', 4],
   ['profile', 4],
   ['prompt', 4],
+  ['wait', 4],
   // `shellCommand` orchestrates user `!` commands through `toolRegistry` (L3),
   // `contextMemory` / `prompt` (L4) and `eventBus` (L1); its highest dependency is L4.
   ['shellCommand', 4],
@@ -287,7 +288,7 @@ const DOMAIN_LAYER = new Map([
   ['kosongConfig', 3],
 ]);
 
-const V1_PACKAGE = '@moonshot-ai/agent-core';
+const REMOVED_RUNTIME_PACKAGE = '@moonshot-ai/agent-core';
 
 /**
  * Scope directories introduced by the `src/{scope}/{domain}` layout. A path's
@@ -599,12 +600,15 @@ export function checkSource(source, absFile) {
     if (!specifier) continue;
     const line = source.slice(0, match.index).split('\n').length;
 
-    // Rule 1: v2 must not import v1.
-    if (specifier === V1_PACKAGE || specifier.startsWith(`${V1_PACKAGE}/`)) {
+    // Rule 1: current code must not restore a dependency on the deleted runtime.
+    if (
+      specifier === REMOVED_RUNTIME_PACKAGE ||
+      specifier.startsWith(`${REMOVED_RUNTIME_PACKAGE}/`)
+    ) {
       violations.push({
         file: absFile,
         line,
-        message: `v2 must not import v1 (${specifier})`,
+        message: `current runtime must not import removed runtime (${specifier})`,
       });
       continue;
     }
