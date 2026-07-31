@@ -116,7 +116,7 @@ describe("Android client real remote path", () => {
     cleanups.push(async () => {
       runtime.dispose();
     });
-    await runtime.pair(bridge.pairingUri);
+    await runtime.pair(bridge.createPairingUri());
     await eventually(() => runtime.state.connection === "online");
     await eventually(() => runtime.state.sessions.some((session) => session.id === sessionId));
     await runtime.selectSession(sessionId);

@@ -1,99 +1,58 @@
-import { hostname } from "node:os";
-import { join } from "node:path";
-
-import { getLiveServerInstance, startServer, type RunningServer } from "@moonshot-ai/kap-server";
-import { startRemoteBridge } from "@k-3720/remote/bridge";
 import type { Command } from "commander";
 import QRCode from "qrcode";
 
-import { getVersion } from "../version";
-import { getDataDir } from "../../utils/paths";
-import {
-  DEFAULT_SERVER_HOST,
-  DEFAULT_SERVER_PORT,
-  normalizeServerOrigin,
-  resolveServerToken,
-  serverOrigin,
-} from "./web/shared";
+import { startRemoteAccess } from "../../remote-access";
 
 interface RemoteCliOptions {
   relay: string;
   server?: string;
-  name: string;
+  name?: string;
 }
 
 export function registerRemoteCommand(parent: Command): void {
   parent
     .command("remote")
     .description("Connect this runtime to the mobile app through an encrypted relay.")
+    .argument("[action]", "Action: start or pair.", "start")
     .option(
       "--relay <url>",
       "Relay WebSocket URL.",
       process.env["AGENT_RELAY_URL"] ?? "wss://relay.k.3720.org",
     )
     .option("--server <url>", "Existing local server URL. Starts one when omitted.")
-    .option("--name <name>", "Name shown on paired devices.", hostname())
-    .action(async (options: RemoteCliOptions) => {
-      await runRemoteCommand(options);
+    .option("--name <name>", "Name shown on paired devices.")
+    .action(async (action: string, options: RemoteCliOptions) => {
+      await runRemoteCommand(action, options);
     });
 }
 
-async function runRemoteCommand(options: RemoteCliOptions): Promise<void> {
-  const homeDir = getDataDir();
-  const local = await resolveLocalServer(homeDir, options.server);
-  const bridge = await startRemoteBridge({
+async function runRemoteCommand(action: string, options: RemoteCliOptions): Promise<void> {
+  if (action !== "start" && action !== "pair") {
+    throw new Error("Usage: kimi remote [start|pair]");
+  }
+  const remote = await startRemoteAccess({
     relayUrl: options.relay,
-    localOrigin: local.origin,
-    localToken: local.token,
+    localOrigin: options.server,
     runtimeName: options.name,
-    statePath: join(homeDir, "remote", "bridge.json"),
     onStatus: (status) => process.stdout.write(`Relay ${status}\n`),
   });
 
-  process.stdout.write(`Runtime: ${bridge.runtimeId}\n`);
-  process.stdout.write("Scan with the mobile app:\n\n");
-  process.stdout.write(
-    `${await QRCode.toString(bridge.pairingUri, { type: "terminal", small: true })}\n`,
-  );
-  process.stdout.write(`${bridge.pairingUri}\n\n`);
+  process.stdout.write(`Runtime: ${remote.runtimeId}\n`);
+  if (action === "pair") {
+    const pairingUri = remote.createPairingUri();
+    process.stdout.write("Scan with the mobile app:\n\n");
+    process.stdout.write(
+      `${await QRCode.toString(pairingUri, { type: "terminal", small: true })}\n`,
+    );
+    process.stdout.write(`${pairingUri}\n\n`);
+  } else {
+    process.stdout.write("Paired devices reconnect automatically.\n");
+  }
   process.stdout.write("Press Ctrl+C to stop remote access.\n");
 
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
-  await bridge.close();
-  await local.owned?.close();
-}
-
-async function resolveLocalServer(
-  homeDir: string,
-  requestedOrigin: string | undefined,
-): Promise<{ origin: string; token: string; owned?: RunningServer }> {
-  if (requestedOrigin !== undefined) {
-    return {
-      origin: normalizeServerOrigin(requestedOrigin),
-      token: resolveServerToken(homeDir),
-    };
-  }
-  const live = await getLiveServerInstance(homeDir);
-  if (live !== undefined) {
-    return {
-      origin: serverOrigin(live.host, live.port),
-      token: resolveServerToken(homeDir),
-    };
-  }
-  const owned = await startServer({
-    host: DEFAULT_SERVER_HOST,
-    port: DEFAULT_SERVER_PORT,
-    homeDir,
-    version: getVersion(),
-    logLevel: "warn",
-    telemetry: true,
-  });
-  return {
-    origin: serverOrigin(owned.host, owned.port),
-    token: owned.authTokenService.getToken(),
-    owned,
-  };
+  await remote.close();
 }

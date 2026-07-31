@@ -13,14 +13,14 @@ The Android app connects to a local runtime through an end-to-end encrypted remo
 2. Connect the local runtime to that relay:
 
    ```sh
-   vp run dev:cli -- remote --relay wss://relay.example.com --name "My runtime"
+   vp run dev:cli -- remote pair --relay wss://relay.example.com --name "My runtime"
    ```
 
    An installed compatibility build can use `kimi remote` instead.
 
 3. Open the Android app and scan the QR code printed by the command. The same screen also accepts the printed `k-3720://pair?...` URI.
 
-The pairing identity is stored in Android secure storage. Later bridge restarts reconnect without pairing again.
+The pairing identity is stored in Android secure storage. Later runs use `kimi remote start` (or `/remote start` in the TUI); the app reconnects without pairing again.
 
 ## Android build
 

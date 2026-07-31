@@ -45,6 +45,7 @@ import { handlePluginsCommand } from './plugins';
 import { handleProviderCommand } from './provider';
 import type { BuiltinSlashCommandName } from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
+import { handleRemoteCommand } from './remote';
 import { resolveSlashCommandInput, slashBusyMessage } from './resolve';
 import {
   handleExportDebugZipCommand,
@@ -84,6 +85,7 @@ export { handleSwarmCommand } from './swarm';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
+export { handleRemoteCommand } from './remote';
 export { handleGoalCommand } from './goal';
 export {
   handleExportDebugZipCommand,
@@ -146,6 +148,15 @@ export interface SlashCommandHost {
    * until Ctrl+C.
    */
   setExitForegroundTask(task: (exitCode: number) => Promise<void>): void;
+  startRemoteAccess(): Promise<{
+    readonly runtimeId: string;
+    readonly started: boolean;
+  }>;
+  pairRemoteAccess(): Promise<{
+    readonly runtimeId: string;
+    readonly pairingUri: string;
+  }>;
+  stopRemoteAccess(): Promise<boolean>;
   showHelpPanel(): void;
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
@@ -379,6 +390,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'web':
       await handleWebCommand(host);
+      return;
+    case 'remote':
+      await handleRemoteCommand(host, args);
       return;
     default:
       host.showError(`Unknown slash command: /${String(name)}`);

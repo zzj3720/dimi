@@ -10,6 +10,7 @@ import type {
   TokenUsage,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
+import type { RemoteBridgeStatus } from '@k-3720/remote/bridge';
 
 import type {
   BusyInputMode,
@@ -21,6 +22,7 @@ import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 
 export type BannerDisplay = 'always' | 'once' | 'cooldown';
+export type RemoteStatus = RemoteBridgeStatus;
 
 export interface BannerState {
   key: string;
@@ -76,6 +78,8 @@ export interface AppState {
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
+  /** Relay connection state while remote access is enabled. */
+  remoteStatus?: RemoteStatus | null;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;

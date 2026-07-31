@@ -187,6 +187,15 @@ command = "~/.kimi-code/statusline.sh"
     });
   });
 
+  it('accepts remote as a status line item', () => {
+    const config = parseTuiConfig(`
+[status_line]
+items = ["model", "remote", "cwd"]
+`);
+
+    expect(config.statusLine?.items).toEqual(['model', 'remote', 'cwd']);
+  });
+
   it('skips unknown items with a warning instead of failing the whole file', () => {
     const config = parseTuiConfig(`
 [status_line]

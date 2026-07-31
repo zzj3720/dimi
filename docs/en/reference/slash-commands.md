@@ -42,6 +42,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/copy` | — | Copy the last assistant message to the clipboard | No |
 | `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
 | `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
+| `/remote start\|pair\|stop` | — | Start or stop encrypted mobile remote access, or create a one-time QR code to pair a new device. Paired devices reconnect automatically; the footer shows the live relay state while enabled. See [`kimi remote`](./kimi-command.md#kimi-remote) | Yes |
 
 ## Modes & Run Control
 
