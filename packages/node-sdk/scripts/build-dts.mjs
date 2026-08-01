@@ -12,10 +12,9 @@ const providerClientShimPath = path.join(dtsRoot, "provider-clients.d.ts");
 const tscBinPath = packageBinPath("typescript", "bin/tsc");
 const apiExtractorBinPath = packageBinPath("@microsoft/api-extractor", "bin/api-extractor");
 
-const packageDirs = new Set(["agent-core-v2", "kaos", "klient", "node-sdk", "oauth", "protocol"]);
+const packageDirs = new Set(["agent-core-v2", "klient", "node-sdk", "oauth", "protocol"]);
 const workspacePackages = new Map([
   ["@dimi-agent/agent-core-v2", "agent-core-v2"],
-  ["@dimi-agent/kaos", "kaos"],
   ["@dimi-agent/dimi-oauth", "oauth"],
   ["@dimi-agent/klient", "klient"],
   ["@dimi-agent/protocol", "protocol"],

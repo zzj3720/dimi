@@ -5,7 +5,6 @@ import type {
   ExperimentalFeatureState,
   SwarmModeTrigger,
 } from "@dimi-agent/agent-core-v2";
-import type { Kaos } from "@dimi-agent/kaos";
 import type { Event } from "@dimi-agent/protocol";
 
 import type {
@@ -249,22 +248,6 @@ export class SDKRpcClientBase {
 
   withInteractiveAgent<T>(agentId: string, fn: () => T): T {
     return this.interactiveAgentScope.run(agentId, fn);
-  }
-
-  createSessionWithKaos(
-    input: CreateSessionOptions,
-    _kaos: Kaos,
-    _persistenceKaos?: Kaos,
-  ): Promise<SessionSummary> {
-    return this.createSession(input);
-  }
-
-  resumeSessionWithKaos(
-    input: ResumeSessionInput,
-    _kaos: Kaos,
-    _persistenceKaos?: Kaos,
-  ): Promise<ResumedSessionSummary> {
-    return this.resumeSession(input);
   }
 
   deleteSession(_input: SessionIdRpcInput): Promise<void> {

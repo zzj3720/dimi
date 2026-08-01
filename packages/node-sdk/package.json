@@ -61,7 +61,6 @@
   },
   "devDependencies": {
     "@dimi-agent/agent-core-v2": "workspace:^",
-    "@dimi-agent/kaos": "workspace:^",
     "@dimi-agent/dimi-oauth": "workspace:^",
     "@dimi-agent/klient": "workspace:^",
     "@types/yazl": "^2.4.6",

@@ -1,4 +1,3 @@
-import type { Kaos } from "@dimi-agent/kaos";
 import { type ExperimentalFeatureState } from "@dimi-agent/agent-core-v2";
 
 import { ErrorCodes, DimiError } from "#/errors";
@@ -106,15 +105,8 @@ export class DimiHarness {
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const { planMode, kaos, persistenceKaos, sessionStartedProperties, ...coreOptions } = options;
-    const summary =
-      kaos === undefined && persistenceKaos === undefined
-        ? await this.rpc.createSession(coreOptions)
-        : await this.rpc.createSessionWithKaos(
-            coreOptions,
-            kaos ?? (persistenceKaos as Kaos),
-            persistenceKaos,
-          );
+    const { planMode, sessionStartedProperties, ...coreOptions } = options;
+    const summary = await this.rpc.createSession(coreOptions);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -136,28 +128,15 @@ export class DimiHarness {
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    const { kaos, persistenceKaos, sessionStartedProperties, ...resumeInput } = input;
+    const { sessionStartedProperties, ...resumeInput } = input;
     if (active !== undefined) {
-      if (kaos !== undefined || persistenceKaos !== undefined) {
-        await this.rpc.resumeSessionWithKaos(
-          { ...resumeInput, id },
-          kaos ?? (persistenceKaos as Kaos),
-          persistenceKaos,
-        );
-      } else if (input.agentProfile !== undefined) {
+      if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
     }
 
-    const summary =
-      kaos === undefined && persistenceKaos === undefined
-        ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithKaos(
-            { ...resumeInput, id },
-            kaos ?? (persistenceKaos as Kaos),
-            persistenceKaos,
-          );
+    const summary = await this.rpc.resumeSession({ ...resumeInput, id });
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,

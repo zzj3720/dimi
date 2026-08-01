@@ -590,7 +590,6 @@ describe("CLI options parsing", () => {
         "export",
         "provider",
         "remote",
-        "acp",
         "web",
         "login",
         "logout",

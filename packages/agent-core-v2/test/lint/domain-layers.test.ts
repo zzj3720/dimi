@@ -53,7 +53,7 @@ describe('check-domain-layers', () => {
 
   it('allows sibling-package imports (out of scope for layering)', () => {
     const violations = checkSource(
-      `import { something } from '@dimi-agent/kaos';`,
+      `import { something } from '@dimi-agent/protocol';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(0);

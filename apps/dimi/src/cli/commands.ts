@@ -2,7 +2,6 @@ import { CLI_COMMAND_NAME } from "#/constant/app";
 import { Command, InvalidArgumentError, Option } from "commander";
 
 import type { CLIOptions } from "./options";
-import { registerAcpCommand } from "./sub/acp";
 import { registerDoctorCommand } from "./sub/doctor";
 import { registerExportCommand } from "./sub/export";
 import { registerLoginCommand } from "./sub/login";
@@ -123,7 +122,6 @@ export function createProgram(
   registerExportCommand(program);
   registerProviderCommand(program);
   registerRemoteCommand(program);
-  registerAcpCommand(program);
   registerWebCommand(program);
   registerLoginCommand(program);
   registerLogoutCommand(program);

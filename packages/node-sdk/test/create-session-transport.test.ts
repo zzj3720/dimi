@@ -6,12 +6,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Kaos } from "@dimi-agent/kaos";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDimiHarness, DimiHarness, type DimiError } from "#/index";
 import { SDKRpcClientBase } from "#/rpc";
-import type { ResumeSessionInput, ResumedSessionSummary } from "#/types";
 import { recordingTelemetry, type TelemetryRecord } from "./telemetry";
 import { createTestProviderRuntime } from "./session-runtime-helpers";
 import { TEST_IDENTITY } from "./test-identity";
@@ -46,9 +44,6 @@ default_model = "alias-model"
 }
 
 class StubRpc extends SDKRpcClientBase {
-  readonly resumeCalls: Array<{ input: ResumeSessionInput; kaos: Kaos; persistenceKaos?: Kaos }> =
-    [];
-
   override async createSession(input: { id?: string; workDir: string }) {
     return {
       id: input.id ?? "ses_stub",
@@ -56,34 +51,6 @@ class StubRpc extends SDKRpcClientBase {
       sessionDir: "/tmp/session",
       createdAt: 1,
       updatedAt: 1,
-    };
-  }
-
-  override async resumeSessionWithKaos(
-    input: ResumeSessionInput,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
-  ): Promise<ResumedSessionSummary> {
-    this.resumeCalls.push({ input, kaos, persistenceKaos });
-    return {
-      id: input.id,
-      workDir: "/tmp/work",
-      sessionDir: "/tmp/session",
-      createdAt: 1,
-      updatedAt: 1,
-      sessionMetadata: {
-        id: input.id,
-        version: 2,
-        cwd: "/tmp/work",
-        createdAt: 0,
-        updatedAt: 0,
-        title: "",
-        isCustomTitle: false,
-        archived: false,
-        agents: {},
-        custom: {},
-      },
-      agents: {},
     };
   }
 }
@@ -269,24 +236,5 @@ default_model = "retired-model"
     } finally {
       await harness.close();
     }
-  });
-
-  it("rebinds an active session when resume receives a new Kaos", async () => {
-    const rpc = new StubRpc();
-    const harness = new DimiHarness(rpc, {
-      homeDir: "/tmp/home",
-      configPath: "/tmp/config.toml",
-      auth: { status: async () => ({ providers: [] }) } as never,
-      telemetry: recordingTelemetry([]),
-      ensureConfigFile: async () => undefined,
-      onClose: () => undefined,
-    });
-    const session = await harness.createSession({ id: "ses_active", workDir: "/tmp/work" });
-    const kaos = {} as Kaos;
-
-    await expect(harness.resumeSession({ id: session.id, kaos })).resolves.toBe(session);
-    expect(rpc.resumeCalls).toEqual([
-      { input: { id: session.id }, kaos, persistenceKaos: undefined },
-    ]);
   });
 });

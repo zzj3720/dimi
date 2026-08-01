@@ -29,8 +29,8 @@ Fetch pages with **FetchURL** before answering. All page links below are relativ
 | Community guidelines; contact and feedback | `dimi/community-guidelines.html`, `dimi/contact-and-feedback.html` |
 | `config.toml` fields, providers/models, environment variables, data locations, config overrides | `dimi-cli/configuration/` — `config-files.html`, `providers.html`, `env-vars.html`, `data-locations.html`, `overrides.html` |
 | Skills, MCP, hooks, plugins, themes, agents/sub-agents, Dimi Datasource | `dimi-cli/customization/` — `skills.html`, `mcp.html`, `hooks.html`, `plugins.html`, `themes.html`, `agents.html`; Dimi Datasource lives at `plugins.html#dimi-datasource` |
-| Getting started, sessions and context, goals, interaction and input, IDEs, use cases | `dimi-cli/guides/` — `getting-started.html`, `sessions.html`, `goals.html`, `interaction.html`, `ides.html`, `use-cases.html` |
-| Slash commands, keyboard shortcuts, builtin tools, `dimi` command flags, ACP | `dimi-cli/reference/` — `slash-commands.html`, `keyboard.html`, `tools.html`, `dimi-command.html`, `dimi-acp.html` |
+| Getting started, sessions and context, goals, interaction and input, use cases | `dimi-cli/guides/` — `getting-started.html`, `sessions.html`, `goals.html`, `interaction.html`, `use-cases.html` |
+| Slash commands, keyboard shortcuts, builtin tools, `dimi` command flags | `dimi-cli/reference/` — `slash-commands.html`, `keyboard.html`, `tools.html`, `dimi-command.html` |
 | CLI changelog | `dimi-cli/release-notes/changelog.html` |
 | Using Dimi in Claude Code and other third-party agents | `third-party-tools/other-coding-agents.html` |
 

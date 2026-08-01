@@ -62,10 +62,8 @@
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
       # -------------------------------------------------------------------
       workspacePaths = [
-        ./packages/acp-adapter
         ./packages/agent-core-v2
         ./packages/kap-server
-        ./packages/kaos
         ./packages/klient
         ./packages/node-sdk
         ./packages/oauth
@@ -85,10 +83,8 @@
       ];
 
       workspaceNames = [
-        "@dimi-agent/acp-adapter"
         "@dimi-agent/agent-core-v2"
         "@dimi-agent/kap-server"
-        "@dimi-agent/kaos"
         "@dimi-agent/dimi-sdk"
         "@dimi-agent/dimi-oauth"
         "@dimi-agent/klient"

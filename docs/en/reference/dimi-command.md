@@ -133,7 +133,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`dimi` provides the following subcommands: `login` and `logout` (provider credentials), `provider` (provider and model catalogs), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service), `doctor` (validate configuration files), `export` (export a session), and `upgrade` (check for updates).
+`dimi` provides the following subcommands: `login` and `logout` (provider credentials), `provider` (provider and model catalogs), `web` (run the local REST/WebSocket/web service), `doctor` (validate configuration files), `export` (export a session), and `upgrade` (check for updates).
 
 ### `dimi login`
 
@@ -161,14 +161,6 @@ dimi logout anthropic
 ```
 
 An API key exported through the shell remains active until it is unset.
-
-### `dimi acp`
-
-Switch Dimi CLI to ACP (Agent Client Protocol) mode, communicating with an IDE via JSON-RPC over stdin/stdout so the editor can directly drive dimi's sessions and tool calls. You typically do not need to run this manually — the IDE starts it as a subprocess entry point. For configuration, see [Using in IDEs](../guides/ides.md); for technical details, see the [dimi acp reference](./dimi-acp.md).
-
-```sh
-dimi acp
-```
 
 ### `dimi web`
 

@@ -133,7 +133,7 @@ dimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`dimi` 提供以下子命令：`login` 与 `logout`（供应商凭证）、`provider`（供应商与模型目录）、`acp`（ACP IDE 模式）、`web`（本地 REST/WebSocket/web 服务）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）。
+`dimi` 提供以下子命令：`login` 与 `logout`（供应商凭证）、`provider`（供应商与模型目录）、`web`（本地 REST/WebSocket/web 服务）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）。
 
 ### `dimi login`
 
@@ -161,14 +161,6 @@ dimi logout anthropic
 ```
 
 通过 shell 环境变量提供的 API 密钥会继续生效，直到取消设置。
-
-### `dimi acp`
-
-把 Dimi CLI 切换到 ACP（Agent Client Protocol）模式，在标准输入/输出上以 JSON-RPC 形式与 IDE 对话，让编辑器直接驱动 dimi 的会话和工具调用。通常不需要手动运行——IDE 会把它作为子进程入口启动。配置方式见[在 IDE 中使用](../guides/ides.md)，技术细节见 [dimi acp 参考](./dimi-acp.md)。
-
-```sh
-dimi acp
-```
 
 ### `dimi web`
 

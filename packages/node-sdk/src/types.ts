@@ -46,7 +46,6 @@ import type {
   McpServerInfo,
   McpStartupMetrics,
 } from "@dimi-agent/agent-core-v2/agent/rpc/core-api";
-import type { Kaos } from "@dimi-agent/kaos";
 import type { DimiHostIdentity } from "@dimi-agent/dimi-oauth";
 import type { ContentPart } from "@dimi-agent/agent-core-v2";
 
@@ -189,8 +188,6 @@ export interface CreateSessionOptions {
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   readonly mcpServers?: Readonly<Record<string, SessionMcpServerConfig>>;
   /**
@@ -221,8 +218,6 @@ export interface RenameSessionInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   readonly mcpServers?: Readonly<Record<string, SessionMcpServerConfig>>;
   /** Re-select the session's already-bound main profile; a different name fails. */

@@ -48,36 +48,12 @@ vp run dev:cli
 - **丰富的插件生态** 从插件市场或任意 GitHub 仓库安装 skills、MCP 服务器和数据源，每次安装都会标明来源的信任级别。
 - **子 Agent 聚焦并行工作** 内置 `coder`、`explore`、`plan` 子 Agent 在隔离上下文中处理子任务，主对话保持清爽。
 - **生命周期 hooks** 在关键节点执行本地命令：拦截高风险工具调用、审计决策、发送桌面通知，或对接你自己的自动化脚本。
-- **编辑器 / IDE 集成（ACP）** 用 `dimi acp` 让 Zed、JetBrains 等任意 [Agent Client Protocol](https://agentclientprotocol.com/) 客户端直接驱动会话。
-
-
-## 在编辑器里使用（ACP）
-
-Dimi 支持 [Agent Client Protocol](https://agentclientprotocol.com/)，ACP 兼容的编辑器 / IDE（Zed、JetBrains……）可以通过 stdio 直接驱动会话。登录一次后，把编辑器指向 `dimi acp` 子命令即可，无需重复登录。
-
-以 Zed 为例，在 `~/.config/zed/settings.json` 中加入：
-
-```json
-{
-  "agent_servers": {
-    "Dimi": {
-      "type": "custom",
-      "command": "dimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
-```
-
-随后在 Zed 的 Agent 面板新建对话即可。JetBrains 配置与排障见[在 IDE 中使用](docs/zh/guides/ides.md)，完整能力矩阵见 [`dimi acp` 参考](docs/zh/reference/dimi-acp.md)。
 
 ## 文档
 
 - [快速上手](docs/zh/guides/getting-started.md)
 - [交互与审批](docs/zh/guides/interaction.md)
 - [会话](docs/zh/guides/sessions.md)
-- [在 IDE 中使用（ACP）](docs/zh/guides/ides.md)
 - [配置](docs/zh/configuration/config-files.md)
 - [命令参考](docs/zh/reference/dimi-command.md)
 

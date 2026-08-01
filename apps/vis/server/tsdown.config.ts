@@ -5,5 +5,5 @@ export default defineConfig({
   format: ["esm"],
   outDir: "dist",
   clean: true,
-  external: ["@dimi-agent/agent-core-v2", "@dimi-agent/kaos"],
+  external: ["@dimi-agent/agent-core-v2"],
 });

@@ -74,7 +74,6 @@
     "e2e:real": "pnpm -w run build:packages && DIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts"
   },
   "devDependencies": {
-    "@dimi-agent/acp-adapter": "workspace:^",
     "@dimi-agent/agent-core-v2": "workspace:^",
     "@dimi-agent/kap-server": "workspace:^",
     "@dimi-agent/dimi-oauth": "workspace:^",

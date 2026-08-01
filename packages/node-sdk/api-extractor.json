@@ -3,7 +3,6 @@
   "mainEntryPointFilePath": "<projectFolder>/.tmp-api-extractor/dts/node-sdk/src/index.d.ts",
   "bundledPackages": [
     "@dimi-agent/agent-core-v2",
-    "@dimi-agent/kaos",
     "@dimi-agent/dimi-oauth",
     "@dimi-agent/protocol"
   ],

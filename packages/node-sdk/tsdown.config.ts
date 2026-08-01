@@ -23,7 +23,6 @@ export default defineConfig({
     "@dimi-agent/agent-core-v2": fileURLToPath(
       new URL("../agent-core-v2/src/index.ts", import.meta.url),
     ),
-    "@dimi-agent/kaos": fileURLToPath(new URL("../kaos/src/index.ts", import.meta.url)),
     "@dimi-agent/dimi-oauth": fileURLToPath(
       new URL("../oauth/src/index.ts", import.meta.url),
     ),
