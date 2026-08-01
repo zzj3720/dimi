@@ -18,7 +18,7 @@ jobs:
       dimi_release_tag: ${{ steps.dimi-release.outputs.tag }}
     permissions:
       contents: write
-      pull-requests: read # changelog generation resolves PR titles via the API
+      pull-requests: write # changelog generation resolves PR info via the API
       id-token: write # Required for NPM Trusted Publishing (OIDC)
     steps:
       - name: Checkout
