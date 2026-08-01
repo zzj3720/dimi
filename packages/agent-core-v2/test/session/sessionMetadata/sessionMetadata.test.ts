@@ -4,7 +4,6 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
@@ -15,11 +14,8 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IQueryStore } from '#/persistence/interface/queryStore';
 
-import { stubFlag } from '../../app/flag/stubs';
 import { stubLog } from '../../_base/log/stubs';
-import { stubQueryStore } from '../../persistence/interface/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1';
 
@@ -52,8 +48,6 @@ describe('SessionMetadata', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
-    ix.stub(IQueryStore, stubQueryStore());
-    ix.stub(IFlagService, stubFlag(false));
     ix.set(ISessionStateService, new SyncDescriptor(SessionStateService));
     ix.set(IFileSystemStorageService, new SyncDescriptor(InMemoryStorageService));
     ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));

@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 
-/** `Page<T>` on the wire (`persistence/interface/queryStore.ts`). */
+/** `Page<T>` on the wire (`app/sessionIndex/sessionIndex.ts`). */
 export const pageOf = <T extends z.ZodType>(item: T) =>
   z.object({
     items: z.array(item),

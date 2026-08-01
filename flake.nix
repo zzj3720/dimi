@@ -67,7 +67,6 @@
         ./packages/kap-server
         ./packages/kaos
         ./packages/klient
-        ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
         ./packages/pi-tui
@@ -76,7 +75,6 @@
         ./packages/telemetry
         ./packages/transcript
         ./apps/dimi
-        ./apps/dimi-inspect
         ./apps/dimi-web
         ./apps/mobile
         ./apps/relay
@@ -91,7 +89,6 @@
         "@dimi-agent/agent-core-v2"
         "@dimi-agent/kap-server"
         "@dimi-agent/kaos"
-        "@dimi-agent/minidb"
         "@dimi-agent/dimi-sdk"
         "@dimi-agent/dimi-oauth"
         "@dimi-agent/klient"
@@ -101,7 +98,6 @@
         "@dimi-agent/dimi-telemetry"
         "@dimi-agent/transcript"
         "@dimi-agent/cli"
-        "@dimi-agent/dimi-inspect"
         "@dimi-agent/dimi-web"
         "@dimi-agent/mobile"
         "@dimi-agent/relay"

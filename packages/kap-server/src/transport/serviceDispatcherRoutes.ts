@@ -87,7 +87,7 @@ export function registerServiceDispatcherRoutes(
     app.post(path, handler);
   }
 
-  // Introspection: the dynamic service browser (dimi-inspect) reads this once
+  // Introspection: the dynamic service browser reads this once
   // per connection.
   const describe = opts.describe ?? describeAllChannels;
   app.get(`${basePath}/channels`, async (req, reply) =>

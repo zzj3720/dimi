@@ -133,7 +133,7 @@ function describeMethods(
 
 /**
  * Describe EVERY registered scoped Service — served by
- * `GET /api/v1/debug/channels` so dev tooling (dimi-inspect) can load the
+ * `GET /api/v1/debug/channels` so dev tooling can load the
  * full protocol surface 1:1.
  */
 export function describeAllChannels(): readonly ChannelDescriptor[] {

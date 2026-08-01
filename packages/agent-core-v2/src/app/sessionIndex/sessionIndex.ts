@@ -11,7 +11,6 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { Page } from '#/persistence/interface/queryStore';
 
 export const PARENT_SESSION_ID_KEY = 'parent_session_id';
 
@@ -29,6 +28,11 @@ export interface SessionSummary {
   readonly updatedAt: number;
   readonly archived: boolean;
   readonly custom?: Record<string, unknown>;
+}
+
+export interface Page<T> {
+  readonly items: readonly T[];
+  readonly nextCursor?: string;
 }
 
 export interface SessionListQuery {

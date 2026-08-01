@@ -65,10 +65,10 @@ export type { AgentEventPayloads } from "./contract/agent/events.js";
 // Wire types re-exported for consumer convenience (type-only; the engine is
 // not pulled in at runtime for http consumers).
 export type {
+  Page,
   SessionListQuery,
   SessionSummary,
 } from "@dimi-agent/agent-core-v2/app/sessionIndex/sessionIndex";
-export type { Page } from "@dimi-agent/agent-core-v2/persistence/interface/queryStore";
 export type {
   Workspace,
   WorkspaceUpdate,

@@ -7,11 +7,11 @@
  */
 
 import type {
+  Page,
   SessionListQuery,
   SessionSummary,
 } from "@dimi-agent/agent-core-v2/app/sessionIndex/sessionIndex";
 import type { SessionMeta } from "@dimi-agent/agent-core-v2/session/sessionMetadata/sessionMetadata";
-import type { Page } from "@dimi-agent/agent-core-v2/persistence/interface/queryStore";
 import type {
   Workspace,
   WorkspaceUpdate,

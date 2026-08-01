@@ -67,7 +67,6 @@
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@dimi-agent/dimi-oauth": "workspace:^",
-    "@dimi-agent/minidb": "workspace:^",
     "@dimi-agent/protocol": "workspace:^",
     "@mozilla/readability": "^0.6.0",
     "@smithy/protocol-http": "^5.5.16",
