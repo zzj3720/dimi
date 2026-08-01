@@ -70,18 +70,21 @@ jobs:
 
       - name: Publish to npm
         id: changesets
-        if: steps.version.outputs.changed == 'true'
         run: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Report publish outputs
-        if: steps.version.outputs.changed == 'true'
         run: |
           VERSION="$(node -e 'console.log(require("./apps/dimi/package.json").version)')"
-          echo "published=true" >> "$GITHUB_OUTPUT"
-          printf 'CHANGESETS_PUBLISHED_PACKAGES=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_ENV"
+          LATEST="$(npm view @dimi-agent/cli version 2>/dev/null || echo none)"
+          if [ "$VERSION" = "$LATEST" ] && [ "$LATEST" != "none" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            printf 'CHANGESETS_PUBLISHED_PACKAGES=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_ENV"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Resolve Dimi native release
         if: steps.changesets.outputs.published == 'true'
