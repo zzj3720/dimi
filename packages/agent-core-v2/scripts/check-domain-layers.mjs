@@ -242,9 +242,6 @@ const DOMAIN_LAYER = new Map([
   // `agentTask` (L5), and others — the domain takes the highest layer.
   ["tools", 7],
   ["rpc", 7],
-
-  ["sessionLegacy", 7],
-  ["messageLegacy", 7],
 ]);
 
 const REMOVED_RUNTIME_PACKAGE = "@dimi-agent/agent-core";

@@ -75,8 +75,8 @@
 - R2 replay 读模型双通道：声明式 `toReplay` + 命令式 `push/patchLast/removeLastMessages`；
   boundary 判定逻辑两处重复（`recordService.ts:55-64` vs `contextMemoryService.ts:137`）。
 - R3 `plan.status()` 读模型内嵌文件 IO；`sessionActivity.status()` 纯轮询无事件。
-- R4 `messageLegacy` 靠"replay 非空信 replay，否则信 view"的启发式选择读模型
-  （`messageLegacyService.ts:100-116`）。
+- R4 `messageLegacy`（已移至 kap-server 边缘，`packages/kap-server/src/services/messageLegacy/`）
+  靠"replay 非空信 replay，否则信 view"的启发式选择读模型。
 - R5 `captureLiveRecords` 是无人使用的死开关；`IQueryStore` 有契约无实现。
 
 **事件可见性**
@@ -256,7 +256,8 @@ declare module '#/stream' {
   生成）是方向性目标，放在附录 C 远期项，本期只做"投影函数与类型同处声明、
   禁止路由层手写投影"。
 
-> 兼容注：v1 协议消费者（messageLegacy/sessionLegacy）保留为边缘的翻译层，
+> 兼容注：v1 协议消费者（messageLegacy/sessionLegacy，现已移至 kap-server 边缘，
+> `packages/kap-server/src/services/`）保留为边缘的翻译层，
 > 从新 Envelope 流翻译到旧 shape，不再反向影响核心模型。
 
 ### 3.2 与 contract 生成的关系
@@ -339,7 +340,7 @@ UI 历史（今天的 `AgentReplayRecord[]`）就是一个折叠：
   变成 fold 里对 `full_compaction.complete` 的常规 case。
 - boundary/裁剪逻辑（partial resume 的 range/segment/frozen）成为 fold 的
   参数化初始条件，只写一处。
-- messageLegacy 的"replay 或 view"启发式消失：冷启动与热读取是同一个 view。
+- kap-server 边缘 messageLegacy 的"replay 或 view"启发式消失：冷启动与热读取是同一个 view。
 - TUI 的 resume：`GET snapshot` 拿 `{ transcript.get(), seq }` →
   `subscribe(sinceSeq)` 接续。回放与实时一套代码（C3）。
 
@@ -427,8 +428,9 @@ view 是纯 fold，因此**天然支持冷读**：不实例化 agent/session sco
 边缘保留 journal/seq/epoch/backfill（§0、§7.1），其余变薄：鉴权、连接管理、
 统一流直通（durable/volatile 分类、agent 缝合、投影都由核心做完）、
 REST 读路由 = `readView()` 的透传（热/冷一致，§5.6）。snapshot 路由从
-"跨 6 个服务现拼 + drain queue 保一致"（`sessionLegacyService.ts:278-300`、
-`snapshot.ts:10-14`）变成"读若干 view 的 `{value, seq}`"。写路由 = Command
+"跨 6 个服务现拼 + drain queue 保一致"（原引擎 `sessionLegacyService.ts:278-300` 已移至
+kap-server 边缘 `packages/kap-server/src/services/sessionLegacy/`、`snapshot.ts:10-14`）
+变成"读若干 view 的 `{value, seq}`"。写路由 = Command
 的透传（actionMap 的 `resource:action` allowlist 模式保留，它已经证明
 "命令 = Service 方法"可行）；路由层手发事件（C4）被"写即 commit、commit
 必在流里"取代。pending approval/question 升格为持久 fact +
@@ -477,7 +479,7 @@ view 定义是无依赖纯函数（§3.2），可经 contract 包共享给 node-
 3. **P2 view 化推平**：按依赖序迁移 12 个手写域到 view（goal 最复杂放最后）；
    引入 `derive` 组合器，改造 sessionActivity/permissionGate。
 4. **P3 transcript view**：以 fold 重写 replay builder，双通道退役；
-   messageLegacy 改读 transcript view。
+   kap-server 边缘的 messageLegacy 改读 transcript view。
 5. **P4 相位机 + Effect**：收编 onRestoredRecord/onResumeEnded/postRestoring；
    四处 restoring guard、goal silent 抑制改 Effect/队列；pending interaction
    持久 fact 化 + ephemeral `inFlightTurn` view（server tracker 退役的前置）。

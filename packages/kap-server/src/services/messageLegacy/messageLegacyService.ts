@@ -1,9 +1,21 @@
 /**
- * `messageLegacy` domain — `IMessageLegacyService` implementation.
+ * `MessageLegacyService` — kap-server-edge projection of the v1
+ * `GET /api/v1/sessions/{sid}/messages[/{mid}]` contract on top of the native
+ * v2 engine services.
  *
- * Stateless App-scope dispatcher: each call resolves the target session (and
- * its main agent), sources the transcript, and projects it into the v1 wire
- * shape.
+ * This is the v1 wire-compat adapter previously kept in agent-core-v2
+ * (`src/app/messageLegacy/`) — deliberately relocated to the kap-server edge
+ * (same as `services/legacyStatus/`) so the core engine stays free of v1
+ * wire-compatibility concerns.
+ *
+ * The native `IAgentContextMemoryService` (Agent scope, serving `/api/v2`
+ * `messages:*`) holds the model's CURRENT, folded context and is NOT the full
+ * transcript: after a compaction it collapses into `[...keptUserMessages,
+ * compaction_summary]`. The full transcript is reduced on demand by streaming
+ * the main agent's `wire.jsonl`; the service does not make every live Agent
+ * retain its raw journal in memory. The `ContextMessage → Message` projection
+ * is shared with the `snapshot` and `:undo` edges via
+ * `contextMemory/messageProjection`.
  *
  * History is streamed from the main agent's append log after its pending wire
  * writes are flushed. The journal is folded incrementally by the same
@@ -14,50 +26,67 @@
  * `foldedLength` is what the live history length WOULD be from the journal's
  * records; because the journal can trail the live context by a record within a
  * single dispatch, anything beyond it is appended as the unflushed tail.
- * Pagination, id derivation, and the role filter mirror v1's `MessageService`
- * (`packages/agent-core/src/services/message/messageService.ts`).
+ * Pagination, id derivation, and the role filter mirror v1's `MessageService`.
+ *
+ * Error contract (mapped at the route layer):
+ *   - `session.not_found`  → 40401
+ *   - `message.not_found`  → 40403
  */
 
-import type { Message } from '#/agent/contextMemory/protocolMessage';
-
-import type { PageResponse } from './messageLegacy';
-
-import {
-  type IAgentScopeHandle,
-  LifecycleScope,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { Message, MessageRole } from '@dimi-agent/agent-core-v2/agent/contextMemory/protocolMessage';
 import {
   createContextTranscriptReducer,
+  ensureMainAgent,
+  Error2,
+  ErrorCodes,
+  IAgentBlobService,
+  IAgentContextMemoryService,
+  IAgentScopeContext,
+  IAppendLogStore,
+  ISessionIndex,
+  ISessionLifecycleService,
+  IWireService,
+  toProtocolMessage,
+  AGENT_WIRE_RECORD_KEY,
+  type ContextMessage,
   type ContextTranscript,
-} from '#/agent/contextMemory/contextTranscript';
-import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IWireService } from '#/wire/wire';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
-import { ErrorCodes, Error2 } from '#/errors';
-import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+  type ErrorCode,
+  type IAgentScopeHandle,
+  type Scope,
+  type WireRecord,
+} from '@dimi-agent/agent-core-v2';
 
-import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
+/** Cursor pagination query shared by the v1 history/list endpoints. */
+export interface CursorQuery {
+  before_id?: string | undefined;
+  after_id?: string | undefined;
+  page_size?: number | undefined;
+}
+
+export interface PageResponse<T> {
+  items: T[];
+  has_more: boolean;
+}
+
+export interface MessageListQuery extends CursorQuery {
+  readonly role?: MessageRole;
+}
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
-export class MessageLegacyService implements IMessageLegacyService {
-  declare readonly _serviceBrand: undefined;
+/** v1 wire code for an unknown message (`message.not_found` → 40403). */
+const MESSAGE_NOT_FOUND = 'message.not_found' as const;
+export class MessageLegacyService {
+  private readonly lifecycle: ISessionLifecycleService;
+  private readonly index: ISessionIndex;
+  private readonly appendLog: IAppendLogStore;
 
-  constructor(
-    @ISessionLifecycleService private readonly lifecycle: ISessionLifecycleService,
-    @ISessionIndex private readonly index: ISessionIndex,
-    @IAppendLogStore private readonly appendLog: IAppendLogStore,
-  ) {}
+  constructor(core: Scope) {
+    this.lifecycle = core.accessor.get(ISessionLifecycleService);
+    this.index = core.accessor.get(ISessionIndex);
+    this.appendLog = core.accessor.get(IAppendLogStore);
+  }
 
   async list(sessionId: string, query: MessageListQuery): Promise<PageResponse<Message>> {
     const all = await this.loadMessages(sessionId);
@@ -93,8 +122,11 @@ export class MessageLegacyService implements IMessageLegacyService {
     const all = await this.loadMessages(sessionId);
     const entry = all.find((m) => m.id === messageId);
     if (entry === undefined) {
+      // `message.not_found` is an edge-owned v1 wire code, no longer part of
+      // the engine's closed `ErrorCode` union — assert it at the boundary so
+      // the route's `isError2` mapping still sees it.
       throw new Error2(
-        ErrorCodes.MESSAGE_NOT_FOUND,
+        MESSAGE_NOT_FOUND as ErrorCode,
         `message ${messageId} does not exist in session ${sessionId}`,
       );
     }
@@ -176,11 +208,3 @@ function mergeLiveTail(
     times: [...transcript.times, ...tail.map(() => undefined)],
   };
 }
-
-registerScopedService(
-  LifecycleScope.App,
-  IMessageLegacyService,
-  MessageLegacyService,
-  ScopeActivation.OnScopeCreated,
-  'messageLegacy',
-);

@@ -2,11 +2,12 @@
  * `/sessions/{session_id}/messages*` route handlers — server-v2 port.
  *
  * Implements the v1 `/api/v1/sessions/{sid}/messages` wire contract on top of
- * `IMessageLegacyService` (`packages/agent-core-v2/src/messageLegacy`), which
- * reads the persisted wire transcript for cold sessions and the live context
- * for live ones. This route is a thin adapter: it resolves the Core-scoped
- * legacy service, projects the result into the protocol envelope, and maps the
- * domain error codes to the v1 wire codes.
+ * the kap-server-edge `MessageLegacyService`
+ * (`services/messageLegacy/messageLegacyService.ts`, formerly the engine's
+ * `messageLegacy` domain), which reads the persisted wire transcript for cold
+ * sessions and the live context for live ones. This route is a thin adapter:
+ * it resolves the edge service, projects the result into the protocol
+ * envelope, and maps the domain error codes to the v1 wire codes.
  *
  *   GET    /sessions/{session_id}/messages              query: ListMessages   data: Page<Message>
  *   GET    /sessions/{session_id}/messages/{message_id} -                     data: Message
@@ -17,7 +18,7 @@
  *   - invalid query     → `40001` (validation.failed, via defineRoute)
  */
 
-import { IMessageLegacyService, isError2, type Scope } from '@dimi-agent/agent-core-v2';
+import { isError2, type Scope } from '@dimi-agent/agent-core-v2';
 import { messageRoleSchema } from '@dimi-agent/agent-core-v2/agent/contextMemory/protocolMessage';
 import { ErrorCode } from '../protocol/error-codes';
 import { getMessageResponseSchema, listMessagesResponseSchema } from '../protocol/rest-message';
@@ -26,6 +27,7 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { MessageLegacyService } from '../services/messageLegacy/messageLegacyService';
 
 interface MessageRouteHost {
   get(
@@ -79,6 +81,8 @@ const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }
 // --- Registration -----------------------------------------------------------
 
 export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void {
+  const messages = new MessageLegacyService(core);
+
   // GET /sessions/{session_id}/messages --------------------------------
   const listRoute = defineRoute(
     {
@@ -97,7 +101,7 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const page = await core.accessor.get(IMessageLegacyService).list(session_id, req.query);
+        const page = await messages.list(session_id, req.query);
         reply.send(okEnvelope(page, req.id));
       } catch (err) {
         sendMappedError(reply, req, err);
@@ -128,7 +132,7 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id, message_id } = req.params;
-        const message = await core.accessor.get(IMessageLegacyService).get(session_id, message_id);
+        const message = await messages.get(session_id, message_id);
         reply.send(okEnvelope(message, req.id));
       } catch (err) {
         sendMappedError(reply, req, err);
@@ -156,7 +160,9 @@ function sendMappedError(
   const requestId = req.id;
   const log = requestLog(req);
   if (isError2(err)) {
-    switch (err.code) {
+    // The subject is widened to `string` because `message.not_found` is an
+    // edge-owned v1 wire code outside the engine's closed `ErrorCode` union.
+    switch (err.code as string) {
       case 'session.not_found':
         reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
         return;

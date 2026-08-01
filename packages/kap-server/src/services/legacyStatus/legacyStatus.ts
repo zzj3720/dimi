@@ -120,7 +120,8 @@ export function readLegacyStatus(agent: IAgentScopeHandle): LegacyStatusSnapshot
   }
   const usage = usageService.status();
   // Live (measured + estimated) context size — mirrors the REST status rollup
-  // (`ISessionLegacyService.status`) and v1's `context.tokenCount`, which
+  // (`SessionLegacyService.status` at the kap-server edge) and v1's
+  // `context.tokenCount`, which
   // reflect the context even before the first measured exchange completes.
   // `size` alone can transiently dip below the last measured total while a
   // post-step fold/rewrite leaves the context shorter than the measured
