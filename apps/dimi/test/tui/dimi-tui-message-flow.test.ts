@@ -2558,6 +2558,74 @@ command = "vim"
     expect(transcript).toContain('Used 2 tools · read 1 file · searched 1 time');
   });
 
+  it('folds consecutive no-message tool rounds into a single summary line', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('run the pipeline');
+
+    // Each round is a tool call; between rounds the model streams a
+    // whitespace-only assistant delta (no visible message). Those deltas must
+    // not split the tool rounds into separate collapsed lines.
+    for (const id of ['call_1', 'call_2', 'call_3']) {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          name: 'Bash',
+          args: { command: `echo ${id}` },
+        } as Event,
+        sendQueued,
+      );
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.result',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          output: 'ok',
+        } as Event,
+        sendQueued,
+      );
+      if (id !== 'call_3') {
+        driver.sessionEventHandler.handleEvent(
+          {
+            type: 'assistant.delta',
+            agentId: 'main',
+            sessionId: 'ses-1',
+            turnId: 1,
+            delta: ' ',
+          } as Event,
+          sendQueued,
+        );
+        driver.streamingUI.flushNow();
+      }
+    }
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        delta: 'Pipeline complete.',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+
+    const sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Used 3 tools')).toBe(1);
+    expect(transcript).toContain('Pipeline complete.');
+  });
+
   it('cancels manual compaction from the editor', async () => {
     const { driver, session } = await makeDriver();
     driver.sessionEventHandler.handleEvent(

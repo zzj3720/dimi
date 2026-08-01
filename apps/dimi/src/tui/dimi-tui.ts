@@ -2157,7 +2157,16 @@ export class DimiTUI {
     while (start > 0) {
       const child = children[start - 1]!;
       const calls = toolCallsIn(child);
-      if (calls === undefined && !(child instanceof ThinkingComponent)) break;
+      // Empty assistant messages (whitespace-only deltas, empty replayed
+      // entries) render zero lines and carry no content — they must not split
+      // a contiguous run of tool calls into separate folded lines.
+      if (
+        calls === undefined &&
+        !(child instanceof ThinkingComponent) &&
+        !(child instanceof AssistantMessageComponent && child.isEmpty())
+      ) {
+        break;
+      }
       start -= 1;
       if (calls !== undefined) toolCalls.unshift(...calls);
     }

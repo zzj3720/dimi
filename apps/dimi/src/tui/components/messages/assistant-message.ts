@@ -70,6 +70,11 @@ export class AssistantMessageComponent implements Component {
     this.markdown.setText(displayText);
   }
 
+  /** True when the message carries no visible content (whitespace-only text). */
+  isEmpty(): boolean {
+    return this.lastText.trim().length === 0;
+  }
+
   invalidate(): void {
     // Markdown caches ANSI colour codes keyed on (text, width).  When the
     // theme changes the cached strings contain stale colours, so we rebuild

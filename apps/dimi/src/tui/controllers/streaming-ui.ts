@@ -109,6 +109,11 @@ export class StreamingUIController {
   }
 
   appendAssistantDelta(delta: string): void {
+    // Whitespace-only deltas carry nothing to render. When no assistant block
+    // is open yet, starting one here would mount an empty assistant message and
+    // collapse the trailing tool calls early — splitting consecutive tool
+    // rounds that share no visible message into separate folded lines.
+    if (this._streamingBlock === null && delta.trim().length === 0) return;
     if (this._streamingBlock === null) {
       this.onStreamingTextStart();
     }
