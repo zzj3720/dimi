@@ -71,6 +71,25 @@ This is a TypeScript monorepo built for agent-assisted development. Keep the roo
 - Rules that only affect a specific directory: update the nearest sub-directory `AGENTS.md`.
 - Keep instruction updates focused and supported by code facts.
 
+## Release & Update Channel
+
+Releasing is automated from `main` via `.github/workflows/release.yml`; do not publish manually. A push to `main` triggers:
+
+1. `changeset version` consumes every pending `.changeset/*.md` (version bump + changelog + delete). No pending changesets → no version change.
+2. The version bump is committed as `ci: release packages` and pushed to `main`.
+3. `changeset publish` publishes to npm. Only `@dimi-agent/cli` is actually published — every other workspace package is `private: true` (changesets versions them, but they are never published). Publishing uses the `NPM_TOKEN` repo secret (OIDC Trusted Publisher is also configured, but the token is the reliable path).
+4. The "Report publish outputs" step gates the native release: if a GitHub Release tagged `@dimi-agent/cli@<version>` does not exist, the pipeline builds **unsigned** native binaries for 6 platforms and uploads them to a new GitHub Release — including the `latest.json` update manifest, `install.sh`/`install.ps1`, and the plugin marketplace. Existing release → native step is skipped (idempotent).
+5. Docs deploy to GitHub Pages.
+
+The CLI's update channel is `DIMI_CODE_UPDATE_CHANNEL_URL` (the `latest.json` asset on the newest GitHub Release), consumed by `dimi upgrade` / `dimi update` (aliases). Install source is detected (`npm` vs native script); native installs self-update from the GitHub Release assets.
+
+Gotchas:
+
+- The workflow `release` job needs `pull-requests: write` (changelog generation resolves PR info via the API) and must pass `GITHUB_TOKEN` explicitly to the `changeset version` step; it also needs `id-token: write` for npm OIDC and `contents: write` for the commit/push.
+- The fork has no Apple secrets, so macOS binaries are unsigned (`sign-macos: false`).
+- The native release gate reads the step id `changesets` ("Report publish outputs"), whose `publishedPackages` output feeds `apps/dimi/scripts/native/resolve-release.mjs` — keep those ids/outputs in sync when editing the workflow.
+- The update-channel design lives in `apps/dimi/src/constant/app.ts` (`DIMI_CODE_UPDATE_CHANNEL_URL`, `DIMI_CODE_CDN_BASE`).
+
 ## Workflow Requirements
 
 - Prefer `rg` / `rg --files` when reading code.

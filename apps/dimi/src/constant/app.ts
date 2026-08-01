@@ -78,9 +78,9 @@ export const DIMI_CODE_CDN_BASE = "https://github.com/zzj3720/dimi/releases/late
  * Dimi's own update authority: the `latest.json` manifest attached to the
  * newest GitHub Release. GitHub's `releases/latest/download/<asset>` endpoint
  * redirects to the latest release's asset, so publishing a tag and attaching
- * `latest.json` (see `.github/workflows/publish-update-channel.yml`) is the
- * entire release process. The URL 404s until the first release exists, which
- * degrades cleanly to "no update available".
+ * `latest.json` (see `.github/workflows/release.yml`) is the entire release
+ * process. The URL 404s until the first release exists, which degrades
+ * cleanly to "no update available".
  */
 export const DIMI_CODE_UPDATE_CHANNEL_URL =
   "https://github.com/zzj3720/dimi/releases/latest/download/latest.json";
