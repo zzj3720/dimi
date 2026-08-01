@@ -74,8 +74,6 @@ import "#/app/event/eventService";
 export { IEventBus, type DomainEvent } from "#/app/event/eventBus";
 export { IEventService, type DomainEvent as GlobalEvent } from "#/app/event/event";
 export * from "#/_base/state/stateRegistry";
-export * from "#/app/state/state";
-import "#/app/state/stateService";
 export * from "#/session/state/sessionState";
 import "#/session/state/sessionStateService";
 export * from "#/agent/state/agentState";
@@ -312,9 +310,6 @@ export * from "#/session/question/question";
 export * from "#/session/question/questionService";
 export * from "#/agent/tools/ask-user-question/ask-user-question";
 import "#/agent/tools/ask-user-question/askUserQuestionTool";
-export * from "#/app/gateway/gateway";
-export * from "#/app/gateway/gatewayService";
-
 export * from "#/session/workspaceContext/workspaceContext";
 export * from "#/session/workspaceContext/workspaceContextService";
 export * from "#/session/workspaceCommand/workspaceCommand";

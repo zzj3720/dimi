@@ -9,8 +9,6 @@ import {
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { defineState, StateRegistry, type StateChange } from '#/_base/state/stateRegistry';
-import { IStateService } from '#/app/state/state';
-import { StateService } from '#/app/state/stateService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -168,7 +166,6 @@ describe('state services (scoped)', () => {
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.App, IStateService, StateService, ScopeActivation.OnScopeCreated, 'state');
     registerScopedService(
       LifecycleScope.Session,
       ISessionStateService,
@@ -189,12 +186,10 @@ describe('state services (scoped)', () => {
   afterEach(() => host.dispose());
 
   it('resolves a distinct state service per scope tier', () => {
-    const appState = host.app.accessor.get(IStateService);
     const session = host.child(LifecycleScope.Session, 's1');
     const sessionState = session.accessor.get(ISessionStateService);
     const agent = host.childOf(session, LifecycleScope.Agent, 'main');
     const agentState = agent.accessor.get(IAgentStateService);
-    expect(appState).not.toBe(sessionState);
     expect(sessionState).not.toBe(agentState);
   });
 
@@ -207,7 +202,6 @@ describe('state services (scoped)', () => {
     expect(sessionState.get(sessionKey)).toBe('live');
     const agent = host.childOf(session, LifecycleScope.Agent, 'main');
     expect(agent.accessor.get(IAgentStateService).has(sessionKey)).toBe(false);
-    expect(host.app.accessor.get(IStateService).has(sessionKey)).toBe(false);
   });
 
   it('resolves the same instance within one scope', () => {

@@ -37,7 +37,7 @@ const DOMAIN_LAYER = new Map([
   ["_base", 0],
   // `_base/execEnv` (pure execution-env helpers such as
   // `probeHostEnvironmentFromNode`, `decodeTextWithErrors`,
-  // `globPatternToRegex`, `BufferedReadable`) sits under `_base/*`, so the
+  // `BufferedReadable`) sits under `_base/*`, so the
   // `_base` L0 entry already covers it — no separate entry needed.
   // `errors` is a top-level facade (src/errors.ts) that aggregates every
   // domain's error codes; any domain may import it, so it sits at L0.
@@ -83,9 +83,9 @@ const DOMAIN_LAYER = new Map([
   // Depends only on `_base`; sits in L1 beside the other program-control
   // layer substrates.
   ["task", 1],
-  // `state` is the per-scope keyed state container (`IStateService` /
-  // `ISessionStateService` / `IAgentStateService`, one per scope tier under
-  // `app/state`, `session/state`, `agent/state` — all resolve to this domain).
+  // `state` is the per-scope keyed state container (`ISessionStateService` /
+  // `IAgentStateService`, one per scope tier under `session/state`,
+  // `agent/state` — both resolve to this domain).
   // It wraps the `_base` `StateRegistry` and depends on nothing else, so any
   // domain may hold its plain-data state through it; sits in L1 beside `event`.
   ["state", 1],
@@ -241,7 +241,6 @@ const DOMAIN_LAYER = new Map([
   // `approval` (L7), `subagent` (L6), `agentLifecycle` (L6), `cron` (L5),
   // `agentTask` (L5), and others — the domain takes the highest layer.
   ["tools", 7],
-  ["gateway", 7],
   ["rpc", 7],
 
   ["sessionLegacy", 7],

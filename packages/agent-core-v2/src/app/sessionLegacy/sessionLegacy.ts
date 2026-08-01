@@ -26,7 +26,7 @@ import type { GoalSnapshot } from '#/agent/goal/types';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-import type { SessionStatusResponse, UpdateSessionProfileRequest } from './sessionProtocol';
+import type { SessionStatusResponse, UpdateSessionProfileRequest } from '@dimi-agent/protocol';
 
 export interface SessionWireFields {
   readonly id: string;

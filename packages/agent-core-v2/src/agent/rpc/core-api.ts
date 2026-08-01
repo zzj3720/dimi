@@ -29,7 +29,7 @@ import type { ExperimentalFeatureState } from "#/app/flag/flag";
 import type { ResumeSessionResult } from "#/agent/replayBuilder/types";
 import type { SessionMeta } from "#/session/sessionMetadata/sessionMetadata";
 import type { ContentPart } from "#/llmProtocol/message";
-import type { SessionWarning } from "#/app/sessionLegacy/sessionProtocol";
+import type { SessionWarning } from "@dimi-agent/protocol";
 
 import type { ExportSessionPayload, ExportSessionResult } from "#/app/sessionExport/sessionExport";
 import type {

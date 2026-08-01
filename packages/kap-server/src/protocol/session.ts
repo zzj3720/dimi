@@ -6,7 +6,7 @@ import {
   sessionAgentConfigPartialSchema,
   sessionAgentConfigSchema,
   sessionMetadataSchema,
-} from '@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '@dimi-agent/protocol';
 
 import { workspaceIdSchema } from './workspace';
 

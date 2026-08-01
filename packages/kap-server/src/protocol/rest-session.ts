@@ -24,7 +24,7 @@ import {
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
   type UpdateSessionProfileRequest,
-} from '@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '@dimi-agent/protocol';
 
 import { goalSnapshotSchema } from './goal';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
@@ -46,7 +46,7 @@ export type {
   SessionWarning,
   SessionWarningsResponse,
   UpdateSessionProfileRequest,
-} from '@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '@dimi-agent/protocol';
 
 export const createSessionRequestSchema = sessionCreateSchema;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;

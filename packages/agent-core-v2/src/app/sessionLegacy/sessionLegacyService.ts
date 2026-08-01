@@ -15,7 +15,7 @@
 
 import type { GoalSnapshot } from "#/agent/goal/types";
 
-import type { SessionStatusResponse, UpdateSessionProfileRequest } from "./sessionProtocol";
+import type { SessionStatusResponse, UpdateSessionProfileRequest } from "@dimi-agent/protocol";
 
 import {
   type IAgentScopeHandle,

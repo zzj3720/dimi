@@ -530,6 +530,9 @@ importers:
       '@dimi-agent/dimi-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@dimi-agent/protocol':
+        specifier: workspace:^
+        version: link:../protocol
       '@dimi-agent/transcript':
         specifier: workspace:^
         version: link:../transcript

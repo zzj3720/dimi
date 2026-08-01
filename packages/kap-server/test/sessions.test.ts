@@ -27,7 +27,7 @@ import {
   MAIN_AGENT_ID,
   type ServiceIdentifier,
 } from "@dimi-agent/agent-core-v2";
-import { sessionWarningsResponseSchema } from "@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol";
+import { sessionWarningsResponseSchema } from "@dimi-agent/protocol";
 import { encodeWorkDirKey } from "@dimi-agent/agent-core-v2/_base/utils/workdir-slug";
 
 import { type RunningServer, startServer } from "../src/start";

@@ -24,10 +24,10 @@ import { messageContentSchema } from '@dimi-agent/agent-core-v2/agent/contextMem
 import {
   promptPermissionModeSchema,
   promptThinkingSchema,
-} from '@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol';
+} from '@dimi-agent/protocol';
 
 export { promptPermissionModeSchema, promptThinkingSchema };
-export type { PromptPermissionMode, PromptThinking } from '@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol';
+export type { PromptPermissionMode, PromptThinking } from '@dimi-agent/protocol';
 
 export const promptSubmissionSchema = z.object({
   content: z.array(messageContentSchema).min(1),
