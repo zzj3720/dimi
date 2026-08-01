@@ -3,7 +3,7 @@
   "publisher": "moonshot-ai",
   "displayName": "Dimi",
   "description": "Official Dimi plugin for VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

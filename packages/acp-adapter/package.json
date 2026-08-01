@@ -1,6 +1,6 @@
 {
   "name": "@dimi-agent/acp-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Agent Client Protocol adapter for dimi",
   "license": "MIT",
