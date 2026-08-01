@@ -23,13 +23,15 @@
  * v1-only projection to centralize, so no adapter is involved. `undo` likewise
  * calls `IAgentConversationUndoService.undo` directly (it throws
  * `session.undo_unavailable` with a structured reason) and only borrows
- * `ISessionLegacyService.status` for the cross-domain status rollup. The
+ * the kap-server-edge `SessionLegacyService.status` (`services/sessionLegacy/`,
+ * formerly the engine's `sessionLegacy` domain) for the cross-domain status
+ * rollup. The
  * `/sessions/{id}/children` endpoints call `ISessionLifecycleService.createChild`
  * and `ISessionIndex.list({ childOf })` directly — the child markers and
  * parent-title default live in the lifecycle, and the child filter lives in the
  * index. Only `POST /sessions/{id}/profile` (`updateProfile`),
  * `GET /sessions/{id}/status`, and `GET /sessions/{id}/goal` go through
- * `ISessionLegacyService` (the `agent_config` patch, the status rollup, and the
+ * `SessionLegacyService` (the `agent_config` patch, the status rollup, and the
  * current-goal read hold real cross-domain adaptation);
  * the route forwards each adapter result verbatim, mirroring v1's thin handler.
  * `create`, `fork`, and child creation publish `event.session.created` on the
@@ -87,7 +89,6 @@ import {
   ISessionIndex,
   ISessionLifecycleService,
   ISessionMetadata,
-  ISessionLegacyService,
   ISessionSecondaryModelWarningService,
   IEventService,
   IWorkspaceAliases,
@@ -130,6 +131,7 @@ import { z } from "zod";
 import { errEnvelope, okEnvelope } from "../envelope";
 import { requestLog } from "../lib/requestLog";
 import { defineRoute } from "../middleware/defineRoute";
+import { SessionLegacyService } from "../services/sessionLegacy/sessionLegacyService";
 import { ensureMainAgent } from "../transport/mainAgent";
 import { parseActionSuffix } from "./action-suffix";
 
@@ -248,6 +250,8 @@ const sessionActionRequestSchema = z.preprocess(
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void {
+  const legacy = new SessionLegacyService(core);
+
   const createRoute = defineRoute(
     {
       method: "POST",
@@ -573,9 +577,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const fields = await core.accessor
-          .get(ISessionLegacyService)
-          .updateProfile(session_id, req.body);
+        const fields = await legacy.updateProfile(session_id, req.body);
         const session = toWireSession(fields, fields.root, resolveSessionFacts(core, fields.id));
         // Broadcast the title change to every connection (including clients not
         // subscribed to this session, and covering inactive sessions), so session
@@ -651,8 +653,6 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           reply.send(buildValidationEnvelope([{ path: "session_id", message }], req.id));
           return;
         }
-
-        const legacy = core.accessor.get(ISessionLegacyService);
 
         if (parsed.action === "fork") {
           const body = forkSessionRequestSchema.parse(req.body);
@@ -952,7 +952,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const status = await core.accessor.get(ISessionLegacyService).status(session_id);
+        const status = await legacy.status(session_id);
         reply.send(okEnvelope(status, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -981,7 +981,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const goal = await core.accessor.get(ISessionLegacyService).goal(session_id);
+        const goal = await legacy.goal(session_id);
         reply.send(okEnvelope(goal, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -1139,7 +1139,7 @@ export function resolveSessionFacts(core: Scope, sessionId: string): SessionFact
  * `session.not_found` when the session is unknown or its workspace is gone.
  * Shared by the `compact` / `abort` actions, which both operate on the main
  * agent but carry no v1-specific projection worth keeping in
- * `ISessionLegacyService`.
+ * `SessionLegacyService`.
  */
 async function resolveMainAgent(core: Scope, sessionId: string): Promise<IAgentScopeHandle> {
   const session = await core.accessor.get(ISessionLifecycleService).resume(sessionId);

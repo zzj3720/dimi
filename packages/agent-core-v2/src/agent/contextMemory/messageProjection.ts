@@ -5,7 +5,7 @@
  * (`packages/agent-core/src/services/message/message.ts`) so the `messages`,
  * `snapshot`, and `sessions` (`:undo`) edge surfaces produce byte-compatible
  * message objects. Lives in agent-core-v2 (next to the `ContextMessage` data it
- * projects) so the `sessionLegacy` edge adapter can own the v1 `:undo` response
+ * projects) so the kap-server edge can own the v1 `:undo` response
  * shape without duplicating the projection in the server layer.
  *
  * Tool results project to a single `tool_result` part: plain-text results keep

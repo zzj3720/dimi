@@ -1,6 +1,7 @@
 /**
  * `session` domain error codes — shared across the session layer
- * (`sessionLifecycle` / `sessionLegacy` / `messageLegacy`).
+ * (`sessionLifecycle`). The v1 wire-compat edge adapters that also threw
+ * these codes now live at the kap-server edge.
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';

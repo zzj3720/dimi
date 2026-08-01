@@ -2,7 +2,7 @@
  * The wire `Message` shape — the legacy REST/streaming message format served
  * on the `messages`, `snapshot`, and `sessions` (`:undo`) edge surfaces.
  * Defined next to `messageProjection.ts`, which projects `ContextMessage`
- * into this shape; consumed by the `messageLegacy` edge adapter and the
+ * into this shape; consumed by the kap-server-edge `messages` route and the
  * transports.
  *
  * Media sources come in three kinds: `url`, `base64`, and `file` (a daemon

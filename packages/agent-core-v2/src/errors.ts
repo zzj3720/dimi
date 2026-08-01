@@ -18,7 +18,6 @@ import { FullCompactionErrors } from "#/agent/fullCompaction/errors";
 import { GoalErrors } from "#/agent/goal/errors";
 import { LoopErrors } from "#/agent/loop/errors";
 import { McpErrors } from "#/agent/mcp/errors";
-import { MessageLegacyErrors } from "#/app/messageLegacy/errors";
 import { ModelCatalogErrors } from "#/app/modelCatalog/errors";
 import { OsFsErrors } from "#/os/interface/hostFsErrors";
 import { OsProcessErrors } from "#/os/interface/hostProcess";
@@ -49,7 +48,6 @@ export { FullCompactionErrors } from "#/agent/fullCompaction/errors";
 export { GoalErrors } from "#/agent/goal/errors";
 export { LoopErrors } from "#/agent/loop/errors";
 export { McpErrors } from "#/agent/mcp/errors";
-export { MessageLegacyErrors } from "#/app/messageLegacy/errors";
 export { ModelCatalogErrors } from "#/app/modelCatalog/errors";
 export { OsFsErrors } from "#/os/interface/hostFsErrors";
 export { OsProcessErrors } from "#/os/interface/hostProcess";
@@ -77,7 +75,6 @@ export const ErrorCodes = {
   ...GoalErrors.codes,
   ...LoopErrors.codes,
   ...McpErrors.codes,
-  ...MessageLegacyErrors.codes,
   ...ModelCatalogErrors.codes,
   ...OsFsErrors.codes,
   ...OsProcessErrors.codes,
@@ -89,6 +86,7 @@ export const ErrorCodes = {
   ...SkillErrors.codes,
   ...StorageErrors.codes,
   ...TerminalErrors.codes,
+  MESSAGE_NOT_FOUND: 'message.not_found',
   ...UsageErrors.codes,
   ...WireErrors.codes,
   ...WorkspaceErrors.codes,

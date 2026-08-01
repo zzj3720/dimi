@@ -1,21 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { toDisposable } from "#/_base/di/lifecycle";
-import { type IAgentScopeHandle, type ISessionScopeHandle, LifecycleScope } from "#/_base/di/scope";
-import { IAgentBlobService } from "#/agent/blob/agentBlobService";
-import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
-import type { ContextMessage } from "#/agent/contextMemory/types";
-import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
-import type { ContentPart } from "#/llmProtocol/message";
-import { type IAppendLogStore } from "#/persistence/interface/appendLogStore";
-import { IWireService } from "#/wire/wire";
-import { ISessionIndex, type SessionSummary } from "#/app/sessionIndex/sessionIndex";
-import { ISessionLifecycleService } from "#/app/sessionLifecycle/sessionLifecycle";
-import { IAgentLifecycleService } from "#/session/agentLifecycle/agentLifecycle";
-import { MAIN_AGENT_ID } from "#/session/agentLifecycle/agentLifecycle";
-import { ISessionCronService } from "#/session/cron/sessionCronService";
+import {
+  toDisposable,
+  LifecycleScope,
+  IAgentBlobService,
+  IAgentContextMemoryService,
+  IAgentLifecycleService,
+  IAgentScopeContext,
+  IAppendLogStore,
+  ISessionCronService,
+  ISessionIndex,
+  ISessionLifecycleService,
+  IWireService,
+  MAIN_AGENT_ID,
+  type ContentPart,
+  type ContextMessage,
+  type IAgentScopeHandle,
+  type ISessionScopeHandle,
+  type Scope,
+  type SessionSummary,
+} from "@dimi-agent/agent-core-v2";
 
-import { MessageLegacyService } from "#/app/messageLegacy/messageLegacyService";
+import { MessageLegacyService } from "../../src/services/messageLegacy/messageLegacyService";
 
 function textMessage(role: ContextMessage["role"], text: string): ContextMessage {
   return { role, content: [{ type: "text", text }], toolCalls: [] };
@@ -93,7 +99,18 @@ function buildService(opts: {
     acquire: () => toDisposable(() => {}),
   };
 
-  return new MessageLegacyService(lifecycle, index, appendLog);
+  const core = {
+    accessor: {
+      get: (token: unknown): unknown => {
+        if (token === ISessionLifecycleService) return lifecycle;
+        if (token === ISessionIndex) return index;
+        if (token === IAppendLogStore) return appendLog;
+        throw new Error("unexpected core service access");
+      },
+    },
+  } as unknown as Scope;
+
+  return new MessageLegacyService(core);
 }
 
 describe("MessageLegacyService", () => {
