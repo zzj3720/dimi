@@ -34,9 +34,9 @@ function jsoncParserEsmEntry(): string {
 function shouldAlwaysBundle(id: string): boolean {
   if (builtins.has(id) || id.startsWith("node:")) return false;
   if (optionalNativeDependencies.has(id)) return false;
-  // Everything else is force-bundled, which covers `@dimi-agent/*` (incl.
-  // vis-server for `dimi vis`) plus its transitive `hono` / `@hono/node-server`
-  // — so the SEA bundle is self-contained (check-bundle.mjs enforces this).
+  // Everything else is force-bundled, which covers `@dimi-agent/*` plus its
+  // transitive deps — so the SEA bundle is self-contained (check-bundle.mjs
+  // enforces this).
   return true;
 }
 

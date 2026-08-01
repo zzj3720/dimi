@@ -594,7 +594,6 @@ describe("CLI options parsing", () => {
         "login",
         "logout",
         "doctor",
-        "vis",
         "upgrade",
       ]);
     });

@@ -76,9 +76,6 @@
         ./apps/dimi-web
         ./apps/mobile
         ./apps/relay
-        ./apps/vis
-        ./apps/vis/server
-        ./apps/vis/web
         ./docs
       ];
 
@@ -97,9 +94,6 @@
         "@dimi-agent/dimi-web"
         "@dimi-agent/mobile"
         "@dimi-agent/relay"
-        "@dimi-agent/vis"
-        "@dimi-agent/vis-server"
-        "@dimi-agent/vis-web"
         "dimi-docs"
       ];
     in

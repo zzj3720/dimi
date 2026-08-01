@@ -37,10 +37,6 @@
     "#/tui/commands": "./src/tui/commands/index.ts",
     "#/cli/sub/web": "./src/cli/sub/web/index.ts",
     "#/cli/sub/web/*": "./src/cli/sub/web/*.ts",
-    "#/generated/vis-web-asset": [
-      "./src/generated/vis-web-asset.ts",
-      "./src/generated/vis-web-asset.d.ts"
-    ],
     "#/*": "./src/*.ts"
   },
   "publishConfig": {
@@ -49,7 +45,6 @@
   },
   "scripts": {
     "build": "pnpm -C ../dimi-web run build && tsdown && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
-    "prebuild": "node scripts/build-vis-asset.mjs",
     "smoke": "node scripts/smoke.mjs",
     "build:native:js": "node scripts/native/01-bundle.mjs",
     "build:native:sea": "node scripts/native/build.mjs --profile=local",
@@ -82,8 +77,6 @@
     "@dimi-agent/dimi-web": "workspace:^",
     "@dimi-agent/pi-tui": "workspace:^",
     "@dimi-agent/remote": "workspace:^",
-    "@dimi-agent/vis-server": "workspace:^",
-    "@dimi-agent/vis-web": "workspace:*",
     "@types/qrcode": "^1.5.6",
     "@types/semver": "^7.7.0",
     "@types/yazl": "^2.4.6",

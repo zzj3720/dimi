@@ -20,7 +20,6 @@ This repository is a fork of `MoonshotAI/kimi-code` (first commit `Kimi For Codi
 
 - `apps/dimi`: the CLI / TUI application. It consumes core capabilities through `@dimi-agent/dimi-sdk`; the runtime is composed below the SDK boundary. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
 - `apps/dimi-web`: the browser web UI, a peer to the TUI. Vue 3 + Vite + vue-i18n; talks to the server over REST + WebSocket under `/api/v1`. It is decoupled from the runtime and re-implements wire types locally. Run the server with `pnpm dev:server`; Vite proxies to `DIMI_SERVER_URL`. See `apps/dimi-web/AGENTS.md`.
-- `apps/vis`, `apps/vis/server`, `apps/vis/web`: visual debugging tools for sessions and replays.
 - `packages/agent-core-v2`: the sole agent runtime, organized as DI scopes and domain services for Agent, Session, tools, tasks, permissions, persistence, and providers.
 - `packages/node-sdk`: the public TypeScript SDK and harness.
 - `packages/agent-core-v2/src/app/providerRuntime`: the project-owned provider,

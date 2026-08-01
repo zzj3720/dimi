@@ -8,7 +8,6 @@ import { registerLoginCommand } from "./sub/login";
 import { registerLogoutCommand } from "./sub/logout";
 import { registerProviderCommand } from "./sub/provider";
 import { registerRemoteCommand } from "./sub/remote";
-import { registerVisCommand } from "./sub/vis";
 import { registerWebCommand } from "./sub/web";
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
@@ -126,7 +125,6 @@ export function createProgram(
   registerLoginCommand(program);
   registerLogoutCommand(program);
   registerDoctorCommand(program);
-  registerVisCommand(program);
   program
     .command("upgrade")
     .alias("update")
