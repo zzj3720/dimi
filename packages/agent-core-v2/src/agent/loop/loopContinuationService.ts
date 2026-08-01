@@ -1,20 +1,16 @@
 /**
- * `loop` domain (L4) — tool-step continuation aspect.
+ * `loop` domain (L4) — Agent turn continuation aspect.
  *
- * A step that executed tools must drive one more step so the model consumes
- * the tool results: this service watches the loop's `onDidFinishStep` and enqueues
- * a `ContinuationStepRequest` whenever a step ends with `tool_calls` — which
- * is exactly when the step ran tools without a stopTurn tool result (the
- * loop maps that combination onto the `tool_calls` finish reason). The loop
- * itself only drains the queue and dispatches errors; it never enqueues. A
- * hook-set `stopTurn` still wins over the continuation: the turn ends at the
- * step boundary and the turn-scoped request is discarded by the run-end
- * cleanup. Bound at Agent scope and constructed with the scope so the hook
- * registers before the first turn runs (same rationale as `stepRetry`).
+ * Drives another step after tool results and after every tool-free response.
+ * Tool-free responses receive the completion reminder; only a control path
+ * that stops the turn can suppress continuation. Bound at Agent scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 
 import { IAgentLoopContinuationService } from './loopContinuation';
 import { IAgentLoopService } from './loop';
@@ -26,12 +22,26 @@ export class AgentLoopContinuationService
 {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAgentLoopService loop: IAgentLoopService) {
+  constructor(
+    @IAgentLoopService loop: IAgentLoopService,
+    @IAgentProfileService profile: IAgentProfileService,
+    @IAgentSystemReminderService reminders: IAgentSystemReminderService,
+  ) {
     super();
     this._register(
       loop.hooks.onDidFinishStep.register('loop-continuation', async (ctx, next) => {
         await next();
-        if (ctx.stopTurn || ctx.finishReason !== 'tool_calls') return;
+        if (ctx.stopTurn || ctx.finishReason === 'filtered') return;
+        if (ctx.toolCalls.length === 0) {
+          if (!profile.isRunnable()) return;
+          reminders.appendSystemReminder(COMPLETION_REVIEW_REMINDER, {
+            kind: 'system_trigger',
+            name: 'completion_review',
+          });
+          loop.enqueue(new ContinuationStepRequest());
+          return;
+        }
+        if (ctx.finishReason !== 'tool_calls') return;
         loop.enqueue(new ContinuationStepRequest());
       }),
     );

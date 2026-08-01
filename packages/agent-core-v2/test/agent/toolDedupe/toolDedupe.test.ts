@@ -200,6 +200,7 @@ function afterStep(
     signal,
     usage: ZERO_USAGE,
     finishReason: "completed",
+    toolCalls: [],
     stopTurn: false,
   });
 }

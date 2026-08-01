@@ -227,7 +227,8 @@ function latestAssistantText(messages: readonly ContextMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!;
     if (message.role !== "assistant") continue;
-    return contentText(message.content);
+    const text = contentText(message.content);
+    if (text.trim().length > 0) return text;
   }
   return "";
 }

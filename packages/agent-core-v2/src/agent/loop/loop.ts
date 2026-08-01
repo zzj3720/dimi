@@ -2,6 +2,7 @@ import { createDecorator } from "#/_base/di/instantiation";
 import type { IDisposable } from "#/_base/di/lifecycle";
 import { Error2, isError2, type Error2Options } from "#/_base/errors/errors";
 import type { FinishReason } from "#/llmProtocol/provider";
+import type { ToolCall } from "#/llmProtocol/message";
 import type { TokenUsage } from "#/llmProtocol/usage";
 import type { Hooks } from "#/hooks";
 import { LoopErrors } from "./errors";
@@ -38,6 +39,7 @@ export interface BeforeStepContext {
 export interface AfterStepContext extends BeforeStepContext {
   readonly usage: TokenUsage;
   readonly finishReason: FinishReason;
+  readonly toolCalls: readonly ToolCall[];
   stopTurn: boolean;
 }
 

@@ -407,7 +407,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     let execution: ToolExecution;
     try {
-      execution = await call.tool.resolveExecution(call.args);
+      execution = await call.tool.resolveExecution(call.args, { toolCalls: allCalls });
     } catch (error) {
       const output =
         error instanceof PathSecurityError

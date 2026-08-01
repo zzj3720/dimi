@@ -61,7 +61,7 @@ import { IAgentToolExecutorService } from "#/agent/toolExecutor/toolExecutor";
 import { IConfigService } from "#/app/config/config";
 import { IEventBus } from "#/app/event/eventBus";
 import { type FinishReason } from "#/llmProtocol/provider";
-import { type StreamedMessagePart } from "#/llmProtocol/message";
+import { type StreamedMessagePart, type ToolCall } from "#/llmProtocol/message";
 import { type TokenUsage } from "#/llmProtocol/usage";
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toDimiErrorPayload } from "#/errors";
 import { OrderedHookSlot } from "#/hooks";
@@ -871,6 +871,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       currentStep,
       response.usage,
       finishReason,
+      response.message.toolCalls,
     );
     return { stopReason: finishReason, hookStopTurn };
   }
@@ -1014,6 +1015,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     currentStep: number,
     usage: TokenUsage,
     finishReason: FinishReason,
+    toolCalls: readonly ToolCall[],
   ): Promise<boolean> {
     const context: AfterStepContext = {
       turnId,
@@ -1021,6 +1023,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       signal,
       usage,
       finishReason,
+      toolCalls,
       stopTurn: false,
     };
     try {

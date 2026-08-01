@@ -251,6 +251,8 @@ export * from "#/agent/task/taskService";
 export * from "#/agent/wait/wait";
 export * from "#/agent/wait/waitService";
 export * from "#/agent/tools/wait-for/waitForTool";
+export * from "#/agent/completion/completion";
+export * from "#/agent/tools/all-done/allDoneTool";
 import "#/app/cron/configSection";
 export * from "#/app/cron/cronTask";
 export * from "#/app/cron/cronTaskPersistence";

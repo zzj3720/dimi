@@ -26,3 +26,5 @@ ${skills_section}${plugin_sections}
 # Delivery
 
 Keep changes focused and complete. Verify work with the relevant checks before reporting completion; state plainly what was not verified.
+
+When you have completed every requirement and verified the results, end the turn by calling `AllDone` by itself — it must be the only tool call in that round. While background work is still running, keep monitoring it or call `WaitFor` before completing.
