@@ -1,12 +1,21 @@
-# Kimi Code CLI
+# k-3720
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [Documentation](docs/en/guides/getting-started.md) · [Issues](https://github.com/zzj3720/k-3720/issues) · [中文](README.zh-CN.md)
 
-![Demo of using Kimi Code](./docs/media/intro.gif)
+k-3720 is an independent, multi-model coding agent runtime and client project. It is forked from [Kimi Code](https://github.com/MoonshotAI/kimi-code) and retains substantial portions of that codebase. Its terminal interface and related interaction code also make extensive use of [Pi](https://github.com/earendil-works/pi), especially `pi-tui`.
 
-## What is Kimi Code CLI
+This project is not an official Moonshot AI, Kimi, Pi, or Earendil project and is not endorsed by or affiliated with those projects or their maintainers.
 
-Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It has one provider runtime for Kimi, Codex, Grok, Claude, Gemini, cloud services, and compatible custom endpoints.
+## Status
+
+k-3720 is under active development. It currently provides:
+
+- one provider runtime for Kimi, Codex, Grok, Claude, Gemini, cloud services, and compatible custom endpoints;
+- a terminal UI for local agent sessions;
+- asynchronous tool execution and wait/resume behavior;
+- a native Android client;
+- an end-to-end encrypted bridge between local runtimes and mobile clients; and
+- an opaque WebSocket relay that forwards encrypted traffic without reading prompts or responses.
 
 ## Install
 
@@ -19,57 +28,28 @@ vp install
 vp run dev:cli
 ```
 
-To update, run `git pull --ff-only && vp install`. `kimi upgrade` safely reports that automatic upgrades are not configured for this build. See [Getting Started](docs/en/guides/getting-started.md).
+To update, run `git pull --ff-only && vp install`. `kimi upgrade` reports that automatic upgrades are not configured for this build.
 
-## Quick Start
+On first launch, run `/login` and choose a provider and its supported OAuth, API-key, or cloud-identity method. Compatible endpoints can be added or overlaid in `~/.kimi-code/models.json`; see [Providers and models](docs/en/configuration/providers.md).
 
-From the cloned checkout, start the interactive UI:
+The Android client and relay setup are documented in [apps/mobile/README.md](apps/mobile/README.md).
+
+## Development
+
+Requirements: Node.js 24.15.0 or newer and pnpm 10.33.0. This repository also supports the `vp` command wrapper.
 
 ```sh
-cd k-3720
+vp install
 vp run dev:cli
+vp run typecheck
+vp lint
+vp test
+vp build
 ```
 
-On first launch, run `/login` inside Kimi Code CLI and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.kimi-code/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide.
 
-```
-Take a look at this project and explain its main directories.
-```
-
-## Key Features
-
-- **Source-first development.** Run the current checkout with `vp run dev:cli`; provider and model behavior is verified from the same code you edit.
-- **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
-- **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
-- **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
-- **AI-native MCP configuration.** Add, edit, and authenticate Model Context Protocol servers conversationally with `/mcp-config`, without hand-editing JSON.
-- **Rich plugin ecosystem.** Install skills, MCP servers, and data sources from the marketplace or any GitHub repo, with each install's trust level surfaced up front.
-- **Subagents for focused, parallel work.** Dispatch built-in `coder`, `explore`, and `plan` subagents in isolated contexts while keeping the main conversation clean.
-- **Lifecycle hooks.** Run local commands at key points to gate risky tool calls, audit decisions, trigger desktop notifications, or connect to your own automation.
-- **Editor & IDE integration (ACP).** Drive a Kimi Code CLI session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `kimi acp`.
-
-## Use it in your editor (ACP)
-
-Kimi Code CLI speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
-
-For Zed, add this to `~/.config/zed/settings.json`:
-
-```json
-{
-  "agent_servers": {
-    "Kimi Code CLI": {
-      "type": "custom",
-      "command": "kimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/guides/ides.md) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](docs/en/reference/kimi-acp.md) for the full capability matrix.
-
-## Docs
+## Documentation
 
 - [Getting Started](docs/en/guides/getting-started.md)
 - [Interaction and approvals](docs/en/guides/interaction.md)
@@ -78,35 +58,16 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/g
 - [Configuration](docs/en/configuration/config-files.md)
 - [Command reference](docs/en/reference/kimi-command.md)
 
-## Develop
-
-Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
-
-```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
-vp install
-```
-
-```sh
-vp run dev:cli  # run the CLI in dev mode
-vp test         # run tests
-vp run typecheck # TypeScript check
-vp run lint     # oxlint
-vp run build    # build all packages
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
-
-## Community
-
-- [Issues](https://github.com/zzj3720/k-3720/issues)
-- For security vulnerabilities, see [SECURITY.md](SECURITY.md).
-
 ## Acknowledgements
 
-Our TUI is built on top of [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui). We thank the authors of `pi-tui` for their valuable work.
+- [Kimi Code](https://github.com/MoonshotAI/kimi-code), by Moonshot AI, is the upstream project from which k-3720 was forked. This repository retains and modifies substantial portions of its agent runtime, CLI, server, protocol, and supporting packages.
+- [Pi](https://github.com/earendil-works/pi), by Mario Zechner and its contributors, is the source of substantial TUI and terminal interaction code used by this project. The vendored `packages/pi-tui` package originated from `@earendil-works/pi-tui`.
+- The project also depends on many other open-source packages. Their licenses remain applicable to their respective components and distributions.
+
+These acknowledgements describe source lineage only; they do not imply sponsorship, endorsement, or affiliation.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+k-3720 is distributed under the [MIT License](LICENSE). The original Moonshot AI notice is retained, and the k-3720 notice applies to subsequent modifications.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the retained Kimi Code and Pi license notices.

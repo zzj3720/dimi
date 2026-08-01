@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>k-3720 Internal for Android</title>
+    <meta name="description" content="Install the current k-3720 internal Android build." />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="utility-header">
+      <a class="wordmark" href="/" aria-label="k-3720 internal builds">k-3720</a>
+      <span class="channel">Internal · Android</span>
+    </header>
+
+    <main>
+      <section class="build" aria-labelledby="build-title">
+        <div class="build-copy">
+          <p class="eyebrow">Current internal build</p>
+          <h1 id="build-title">Install on Android</h1>
+          <p class="lede">Signed test builds for Android 8+ on arm64 devices.</p>
+          <a class="download" id="download" aria-disabled="true">Loading build…</a>
+          <dl class="metadata" aria-live="polite">
+            <div><dt>Version</dt><dd id="version">—</dd></div>
+            <div><dt>Published</dt><dd id="published">—</dd></div>
+            <div><dt>Build</dt><dd id="build-code">—</dd></div>
+          </dl>
+          <p class="error" id="error" hidden>Build information is unavailable. Reload to retry.</p>
+        </div>
+        <figure class="qr">
+          <img src="/install-qr.svg" alt="QR code for this installation page" width="224" height="224" />
+          <figcaption>Scan with the Android device.</figcaption>
+        </figure>
+      </section>
+
+      <section class="instructions" aria-labelledby="steps-title">
+        <div class="section-heading">
+          <p class="eyebrow">Sideload</p>
+          <h2 id="steps-title">Three steps</h2>
+        </div>
+        <ol>
+          <li><span>01</span><div><strong>Download</strong><p>Open this page on Android and download the APK.</p></div></li>
+          <li><span>02</span><div><strong>Allow</strong><p>If prompted, allow this browser to install unknown apps.</p></div></li>
+          <li><span>03</span><div><strong>Install</strong><p>Confirm the Android installer. Existing internal data is retained.</p></div></li>
+        </ol>
+      </section>
+
+      <section class="verification" aria-labelledby="verify-title">
+        <div>
+          <p class="eyebrow">Verification</p>
+          <h2 id="verify-title">Immutable build</h2>
+        </div>
+        <dl>
+          <div><dt>SHA-256</dt><dd id="sha">—</dd></div>
+          <div><dt>Source commit</dt><dd id="commit">—</dd></div>
+          <div><dt>Package</dt><dd>org.k3720.mobile.internal</dd></div>
+          <div><dt>Architecture</dt><dd>arm64-v8a</dd></div>
+        </dl>
+      </section>
+    </main>
+
+    <footer>
+      <span>k-3720 internal distribution</span>
+      <span>Test channel</span>
+    </footer>
+  </body>
+</html>

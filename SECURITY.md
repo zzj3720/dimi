@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Currently, Kimi Code only provides security support for the latest released version.
+k-3720 provides security fixes for the latest release and the current `main` branch.
 
 ## Reporting a Vulnerability
 
@@ -13,13 +13,9 @@ Preferred channel:
 - GitHub Security Advisories — https://github.com/zzj3720/k-3720/security/advisories/new
   (private disclosure, tracked with the codebase)
 
-Alternative channel:
-
-- Email: code@moonshot.ai (please include "[security]" in the subject)
-
 ## What to Include
 
-- Affected version (output of `kimi --version`)
+- Affected commit or release; include the output of `kimi --version` while the compatibility CLI keeps that command name
 - Reproduction steps
 - Impact assessment
 - Any suggested mitigation

@@ -74,6 +74,7 @@
     "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts"
   },
   "devDependencies": {
+    "@k-3720/remote": "workspace:^",
     "@moonshot-ai/acp-adapter": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kap-server": "workspace:^",
@@ -84,6 +85,7 @@
     "@moonshot-ai/pi-tui": "workspace:^",
     "@moonshot-ai/vis-server": "workspace:^",
     "@moonshot-ai/vis-web": "workspace:*",
+    "@types/qrcode": "1.5.6",
     "@types/semver": "^7.7.0",
     "@types/yazl": "^2.4.6",
     "chalk": "^5.4.1",
@@ -92,6 +94,7 @@
     "jimp": "^1.6.1",
     "pathe": "^2.0.3",
     "postject": "1.0.0-alpha.6",
+    "qrcode": "1.5.4",
     "semver": "^7.7.4",
     "smol-toml": "^1.6.1",
     "tsx": "^4.21.0",

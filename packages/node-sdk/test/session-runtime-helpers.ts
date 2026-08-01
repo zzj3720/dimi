@@ -83,10 +83,9 @@ async function readWireEvents(homeDir: string, sessionId: string): Promise<reado
 
   try {
     const raw = await readFile(join(sessionDir, "agents", "main", "wire.jsonl"), "utf-8");
-    return raw
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown);
+    const lines = raw.split("\n");
+    lines.pop();
+    return lines.filter(Boolean).map((line) => JSON.parse(line) as unknown);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return [];

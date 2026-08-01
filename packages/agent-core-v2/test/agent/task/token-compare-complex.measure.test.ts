@@ -11,8 +11,7 @@
  *   MEASURE_LABEL=worktree pnpm --filter @moonshot-ai/agent-core-v2 \
  *     exec vitest run test/agent/task/token-compare-complex.measure.test.ts
  */
-/* eslint-disable jest/expect-expect -- measurement scenarios emit structured output */
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { IAgentProfileService } from "#/agent/profile/profile";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
@@ -243,6 +242,8 @@ describe("token compare complex (worktree async)", () => {
       phases.push(snapshot(ctx, "wave2_after_scan_notification"));
 
       const final = phases.at(-1)!;
+      expect(phases).toHaveLength(5);
+      expect(final.llmCalls).toBeGreaterThan(0);
       console.log(
         JSON.stringify(
           {
