@@ -9,8 +9,7 @@
  * the transcript audit and the agent inspector under Audit / Agent tabs;
  * the `models` view is the full-width model catalog; the `services` view is
  * the full-width app-scope Service reflection (`AppServicesView`); the
- * `bash` view is the full-width `IBashParserService` playground
- * (`BashParserView`); the `search` view is the full-width global message
+ * `search` view is the full-width global message
  * search (`SearchView`) whose hits navigate back into the chat timeline.
  */
 
@@ -19,7 +18,6 @@ import { useEffect, useState } from 'react';
 
 import type { AuditTrail } from './audit/trail';
 import { AppServicesView } from './components/AppServicesView';
-import { BashParserView } from './components/BashParserView';
 import { ChatView, type ChatJump } from './components/ChatView';
 import { ModelCatalogView } from './components/ModelCatalogView';
 import { NavRail, type AppView } from './components/NavRail';
@@ -104,8 +102,6 @@ export function App() {
         <NavRail view={view} onChange={setView} />
         {view === 'services' ? (
           <AppServicesView />
-        ) : view === 'bash' ? (
-          <BashParserView />
         ) : view === 'models' ? (
           <ModelCatalogView
             onOpenSession={(id) => {

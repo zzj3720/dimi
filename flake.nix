@@ -75,7 +75,6 @@
         ./packages/remote
         ./packages/telemetry
         ./packages/transcript
-        ./packages/tree-sitter-bash
         ./apps/dimi
         ./apps/dimi-inspect
         ./apps/dimi-web
@@ -101,7 +100,6 @@
         "@dimi-agent/remote"
         "@dimi-agent/dimi-telemetry"
         "@dimi-agent/transcript"
-        "@dimi-agent/tree-sitter-bash"
         "@dimi-agent/cli"
         "@dimi-agent/dimi-inspect"
         "@dimi-agent/dimi-web"

@@ -330,8 +330,6 @@ import "#/app/workspaceAliases/workspaceAliasesService";
 export * from "#/app/workspaceSessions/workspaceSessions";
 import "#/app/workspaceSessions/workspaceSessionsService";
 import "#/app/git/gitService";
-export * from "#/app/bashParser/bashParser";
-import "#/app/bashParser/bashParserService";
 export * from "#/session/process/processRunner";
 export * from "#/session/process/processRunnerService";
 export * from "#/session/sessionFs/errors";
