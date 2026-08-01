@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.4.2
+
+### Patch Changes
+
+- [`42e5854`](https://github.com/zzj3720/dimi/commit/42e58548ab505e1aa7b3c0d734e7f0e69bed32bf) - Keep the AllDone and WaitFor control cards visible in the transcript: AllDone renders as its own "Work complete" card and WaitFor keeps its live timer card, instead of both being folded into the tool-run summary line.
+
+- [`42e5854`](https://github.com/zzj3720/dimi/commit/42e58548ab505e1aa7b3c0d734e7f0e69bed32bf) - Remember the chosen permission mode and thinking effort for new sessions. /permission, /yolo, and /auto save the mode as the default, and thinking effort is remembered per model ([model_efforts]) — every declared level including the highest — so switching models or starting a new session resumes the effort you picked.
+
 ## 0.4.1
 
 ### Patch Changes
