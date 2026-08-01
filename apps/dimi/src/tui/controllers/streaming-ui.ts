@@ -37,7 +37,6 @@ export interface StreamingUIHost {
   pushTranscriptEntry(entry: TranscriptEntry): void;
   collapseTrailingToolCalls(): void;
   mergeCurrentTurnSteps(): void;
-  mergeCompletedTurnAssistants(): void;
 }
 
 export class StreamingUIController {
@@ -564,9 +563,7 @@ export class StreamingUIController {
       this._currentTurnId ?? `local:${String(state.appState.streamingStartTime)}`;
     this.finalizeLiveTextBuffers('idle');
     this.host.collapseTrailingToolCalls();
-    // The finished turn keeps only its conclusion-bearing tail; intermediate
-    // chatter folds into the step summary.
-    this.host.mergeCompletedTurnAssistants();
+    this.host.mergeCurrentTurnSteps();
     this.resetToolCallState();
     this._currentTurnId = undefined;
 

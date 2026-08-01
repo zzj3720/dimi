@@ -151,8 +151,6 @@ import { nextTranscriptId } from './utils/transcript-id';
 import {
   TRANSCRIPT_EXPAND_TURNS,
   TRANSCRIPT_HYSTERESIS,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
   TRANSCRIPT_MAX_TURNS,
   TRANSCRIPT_WINDOW_ENABLED,
@@ -2144,10 +2142,7 @@ export class DimiTUI {
   }
 
   mergeCurrentTurnSteps(): boolean {
-    return this.foldCurrentTurnContent(
-      TRANSCRIPT_KEEP_RECENT_STEPS,
-      TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-    );
+    return this.foldCurrentTurnSteps(TRANSCRIPT_KEEP_RECENT_STEPS);
   }
 
   collapseTrailingToolCalls(): void {
@@ -2181,22 +2176,8 @@ export class DimiTUI {
     this.state.transcriptContainer.invalidate();
   }
 
-  /**
-   * Fold the just-finished turn's assistant messages down to the completed-turn
-   * cap: while a turn is live it may keep TRANSCRIPT_KEEP_RECENT_ASSISTANT
-   * messages mounted, but once it ends only the conclusion-bearing tail stays.
-   * Called when a turn finishes; the finished turn is still the current one at
-   * that point (no newer boundary exists yet).
-   */
-  mergeCompletedTurnAssistants(): boolean {
-    return this.foldCurrentTurnContent(
-      TRANSCRIPT_KEEP_RECENT_STEPS,
-      TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
-    );
-  }
-
-  private foldCurrentTurnContent(keepSteps: number, keepAssistants: number): boolean {
-    if (keepSteps <= 0 && keepAssistants <= 0) return false;
+  private foldCurrentTurnSteps(keepSteps: number): boolean {
+    if (keepSteps <= 0) return false;
     const children = this.state.transcriptContainer.children;
 
     // Find the start of the current turn (last turn-starting user message).
@@ -2209,34 +2190,25 @@ export class DimiTUI {
     }
     if (turnStart < 0) return false;
 
-    // Locate an existing summary, the assistant messages, and the mergeable steps.
+    // Locate an existing summary and the mergeable steps. Assistant messages
+    // are model output the user can read — they are never folded into the
+    // summary (which cannot be expanded to recover them).
     let summaryIndex = -1;
     const stepIndices: number[] = [];
-    const assistantIndices: number[] = [];
     for (let i = turnStart + 1; i < children.length; i++) {
       const child = children[i]!;
       if (child instanceof StepSummaryComponent) {
         summaryIndex = i;
         continue;
       }
-      if (child instanceof AssistantMessageComponent) {
-        assistantIndices.push(i);
-        continue;
-      }
+      if (child instanceof AssistantMessageComponent) continue;
       stepIndices.push(i);
     }
 
-    // Fold the oldest steps / assistant messages beyond their respective caps;
-    // the most recent ones stay mounted. Children are chronological, so the
-    // oldest of each kind sit at the front of their index lists.
-    const stepMergeCount = keepSteps > 0 ? Math.max(0, stepIndices.length - keepSteps) : 0;
-    const assistantMergeCount =
-      keepAssistants > 0 ? Math.max(0, assistantIndices.length - keepAssistants) : 0;
-    if (stepMergeCount === 0 && assistantMergeCount === 0) return false;
-    const toMergeIndices = [
-      ...stepIndices.slice(0, stepMergeCount),
-      ...assistantIndices.slice(0, assistantMergeCount),
-    ];
+    // Fold the oldest steps beyond the cap; the most recent ones stay mounted.
+    const stepMergeCount = Math.max(0, stepIndices.length - keepSteps);
+    if (stepMergeCount === 0) return false;
+    const toMergeIndices = stepIndices.slice(0, stepMergeCount);
 
     let thinkingCount = 0;
     let toolCount = 0;
@@ -2249,15 +2221,15 @@ export class DimiTUI {
         toolCount += child.toolCount;
       }
     }
-    if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
+    if (thinkingCount === 0 && toolCount === 0) return false;
 
     let summary: StepSummaryComponent;
     if (summaryIndex >= 0) {
       summary = children[summaryIndex] as StepSummaryComponent;
-      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+      summary.addCounts(thinkingCount, toolCount);
     } else {
       summary = new StepSummaryComponent();
-      summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+      summary.addCounts(thinkingCount, toolCount);
     }
 
     // Rebuild children: keep everything except the merged steps, with the summary
@@ -2282,8 +2254,7 @@ export class DimiTUI {
   }
 
   mergeAllTurnSteps(): void {
-    if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0 && TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED <= 0)
-      return;
+    if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0) return;
     const children = this.state.transcriptContainer.children;
 
     const boundaries: number[] = [];
@@ -2303,11 +2274,10 @@ export class DimiTUI {
 
       let summaryIndex = -1;
       const stepIndices: number[] = [];
-      const assistantIndices: number[] = [];
       for (let i = turnStart + 1; i < turnEnd; i++) {
         const child = children[i]!;
         if (child instanceof StepSummaryComponent) summaryIndex = i;
-        else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
+        else if (child instanceof AssistantMessageComponent) continue;
         else stepIndices.push(i);
       }
 
@@ -2315,17 +2285,8 @@ export class DimiTUI {
         TRANSCRIPT_KEEP_RECENT_STEPS > 0
           ? Math.max(0, stepIndices.length - TRANSCRIPT_KEEP_RECENT_STEPS)
           : 0;
-      // Replayed turns are all completed turns, so the stricter completed-turn
-      // assistant cap applies (matching what live turns fold to on turn end).
-      const assistantMergeCount =
-        TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED > 0
-          ? Math.max(0, assistantIndices.length - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED)
-          : 0;
-      if (stepMergeCount > 0 || assistantMergeCount > 0) {
-        const toMergeIndices = [
-          ...stepIndices.slice(0, stepMergeCount),
-          ...assistantIndices.slice(0, assistantMergeCount),
-        ];
+      if (stepMergeCount > 0) {
+        const toMergeIndices = stepIndices.slice(0, stepMergeCount);
         let thinkingCount = 0;
         let toolCount = 0;
         for (const idx of toMergeIndices) {
@@ -2340,10 +2301,10 @@ export class DimiTUI {
         let summary: StepSummaryComponent;
         if (summaryIndex >= 0) {
           summary = children[summaryIndex] as StepSummaryComponent;
-          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+          summary.addCounts(thinkingCount, toolCount);
         } else {
           summary = new StepSummaryComponent();
-          summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
+          summary.addCounts(thinkingCount, toolCount);
         }
         newChildren.push(summary);
         for (const idx of toMergeIndices) toDispose.push(children[idx]!);

@@ -22,14 +22,14 @@ describe('StepSummaryComponent', () => {
     expect(out).not.toContain('messages');
   });
 
-  it('renders folded assistant message counts and accumulates', () => {
+  it('renders folded step counts and accumulates', () => {
     const component = new StepSummaryComponent();
-    component.addCounts(0, 0, 3);
-    component.addCounts(2, 4, 5);
+    component.addCounts(0, 0);
+    component.addCounts(2, 4);
     const out = strip(component.render(80).join('\n'));
     expect(component.isEmpty).toBe(false);
     expect(out).toContain('thinking 2 times');
     expect(out).toContain('call 4 tools');
-    expect(out).toContain('8 messages');
+    expect(out).not.toContain('messages');
   });
 });

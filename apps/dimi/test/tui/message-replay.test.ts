@@ -20,7 +20,6 @@ import { AgentGroupComponent } from "#/tui/components/messages/agent-group";
 import { AssistantMessageComponent } from "#/tui/components/messages/assistant-message";
 import { StepSummaryComponent } from "#/tui/components/messages/step-summary";
 import {
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from "#/tui/utils/transcript-window";
 import { ToolCallComponent } from "#/tui/components/messages/tool-call";
@@ -1404,21 +1403,23 @@ describe("DimiTUI resume message replay", () => {
     const driver = await replayIntoDriver(replay);
     const children = driver.state.transcriptContainer.children;
 
-    // The oversized round folds to the per-turn caps even with no visible
-    // boundary component mounted for the continuation prompt.
+    // The oversized round folds steps to the per-turn cap even with no visible
+    // boundary component mounted for the continuation prompt; assistant texts
+    // are never folded.
     expect(countToolCalls(children)).toBe(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
-    expect(assistants).toHaveLength(9 + TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
+    expect(assistants).toHaveLength(9 + 5);
 
     const summaries = children.filter((child) => child instanceof StepSummaryComponent);
     expect(summaries).toHaveLength(1);
     const summaryText = stripAnsi(summaries[0]!.render(120).join("\n"));
     expect(summaryText).toContain(`call ${40 - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
-    expect(summaryText).toContain(`${5 - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`);
+    expect(summaryText).not.toContain("messages");
 
-    // The folded content is gone from view; the latest work stays.
+    // The folded steps are gone from view; every assistant text and the latest
+    // tool work stay.
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).not.toContain("final text 0");
+    expect(transcript).toContain("final text 0");
     expect(transcript).toContain("final text 4");
   });
 });

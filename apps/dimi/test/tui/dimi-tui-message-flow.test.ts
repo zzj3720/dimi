@@ -25,8 +25,6 @@ import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { ToolCallSequenceComponent } from '#/tui/components/messages/tool-call-sequence';
 import {
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
@@ -6109,11 +6107,11 @@ describe('transcript step and assistant folding', () => {
     }
   }
 
-  it('folds the oldest assistant messages and steps beyond their per-turn caps', async () => {
+  it('folds the oldest steps beyond the per-turn step cap', async () => {
     const { driver } = await makeDriver();
     driver.handleUserInput('fold me');
 
-    const cycles = Math.max(TRANSCRIPT_KEEP_RECENT_ASSISTANT, TRANSCRIPT_KEEP_RECENT_STEPS) + 7;
+    const cycles = TRANSCRIPT_KEEP_RECENT_STEPS + 7;
     driveSteps(driver, cycles);
 
     const children = driver.state.transcriptContainer.children;
@@ -6121,14 +6119,14 @@ describe('transcript step and assistant folding', () => {
       (child) => child instanceof AssistantMessageComponent,
     ).length;
     const mountedToolCount = toolCount(driver);
-    expect(assistantCount).toBe(TRANSCRIPT_KEEP_RECENT_ASSISTANT);
+    expect(assistantCount).toBe(cycles);
     expect(mountedToolCount).toBe(TRANSCRIPT_KEEP_RECENT_STEPS);
 
     const summaries = children.filter((child) => child instanceof StepSummaryComponent);
     expect(summaries).toHaveLength(1);
     const summaryText = stripSgr(summaries[0]!.render(120).join('\n'));
     expect(summaryText).toContain(`call ${cycles - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
-    expect(summaryText).toContain(`${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT} messages`);
+    expect(summaryText).not.toContain('messages');
 
     // Folding drops mounted components only; every transcript entry is kept.
     const assistantEntries = driver.state.transcriptEntries.filter(
@@ -6148,13 +6146,13 @@ describe('transcript step and assistant folding', () => {
     expect(children.filter((child) => child instanceof StepSummaryComponent)).toHaveLength(0);
   });
 
-  it('folds a completed turn down to its conclusion tail on turn end', async () => {
+  it('keeps every assistant message mounted when a turn ends', async () => {
     const { driver } = await makeDriver();
     driver.handleUserInput('round one');
     const cycles = 10;
     driveSteps(driver, cycles);
 
-    // Below the active-turn caps, nothing folds while the turn is live.
+    // Below the active-turn step cap, nothing folds while the turn is live.
     let children = driver.state.transcriptContainer.children;
     expect(children.filter((child) => child instanceof AssistantMessageComponent)).toHaveLength(
       cycles,
@@ -6171,21 +6169,17 @@ describe('transcript step and assistant folding', () => {
       vi.fn(),
     );
 
+    // Turn end folds neither assistant messages (model output stays visible)
+    // nor the steps below the step cap.
     children = driver.state.transcriptContainer.children;
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
-    expect(assistants).toHaveLength(TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
-
-    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
-    expect(summaries).toHaveLength(1);
-    const summaryText = stripSgr(summaries[0]!.render(120).join('\n'));
-    expect(summaryText).toContain(
-      `${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`,
-    );
-
-    // Steps below the step cap are untouched by the completed-turn fold.
+    expect(assistants).toHaveLength(cycles);
     expect(toolCount(driver)).toBe(cycles);
+    expect(children.filter((child) => child instanceof StepSummaryComponent)).toHaveLength(0);
 
-    // The conclusion stays mounted.
+    // Every message, including the first, stays mounted.
+    const firstAssistant = assistants[0]!;
+    expect(stripSgr(firstAssistant.render(120).join('\n'))).toContain('msg-0');
     const lastAssistant = assistants.at(-1)!;
     expect(stripSgr(lastAssistant.render(120).join('\n'))).toContain(`msg-${cycles - 1}`);
   });
