@@ -44,3 +44,8 @@ handover.md
 *-mockup.html
 *-demo.html
 *-demos.html
+
+# Local secrets - never commit
+.env
+.env.*
+!.env.example
