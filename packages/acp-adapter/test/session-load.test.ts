@@ -16,7 +16,7 @@ import {
 import { KimiError, ErrorCodes, type Event, type KimiHarness, type Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, UNAUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 class CapturingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -93,10 +93,12 @@ function makeHarness(
   },
 ): KimiHarness {
   const authed = opts.hasUsableToken ?? true;
+  const models = makeProviderModels([
+    { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+    { id: 'test/kimi-plain', name: 'Kimi Plain' },
+  ]);
   return {
-    auth: {
-      status: async () => (authed ? AUTHED_STATUS : UNAUTHED_STATUS),
-    },
+    auth: makeAuth({ authenticated: authed, models }),
     resumeSession: async (_input: { id: string }) => {
       if (opts.resumeError) throw opts.resumeError;
       if (!opts.session) throw new Error('test harness has no session configured');
@@ -110,11 +112,7 @@ function makeHarness(
     // via `capabilities: ['thinking']`, `kimi-plain` stays off.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([
-        { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-        { id: 'kimi-plain', name: 'Kimi Plain', thinkingSupported: false },
-      ]),
+      defaultModel: 'test/kimi-coder',
     }),
   } as unknown as KimiHarness;
 }
@@ -320,7 +318,7 @@ describe('AcpServer session/load replay', () => {
     }
     // Resumed session has no main-agent `modelAlias` in its fixture
     // resume state → server falls back to harness `defaultModel`.
-    expect(modelOpt!.currentValue).toBe('kimi-coder');
+    expect(modelOpt!.currentValue).toBe('test/kimi-coder');
     // Phase 15: model dropdown holds N rows (no `,thinking` variants).
     expect(modelOpt!.options).toHaveLength(2);
   });
@@ -342,6 +340,6 @@ describe('AcpServer session/load replay', () => {
 
     const thinking = response.configOptions?.find((option) => option.id === 'thinking');
     if (thinking?.type !== 'select') throw new Error('thinking option must be a select');
-    expect(thinking.currentValue).toBe('on');
+    expect(thinking.currentValue).toBe('high');
   });
 });

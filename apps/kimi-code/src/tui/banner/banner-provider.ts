@@ -315,13 +315,14 @@ export function selectDisplayableBanner({
 export class BannerProvider {
   constructor(
     private readonly clientVersion: string,
-    private readonly url: string = KIMI_CODE_TIPS_BANNER_URL,
+    private readonly url: string | undefined = KIMI_CODE_TIPS_BANNER_URL,
   ) {}
 
   async load(
     fetchImpl: typeof fetch = fetch,
     options: BannerProviderLoadOptions = {},
   ): Promise<BannerState | null> {
+    if (this.url === undefined) return null;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => {

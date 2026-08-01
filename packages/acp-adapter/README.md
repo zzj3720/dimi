@@ -2,7 +2,7 @@
 
 Agent Client Protocol adapter for kimi-code. Exposes the kimi-code agent over the [Agent Client Protocol](https://agentclientprotocol.com/) so that ACP-compatible clients (editors, IDEs, custom front-ends) can drive a kimi-code session over stdio.
 
-Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
+Part of the [Kimi Code](https://github.com/zzj3720/k-3720) monorepo.
 
 ## Minimum usage
 

@@ -1,14 +1,6 @@
 # 环境变量
 
-Kimi Code CLI 通过环境变量控制少数运行时行为——迁移数据目录、关闭遥测、不改配置文件临时切换模型。
-
-::: warning 重要：API 密钥不在这里配置
-`KIMI_API_KEY`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等密钥变量**不会**从 shell 环境变量自动读取。在终端里 `export KIMI_API_KEY=xxx` 不会让任何供应商获得密钥——必须写在 `config.toml` 的 `[providers.<name>]` 段或 `[providers.<name>.env]` 子表里。
-
-唯一的例外是 `KIMI_MODEL_*` 系列，它是一个显式通道，*确实*会从 shell 读取凭证——详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)。
-
-背景说明见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
-:::
+Kimi Code CLI 通过环境变量提供供应商 API 密钥、选择模型、控制运行时开关，以及迁移数据目录。供应商凭证不再写入 `config.toml`：可在 checkout 中用 `vp run dev:cli -- login <provider>` 安全保存密钥，也可为当前进程导出供应商的标准 API 密钥变量。
 
 ## 核心路径
 
@@ -34,131 +26,130 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` 系列
 
-不修改 `config.toml` 临时切换模型——设置 `KIMI_MODEL_NAME` 后，CLI 在内存里合成一个临时供应商，重启后失效。详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)。
+不修改 `config.toml`，直接选择一个内置或 `models.json` 供应商及其模型。详见[用环境变量选择模型](#用环境变量选择模型)。
 
-## 供应商凭证键（写在 config.toml 里）
+## 供应商凭据与云身份
 
-下面这些键名不是直接从 shell 读取的——它们是写在 `config.toml` 的 `[providers.<name>.env]` 子表里、作为 `api_key` / `base_url` 备用来源的键名。CLI 只从配置文件读取，不从 `process.env` 读取。
+供应商运行时会读取下列标准 shell 环境变量。通过 `vp run dev:cli -- login <provider> --method api-key` 保存的 API 密钥优先于对应的环境变量。自定义 `models.json` 供应商请在 `apiKey` 中使用 `$VARIABLE` 或 `${VARIABLE}` 模板；它可以引用你控制的任何环境变量。
 
-这样设计是为了让你保留熟悉的键名写法，同时把密钥放在配置文件里统一管理：
+| 环境变量 | 供应商 |
+| --- | --- |
+| `ANT_LING_API_KEY` | `ant-ling` |
+| `ANTHROPIC_API_KEY` | `anthropic` |
+| `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
+| `CEREBRAS_API_KEY` | `cerebras` |
+| `CLOUDFLARE_API_KEY` | `cloudflare-workers-ai`、`cloudflare-ai-gateway` |
+| `CLOUDFLARE_ACCOUNT_ID` | 两个 Cloudflare 供应商的 account 范围 |
+| `CLOUDFLARE_GATEWAY_ID` | `cloudflare-ai-gateway` 的 gateway 范围 |
+| `COPILOT_GITHUB_TOKEN` | `github-copilot` 的 token 替代 OAuth |
+| `DEEPSEEK_API_KEY` | `deepseek` |
+| `FIREWORKS_API_KEY` | `fireworks` |
+| `GEMINI_API_KEY` | `google` |
+| `GOOGLE_CLOUD_API_KEY` | `google-vertex` |
+| `GROQ_API_KEY` | `groq` |
+| `HF_TOKEN` | `huggingface` |
+| `KIMI_API_KEY` | `kimi-coding`；`moonshotai` 的备用变量 |
+| `MINIMAX_API_KEY` | `minimax` |
+| `MINIMAX_CN_API_KEY` | `minimax-cn` |
+| `MISTRAL_API_KEY` | `mistral` |
+| `MOONSHOT_API_KEY` | `moonshotai`、`moonshotai-cn` |
+| `NVIDIA_API_KEY` | `nvidia` |
+| `OPENAI_API_KEY` | `openai` |
+| `OPENCODE_API_KEY` | `opencode`、`opencode-go` |
+| `OPENROUTER_API_KEY` | `openrouter` |
+| `QWEN_TOKEN_PLAN_API_KEY` | `qwen-token-plan` |
+| `QWEN_TOKEN_PLAN_CN_API_KEY` | `qwen-token-plan-cn` |
+| `RADIUS_API_KEY` | `radius` |
+| `TOGETHER_API_KEY` | `together` |
+| `AI_GATEWAY_API_KEY` | `vercel-ai-gateway` |
+| `XAI_API_KEY` | `xai` |
+| `XIAOMI_API_KEY` | `xiaomi` |
+| `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `xiaomi-token-plan-ams` |
+| `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `xiaomi-token-plan-cn` |
+| `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `xiaomi-token-plan-sgp` |
+| `ZAI_API_KEY` | `zai` |
+| `ZAI_CODING_CN_API_KEY` | `zai-coding-cn` |
 
-```toml
-[providers.kimi.env]
-KIMI_API_KEY = "sk-xxx"
-KIMI_BASE_URL = "https://api.moonshot.ai/v1"
-```
+`openai-codex` 只支持 OAuth。`kimi-coding`、`xai`、`anthropic`、`openrouter`、`github-copilot` 和 `radius` 在登录流程提供时可使用 OAuth。Anthropic 还识别 `ANTHROPIC_AUTH_TOKEN`（bearer gateway token）和 `ANTHROPIC_OAUTH_TOKEN`（OAuth token）；托管 OAuth 凭据优先使用 `vp run dev:cli -- login`。
 
-各供应商对应的键名：
+Amazon Bedrock 从 `AWS_PROFILE`、`AWS_ACCESS_KEY_ID` 与 `AWS_SECRET_ACCESS_KEY`、容器凭据、web identity 或普通 AWS 配置文件发现 AWS 凭据。`AWS_BEARER_TOKEN_BEDROCK` 是 bearer token 替代方式。Vertex 使用 `GOOGLE_CLOUD_PROJECT`（或 `GCLOUD_PROJECT`）、`GOOGLE_CLOUD_LOCATION` 和可选的 `GOOGLE_APPLICATION_CREDENTIALS`；未设置凭据文件路径时使用 Google Application Default Credentials。这些变量属于身份链，不是模型元数据。
 
-| 键名 | 适用供应商 | 默认值 |
-| --- | --- | --- |
-| `KIMI_API_KEY` | Kimi / Moonshot | 无 |
-| `KIMI_BASE_URL` | Kimi / Moonshot | `https://api.moonshot.ai/v1` |
-| `ANTHROPIC_API_KEY` | Anthropic | 无 |
-| `ANTHROPIC_BASE_URL` | Anthropic | Anthropic SDK 默认值 |
-| `OPENAI_API_KEY` | OpenAI（`openai` 和 `openai_responses`） | 无 |
-| `OPENAI_BASE_URL` | OpenAI（`openai` 和 `openai_responses`） | `https://api.openai.com/v1` |
-| `GOOGLE_API_KEY` | Google GenAI、Vertex AI | 无 |
-| `VERTEXAI_API_KEY` | Vertex AI | 无 |
-| `GOOGLE_CLOUD_PROJECT` | Vertex AI | 无 |
-| `GOOGLE_CLOUD_LOCATION` | Vertex AI | 无 |
-
-::: warning
-`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是唯一走系统环境变量的例外——它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他所有键名都必须写在 `[providers.<name>.env]` 子表里。
-:::
-
-供应商类型与字段的完整说明见[平台与模型](./providers.md)。
+内置供应商完整列表和登录方式见[供应商与模型](./providers.md#内置供应商)。
 
 ## OAuth 与托管端点
 
 这组变量用于将 OAuth 认证和托管服务端点指向自建或测试环境，日常使用不需要设置。
 
-| 环境变量 | 用途 | 默认值 |
-| --- | --- | --- |
-| `KIMI_CODE_OAUTH_HOST` | OAuth 认证 host，优先级最高 | 未设时回退到 `KIMI_OAUTH_HOST` |
-| `KIMI_OAUTH_HOST` | OAuth 认证 host，作为上一个的 fallback | 未设时使用 `https://auth.kimi.com` |
-| `KIMI_CODE_BASE_URL` | OAuth 登录后的托管 API base URL | `https://api.kimi.com/coding/v1` |
+| 环境变量               | 用途                                         | 默认值                             |
+| ---------------------- | -------------------------------------------- | ---------------------------------- |
+| `KIMI_CODE_OAUTH_HOST` | OAuth 认证 host，优先级最高                  | 未设时回退到 `KIMI_OAUTH_HOST`     |
+| `KIMI_OAUTH_HOST`      | OAuth 认证 host，作为上一个的 fallback       | 未设时使用 `https://auth.kimi.com` |
+| `KIMI_CODE_BASE_URL`   | Kimi 托管服务与供应商感知 plugin 的 base URL | `https://api.kimi.com/coding/v1`   |
 
-::: warning
-`KIMI_CODE_BASE_URL`（OAuth 托管服务，指向 `kimi.com`）和 `KIMI_BASE_URL`（API 密钥直连，指向 `moonshot.ai`）是两个不同的变量，请按场景区分。
-:::
+## 用环境变量选择模型
 
-## 用环境变量定义模型（`KIMI_MODEL_*`）
-
-测试时想换个模型但不想动 `config.toml`？设置 `KIMI_MODEL_NAME` 后，CLI 会从 `KIMI_MODEL_*` 系列变量在内存里合成出一个临时供应商和模型别名，不写回配置文件。优先级高于 `config.toml` 的 `default_model`，但低于启动时 `-m <alias>` 选项。
+同时设置供应商和模型 ID，即可从运行时目录中选择模型而不修改 `config.toml`。它们优先于 `default_provider` 和 `default_model`，但启动参数 `-m <provider>/<model>` 的优先级仍然最高。
 
 ```sh
-export KIMI_MODEL_NAME="kimi-for-coding"
-export KIMI_MODEL_API_KEY="YOUR_API_KEY"
-export KIMI_MODEL_BASE_URL="https://api.example.com/v1"
-export KIMI_MODEL_MAX_CONTEXT_SIZE="262144"
-export KIMI_MODEL_CAPABILITIES="image_in,thinking"
+export KIMI_MODEL_PROVIDER="anthropic"
+export KIMI_MODEL_NAME="claude-sonnet-4-6"
+export ANTHROPIC_API_KEY="YOUR_API_KEY"
 kimi
 ```
 
-完整变量列表：
+| 环境变量              | 用途                            |
+| --------------------- | ------------------------------- |
+| `KIMI_MODEL_PROVIDER` | 内置、SDK 或 `models.json` 目录中的供应商 ID，例如 `anthropic` |
+| `KIMI_MODEL_NAME`     | 该供应商下的模型 ID |
 
-| 环境变量 | 必填 | 用途 | 默认值 |
-| --- | --- | --- | --- |
-| `KIMI_MODEL_NAME` | 是（同时是启用开关） | 发送给 API 的模型 ID | — |
-| `KIMI_MODEL_API_KEY` | 是 | API 密钥 | — |
-| `KIMI_MODEL_PROVIDER_TYPE` | 否 | 供应商类型：`kimi`、`anthropic`、`openai` | `kimi` |
-| `KIMI_MODEL_BASE_URL` | 否 | API 基础 URL | 各类型有各自默认值 |
-| `KIMI_MODEL_MAX_CONTEXT_SIZE` | 否 | 最大上下文长度（token 数） | `262144`（256K） |
-| `KIMI_MODEL_CAPABILITIES` | 否 | 逗号分隔的能力标签，与自动探测的能力取并集 | `image_in,thinking` |
-| `KIMI_MODEL_DISPLAY_NAME` | 否 | 在 `/model` 中显示的名称 | 回退到 `KIMI_MODEL_NAME` |
-| `KIMI_MODEL_MAX_OUTPUT_SIZE` | 否 | 单次输出上限（仅 `anthropic`）；设置后会覆盖内置的 Claude 上限 | 模型默认值 |
-| `KIMI_MODEL_REASONING_KEY` | 否 | 推理字段名覆盖（仅 `openai`） | 自动探测 |
-| `KIMI_MODEL_THINKING_EFFORT` | 否 | Thinking 强度：`low`/`medium`/`high`/`xhigh`/`max` | — |
-| `KIMI_MODEL_ADAPTIVE_THINKING` | 否 | 强制开启或关闭 adaptive thinking（仅 `anthropic`） | 按模型名推断 |
-
-设置了 `KIMI_MODEL_NAME` 但缺少必填变量时，启动会立即失败并给出明确提示。
+任一值缺失或该组合不在目录中时，启动会报告所选模型无法解析。
 
 ## 运行时开关
 
 控制遥测、后台任务、plugin marketplace 等子系统行为的开关变量：
 
-| 环境变量 | 用途 | 合法值 |
-| --- | --- | --- |
-| `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`yes`、`y`（不区分大小写） |
-| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[task] max_running_tasks`（不设置表示无上限） | 正整数；非法值被忽略 |
-| `KIMI_IMAGE_MAX_EDGE_PX` | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`） | 正整数；非法值被忽略 |
-| `KIMI_IMAGE_READ_BYTE_BUDGET` | 模型自行读图（`ReadMediaFile` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB） | 正整数；非法值被忽略 |
-| `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | `https://code.kimi.com/kimi-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
-| `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | 限制 AgentSwarm 初始提升并发阶段可同时运行的子 Agent 数量；不设置表示不限制 | 正整数；非法值会立即失败 |
-| `KIMI_SUBAGENT_TIMEOUT_MS` | 单个子 Agent（`Agent` / `AgentSwarm`）可运行的最长时间（毫秒）；优先级高于 `config.toml` 的 `[subagent] timeout_ms`（默认 `7200000`，即 2 小时） | 正整数；非法值回退到配置或默认值 |
-| `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL` | 在包括交互式 TUI 在内的所有启动方式下启用实验性的次主力模型功能；master `KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用本功能 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
-| `KIMI_SECONDARY_MODEL` | 次主力模型；优先级高于 `config.toml` 的 `[secondary_model] model`。次主力模型实验功能启用后，新派生的子 Agent 默认绑定该模型，而不再继承主 Agent 的模型 | 已配置 `[models]` 中的模型 id，如 `kimi-code/kimi-k2.5`；空白值被忽略 |
-| `KIMI_SECONDARY_EFFORT` | 次主力模型的 thinking effort；优先级高于 `config.toml` 的 `[secondary_model] default_effort`，仅在次主力模型及其实验功能均启用时生效 | effort 取值，如 `low`；空白值被忽略 |
-| `KIMI_MCP_STARTUP_TIMEOUT_MS` | 所有 MCP server 的全局默认连接超时（毫秒）；优先级高于 `config.toml` 的 `[mcp] startup_timeout_ms`，但低于 `mcp.json` 中单个 server 的 `startupTimeoutMs`（默认 `30000`） | `1` 到 `2147483647` 的整数；非法值被忽略 |
-| `KIMI_MCP_TOOL_TIMEOUT_MS` | 所有 MCP server 的全局默认单次工具调用超时（毫秒）；优先级高于 `config.toml` 的 `[mcp] tool_timeout_ms`，但低于 `mcp.json` 中单个 server 的 `toolTimeoutMs`（默认 `60000`） | `1` 到 `2147483647` 的整数；非法值被忽略 |
-| `KIMI_LOOP_MAX_STEPS_PER_TURN` | Agent 单轮最大步数；优先级高于 `config.toml` 的 `[loop_control] max_steps_per_turn`（不设或 `0` 表示无上限） | 非负整数；非法值被忽略 |
-| `KIMI_LOOP_MAX_RETRIES_PER_STEP` | 单步失败后的最大重试次数；优先级高于 `config.toml` 的 `[loop_control] max_retries_per_step`（默认 `10`） | 非负整数；非法值被忽略 |
-| `KIMI_WEB_SEARCH_BASE_URL` | 网页搜索（`WebSearch`）服务的 API URL；优先级高于 `config.toml` 的 `[services.moonshot_search] base_url`，未写配置段时也可启用服务。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点 | 非空字符串；空白值被忽略 |
-| `KIMI_WEB_SEARCH_API_KEY` | 网页搜索（`WebSearch`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
-| `KIMI_WEB_FETCH_BASE_URL` | 网页抓取（`FetchURL`）服务的 API URL；优先级高于 `[services.moonshot_fetch] base_url`。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点。环境变量和配置都没有指定端点时，已登录用户会先尝试 Kimi OAuth 托管抓取服务，再回退到本地直接请求 | 非空字符串；空白值被忽略 |
-| `KIMI_WEB_FETCH_API_KEY` | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
-| `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能 | `1`、`true`、`yes`、`on` |
-| `KIMI_SHELL_PATH` | Windows 上覆盖 Git Bash 路径（自动探测失败时使用） | 绝对路径 |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
-| `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `kimi` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
-| `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
-| `KIMI_MODEL_THINKING_EFFORT` | 在线上强制使用指定的思考强度（`thinking.effort`），绕过模型声明的 `support_efforts`；仅对 `kimi` 供应商生效，且仅在 Thinking 开启时注入 | 思考强度值，如 `max` |
-| `KIMI_MODEL_THINKING_KEEP` | 保留思考透传；在 `kimi` 上以 `thinking.keep` 发送，在 `anthropic`（Claude 以及 Kimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API）；覆盖 `[thinking] keep`（其默认值为 `"all"`）；仅在 Thinking 开启时注入 | API 接受的值，如 `all`；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用 |
-| `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检——不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
-| `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
+| 环境变量                                 | 用途                                                                                                                                                                                                                                                    | 合法值                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `KIMI_DISABLE_TELEMETRY`                 | 关闭匿名遥测上报                                                                                                                                                                                                                                        | `1`、`true`、`yes`、`y`（不区分大小写）                                                                |
+| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[task] max_running_tasks`（不设置表示无上限）                                                                                                                                                    | 正整数；非法值被忽略                                                                                   |
+| `KIMI_IMAGE_MAX_EDGE_PX`                 | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`）                                                                                                                                                          | 正整数；非法值被忽略                                                                                   |
+| `KIMI_IMAGE_READ_BYTE_BUDGET`            | 模型自行读图（`ReadMediaFile` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB）                                                                                                              | 正整数；非法值被忽略                                                                                   |
+| `KIMI_CODE_PLUGIN_MARKETPLACE_URL`       | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录                                                                                                                                          | `https://code.kimi.com/kimi-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
+| `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY`  | 限制 AgentSwarm 初始提升并发阶段可同时运行的子 Agent 数量；不设置表示不限制                                                                                                                                                                             | 正整数；非法值会立即失败                                                                               |
+| `KIMI_SUBAGENT_TIMEOUT_MS`               | 单个子 Agent（`Agent` / `AgentSwarm`）可运行的最长时间（毫秒）；优先级高于 `config.toml` 的 `[subagent] timeout_ms`（默认 `7200000`，即 2 小时）                                                                                                        | 正整数；非法值回退到配置或默认值                                                                       |
+| `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL` | 在包括交互式 TUI 在内的所有启动方式下启用实验性的次主力模型功能；master `KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用本功能                                                                                                                                  | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`                                              |
+| `KIMI_SECONDARY_PROVIDER`                | 次主力模型的供应商 ID；优先级高于 `[secondary_model] provider`                                                                                                                                                                                          | 内置供应商 ID，例如 `anthropic`；空白值被忽略                                                          |
+| `KIMI_SECONDARY_MODEL`                   | `KIMI_SECONDARY_PROVIDER` 下的模型 ID；优先级高于 `[secondary_model] model`。次主力模型实验功能启用后，新派生的子 Agent 使用该供应商/模型组合，而不再继承主 Agent 的模型                                                                                | 模型 ID，例如 `claude-sonnet-4-6`；空白值被忽略                                                        |
+| `KIMI_SECONDARY_EFFORT`                  | 次主力模型的 thinking effort；优先级高于 `config.toml` 的 `[secondary_model] default_effort`，仅在次主力模型及其实验功能均启用时生效                                                                                                                    | effort 取值，如 `low`；空白值被忽略                                                                    |
+| `KIMI_MCP_STARTUP_TIMEOUT_MS`            | 所有 MCP server 的全局默认连接超时（毫秒）；优先级高于 `config.toml` 的 `[mcp] startup_timeout_ms`，但低于 `mcp.json` 中单个 server 的 `startupTimeoutMs`（默认 `30000`）                                                                               | `1` 到 `2147483647` 的整数；非法值被忽略                                                               |
+| `KIMI_MCP_TOOL_TIMEOUT_MS`               | 所有 MCP server 的全局默认单次工具调用超时（毫秒）；优先级高于 `config.toml` 的 `[mcp] tool_timeout_ms`，但低于 `mcp.json` 中单个 server 的 `toolTimeoutMs`（默认 `60000`）                                                                             | `1` 到 `2147483647` 的整数；非法值被忽略                                                               |
+| `KIMI_LOOP_MAX_STEPS_PER_TURN`           | Agent 单轮最大步数；优先级高于 `config.toml` 的 `[loop_control] max_steps_per_turn`（不设或 `0` 表示无上限）                                                                                                                                            | 非负整数；非法值被忽略                                                                                 |
+| `KIMI_LOOP_MAX_RETRIES_PER_STEP`         | 单步失败后的最大重试次数；优先级高于 `config.toml` 的 `[loop_control] max_retries_per_step`（默认 `10`）                                                                                                                                                | 非负整数；非法值被忽略                                                                                 |
+| `KIMI_WEB_SEARCH_BASE_URL`               | 网页搜索（`WebSearch`）服务的 API URL；优先级高于 `config.toml` 的 `[services.moonshot_search] base_url`，未写配置段时也可启用服务。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点                                                      | 非空字符串；空白值被忽略                                                                               |
+| `KIMI_WEB_SEARCH_API_KEY`                | 网页搜索（`WebSearch`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据                                                                                                                                                                    | 非空字符串；空白值被忽略                                                                               |
+| `KIMI_WEB_FETCH_BASE_URL`                | 网页抓取（`FetchURL`）服务的 API URL；优先级高于 `[services.moonshot_fetch] base_url`。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点。环境变量和配置都没有指定端点时，已登录用户会先尝试 Kimi OAuth 托管抓取服务，再回退到本地直接请求 | 非空字符串；空白值被忽略                                                                               |
+| `KIMI_WEB_FETCH_API_KEY`                 | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据                                                                                                                                                                     | 非空字符串；空白值被忽略                                                                               |
+| `KIMI_CODE_EXPERIMENTAL_FLAG`            | 在当前进程启用所有已注册的实验功能                                                                                                                                                                                                                      | `1`、`true`、`yes`、`on`                                                                               |
+| `KIMI_SHELL_PATH`                        | Windows 上覆盖 Git Bash 路径（自动探测失败时使用）                                                                                                                                                                                                      | 绝对路径                                                                                               |
+| `KIMI_MODEL_MAX_COMPLETION_TOKENS`       | 单步 LLM 生成 token 的全局硬上限；覆盖 `[model_overrides] max_completion_tokens`                                                                                                                                                                        | 整数                                                                                                   |
+| `KIMI_MODEL_TEMPERATURE`                 | 全局采样温度；覆盖 `[model_overrides] temperature`                                                                                                                                                                                                      | 数字，如 `0.3`                                                                                         |
+| `KIMI_MODEL_TOP_P`                       | 全局核采样值；覆盖 `[model_overrides] top_p`                                                                                                                                                                                                            | 数字，如 `0.95`                                                                                        |
+| `KIMI_MODEL_THINKING_EFFORT`             | 强制所选模型使用指定 thinking effort；覆盖 `[thinking] forced_effort`                                                                                                                                                                                   | 所选模型支持的 effort                                                                                  |
+| `KIMI_MODEL_THINKING_KEEP`               | 全局保留 thinking 设置；覆盖 `[model_overrides] thinking_keep`                                                                                                                                                                                          | 供应商支持的值，例如 `all`                                                                             |
+| `KIMI_CODE_NO_AUTO_UPDATE`               | 在配置了更新通道的发行版中禁用更新预检。此源码构建默认没有更新通道。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE`                                                                                                                                                   | 真值：`1`/`true`/`yes`/`on`                                                                            |
+| `KIMI_DISABLE_CRON`                      | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发）                                                                                                                                                                                             | `1` 表示禁用                                                                                           |
 
 ## 诊断日志
 
 这组变量控制日志级别和文件滚动，进程启动时读取一次：
 
-| 环境变量 | 用途 | 默认值 |
-| --- | --- | --- |
-| `KIMI_LOG_LEVEL` | 日志级别：`off`、`error`、`warn`、`info`、`debug` | `info` |
-| `KIMI_LOG_GLOBAL_MAX_BYTES` | 全局日志文件单个最大字节数 | `6291456`（6 MB） |
-| `KIMI_LOG_GLOBAL_FILES` | 全局日志文件保留份数 | `5` |
-| `KIMI_LOG_SESSION_MAX_BYTES` | 会话级日志文件单个最大字节数 | `5242880`（5 MB） |
-| `KIMI_LOG_SESSION_FILES` | 会话级日志文件保留份数 | `3` |
+| 环境变量                     | 用途                                              | 默认值            |
+| ---------------------------- | ------------------------------------------------- | ----------------- |
+| `KIMI_LOG_LEVEL`             | 日志级别：`off`、`error`、`warn`、`info`、`debug` | `info`            |
+| `KIMI_LOG_GLOBAL_MAX_BYTES`  | 全局日志文件单个最大字节数                        | `6291456`（6 MB） |
+| `KIMI_LOG_GLOBAL_FILES`      | 全局日志文件保留份数                              | `5`               |
+| `KIMI_LOG_SESSION_MAX_BYTES` | 会话级日志文件单个最大字节数                      | `5242880`（5 MB） |
+| `KIMI_LOG_SESSION_FILES`     | 会话级日志文件保留份数                            | `3`               |
 
 ## 系统环境变量
 
@@ -193,4 +184,4 @@ Kimi Code 会遵循标准代理环境变量，让所有出网流量——模型 
 
 - [配置覆盖](./overrides.md) — 环境变量、CLI 选项、配置文件的优先级关系
 - [数据路径](./data-locations.md) — `KIMI_CODE_HOME` 影响的完整目录结构
-- [平台与模型](./providers.md) — 各供应商类型的完整接入示例
+- [供应商与模型](./providers.md) — 内置供应商、登录方式与动态目录

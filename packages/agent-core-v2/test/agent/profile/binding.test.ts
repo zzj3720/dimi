@@ -1,26 +1,32 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "pathe";
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Event } from '#/_base/event';
-import { ConfigTarget, IConfigService } from '#/app/config/config';
-import { TOOLS_SECTION } from '#/agent/toolPolicy/configSection';
-import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
-import type { ToolCall } from '#/kosong/contract/message';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { IAtomicDocumentStore, type IAtomicDocumentStore as AtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { IWireService } from '#/wire/wire';
-import type { ExecutableTool, ToolExecution, ToolResult, ToolSource } from '#/tool/toolContract';
+import { Event } from "#/_base/event";
+import { ConfigTarget, IConfigService } from "#/app/config/config";
+import { TOOLS_SECTION } from "#/agent/toolPolicy/configSection";
+import {
+  DEFAULT_AGENT_PROFILE_NAME,
+  IAgentProfileCatalogService,
+} from "#/app/agentProfileCatalog/agentProfileCatalog";
+import { registerAgentProfile } from "#/app/agentProfileCatalog/contribution";
+import type { ToolCall } from "#/llmProtocol/message";
+import { IAgentProfileService, type ResolvedAgentProfile } from "#/agent/profile/profile";
+import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
+import { IAgentToolExecutorService } from "#/agent/toolExecutor/toolExecutor";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { SELECT_TOOLS_TOOL_NAME } from "#/agent/toolSelect/toolSelect";
+import {
+  IAtomicDocumentStore,
+  type IAtomicDocumentStore as AtomicDocumentStore,
+} from "#/persistence/interface/atomicDocumentStore";
+import { ISessionAgentProfileCatalog } from "#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog";
+import { ISessionSkillCatalog } from "#/session/sessionSkillCatalog/skillCatalog";
+import { ISessionToolPolicy } from "#/session/sessionToolPolicy/sessionToolPolicy";
+import { IWireService } from "#/wire/wire";
+import type { ExecutableTool, ToolExecution, ToolResult, ToolSource } from "#/tool/toolContract";
 
 import {
   InMemoryWireRecordPersistence,
@@ -29,9 +35,9 @@ import {
   hostEnvironmentServices,
   sessionService,
   type TestAgentContext,
-} from '../../harness';
+} from "../../harness";
 
-const MOCK_MODEL = 'mock-model';
+const MOCK_MODEL = "mock-model";
 
 function profileServices(ctx: TestAgentContext): {
   profile: IAgentProfileService;
@@ -48,14 +54,15 @@ function createAtomicDocumentStore(): AtomicDocumentStore {
   const documentKey = (scope: string, key: string): string => `${scope}/${key}`;
   return {
     _serviceBrand: undefined,
-    get: async <T>(scope: string, key: string) => documents.get(documentKey(scope, key)) as T | undefined,
+    get: async <T>(scope: string, key: string) =>
+      documents.get(documentKey(scope, key)) as T | undefined,
     set: async <T>(scope: string, key: string, value: T) => {
       documents.set(documentKey(scope, key), structuredClone(value));
     },
     delete: async (scope: string, key: string) => {
       documents.delete(documentKey(scope, key));
     },
-    list: async (scope: string, prefix = '') =>
+    list: async (scope: string, prefix = "") =>
       [...documents.keys()]
         .filter((key) => key.startsWith(`${scope}/${prefix}`))
         .map((key) => key.slice(scope.length + 1)),
@@ -64,20 +71,20 @@ function createAtomicDocumentStore(): AtomicDocumentStore {
   };
 }
 
-describe('AgentProfileService.bind', () => {
+describe("AgentProfileService.bind", () => {
   let ctx: TestAgentContext;
   let homeDir: string;
 
   beforeAll(() => {
     registerAgentProfile({
-      name: 'delegates-explore',
-      subagents: ['explore'],
-      systemPrompt: () => 'delegate test',
+      name: "delegates-explore",
+      subagents: ["explore"],
+      systemPrompt: () => "delegate test",
     });
   });
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-bind-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-bind-home-"));
   });
 
   afterEach(async () => {
@@ -90,7 +97,7 @@ describe('AgentProfileService.bind', () => {
     return { ctx, profile: ctx.get(IAgentProfileService) };
   }
 
-  it('binds a profile + model atomically and becomes runnable', async () => {
+  it("binds a profile + model atomically and becomes runnable", async () => {
     const { ctx: context, profile: svc } = buildContext();
 
     const catalog = context.get(IAgentProfileCatalogService);
@@ -104,16 +111,16 @@ describe('AgentProfileService.bind', () => {
     expect(svc.data().modelAlias).toBe(MOCK_MODEL);
     expect(svc.isRunnable()).toBe(true);
     expect(svc.getActiveToolNames()?.length).toBeGreaterThan(0);
-    expect(svc.getSystemPrompt()).toContain('Kimi Code CLI');
+    expect(svc.getSystemPrompt()).toContain("Kimi Code CLI");
   });
 
-  it('persists the complete binding in one journal record', async () => {
+  it("persists the complete binding in one journal record", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent(
       {
         persistence,
         initialConfig: {
-          thinking: { enabled: true, effort: 'low' },
+          thinking: { enabled: true, effort: "low" },
         },
       },
       hostEnvironmentServices(homeDir),
@@ -135,38 +142,40 @@ describe('AgentProfileService.bind', () => {
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
       model: MOCK_MODEL,
-      thinking: 'low',
+      thinking: "low",
       cwd: homeDir,
     });
     await ctx.get(IWireService).flush();
 
-    const records = persistence.records.slice(start).filter((record) => record.type === 'profile.bind');
+    const records = persistence.records
+      .slice(start)
+      .filter((record) => record.type === "profile.bind");
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
-      type: 'profile.bind',
+      type: "profile.bind",
       cwd: homeDir,
       profileName: DEFAULT_AGENT_PROFILE_NAME,
       modelAlias: MOCK_MODEL,
-      thinkingEffort: 'on',
-      systemPrompt: expect.stringContaining('Kimi Code CLI'),
-      activeToolNames: expect.arrayContaining(['Read', 'Write', 'Bash']),
+      thinkingEffort: "low",
+      systemPrompt: expect.stringContaining("Kimi Code CLI"),
+      activeToolNames: expect.arrayContaining(["Read", "Write", "Bash"]),
       disallowedTools: [],
     });
   });
 
-  it('restores the subagent allowlist from the binding record without catalog resolution', async () => {
+  it("restores the subagent allowlist from the binding record without catalog resolution", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence }, hostEnvironmentServices(homeDir));
 
     await ctx.get(IAgentProfileService).bind({
-      profile: 'delegates-explore',
+      profile: "delegates-explore",
       model: MOCK_MODEL,
     });
     await ctx.get(IWireService).flush();
 
-    expect(persistence.records.find((record) => record.type === 'profile.bind')).toMatchObject({
-      profileName: 'delegates-explore',
-      subagents: ['explore'],
+    expect(persistence.records.find((record) => record.type === "profile.bind")).toMatchObject({
+      profileName: "delegates-explore",
+      subagents: ["explore"],
     });
 
     await ctx.dispose();
@@ -177,7 +186,7 @@ describe('AgentProfileService.bind', () => {
       getDefault: () => ({
         name: DEFAULT_AGENT_PROFILE_NAME,
         tools: undefined,
-        systemPrompt: () => '',
+        systemPrompt: () => "",
       }),
       list: () => [],
       load: async () => {},
@@ -192,12 +201,12 @@ describe('AgentProfileService.bind', () => {
     await ctx.restorePersisted();
 
     expect(ctx.get(IAgentProfileService).data()).toMatchObject({
-      profileName: 'delegates-explore',
-      subagents: ['explore'],
+      profileName: "delegates-explore",
+      subagents: ["explore"],
     });
   });
 
-  it('setModel applies the default profile when none is bound yet', async () => {
+  it("setModel applies the default profile when none is bound yet", async () => {
     const { profile: svc } = buildContext();
 
     expect(svc.data().profileName).toBeUndefined();
@@ -209,7 +218,7 @@ describe('AgentProfileService.bind', () => {
     expect(svc.isRunnable()).toBe(true);
   });
 
-  it('setModel keeps the existing profile when one is already bound', async () => {
+  it("setModel keeps the existing profile when one is already bound", async () => {
     const { profile: svc } = buildContext();
 
     await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
@@ -218,31 +227,31 @@ describe('AgentProfileService.bind', () => {
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
-  it('rejects binding a different profile once bound', async () => {
+  it("rejects binding a different profile once bound", async () => {
     const { profile: svc } = buildContext();
 
     await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-    await expect(svc.bind({ profile: 'coder', model: MOCK_MODEL })).rejects.toThrow(
+    await expect(svc.bind({ profile: "coder", model: MOCK_MODEL })).rejects.toThrow(
       /already bound/,
     );
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
-  it('rejects an unsupported thinking effort atomically before first bind', async () => {
+  it("rejects an unsupported thinking effort atomically before first bind", async () => {
     ctx = createTestAgent(
       {
         initialConfig: {
           providers: {
-            kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+            kimi: { type: "kimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
           },
           models: {
-            'kimi-code/kimi-for-coding': {
-              provider: 'kimi',
-              model: 'kimi-for-coding',
+            "kimi-code/kimi-for-coding": {
+              provider: "kimi",
+              model: "kimi-for-coding",
               maxContextSize: 1_000_000,
-              capabilities: ['thinking'],
-              supportEfforts: ['low', 'high'],
+              capabilities: ["thinking"],
+              supportEfforts: ["low", "high"],
             },
           },
         },
@@ -254,32 +263,32 @@ describe('AgentProfileService.bind', () => {
     await expect(
       svc.bind({
         profile: DEFAULT_AGENT_PROFILE_NAME,
-        model: 'kimi-code/kimi-for-coding',
-        thinking: 'ultra',
+        model: "kimi-code/kimi-for-coding",
+        thinking: "ultra",
         strictThinking: true,
       }),
     ).rejects.toThrow(/not supported by model/);
 
     // The failed bind must leave the agent unbound — a retry can still bind.
     expect(svc.data().profileName).toBeUndefined();
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'kimi-code/kimi-for-coding' });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: "kimi-code/kimi-for-coding" });
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
-  it('clamps an inherited unsupported thinking effort instead of rejecting the bind', async () => {
+  it("clamps an inherited unsupported thinking effort instead of rejecting the bind", async () => {
     ctx = createTestAgent(
       {
         initialConfig: {
           providers: {
-            kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+            kimi: { type: "kimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
           },
           models: {
-            'kimi-code/kimi-for-coding': {
-              provider: 'kimi',
-              model: 'kimi-for-coding',
+            "kimi-code/kimi-for-coding": {
+              provider: "kimi",
+              model: "kimi-for-coding",
               maxContextSize: 1_000_000,
-              capabilities: ['thinking'],
-              supportEfforts: ['low', 'high'],
+              capabilities: ["thinking"],
+              supportEfforts: ["low", "high"],
             },
           },
         },
@@ -292,15 +301,15 @@ describe('AgentProfileService.bind', () => {
     // strictThinking: the bind must succeed and clamp to a supported effort.
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      model: 'kimi-code/kimi-for-coding',
-      thinking: 'ultra',
+      model: "kimi-code/kimi-for-coding",
+      thinking: "ultra",
     });
 
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
-    expect(svc.data().thinkingLevel).toBe('high');
+    expect(svc.data().thinkingLevel).toBe("high");
   });
 
-  it('keeps the persisted thinking effort on a same-name rebind', async () => {
+  it("keeps the persisted thinking effort on a same-name rebind", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     ctx.configure({
       modelCapabilities: {
@@ -313,36 +322,36 @@ describe('AgentProfileService.bind', () => {
       },
     });
     const svc = ctx.get(IAgentProfileService);
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL, thinking: 'off' });
-    expect(svc.data().thinkingLevel).toBe('off');
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL, thinking: "off" });
+    expect(svc.data().thinkingLevel).toBe("off");
 
     // A same-name rebind without an explicit thinking override must not reset
     // the persisted effort to the configured/model default ('on' here).
     await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
-    expect(svc.data().thinkingLevel).toBe('off');
+    expect(svc.data().thinkingLevel).toBe("off");
   });
 });
 
-describe('AgentToolPolicyService tool denylist', () => {
+describe("AgentToolPolicyService tool denylist", () => {
   // Registration is idempotent (replace-by-name) and scoped to this describe's
   // run window — module-scope registration would also pollute the bind
   // describe above at collection time.
   beforeAll(() => {
     registerAgentProfile({
-      name: 'deny-builtin',
-      disallowedTools: ['Bash'],
-      systemPrompt: () => 'deny test',
+      name: "deny-builtin",
+      disallowedTools: ["Bash"],
+      systemPrompt: () => "deny test",
     });
     registerAgentProfile({
-      name: 'deny-over-allow',
-      tools: ['Read', 'Bash'],
-      disallowedTools: ['Bash'],
-      systemPrompt: () => 'deny test',
+      name: "deny-over-allow",
+      tools: ["Read", "Bash"],
+      disallowedTools: ["Bash"],
+      systemPrompt: () => "deny test",
     });
     registerAgentProfile({
-      name: 'deny-mcp',
-      disallowedTools: ['mcp__github__*'],
-      systemPrompt: () => 'deny test',
+      name: "deny-mcp",
+      disallowedTools: ["mcp__github__*"],
+      systemPrompt: () => "deny test",
     });
   });
 
@@ -350,7 +359,7 @@ describe('AgentToolPolicyService tool denylist', () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-deny-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-deny-home-"));
   });
 
   afterEach(async () => {
@@ -364,63 +373,63 @@ describe('AgentToolPolicyService tool denylist', () => {
     return ctx.get(IAgentToolPolicyService);
   }
 
-  it('blocks a denied builtin tool while others stay active', async () => {
-    const svc = await bindProfile('deny-builtin');
-    expect(svc.isToolActive('Bash')).toBe(false);
-    expect(svc.isToolActive('Read')).toBe(true);
+  it("blocks a denied builtin tool while others stay active", async () => {
+    const svc = await bindProfile("deny-builtin");
+    expect(svc.isToolActive("Bash")).toBe(false);
+    expect(svc.isToolActive("Read")).toBe(true);
   });
 
-  it('denylist wins over the allowlist', async () => {
-    const svc = await bindProfile('deny-over-allow');
-    expect(svc.isToolActive('Bash')).toBe(false);
-    expect(svc.isToolActive('Read')).toBe(true);
-    expect(svc.isToolActive('Write')).toBe(false);
+  it("denylist wins over the allowlist", async () => {
+    const svc = await bindProfile("deny-over-allow");
+    expect(svc.isToolActive("Bash")).toBe(false);
+    expect(svc.isToolActive("Read")).toBe(true);
+    expect(svc.isToolActive("Write")).toBe(false);
   });
 
-  it('matches denied mcp tools by glob', async () => {
-    const svc = await bindProfile('deny-mcp');
-    expect(svc.isToolActive('mcp__github__create_pr', 'mcp')).toBe(false);
-    expect(svc.isToolActive('mcp__other__ping', 'mcp')).toBe(true);
-    expect(svc.isToolActive('Read')).toBe(true);
+  it("matches denied mcp tools by glob", async () => {
+    const svc = await bindProfile("deny-mcp");
+    expect(svc.isToolActive("mcp__github__create_pr", "mcp")).toBe(false);
+    expect(svc.isToolActive("mcp__other__ping", "mcp")).toBe(true);
+    expect(svc.isToolActive("Read")).toBe(true);
   });
 
-  it('lists available profiles when binding an unknown profile', async () => {
+  it("lists available profiles when binding an unknown profile", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     await expect(
-      ctx.get(IAgentProfileService).bind({ profile: 'does-not-exist', model: MOCK_MODEL }),
+      ctx.get(IAgentProfileService).bind({ profile: "does-not-exist", model: MOCK_MODEL }),
     ).rejects.toThrow(/Available profiles: .*agent/);
   });
 
-  it('persists the denylist in the bind records', async () => {
+  it("persists the denylist in the bind records", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence }, hostEnvironmentServices(homeDir));
 
-    await ctx.get(IAgentProfileService).bind({ profile: 'deny-builtin', model: MOCK_MODEL });
+    await ctx.get(IAgentProfileService).bind({ profile: "deny-builtin", model: MOCK_MODEL });
     await ctx.get(IWireService).flush();
 
-    const record = persistence.records.find((candidate) => candidate.type === 'profile.bind');
-    expect(record).toMatchObject({ profileName: 'deny-builtin', disallowedTools: ['Bash'] });
+    const record = persistence.records.find((candidate) => candidate.type === "profile.bind");
+    expect(record).toMatchObject({ profileName: "deny-builtin", disallowedTools: ["Bash"] });
   });
 
-  it('persists an unrestricted tool policy when the profile has no allowlist', async () => {
+  it("persists an unrestricted tool policy when the profile has no allowlist", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence }, hostEnvironmentServices(homeDir));
     const { profile, toolPolicy } = profileServices(ctx);
 
-    await profile.bind({ profile: 'deny-builtin', model: MOCK_MODEL });
+    await profile.bind({ profile: "deny-builtin", model: MOCK_MODEL });
     await ctx.get(IWireService).flush();
 
-    expect(persistence.records.find((record) => record.type === 'profile.bind')).toMatchObject({
+    expect(persistence.records.find((record) => record.type === "profile.bind")).toMatchObject({
       activeToolNames: undefined,
     });
-    expect(toolPolicy.isToolActive('Read')).toBe(true);
-    expect(toolPolicy.isToolActive('Bash')).toBe(false);
+    expect(toolPolicy.isToolActive("Read")).toBe(true);
+    expect(toolPolicy.isToolActive("Bash")).toBe(false);
   });
 
-  it('restores the denylist from persisted records on resume without catalog resolution', async () => {
+  it("restores the denylist from persisted records on resume without catalog resolution", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     ctx = createTestAgent({ persistence }, hostEnvironmentServices(homeDir));
-    await ctx.get(IAgentProfileService).bind({ profile: 'deny-builtin', model: MOCK_MODEL });
+    await ctx.get(IAgentProfileService).bind({ profile: "deny-builtin", model: MOCK_MODEL });
     await ctx.get(IWireService).flush();
     await ctx.dispose();
 
@@ -434,7 +443,7 @@ describe('AgentToolPolicyService tool denylist', () => {
       getDefault: () => ({
         name: DEFAULT_AGENT_PROFILE_NAME,
         tools: undefined,
-        systemPrompt: () => '',
+        systemPrompt: () => "",
       }),
       list: () => [],
       load: async () => {},
@@ -448,19 +457,19 @@ describe('AgentToolPolicyService tool denylist', () => {
     await ctx.restorePersisted();
     const resumed = profileServices(ctx);
 
-    expect(resumed.profile.data().profileName).toBe('deny-builtin');
-    expect(resumed.toolPolicy.isToolActive('Bash')).toBe(false);
-    expect(resumed.toolPolicy.isToolActive('Read')).toBe(true);
+    expect(resumed.profile.data().profileName).toBe("deny-builtin");
+    expect(resumed.toolPolicy.isToolActive("Bash")).toBe(false);
+    expect(resumed.toolPolicy.isToolActive("Read")).toBe(true);
   });
 });
 
-describe('AgentToolPolicyService global [tools] config', () => {
+describe("AgentToolPolicyService global [tools] config", () => {
   beforeAll(() => {
     registerAgentProfile({
-      name: 'config-intersect',
-      tools: ['Read', 'Bash'],
-      disallowedTools: ['Bash'],
-      systemPrompt: () => 'config intersect test',
+      name: "config-intersect",
+      tools: ["Read", "Bash"],
+      disallowedTools: ["Bash"],
+      systemPrompt: () => "config intersect test",
     });
   });
 
@@ -468,7 +477,7 @@ describe('AgentToolPolicyService global [tools] config', () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-tools-config-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-tools-config-home-"));
   });
 
   afterEach(async () => {
@@ -485,48 +494,48 @@ describe('AgentToolPolicyService global [tools] config', () => {
     return ctx.get(IAgentToolPolicyService);
   }
 
-  it('treats a non-empty enabled list as a global allowlist', async () => {
-    const svc = await bindWithToolsConfig({ enabled: ['Read'] });
-    expect(svc.isToolActive('Read')).toBe(true);
-    expect(svc.isToolActive('Bash')).toBe(false);
+  it("treats a non-empty enabled list as a global allowlist", async () => {
+    const svc = await bindWithToolsConfig({ enabled: ["Read"] });
+    expect(svc.isToolActive("Read")).toBe(true);
+    expect(svc.isToolActive("Bash")).toBe(false);
   });
 
-  it('treats an empty enabled list as unconstrained', async () => {
+  it("treats an empty enabled list as unconstrained", async () => {
     const svc = await bindWithToolsConfig({ enabled: [] });
-    expect(svc.isToolActive('Read')).toBe(true);
-    expect(svc.isToolActive('Bash')).toBe(true);
+    expect(svc.isToolActive("Read")).toBe(true);
+    expect(svc.isToolActive("Bash")).toBe(true);
   });
 
-  it('applies disabled as a global denylist', async () => {
-    const svc = await bindWithToolsConfig({ disabled: ['Bash'] });
-    expect(svc.isToolActive('Bash')).toBe(false);
-    expect(svc.isToolActive('Read')).toBe(true);
+  it("applies disabled as a global denylist", async () => {
+    const svc = await bindWithToolsConfig({ disabled: ["Bash"] });
+    expect(svc.isToolActive("Bash")).toBe(false);
+    expect(svc.isToolActive("Read")).toBe(true);
   });
 
-  it('matches globally disabled mcp tools by glob', async () => {
-    const svc = await bindWithToolsConfig({ disabled: ['mcp__github__*'] });
-    expect(svc.isToolActive('mcp__github__create_pr', 'mcp')).toBe(false);
-    expect(svc.isToolActive('mcp__other__ping', 'mcp')).toBe(true);
-    expect(svc.isToolActive('Read')).toBe(true);
+  it("matches globally disabled mcp tools by glob", async () => {
+    const svc = await bindWithToolsConfig({ disabled: ["mcp__github__*"] });
+    expect(svc.isToolActive("mcp__github__create_pr", "mcp")).toBe(false);
+    expect(svc.isToolActive("mcp__other__ping", "mcp")).toBe(true);
+    expect(svc.isToolActive("Read")).toBe(true);
   });
 
-  it('intersects the global config with the profile policy instead of overriding it', async () => {
-    const svc = await bindWithToolsConfig({ enabled: ['Read', 'Bash'] }, 'config-intersect');
+  it("intersects the global config with the profile policy instead of overriding it", async () => {
+    const svc = await bindWithToolsConfig({ enabled: ["Read", "Bash"] }, "config-intersect");
     // Allowed by both layers.
-    expect(svc.isToolActive('Read')).toBe(true);
+    expect(svc.isToolActive("Read")).toBe(true);
     // The global allowlist cannot re-enable a tool the profile itself denies.
-    expect(svc.isToolActive('Bash')).toBe(false);
+    expect(svc.isToolActive("Bash")).toBe(false);
     // Absent from the profile allowlist even though the global one admits it.
-    expect(svc.isToolActive('Write')).toBe(false);
+    expect(svc.isToolActive("Write")).toBe(false);
   });
 });
 
-describe('AgentToolPolicyService.setSessionDisabledTools', () => {
+describe("AgentToolPolicyService.setSessionDisabledTools", () => {
   beforeAll(() => {
     registerAgentProfile({
-      name: 'session-deny',
-      disallowedTools: ['Write'],
-      systemPrompt: () => 'session deny test',
+      name: "session-deny",
+      disallowedTools: ["Write"],
+      systemPrompt: () => "session deny test",
     });
   });
 
@@ -534,7 +543,7 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-session-deny-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-session-deny-home-"));
   });
 
   afterEach(async () => {
@@ -548,50 +557,46 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     return ctx.get(IAgentToolPolicyService);
   }
 
-  it('rejects when no profile is bound yet', async () => {
+  it("rejects when no profile is bound yet", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     const toolPolicy = ctx.get(IAgentToolPolicyService);
 
-    await expect(toolPolicy.setSessionDisabledTools(['Bash'])).rejects.toThrow(/not bound/);
-    expect(toolPolicy.isToolActive('Bash')).toBe(true);
+    await expect(toolPolicy.setSessionDisabledTools(["Bash"])).rejects.toThrow(/not bound/);
+    expect(toolPolicy.isToolActive("Bash")).toBe(true);
   });
 
-  it('replaces the client-managed denylist on every call', async () => {
+  it("replaces the client-managed denylist on every call", async () => {
     const svc = await bind(DEFAULT_AGENT_PROFILE_NAME);
 
-    await svc.setSessionDisabledTools(['Bash']);
-    expect(svc.isToolActive('Bash')).toBe(false);
-    expect(svc.isToolActive('Read')).toBe(true);
+    await svc.setSessionDisabledTools(["Bash"]);
+    expect(svc.isToolActive("Bash")).toBe(false);
+    expect(svc.isToolActive("Read")).toBe(true);
 
-    await svc.setSessionDisabledTools(['Edit']);
-    expect(svc.isToolActive('Bash')).toBe(true);
-    expect(svc.isToolActive('Edit')).toBe(false);
+    await svc.setSessionDisabledTools(["Edit"]);
+    expect(svc.isToolActive("Bash")).toBe(true);
+    expect(svc.isToolActive("Edit")).toBe(false);
   });
 
-  it('keeps the profile own denylist across replacement calls', async () => {
-    const svc = await bind('session-deny');
+  it("keeps the profile own denylist across replacement calls", async () => {
+    const svc = await bind("session-deny");
 
-    await svc.setSessionDisabledTools(['Bash']);
-    expect(svc.isToolActive('Write')).toBe(false);
-    expect(svc.isToolActive('Bash')).toBe(false);
+    await svc.setSessionDisabledTools(["Bash"]);
+    expect(svc.isToolActive("Write")).toBe(false);
+    expect(svc.isToolActive("Bash")).toBe(false);
 
     await svc.setSessionDisabledTools([]);
-    expect(svc.isToolActive('Write')).toBe(false);
-    expect(svc.isToolActive('Bash')).toBe(true);
+    expect(svc.isToolActive("Write")).toBe(false);
+    expect(svc.isToolActive("Bash")).toBe(true);
   });
 
-  it('persists the session denylist across a resume', async () => {
+  it("persists the session denylist across a resume", async () => {
     const persistence = new InMemoryWireRecordPersistence();
     const atomicDocuments = createAtomicDocumentStore();
     const documentServices = appService(IAtomicDocumentStore, atomicDocuments);
-    ctx = createTestAgent(
-      { persistence },
-      documentServices,
-      hostEnvironmentServices(homeDir),
-    );
+    ctx = createTestAgent({ persistence }, documentServices, hostEnvironmentServices(homeDir));
     const { profile, toolPolicy } = profileServices(ctx);
-    await profile.bind({ profile: 'session-deny', model: MOCK_MODEL });
-    await toolPolicy.setSessionDisabledTools(['Bash']);
+    await profile.bind({ profile: "session-deny", model: MOCK_MODEL });
+    await toolPolicy.setSessionDisabledTools(["Bash"]);
     await ctx.get(IWireService).flush();
     await ctx.dispose();
 
@@ -605,7 +610,7 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
       getDefault: () => ({
         name: DEFAULT_AGENT_PROFILE_NAME,
         tools: undefined,
-        systemPrompt: () => '',
+        systemPrompt: () => "",
       }),
       list: () => [],
       load: async () => {},
@@ -621,24 +626,24 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     await ctx.get(ISessionToolPolicy).ready;
     const resumed = profileServices(ctx);
 
-    expect(resumed.toolPolicy.isToolActive('Bash')).toBe(false);
-    expect(resumed.toolPolicy.isToolActive('Write')).toBe(false);
-    expect(resumed.toolPolicy.isToolActive('Read')).toBe(true);
+    expect(resumed.toolPolicy.isToolActive("Bash")).toBe(false);
+    expect(resumed.toolPolicy.isToolActive("Write")).toBe(false);
+    expect(resumed.toolPolicy.isToolActive("Read")).toBe(true);
 
-    await resumed.toolPolicy.setSessionDisabledTools(['Edit']);
-    expect(resumed.toolPolicy.isToolActive('Bash')).toBe(true);
-    expect(resumed.toolPolicy.isToolActive('Edit')).toBe(false);
-    expect(resumed.toolPolicy.isToolActive('Write')).toBe(false);
+    await resumed.toolPolicy.setSessionDisabledTools(["Edit"]);
+    expect(resumed.toolPolicy.isToolActive("Bash")).toBe(true);
+    expect(resumed.toolPolicy.isToolActive("Edit")).toBe(false);
+    expect(resumed.toolPolicy.isToolActive("Write")).toBe(false);
   });
 
-  it('retries persistence after a failed session denylist replacement', async () => {
+  it("retries persistence after a failed session denylist replacement", async () => {
     const atomicDocuments = createAtomicDocumentStore();
     const persist = atomicDocuments.set.bind(atomicDocuments);
     let attempts = 0;
     atomicDocuments.set = async (...args) => {
-      if (args[0].endsWith('/tool-policy')) {
+      if (args[0].endsWith("/tool-policy")) {
         attempts += 1;
-        if (attempts === 1) throw new Error('disk full');
+        if (attempts === 1) throw new Error("disk full");
       }
       await persist(...args);
     };
@@ -649,16 +654,16 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     const { profile, toolPolicy } = profileServices(ctx);
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-    await expect(toolPolicy.setSessionDisabledTools(['Bash'])).rejects.toThrow('disk full');
-    expect(toolPolicy.isToolActive('Bash')).toBe(true);
-    await toolPolicy.setSessionDisabledTools(['Bash']);
+    await expect(toolPolicy.setSessionDisabledTools(["Bash"])).rejects.toThrow("disk full");
+    expect(toolPolicy.isToolActive("Bash")).toBe(true);
+    await toolPolicy.setSessionDisabledTools(["Bash"]);
 
     expect(attempts).toBe(2);
-    expect(toolPolicy.isToolActive('Bash')).toBe(false);
+    expect(toolPolicy.isToolActive("Bash")).toBe(false);
   });
 
-  it('removes the skill listing when the session disables Skill', async () => {
-    const skillMarker = 'session-policy-skill-marker';
+  it("removes the skill listing when the session disables Skill", async () => {
+    const skillMarker = "session-policy-skill-marker";
     ctx = createTestAgent(
       hostEnvironmentServices(homeDir),
       sessionService(ISessionSkillCatalog, {
@@ -674,16 +679,16 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
     expect(profile.getSystemPrompt()).toContain(skillMarker);
 
-    await toolPolicy.setSessionDisabledTools(['Skill']);
+    await toolPolicy.setSessionDisabledTools(["Skill"]);
 
-    expect(toolPolicy.isToolActive('Skill')).toBe(false);
+    expect(toolPolicy.isToolActive("Skill")).toBe(false);
     expect(profile.getSystemPrompt()).not.toContain(skillMarker);
   });
 
-  it('omits the skill listing when global tools disable Skill', async () => {
-    const skillMarker = 'global-policy-skill-marker';
+  it("omits the skill listing when global tools disable Skill", async () => {
+    const skillMarker = "global-policy-skill-marker";
     ctx = createTestAgent(
-      { initialConfig: { tools: { disabled: ['Skill'] } } },
+      { initialConfig: { tools: { disabled: ["Skill"] } } },
       hostEnvironmentServices(homeDir),
       sessionService(ISessionSkillCatalog, {
         _serviceBrand: undefined,
@@ -697,12 +702,12 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
     const { profile, toolPolicy } = profileServices(ctx);
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-    expect(toolPolicy.isToolActive('Skill')).toBe(false);
+    expect(toolPolicy.isToolActive("Skill")).toBe(false);
     expect(profile.getSystemPrompt()).not.toContain(skillMarker);
   });
 
-  it('refreshes the skill listing when global tool policy changes at runtime', async () => {
-    const skillMarker = 'live-global-policy-skill-marker';
+  it("refreshes the skill listing when global tool policy changes at runtime", async () => {
+    const skillMarker = "live-global-policy-skill-marker";
     ctx = createTestAgent(
       hostEnvironmentServices(homeDir),
       sessionService(ISessionSkillCatalog, {
@@ -720,32 +725,32 @@ describe('AgentToolPolicyService.setSessionDisabledTools', () => {
 
     await ctx
       .get(IConfigService)
-      .replace(TOOLS_SECTION, { disabled: ['Skill'] }, ConfigTarget.Memory);
+      .replace(TOOLS_SECTION, { disabled: ["Skill"] }, ConfigTarget.Memory);
 
-    expect(toolPolicy.isToolActive('Skill')).toBe(false);
+    expect(toolPolicy.isToolActive("Skill")).toBe(false);
     await vi.waitFor(() => expect(profile.getSystemPrompt()).not.toContain(skillMarker));
   });
 });
 
-describe('AgentToolPolicyService executor enforcement', () => {
+describe("AgentToolPolicyService executor enforcement", () => {
   let ctx: TestAgentContext;
   let homeDir: string;
 
   beforeAll(() => {
     registerAgentProfile({
-      name: 'executor-deny-builtin',
-      disallowedTools: ['PolicyProbe'],
-      systemPrompt: () => 'executor policy test',
+      name: "executor-deny-builtin",
+      disallowedTools: ["PolicyProbe"],
+      systemPrompt: () => "executor policy test",
     });
     registerAgentProfile({
-      name: 'executor-deny-mcp',
-      disallowedTools: ['mcp__blocked__*'],
-      systemPrompt: () => 'executor policy test',
+      name: "executor-deny-mcp",
+      disallowedTools: ["mcp__blocked__*"],
+      systemPrompt: () => "executor policy test",
     });
   });
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-executor-policy-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-executor-policy-home-"));
   });
 
   afterEach(async () => {
@@ -755,34 +760,34 @@ describe('AgentToolPolicyService executor enforcement', () => {
 
   it.each([
     {
-      name: 'profile denylist',
+      name: "profile denylist",
       options: {},
-      profile: 'executor-deny-builtin',
+      profile: "executor-deny-builtin",
       disable: undefined,
     },
     {
-      name: 'global tools config',
-      options: { initialConfig: { tools: { disabled: ['PolicyProbe'] } } },
+      name: "global tools config",
+      options: { initialConfig: { tools: { disabled: ["PolicyProbe"] } } },
       profile: DEFAULT_AGENT_PROFILE_NAME,
       disable: undefined,
     },
     {
-      name: 'session denylist',
+      name: "session denylist",
       options: {},
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      disable: ['PolicyProbe'],
+      disable: ["PolicyProbe"],
     },
-  ])('blocks a direct builtin call through $name', async ({ options, profile, disable }) => {
+  ])("blocks a direct builtin call through $name", async ({ options, profile, disable }) => {
     ctx = createTestAgent(options, hostEnvironmentServices(homeDir));
     const profileService = ctx.get(IAgentProfileService);
     await profileService.bind({ profile, model: MOCK_MODEL });
     if (disable !== undefined) {
       await ctx.get(IAgentToolPolicyService).setSessionDisabledTools(disable);
     }
-    const probe = new PolicyProbeTool('PolicyProbe');
+    const probe = new PolicyProbeTool("PolicyProbe");
     ctx.get(IAgentToolRegistryService).register(probe);
 
-    const result = await executeDirectToolCall(ctx, 'PolicyProbe');
+    const result = await executeDirectToolCall(ctx, "PolicyProbe");
 
     expect(result).toMatchObject({
       isError: true,
@@ -791,11 +796,11 @@ describe('AgentToolPolicyService executor enforcement', () => {
     expect(probe.calls).toBe(0);
   });
 
-  it('blocks a direct MCP call by glob before execution', async () => {
+  it("blocks a direct MCP call by glob before execution", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
-    await ctx.get(IAgentProfileService).bind({ profile: 'executor-deny-mcp', model: MOCK_MODEL });
-    const probe = new PolicyProbeTool('mcp__blocked__write');
-    ctx.get(IAgentToolRegistryService).register(probe, { source: 'mcp' });
+    await ctx.get(IAgentProfileService).bind({ profile: "executor-deny-mcp", model: MOCK_MODEL });
+    const probe = new PolicyProbeTool("mcp__blocked__write");
+    ctx.get(IAgentToolRegistryService).register(probe, { source: "mcp" });
 
     const result = await executeDirectToolCall(ctx, probe.name);
 
@@ -806,39 +811,41 @@ describe('AgentToolPolicyService executor enforcement', () => {
     expect(probe.calls).toBe(0);
   });
 
-  it('does not reject select_tools, the policy-gated disclosure loading entry', async () => {
+  it("does not reject select_tools, the policy-gated disclosure loading entry", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     // The default profile's allowlist does not name select_tools; the guard
     // must still let the disclosure entry point through (its loadable set is
     // policy-filtered downstream).
-    await ctx.get(IAgentProfileService).bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    await ctx
+      .get(IAgentProfileService)
+      .bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
     const probe = new PolicyProbeTool(SELECT_TOOLS_TOOL_NAME);
     ctx.get(IAgentToolRegistryService).register(probe);
 
     const result = await executeDirectToolCall(ctx, SELECT_TOOLS_TOOL_NAME);
 
-    expect(result).toMatchObject({ output: 'executed' });
+    expect(result).toMatchObject({ output: "executed" });
     expect(result.isError).toBeFalsy();
     expect(probe.calls).toBe(1);
   });
 
   it.each([
     {
-      name: 'global denylist',
+      name: "global denylist",
       options: { initialConfig: { tools: { disabled: [SELECT_TOOLS_TOOL_NAME] } } },
       disable: undefined,
     },
     {
-      name: 'global allowlist',
-      options: { initialConfig: { tools: { enabled: ['Read'] } } },
+      name: "global allowlist",
+      options: { initialConfig: { tools: { enabled: ["Read"] } } },
       disable: undefined,
     },
     {
-      name: 'session denylist',
+      name: "session denylist",
       options: {},
       disable: [SELECT_TOOLS_TOOL_NAME],
     },
-  ])('blocks select_tools through an explicit $name', async ({ options, disable }) => {
+  ])("blocks select_tools through an explicit $name", async ({ options, disable }) => {
     ctx = createTestAgent(options, hostEnvironmentServices(homeDir));
     await ctx.get(IAgentProfileService).bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
@@ -858,15 +865,14 @@ describe('AgentToolPolicyService executor enforcement', () => {
     });
     expect(probe.calls).toBe(0);
   });
-
 });
 
-describe('AgentProfileService tool-pattern warnings', () => {
+describe("AgentProfileService tool-pattern warnings", () => {
   let ctx: TestAgentContext;
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-tool-pattern-home-'));
+    homeDir = await mkdtemp(join(tmpdir(), "kimi-tool-pattern-home-"));
   });
 
   afterEach(async () => {
@@ -880,93 +886,96 @@ describe('AgentProfileService tool-pattern warnings', () => {
       args?: { code?: string; message?: string };
     }[];
     return events
-      .filter((entry) => entry.event === 'warning')
+      .filter((entry) => entry.event === "warning")
       .map((entry) => entry.args ?? {})
-      .filter((args) => args.code === 'tool-pattern-no-match');
+      .filter((args) => args.code === "tool-pattern-no-match");
   }
 
   // A file-defined agent, as far as the warning path is concerned: inline so
   // its typo stays out of the builtin-profile known-name vocabulary (a
   // registerAgentProfile contribution would legitimize its own entries).
   const fileProfile: ResolvedAgentProfile = {
-    name: 'bad-patterns',
-    tools: ['Bashh', 'mcp__github'],
-    disallowedTools: ['*'],
-    systemPrompt: () => 'tool pattern warning test',
+    name: "bad-patterns",
+    tools: ["Bashh", "mcp__github"],
+    disallowedTools: ["*"],
+    systemPrompt: () => "tool pattern warning test",
   };
 
-  it('warns about profile entries that can never activate anything', async () => {
+  it("warns about profile entries that can never activate anything", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     await ctx.get(IAgentProfileService).applyProfile(fileProfile);
 
-    const messages = toolPatternWarnings().map((warning) => warning.message ?? '');
+    const messages = toolPatternWarnings().map((warning) => warning.message ?? "");
     expect(
       messages.some((m) => m.includes('"Bashh"') && m.includes('profile "bad-patterns"')),
     ).toBe(true);
-    expect(messages.some((m) => m.includes('"mcp__github"') && m.includes('mcp__github__*'))).toBe(
+    expect(messages.some((m) => m.includes('"mcp__github"') && m.includes("mcp__github__*"))).toBe(
       true,
     );
-    expect(messages.some((m) => m.includes('"*"') && m.includes('disallowedTools'))).toBe(true);
+    expect(messages.some((m) => m.includes('"*"') && m.includes("disallowedTools"))).toBe(true);
   });
 
-  it('warns once per pattern across repeated applications of the same profile', async () => {
+  it("warns once per pattern across repeated applications of the same profile", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
     const svc = ctx.get(IAgentProfileService);
     await svc.applyProfile(fileProfile);
     await svc.applyProfile(fileProfile);
 
-    const messages = toolPatternWarnings().map((warning) => warning.message ?? '');
+    const messages = toolPatternWarnings().map((warning) => warning.message ?? "");
     expect(messages.filter((m) => m.includes('"Bashh"'))).toHaveLength(1);
   });
 
-  it('warns about global [tools] config entries that can never activate anything', async () => {
+  it("warns about global [tools] config entries that can never activate anything", async () => {
     ctx = createTestAgent(
-      { initialConfig: { tools: { enabled: ['*'] } } },
+      { initialConfig: { tools: { enabled: ["*"] } } },
       hostEnvironmentServices(homeDir),
     );
-    await ctx.get(IAgentProfileService).bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    await ctx
+      .get(IAgentProfileService)
+      .bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
-    const messages = toolPatternWarnings().map((warning) => warning.message ?? '');
+    const messages = toolPatternWarnings().map((warning) => warning.message ?? "");
     expect(
       messages.some(
         (m) =>
-          m.includes('"*"') && m.includes('the global [tools] config') && m.includes('enabled'),
+          m.includes('"*"') && m.includes("the global [tools] config") && m.includes("enabled"),
       ),
     ).toBe(true);
   });
 
-  it('stays silent for the default profile and an empty [tools] config', async () => {
+  it("stays silent for the default profile and an empty [tools] config", async () => {
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
-    await ctx.get(IAgentProfileService).bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    await ctx
+      .get(IAgentProfileService)
+      .bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
 
     expect(toolPatternWarnings()).toEqual([]);
   });
 
-  it('bind also publishes the warnings', async () => {
+  it("bind also publishes the warnings", async () => {
     registerAgentProfile({
-      name: 'bind-bad-patterns',
-      tools: ['mcp__github'],
-      disallowedTools: ['*'],
-      systemPrompt: () => 'bind warning test',
+      name: "bind-bad-patterns",
+      tools: ["mcp__github"],
+      disallowedTools: ["*"],
+      systemPrompt: () => "bind warning test",
     });
     ctx = createTestAgent(hostEnvironmentServices(homeDir));
-    await ctx.get(IAgentProfileService).bind({ profile: 'bind-bad-patterns', model: MOCK_MODEL });
+    await ctx.get(IAgentProfileService).bind({ profile: "bind-bad-patterns", model: MOCK_MODEL });
 
-    const messages = toolPatternWarnings().map((warning) => warning.message ?? '');
-    expect(messages.some((m) => m.includes('"mcp__github"') && m.includes('mcp__github__*'))).toBe(
+    const messages = toolPatternWarnings().map((warning) => warning.message ?? "");
+    expect(messages.some((m) => m.includes('"mcp__github"') && m.includes("mcp__github__*"))).toBe(
       true,
     );
-    expect(messages.some((m) => m.includes('"*"') && m.includes('disallowedTools'))).toBe(true);
+    expect(messages.some((m) => m.includes('"*"') && m.includes("disallowedTools"))).toBe(true);
   });
-
 });
 
 async function executeDirectToolCall(ctx: TestAgentContext, name: string): Promise<ToolResult> {
   const call: ToolCall = {
-    type: 'function',
+    type: "function",
     id: `call_${name}`,
     name,
-    arguments: '{}',
+    arguments: "{}",
   };
   for await (const result of ctx.get(IAgentToolExecutorService).execute([call], {
     signal: new AbortController().signal,
@@ -978,8 +987,8 @@ async function executeDirectToolCall(ctx: TestAgentContext, name: string): Promi
 }
 
 class PolicyProbeTool implements ExecutableTool<Record<string, never>> {
-  readonly description = 'Policy enforcement probe.';
-  readonly parameters = { type: 'object', additionalProperties: false };
+  readonly description = "Policy enforcement probe.";
+  readonly parameters = { type: "object", additionalProperties: false };
   calls = 0;
 
   constructor(
@@ -992,7 +1001,7 @@ class PolicyProbeTool implements ExecutableTool<Record<string, never>> {
       approvalRule: this.name,
       execute: async () => {
         this.calls += 1;
-        return { isError: false, output: 'executed' };
+        return { isError: false, output: "executed" };
       },
     };
   }

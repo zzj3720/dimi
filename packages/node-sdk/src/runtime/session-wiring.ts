@@ -22,7 +22,7 @@
  *   services. The kernel's `respond` no-ops on an id that is no longer
  *   pending, so a late answer after a turn cancellation is safe.
  */
-import type { Event } from '@moonshot-ai/protocol';
+import type { Event } from "@moonshot-ai/protocol";
 import {
   ContextSizeModel,
   IAgentContextSizeService,
@@ -30,20 +30,18 @@ import {
   IAgentProfileService,
   IAgentUsageService,
   IEventBus,
-  IModelCatalog,
   ISessionApprovalService,
   ISessionInteractionService,
   ISessionQuestionService,
   IWireService,
   MAIN_AGENT_ID,
-  SECONDARY_DERIVED_MODEL_ID,
   type DomainEvent,
   type IAgentScopeHandle,
   type IDisposable,
   type Interaction,
   type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+} from "@moonshot-ai/agent-core-v2";
+import type { ToolInputDisplay } from "@moonshot-ai/agent-core-v2/tool/toolInputDisplay";
 
 import type {
   ApprovalRequest,
@@ -52,8 +50,8 @@ import type {
   QuestionResult,
   ToolCallRequest,
   ToolCallResponse,
-} from '#/events';
-import { translateDomainEvent } from '#/runtime/event-mapper';
+} from "#/events";
+import { translateDomainEvent } from "#/runtime/event-mapper";
 
 /**
  * The client surface the wiring drives — the base class's own public methods,
@@ -92,7 +90,7 @@ interface QuestionInteractionPayload {
   readonly id?: string;
   readonly turnId?: number;
   readonly toolCallId?: string;
-  readonly questions: QuestionRequest['questions'];
+  readonly questions: QuestionRequest["questions"];
 }
 
 /** The v2 user-tool execution payload (`agent-core-v2/src/agent/userTool/userToolService.ts`). */
@@ -154,12 +152,12 @@ export class SessionEventWiring {
       agentId,
       agent.accessor.get(IEventBus).subscribe((event) => {
         const enriched =
-          event.type === 'agent.status.updated' ? withStatusSnapshot(agent, event) : event;
+          event.type === "agent.status.updated" ? withStatusSnapshot(agent, event) : event;
         const translated = translateDomainEvent(enriched, sessionId, agentId);
         if (translated !== undefined) this.sink.receiveEvent(translated);
-        if (event.type === 'context.spliced') {
+        if (event.type === "context.spliced") {
           const status = translateDomainEvent(
-            withStatusSnapshot(agent, { type: 'agent.status.updated' }),
+            withStatusSnapshot(agent, { type: "agent.status.updated" }),
             sessionId,
             agentId,
           );
@@ -183,13 +181,13 @@ export class SessionEventWiring {
       if (this.bridgedInteractionIds.has(interaction.id)) continue;
       this.bridgedInteractionIds.add(interaction.id);
       switch (interaction.kind) {
-        case 'approval':
+        case "approval":
           void this.bridgeApproval(interaction);
           break;
-        case 'question':
+        case "question":
           void this.bridgeQuestion(interaction);
           break;
-        case 'user_tool':
+        case "user_tool":
           void this.bridgeUserTool(interaction);
           break;
       }
@@ -316,14 +314,6 @@ function withStatusSnapshot(agent: IAgentScopeHandle, event: DomainEvent): Domai
  * `displayName ?? wireName` priority) instead of leaking the reserved id.
  * Mirrors kap-server's `displayModelAlias`.
  */
-function displayModelAlias(agent: IAgentScopeHandle, alias: string): string {
-  if (alias !== SECONDARY_DERIVED_MODEL_ID) return alias;
-  const catalog = agent.accessor.get(IModelCatalog) as IModelCatalog | undefined;
-  if (catalog === undefined) return alias;
-  try {
-    const model = catalog.get(alias);
-    return model.displayName ?? model.name;
-  } catch {
-    return alias;
-  }
+function displayModelAlias(_agent: IAgentScopeHandle, alias: string): string {
+  return alias;
 }

@@ -7,35 +7,33 @@
  * exposes a single document. Their top-level names line up, so the read
  * mapping is a field pick rather than a reshape.
  */
-import type { ConfigDiagnostics, KimiConfig } from '#/types';
+import type { ConfigDiagnostics, KimiConfig } from "#/types";
 
 /**
  * Every public `KimiConfig` field except the internal `raw` write-path field.
  * Each entry is also the runtime config domain name.
  */
 const KIMI_CONFIG_DOMAINS = [
-  'providers',
-  'defaultProvider',
-  'defaultModel',
-  'models',
-  'thinking',
-  'planMode',
-  'yolo',
-  'defaultPermissionMode',
-  'defaultPlanMode',
-  'permission',
-  'hooks',
-  'services',
-  'mergeAllAvailableSkills',
-  'extraSkillDirs',
-  'loopControl',
-  'background',
-  'subagent',
-  'mcp',
-  'image',
-  'modelCatalog',
-  'experimental',
-  'telemetry',
+  "defaultProvider",
+  "defaultModel",
+  "thinking",
+  "planMode",
+  "yolo",
+  "defaultPermissionMode",
+  "defaultPlanMode",
+  "permission",
+  "hooks",
+  "services",
+  "mergeAllAvailableSkills",
+  "extraSkillDirs",
+  "loopControl",
+  "background",
+  "subagent",
+  "secondaryModel",
+  "mcp",
+  "image",
+  "experimental",
+  "telemetry",
 ] as const;
 
 /**
@@ -72,46 +70,4 @@ export function diagnosticsToConfigDiagnostics(
   diagnostics: readonly RuntimeConfigDiagnostic[],
 ): ConfigDiagnostics {
   return { warnings: diagnostics.map((diagnostic) => diagnostic.message) };
-}
-
-/** The writes required by the public `removeProvider` contract. */
-export interface ProviderRemovalPlan {
-  readonly providers: Record<string, unknown>;
-  readonly models: Record<string, unknown>;
-  readonly clearDefaultModel: boolean;
-  readonly clearDefaultProvider: boolean;
-}
-
-/**
- * Compute the provider-removal cascade: drop the provider entry,
- * drop every model whose `provider` points at it, and clear the default
- * pointers when they dangle. Inputs are the user-layer values returned by
- * `inspect().userValue`.
- */
-export function planProviderRemoval(input: {
-  readonly providers: Record<string, unknown> | undefined;
-  readonly models: Record<string, Record<string, unknown>> | undefined;
-  readonly defaultModel: string | undefined;
-  readonly defaultProvider: string | undefined;
-  readonly providerId: string;
-}): ProviderRemovalPlan {
-  const providers = { ...input.providers };
-  delete providers[input.providerId];
-
-  const models: Record<string, unknown> = {};
-  let removedDefault = false;
-  for (const [key, model] of Object.entries(input.models ?? {})) {
-    if (model['provider'] === input.providerId) {
-      if (input.defaultModel === key) removedDefault = true;
-      continue;
-    }
-    models[key] = model;
-  }
-
-  return {
-    providers,
-    models,
-    clearDefaultModel: removedDefault,
-    clearDefaultProvider: input.defaultProvider === input.providerId,
-  };
 }

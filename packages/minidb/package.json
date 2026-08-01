@@ -1,18 +1,18 @@
 {
   "name": "@moonshot-ai/minidb",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
   "description": "A pure-Node.js embedded key-value database mixing Redis-style in-memory KV with SQLite-style durable persistence (WAL + snapshot).",
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/minidb#readme",
+  "homepage": "https://github.com/zzj3720/k-3720/tree/main/packages/minidb#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "url": "git+https://github.com/zzj3720/k-3720.git",
     "directory": "packages/minidb"
   },
   "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+    "url": "https://github.com/zzj3720/k-3720/issues"
   },
   "keywords": [
     "kimi",

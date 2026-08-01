@@ -11,22 +11,22 @@ kimi <subcommand> [options]
 
 All flags are optional — run `kimi` directly to enter an interactive session:
 
-| Option | Short | Description |
-| --- | --- | --- |
-| `--version` | `-V` | Print the version number and exit |
-| `--help` | `-h` | Show help information and exit |
-| `--session [id]` | `-S` | Resume a session. With an ID, opens that session directly; without an ID, enters an interactive selector |
-| `--continue` | `-c` | Continue the most recent session in the current working directory, without specifying an ID manually |
-| `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
-| `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
-| `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
-| `--yolo` | `-y` | Auto-approve regular tool calls, skipping approval requests |
-| `--auto` | | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions |
-| `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
-| `--skills-dir <dir>` | | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated |
-| `--agent <name>` | | Start a new session with the specified agent as the main Agent. Cannot be combined with `--session`/`--continue` |
-| `--agent-file <path>` | | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
-| `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
+| Option                     | Short | Description                                                                                                                                             |
+| -------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--version`                | `-V`  | Print the version number and exit                                                                                                                       |
+| `--help`                   | `-h`  | Show help information and exit                                                                                                                          |
+| `--session [id]`           | `-S`  | Resume a session. With an ID, opens that session directly; without an ID, enters an interactive selector                                                |
+| `--continue`               | `-c`  | Continue the most recent session in the current working directory, without specifying an ID manually                                                    |
+| `--model <model>`          | `-m`  | Select `<provider>/<model>` for this launch. When omitted, new sessions use `default_provider` and `default_model`                                      |
+| `--prompt <prompt>`        | `-p`  | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI                                        |
+| `--output-format <format>` |       | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text`                          |
+| `--yolo`                   | `-y`  | Auto-approve regular tool calls, skipping approval requests                                                                                             |
+| `--auto`                   |       | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions                                 |
+| `--plan`                   |       | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning                                                  |
+| `--skills-dir <dir>`       |       | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated                          |
+| `--agent <name>`           |       | Start a new session with the specified agent as the main Agent. Cannot be combined with `--session`/`--continue`                                        |
+| `--agent-file <path>`      |       | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
+| `--add-dir <dir>`          |       | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated                        |
 
 `-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output.
 
@@ -120,7 +120,7 @@ Output uses a transcript style: thinking content and Assistant text are both pre
 Temporarily switch the model:
 
 ```sh
-kimi -m kimi-code/kimi-for-coding -p "Explain the latest diff"
+kimi -m kimi-coding/kimi-for-coding -p "Explain the latest diff"
 ```
 
 When you need to parse output programmatically, use the `stream-json` format — each line on stdout is a JSON object:
@@ -133,17 +133,34 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `remote` (connect a native client through an encrypted relay), `doctor` (validate configuration files), `export` (export a session), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` and `logout` (provider credentials), `provider` (provider and model catalogs), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service), `remote` (connect a native client through an encrypted relay), `doctor` (validate configuration files), `export` (export a session), and `upgrade` (check for updates).
 
 ### `kimi login`
 
-Log in to Kimi Code OAuth via the RFC 8628 device-code flow, without entering the TUI. The command issues a device authorization request, prints the verification URL and user code to stderr, then polls until the browser-side authorization is complete. The generated token is written to the same local location as TUI `/login` and is loaded automatically the next time `kimi` starts.
+Connect a built-in or `models.json` LLM provider with OAuth or an API key. Omit the provider to choose interactively. When a provider supports both methods, omit `--method` to choose one interactively. Cloud providers can ask follow-up questions for a credential chain, account, project, or location.
 
 ```sh
 kimi login
+kimi login openai-codex --method oauth
+kimi login anthropic --method api-key
 ```
 
-This subcommand has no flags. Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
+OAuth login prints the provider's authorization URL or device code and waits for completion. API-key login prompts through the terminal without echoing the key. Saved credentials are written to `auth.json` and loaded on the next startup.
+
+| Option              | Description                                                            |
+| ------------------- | ---------------------------------------------------------------------- |
+| `[provider]`        | Provider ID from the built-in or `models.json` catalog; omit to choose |
+| `--method <method>` | `oauth` or `api-key`; specify it to skip the interactive method choice |
+
+### `kimi logout`
+
+Remove the saved credential for one provider:
+
+```sh
+kimi logout anthropic
+```
+
+An API key exported through the shell remains active until it is unset.
 
 ### `kimi acp`
 
@@ -167,15 +184,15 @@ kimi web --port 58628    # pick a specific bind port
 
 Multiple instances can share one home directory: each registers itself under `~/.kimi-code/server/instances/`, and a busy port is retried with `port + 1` (58628, 58629, …).
 
-| Option | Description |
-| --- | --- |
-| `--port <port>` | Bind port; defaults to `58627`; a busy port is retried with `+1` |
-| `--host [host]` | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces) |
-| `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated |
-| `--log-level <level>` | Enable server logs at the selected level; omitted by default |
-| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
-| `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
-| `--no-open` | Do not open the browser once the server is ready |
+| Option                     | Description                                                                                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--port <port>`            | Bind port; defaults to `58627`; a busy port is retried with `+1`                                                                                               |
+| `--host [host]`            | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces)                                                       |
+| `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated                                                                |
+| `--log-level <level>`      | Enable server logs at the selected level; omitted by default                                                                                                   |
+| `--debug-endpoints`        | Mount `/api/v1/debug/*` routes (off by default)                                                                                                                |
+| `--dangerous-bypass-auth`  | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
+| `--no-open`                | Do not open the browser once the server is ready                                                                                                               |
 
 `kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
 
@@ -222,11 +239,11 @@ Validate `config.toml` and `tui.toml` without starting the TUI or modifying eith
 kimi doctor
 ```
 
-| Command | Description |
-| --- | --- |
-| `kimi doctor` | Validate the default `config.toml` and `tui.toml` |
+| Command                     | Description                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| `kimi doctor`               | Validate the default `config.toml` and `tui.toml`                                   |
 | `kimi doctor config [path]` | Validate only `config.toml`, using `path` instead of the default file when provided |
-| `kimi doctor tui [path]` | Validate only `tui.toml`, using `path` instead of the default file when provided |
+| `kimi doctor tui [path]`    | Validate only `tui.toml`, using `path` instead of the default file when provided    |
 
 When an explicit path is passed, the file must exist. The command exits with `0` when all checked files are valid or skipped, and `1` when any requested file is missing or invalid.
 
@@ -249,12 +266,12 @@ Package a session into a ZIP file for sharing, archiving, or submitting bug repo
 kimi export [sessionId] [options]
 ```
 
-| Parameter / Option | Short | Description |
-| --- | --- | --- |
-| `sessionId` | | The ID of the session to export. When omitted, the most recent session in the current working directory is automatically selected and requires confirmation |
-| `--output <path>` | `-o` | Output ZIP file path. When omitted, writes to a default filename in the current directory |
-| `--yes` | `-y` | Skip the confirmation prompt for the default session and export directly |
-| `--no-include-global-log` | | Do not include the global diagnostic log. Included by default |
+| Parameter / Option        | Short | Description                                                                                                                                                 |
+| ------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionId`               |       | The ID of the session to export. When omitted, the most recent session in the current working directory is automatically selected and requires confirmation |
+| `--output <path>`         | `-o`  | Output ZIP file path. When omitted, writes to a default filename in the current directory                                                                   |
+| `--yes`                   | `-y`  | Skip the confirmation prompt for the default session and export directly                                                                                    |
+| `--no-include-global-log` |       | Do not include the global diagnostic log. Included by default                                                                                               |
 
 The export contains all files in the target session directory. The global diagnostic log (`~/.kimi-code/logs/kimi-code.log`) is included by default because it may contain events from other sessions or projects; add `--no-include-global-log` if you do not want to share it.
 
@@ -271,13 +288,13 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi upgrade`
 
-Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.
+This source build has no configured release channel. `kimi upgrade` exits after reporting that automatic upgrades are unavailable; `kimi update` is an alias.
 
 ```sh
 kimi upgrade
 ```
 
-For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. When the current installation method cannot be upgraded automatically (e.g., Windows native installation), the manual update command is printed instead.
+It never falls back to an upstream Kimi Code install source. Update this checkout with `git pull --ff-only`, then run `vp install` and `vp run dev:cli`.
 
 ### `kimi vis`
 
@@ -287,12 +304,12 @@ Launch the session visualizer in your browser to inspect a session as it unfolds
 kimi vis [sessionId] [options]
 ```
 
-| Parameter / Option | Description |
-| --- | --- |
-| `sessionId` | Open the visualizer directly to this session. When omitted, it opens the home view listing your sessions |
-| `--port <number>` | Port to bind. By default an available port is picked automatically |
-| `--host <host>` | Host to bind. Default: `127.0.0.1` |
-| `--no-open` | Do not open the browser automatically; just print the URL |
+| Parameter / Option | Description                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `sessionId`        | Open the visualizer directly to this session. When omitted, it opens the home view listing your sessions |
+| `--port <number>`  | Port to bind. By default an available port is picked automatically                                       |
+| `--host <host>`    | Host to bind. Default: `127.0.0.1`                                                                       |
+| `--no-open`        | Do not open the browser automatically; just print the URL                                                |
 
 ```sh
 # Start the visualizer and open the browser at the home view
@@ -307,81 +324,78 @@ kimi vis --host 0.0.0.0 --port 8123 --no-open
 
 ### `kimi provider`
 
-Manage providers in the shell — the non-interactive equivalent of `/provider` in the TUI. Suitable for scripted deployments, CI initialization, and one-line setup on a new machine.
+Inspect providers and models, refresh dynamic catalogs, and manage the user-owned `models.json` provider layer. Built-in and SDK provider definitions remain runtime-owned; a custom definition with the same ID is an overlay, not a replacement catalog.
 
 ```sh
-kimi provider <action> [options]
-```
-
-Five actions are available:
-
-#### `kimi provider add <url>`
-
-Bulk-import all providers from a custom registry (`api.json`). The command fetches the registry, creates a `[providers.<id>]` and `[models.<alias>]` entry for each item, and writes `source` metadata so the TUI refreshes providers and models from the same registry URL automatically on next startup.
-
-| Parameter / Option | Description |
-| --- | --- |
-| `<url>` | Registry URL |
-| `--api-key <key>` | Bearer token for accessing the registry. Falls back to the `KIMI_REGISTRY_API_KEY` environment variable if not provided; required |
-
-```sh
-kimi provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
-
-# Or via environment variable (suitable for CI / .envrc)
-KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
-```
-
-If a provider ID already exists, it is removed and re-created. The default model is not set automatically; you can select one later with `-m` or `/model` in the TUI.
-
-#### `kimi provider remove <providerId>`
-
-Remove the specified provider and all its model aliases. If the removed provider is the one referenced by `default_model`, `default_model` is also cleared.
-
-```sh
-kimi provider remove kohub
+kimi provider list [--json]
+kimi provider models [providerId]
+kimi provider refresh
+kimi provider add <id> [options]
+kimi provider update <id> [options]
+kimi provider remove <id>
+kimi provider model add <providerId> <modelId> [options]
+kimi provider model update <providerId> <modelId> [options]
+kimi provider model remove <providerId> <modelId>
 ```
 
 #### `kimi provider list`
 
-Print each configured provider on a separate line, including type, model count, and source. Add `--json` to output the raw `providers` and `models` tables for programmatic processing.
+Print every built-in and configured provider, its connection state, and the number of currently available models. Add `--json` to output provider auth states and model metadata.
 
 ```sh
 kimi provider list
-kimi provider list --json | jq '.providers | keys'
+kimi provider list --json
 ```
 
-#### `kimi provider catalog list [providerId]`
+#### `kimi provider models [providerId]`
 
-Browse the public [models.dev](https://models.dev/) model catalog without modifying any configuration. Without an argument, lists all providers along with their protocol type and model count; with a `providerId`, lists all models under that provider along with their context window and capabilities.
-
-| Parameter / Option | Description |
-| --- | --- |
-| `[providerId]` | Optional — the provider ID to inspect |
-| `--filter <substring>` | Case-insensitive substring filter on ID or name |
-| `--url <url>` | Override the catalog URL; defaults to `https://models.dev/api.json` |
-| `--json` | Output matching entries as JSON |
+List models currently available through authenticated providers. Pass a provider ID to narrow the list. Each line includes the canonical `<provider>/<model>` reference, context window, and relevant capabilities.
 
 ```sh
-kimi provider catalog list
-kimi provider catalog list --filter anthropic
-kimi provider catalog list anthropic
+kimi provider models
+kimi provider models openai-codex
 ```
 
-#### `kimi provider catalog add <providerId>`
+#### `kimi provider refresh`
 
-Import a known provider directly from the catalog by ID. The protocol type, base URL, and model information are all supplied by the catalog — only an API key is required. Vendors whose protocol the catalog does not declare (e.g. xai, openrouter, and other vendor-specific SDKs) are imported as OpenAI-compatible and the output notes the guess; when the catalog provides no usable endpoint, `--base-url` is required. Proprietary protocols (e.g. Amazon Bedrock) cannot be imported.
-
-| Parameter / Option | Description |
-| --- | --- |
-| `<providerId>` | Provider ID in the catalog, e.g., `anthropic`, `openai` |
-| `--api-key <key>` | Provider API key. Falls back to `KIMI_REGISTRY_API_KEY` if not provided; required |
-| `--default-model <modelId>` | Optional — set `default_model` to `<providerId>/<modelId>` after import |
-| `--base-url <url>` | Override the catalog endpoint; required when the catalog declares none (or only an env placeholder) |
-| `--url <url>` | Override the catalog URL; defaults to `https://models.dev/api.json` |
+Refresh the remote model endpoints for every authenticated provider. Refresh failures are reported per provider while successful catalogs are still persisted.
 
 ```sh
-kimi provider catalog list anthropic          # Browse available models first
-kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-opus-4-7
+kimi provider refresh
+```
+
+#### `kimi provider add` and `update`
+
+Create or update a custom provider. `--from <path>` imports either one provider object or a `{ "providers": { … } }` JSONC document and selects the requested ID. For an inline new provider, `--base-url`, `--model`, `--context-window`, and `--max-tokens` are required. `--api` defaults to `openai-completions`; `--api-key-env` records an environment template instead of a secret.
+
+```sh
+kimi provider add example-gateway --from ./models.json
+kimi provider add example-gateway \
+  --base-url https://api.example.test/v1 --model example-chat \
+  --context-window 128000 --max-tokens 8192 \
+  --api-key-env EXAMPLE_GATEWAY_API_KEY --thinking --image
+kimi provider update example-gateway --model example-chat --max-tokens 16384
+```
+
+The inline options are `--name`, `--model-name`, `--api`, `--api-key-env`, `--thinking`, and `--image` in addition to the required fields. Use a file for provider headers, `compat`, OAuth settings, model overrides, per-model base URLs, or several models; the [provider configuration reference](../configuration/providers.md#add-or-overlay-a-provider-with-modelsjson) documents the full JSONC shape.
+
+#### `kimi provider remove`
+
+Remove a user-owned provider definition. If it is a custom overlay of a built-in provider, the underlying built-in provider becomes visible again. Removing a standalone custom provider also removes its saved credential.
+
+```sh
+kimi provider remove example-gateway
+```
+
+#### `kimi provider model`
+
+Add, update, or remove a model declared by a custom provider. Adding a new model requires `--context-window` and `--max-tokens`; `--name`, `--thinking`, and `--image` are optional.
+
+```sh
+kimi provider model add example-gateway example-reasoner \
+  --context-window 128000 --max-tokens 8192 --thinking
+kimi provider model update example-gateway example-reasoner --image
+kimi provider model remove example-gateway example-reasoner
 ```
 
 ## Next steps

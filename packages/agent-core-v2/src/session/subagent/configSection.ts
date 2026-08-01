@@ -12,15 +12,14 @@
  * and render the timeout message with `formatSubagentTimeoutDescription`.
  *
  * The model half of the spawn binding is the secondary model (the section
- * and type in `app/kosongConfig` — `[secondary_model]` on disk): when its
+ * and type in `app/providerRuntime` — `[secondary_model]` on disk): when its
  * experiment is enabled and the model is set, newly spawned subagents bind to
  * it by default instead of inheriting the caller's model, and the
  * `Agent`/`AgentSwarm` tools let the parent model pick per spawn via their
  * `model` parameter. When unset, spawning behavior is unchanged (subagents
- * inherit the caller's model). A recipe with patch fields binds the
- * synthesized derived entry (`SECONDARY_DERIVED_MODEL_ID`); a pointer-only
- * recipe binds the pointed entry directly. `default_effort` is passed as the
- * explicit subagent thinking; without it the subagent resolves thinking
+ * inherit the caller's model). The provider/model pair is a canonical runtime
+ * reference. `default_effort` is passed as the explicit subagent thinking;
+ * without it the subagent resolves thinking
  * naturally (global thinking config → the bound model's default effort)
  * rather than inheriting the caller's level. Both tools resolve spawn
  * bindings through `resolveSubagentBinding`, advertise the pair via
@@ -30,31 +29,27 @@
  * domain's types.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
-import { Error2, ErrorCodes, isError2 } from '#/errors';
-import type { AgentModelPreference } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { IFlagService } from '#/app/flag/flag';
+import { Error2, ErrorCodes, isError2 } from "#/errors";
+import type { AgentModelPreference } from "#/app/agentProfileCatalog/agentProfileCatalog";
+import type { IFlagService } from "#/app/flag/flag";
 import {
   SECONDARY_MODEL_ENV,
   SECONDARY_MODEL_SECTION,
-} from '#/app/kosongConfig/configSection';
-import {
-  SECONDARY_DERIVED_MODEL_ID,
-  secondaryModelPatch,
-} from '#/app/kosongConfig/secondaryModelOverlay';
-import { type SecondaryModelConfig } from '#/app/kosongConfig/configSection';
+  type SecondaryModelConfig,
+} from "#/app/providerRuntime/configSection";
 import {
   type EnvBindings,
   envBindings,
   stripEnvBoundFields,
   type IConfigService,
-} from '#/app/config/config';
-import { registerConfigSection } from '#/app/config/configSectionContributions';
+} from "#/app/config/config";
+import { registerConfigSection } from "#/app/config/configSectionContributions";
 
-import { SECONDARY_MODEL_FLAG_ID } from './flag';
+import { SECONDARY_MODEL_FLAG_ID } from "./flag";
 
-export const SUBAGENT_SECTION = 'subagent';
+export const SUBAGENT_SECTION = "subagent";
 
 export const SubagentConfigSchema = z.object({
   timeoutMs: z.number().int().min(0).optional(),
@@ -65,7 +60,7 @@ export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 /** Default per-run subagent timeout: 2 hours, same as v1. */
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
-export const SUBAGENT_TIMEOUT_ENV = 'KIMI_SUBAGENT_TIMEOUT_MS';
+export const SUBAGENT_TIMEOUT_ENV = "KIMI_SUBAGENT_TIMEOUT_MS";
 
 /** Parse the env override; anything but a positive integer is ignored (v1 semantics). */
 function parseTimeoutMsEnv(raw: string): number | undefined {
@@ -73,12 +68,9 @@ function parseTimeoutMsEnv(raw: string): number | undefined {
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
 }
 
-export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(
-  SubagentConfigSchema,
-  {
-    timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
-  },
-);
+export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(SubagentConfigSchema, {
+  timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
+});
 
 export const stripSubagentEnv = stripEnvBoundFields(subagentEnvBindings);
 
@@ -117,12 +109,12 @@ export function resolveSubagentBinding(
   requested?: SubagentModelChoice,
 ): { model: string; thinking?: string } {
   const secondary = resolveSecondaryModel(config, flags);
-  if (requested !== 'primary' && secondary?.model !== undefined) {
+  if (requested !== "primary" && secondary?.model !== undefined) {
     return {
       model:
-        secondaryModelPatch(secondary) === undefined
+        secondary.provider === undefined
           ? secondary.model
-          : SECONDARY_DERIVED_MODEL_ID,
+          : `${secondary.provider}/${secondary.model}`,
       thinking: secondary.defaultEffort,
     };
   }
@@ -137,10 +129,10 @@ export function buildSubagentModelDescriptions(
   const secondaryModel = resolveSecondaryModel(config, flags)?.model;
   if (secondaryModel === undefined || callerModelAlias === undefined) return undefined;
   return [
-    'Available models (pass via model):',
+    "Available models (pass via model):",
     `- secondary: ${secondaryModel} (default) — the configured secondary model; prefer it for routine subagent tasks`,
     `- primary: ${callerModelAlias} — the main model you are running on; use it for hard, quality-sensitive subagent tasks`,
-  ].join('\n');
+  ].join("\n");
 }
 
 export function wrapSubagentModelError(
@@ -150,14 +142,10 @@ export function wrapSubagentModelError(
 ): unknown {
   if (boundModel === callerModelAlias) return error;
   if (!isError2(error) || error.code !== ErrorCodes.CONFIG_INVALID) return error;
-  if (error.details?.['model'] !== boundModel) return error;
-  const displayModel =
-    boundModel === SECONDARY_DERIVED_MODEL_ID
-      ? `the derived entry "${SECONDARY_DERIVED_MODEL_ID}"`
-      : `"${boundModel}"`;
+  if (error.details?.["model"] !== boundModel) return error;
   return new Error2(
     error.code,
-    `${error.message} (secondary model ${displayModel} comes from [secondary_model].model / ${SECONDARY_MODEL_ENV} — check that it names a valid [models] entry)`,
+    `${error.message} (secondary model "${boundModel}" comes from [secondary_model].provider + model / ${SECONDARY_MODEL_ENV} — check that it names an available provider model)`,
     {
       cause: error,
       name: error.name,
@@ -165,7 +153,7 @@ export function wrapSubagentModelError(
         ...error.details,
         secondaryModel: boundModel,
         secondaryModelConfig: {
-          section: 'secondaryModel.model',
+          section: "secondaryModel.model",
           environment: SECONDARY_MODEL_ENV,
         },
       },
@@ -177,15 +165,15 @@ export function wrapSubagentModelError(
 export function formatSubagentTimeoutDescription(ms: number): string {
   if (ms % (60 * 60 * 1000) === 0) {
     const h = ms / (60 * 60 * 1000);
-    return `${h} hour${h === 1 ? '' : 's'}`;
+    return `${h} hour${h === 1 ? "" : "s"}`;
   }
   if (ms % (60 * 1000) === 0) {
     const m = ms / (60 * 1000);
-    return `${m} minute${m === 1 ? '' : 's'}`;
+    return `${m} minute${m === 1 ? "" : "s"}`;
   }
   if (ms % 1000 === 0) {
     const s = ms / 1000;
-    return `${s} second${s === 1 ? '' : 's'}`;
+    return `${s} second${s === 1 ? "" : "s"}`;
   }
   return `${ms} ms`;
 }

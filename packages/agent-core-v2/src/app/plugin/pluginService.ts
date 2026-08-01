@@ -10,21 +10,19 @@
  * it. Bound at App scope.
  */
 
-import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
+import { Disposable } from "#/_base/di/lifecycle";
+import { Emitter, type Event } from "#/_base/event";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { Error2, PluginErrors } from "#/errors";
+import { IBootstrapService } from "#/app/bootstrap/bootstrap";
+import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
+import { ISkillDiscovery } from "#/app/skillCatalog/skillDiscovery";
+import type { HookDef } from "#/agent/externalHooks/types";
+import type { McpServerConfig } from "#/agent/mcp/config-schema";
+import type { AgentFileRoot } from "#/app/agentFileCatalog/types";
+import type { SkillRoot } from "#/app/skillCatalog/types";
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Error2, PluginErrors } from '#/errors';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IProviderService } from '#/kosong/provider/provider';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
-import type { HookDef } from '#/agent/externalHooks/types';
-import type { McpServerConfig } from '#/agent/mcp/config-schema';
-import type { AgentFileRoot } from '#/app/agentFileCatalog/types';
-import type { SkillRoot } from '#/app/skillCatalog/types';
-
-import { PluginManager } from './manager';
+import { PluginManager } from "./manager";
 import {
   type GetPluginInfoInput,
   type InstallPluginInput,
@@ -32,7 +30,7 @@ import {
   type RemovePluginInput,
   type SetPluginEnabledInput,
   type SetPluginMcpServerEnabledInput,
-} from './plugin';
+} from "./plugin";
 import type {
   EnabledPluginSessionStart,
   EnabledPluginSystemPrompt,
@@ -41,11 +39,11 @@ import type {
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
-} from './types';
+} from "./types";
 
-const KIMI_CODE_BASE_URL_ENV = 'KIMI_CODE_BASE_URL';
-const KIMI_CODE_OAUTH_HOST_ENV = 'KIMI_CODE_OAUTH_HOST';
-const KIMI_OAUTH_HOST_ENV = 'KIMI_OAUTH_HOST';
+const KIMI_CODE_BASE_URL_ENV = "KIMI_CODE_BASE_URL";
+const KIMI_CODE_OAUTH_HOST_ENV = "KIMI_CODE_OAUTH_HOST";
+const KIMI_OAUTH_HOST_ENV = "KIMI_OAUTH_HOST";
 
 export class PluginService extends Disposable implements IPluginService {
   declare readonly _serviceBrand: undefined;
@@ -65,7 +63,7 @@ export class PluginService extends Disposable implements IPluginService {
   constructor(
     @IBootstrapService bootstrap: IBootstrapService,
     @ISkillDiscovery discovery: ISkillDiscovery,
-    @IProviderService private readonly providers: IProviderService,
+    @IProviderRuntime private readonly providers: IProviderRuntime,
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
@@ -174,7 +172,7 @@ export class PluginService extends Disposable implements IPluginService {
   enabledMcpServers(): Promise<Record<string, McpServerConfig>> {
     return this.runConsumptionRead({}, async () => {
       const pluginServers = this.manager.enabledMcpServers();
-      if (!Object.values(pluginServers).some((server) => server.transport === 'stdio')) {
+      if (!Object.values(pluginServers).some((server) => server.transport === "stdio")) {
         return pluginServers;
       }
       const managedEnv = await this.managedKimiCodeEnvForPlugins();
@@ -249,16 +247,13 @@ export class PluginService extends Disposable implements IPluginService {
 
   private async managedKimiCodeEnvForPlugins(): Promise<Record<string, string>> {
     await this.providers.ready;
-    const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
+    const model = this.providers.getModels("kimi-coding")[0];
     const envBaseUrl = this.envBaseUrl;
     const envOAuthHost = this.envOAuthHost;
-    const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
-    const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
+    const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, "") : model?.baseUrl;
     const env: Record<string, string> = {};
     if (baseUrl !== undefined) env[KIMI_CODE_BASE_URL_ENV] = baseUrl;
-    if (oauthHost !== undefined) env[KIMI_CODE_OAUTH_HOST_ENV] = oauthHost;
+    if (envOAuthHost !== undefined) env[KIMI_CODE_OAUTH_HOST_ENV] = envOAuthHost;
     return env;
   }
 }
@@ -271,9 +266,7 @@ function withManagedKimiPluginEnv(
   const out: Record<string, McpServerConfig> = {};
   for (const [name, server] of Object.entries(pluginServers)) {
     out[name] =
-      server.transport === 'stdio'
-        ? { ...server, env: { ...server.env, ...managedEnv } }
-        : server;
+      server.transport === "stdio" ? { ...server, env: { ...server.env, ...managedEnv } } : server;
   }
   return out;
 }
@@ -283,5 +276,5 @@ registerScopedService(
   IPluginService,
   PluginService,
   ScopeActivation.OnScopeCreated,
-  'plugin',
+  "plugin",
 );

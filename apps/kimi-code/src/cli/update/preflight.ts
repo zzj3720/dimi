@@ -20,6 +20,7 @@ import {
   type InstallPromptOptions,
 } from './prompt';
 import { refreshUpdateCache } from './refresh';
+import { hasUpdateChannel } from './cdn';
 import {
   appendRolloutDecisionLog,
   decidePassiveUpdateTarget,
@@ -48,6 +49,8 @@ export interface RunUpdatePreflightOptions {
   readonly isTTY?: boolean;
   readonly track?: (event: string, properties?: TelemetryProperties) => void;
   readonly logger?: UpdateLogger;
+  /** SDK/test hosts can explicitly supply their own trusted release channel. */
+  readonly updatesEnabled?: boolean;
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
@@ -678,6 +681,9 @@ export async function runUpdatePreflight(
   if (isAutoUpdateDisabledByEnv()) {
     return 'continue';
   }
+  // Do not even inspect a stale cache here: it may have been produced by the
+  // old product's update channel before this repository reset to 0.1.0.
+  if (!(options.updatesEnabled ?? hasUpdateChannel())) return 'continue';
 
   try {
     const isInteractive =

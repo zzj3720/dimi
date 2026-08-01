@@ -22,20 +22,20 @@
  * ignored.
  */
 
-import { Emitter } from '#/_base/event';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { Emitter } from "#/_base/event";
+import type { ToolCall } from "#/llmProtocol/message";
+import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
 import type {
   ExecutableTool,
   ExecutableToolResult,
   RunnableToolExecution,
-} from '#/tool/toolContract';
+} from "#/tool/toolContract";
 
 import type {
   BeforeExecuteDecision,
   BeforeToolExecuteEvent,
   ResolvedToolExecutionHookContext,
-} from './toolHooks';
+} from "./toolHooks";
 
 type PendingVetoFactory = () => Promise<BeforeExecuteDecision | undefined>;
 
@@ -72,22 +72,22 @@ export class BeforeToolExecuteEventImpl implements BeforeToolExecuteEvent {
   }
 
   veto(result: ExecutableToolResult): void {
-    this.assertOpen('veto');
+    this.assertOpen("veto");
     this._vetoResult ??= result;
   }
 
   allow(): void {
-    this.assertOpen('allow');
+    this.assertOpen("allow");
     this._finalAllowed = true;
   }
 
   pass(metadata?: unknown): void {
-    this.assertOpen('pass');
+    this.assertOpen("pass");
     this._passMetadata ??= metadata;
   }
 
   waitUntil(factory: PendingVetoFactory): void {
-    this.assertOpen('waitUntil');
+    this.assertOpen("waitUntil");
     this._pendingVetos.push(factory);
   }
 

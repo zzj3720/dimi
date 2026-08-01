@@ -8,10 +8,12 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (21 sections · 3 overlay(s))
+# Index (22 sections · 1 overlay(s))
 #   cron                     src/app/cron/configSection.ts
+#   defaultModel             (unresolved)
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/agent/plan/configSection.ts
+#   defaultProvider          (unresolved)
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/app/agentFileCatalog/configSection.ts
 #   extraSkillDirs           src/app/skillCatalog/configSection.ts
@@ -20,19 +22,16 @@
 #   loopControl              src/agent/loop/configSection.ts
 #   mcp                      src/agent/mcp/configSection.ts
 #   mergeAllAvailableSkills  src/app/skillCatalog/configSection.ts
-#   modelCatalog             src/app/kosongConfig/configSection.ts
-#   models                   src/app/kosongConfig/configSection.ts
+#   modelCatalog             (unresolved)
+#   modelOverrides           (unresolved)
 #   permission               src/agent/permissionRules/configSection.ts
-#   providers                src/app/kosongConfig/configSection.ts
-#   secondaryModel           src/app/kosongConfig/configSection.ts
-#   services                 src/app/auth/configSection.ts
-#   subagent                 src/session/subagent/configSection.ts
+#   secondaryModel           (unresolved)
+#   services                 (unresolved)
+#   subagent                 (unresolved)
 #   task                     src/agent/task/configSection.ts
-#   thinking                 src/app/kosongConfig/configSection.ts
+#   thinking                 (unresolved)
 #   tools                    src/agent/toolPolicy/configSection.ts
-#   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
-#   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
-#   (overlay) secondaryModelOverlay  src/app/kosongConfig/secondaryModelOverlay.ts
+#   (overlay) servicesCredentialEnvOverlay  src/app/config/servicesConfig.ts
 
 # ##########################################################################
 # cron
@@ -58,6 +57,17 @@ disabled = false
 manual_tick = false
 
 # ##########################################################################
+# defaultModel (config.toml: default_model)
+#   owner: (unresolved)
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#      <- KIMI_MODEL_NAME
+# ##########################################################################
+
+# default_model: string
+
+# ##########################################################################
 # defaultPermissionMode (config.toml: default_permission_mode)
 #   owner: src/agent/permissionMode/configSection.ts
 #   scope: core
@@ -72,6 +82,17 @@ manual_tick = false
 # ##########################################################################
 
 default_plan_mode = false
+
+# ##########################################################################
+# defaultProvider (config.toml: default_provider)
+#   owner: (unresolved)
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#      <- KIMI_MODEL_PROVIDER
+# ##########################################################################
+
+# default_provider: string
 
 # ##########################################################################
 # experimental
@@ -168,7 +189,7 @@ merge_all_available_skills = true
 
 # ##########################################################################
 # modelCatalog (config.toml: model_catalog)
-#   owner: src/app/kosongConfig/configSection.ts
+#   owner: (unresolved)
 #   scope: core
 # ##########################################################################
 
@@ -177,50 +198,22 @@ merge_all_available_skills = true
 # refresh_on_start: boolean
 
 # ##########################################################################
-# models
-#   owner: src/app/kosongConfig/configSection.ts
+# modelOverrides (config.toml: model_overrides)
+#   owner: (unresolved)
 #   scope: core
-#   hooks: custom fromToml · custom toToml
+#   hooks: stripEnv
+#   env:
+#     temperature <- KIMI_MODEL_TEMPERATURE (custom parse)
+#     top_p <- KIMI_MODEL_TOP_P (custom parse)
+#     thinking_keep <- KIMI_MODEL_THINKING_KEEP (custom parse)
+#     max_completion_tokens <- KIMI_MODEL_MAX_COMPLETION_TOKENS (custom parse)
 # ##########################################################################
 
-[models]
-
-# one [models."<name>"] table per entry:
-# [models."<name>"]
-  # provider_id: string
-  # base_url: string
-  # api_key: string
-  # oauth: object
-    # storage: "file" | "keyring"
-    # key: string
-    # oauth_host: string
-  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai"
-  # name: string
-  # aliases: string[]
-  # provider: string
-  # model: string
-  # max_context_size: integer
-  # max_input_size: integer
-  # max_output_size: integer
-  # capabilities: string[]
-  # display_name: string
-  # reasoning_key: string
-  # adaptive_thinking: boolean
-  # beta_api: boolean
-  # support_efforts: string[]
-  # default_effort: string
-  # off_effort: string
-  # overrides: object
-    # max_context_size: integer
-    # max_input_size: integer
-    # max_output_size: integer
-    # capabilities: string[]
-    # display_name: string
-    # reasoning_key: string
-    # adaptive_thinking: boolean
-    # support_efforts: string[]
-    # default_effort: string
-    # off_effort: string
+[model_overrides]
+# temperature: number
+# top_p: number
+# thinking_keep: string
+# max_completion_tokens: integer
 
 # ##########################################################################
 # permission
@@ -237,59 +230,24 @@ merge_all_available_skills = true
   # reason: string
 
 # ##########################################################################
-# providers
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-#   hooks: custom fromToml · custom toToml · stripEnv
-#   env:
-#     __kimi_env__.api_key <- KIMI_MODEL_API_KEY
-#     __kimi_env__.type <- KIMI_MODEL_PROVIDER_TYPE
-#     __kimi_env__.base_url <- KIMI_MODEL_BASE_URL
-# ##########################################################################
-
-[providers]
-
-# one [providers."<name>"] table per entry:
-# [providers."<name>"]
-  # model_source: "static" | "discover" | "oauth-catalog"
-  # base_url: string
-  # custom_headers: record<string, string>
-  # default_model: string
-  # type: string
-  # api_key: string
-  # oauth: object
-    # storage: "file" | "keyring"
-    # key: string
-    # oauth_host: string
-  # env: record<string, string>
-  # source: record<string, any>
-
-# ##########################################################################
 # secondaryModel (config.toml: secondary_model)
-#   owner: src/app/kosongConfig/configSection.ts
+#   owner: (unresolved)
 #   scope: core
 #   hooks: stripEnv
 #   env:
+#     provider <- KIMI_SECONDARY_PROVIDER (custom parse)
 #     model <- KIMI_SECONDARY_MODEL (custom parse)
 #     default_effort <- KIMI_SECONDARY_EFFORT (custom parse)
 # ##########################################################################
 
 [secondary_model]
-# max_context_size: integer
-# max_input_size: integer
-# max_output_size: integer
-# capabilities: string[]
-# display_name: string
-# reasoning_key: string
-# adaptive_thinking: boolean
-# support_efforts: string[]
-# default_effort: string
-# off_effort: string
+# provider: string
 # model: string
+# default_effort: string
 
 # ##########################################################################
 # services
-#   owner: src/app/auth/configSection.ts
+#   owner: (unresolved)
 #   scope: core
 #   hooks: custom fromToml · custom toToml · stripEnv
 #   env:
@@ -304,24 +262,16 @@ merge_all_available_skills = true
 # [services.moonshot_search]
   # base_url: string
   # api_key: string
-  # oauth: object
-    # storage: "file" | "keyring"
-    # key: string
-    # oauth_host: string
   # custom_headers: record<string, string>
 
 # [services.moonshot_fetch]
   # base_url: string
   # api_key: string
-  # oauth: object
-    # storage: "file" | "keyring"
-    # key: string
-    # oauth_host: string
   # custom_headers: record<string, string>
 
 # ##########################################################################
 # subagent
-#   owner: src/session/subagent/configSection.ts
+#   owner: (unresolved)
 #   scope: core
 #   hooks: stripEnv
 #   env:
@@ -351,7 +301,7 @@ timeout_ms = 7200000
 
 # ##########################################################################
 # thinking
-#   owner: src/app/kosongConfig/configSection.ts
+#   owner: (unresolved)
 #   scope: core
 #   hooks: stripEnv
 #   env:

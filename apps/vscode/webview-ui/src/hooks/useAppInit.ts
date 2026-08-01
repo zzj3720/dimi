@@ -1,9 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { bridge, Events } from "@/services";
-import { requiresManagedProviderLogin, useSettingsStore } from "@/stores";
+import { useSettingsStore } from "@/stores";
 import type { ExtensionConfig } from "shared/types";
 
-export type AppStatus = "loading" | "no-workspace" | "runtime-error" | "not-logged-in" | "no-models" | "ready";
+export type AppStatus =
+  | "loading"
+  | "no-workspace"
+  | "runtime-error"
+  | "not-logged-in"
+  | "no-models"
+  | "ready";
 
 export interface AppInitState {
   status: AppStatus;
@@ -19,7 +25,14 @@ export function useAppInit(): AppInitState {
     modelsCount: 0,
   });
   const [initKey, setInitKey] = useState(0);
-  const { initModels, setExtensionConfig, setMCPServers, setWireSlashCommands, setIsLoggedIn, setWorkspaceRoot } = useSettingsStore();
+  const {
+    initModels,
+    setExtensionConfig,
+    setMCPServers,
+    setWireSlashCommands,
+    setIsLoggedIn,
+    setWorkspaceRoot,
+  } = useSettingsStore();
 
   const refresh = useCallback(() => {
     setState({ status: "loading", errorMessage: null, modelsCount: 0 });
@@ -27,9 +40,12 @@ export function useAppInit(): AppInitState {
   }, []);
 
   useEffect(() => {
-    return bridge.on<{ config: ExtensionConfig; changedKeys: string[] }>(Events.ExtensionConfigChanged, ({ config }) => {
-      setExtensionConfig(config);
-    });
+    return bridge.on<{ config: ExtensionConfig; changedKeys: string[] }>(
+      Events.ExtensionConfigChanged,
+      ({ config }) => {
+        setExtensionConfig(config);
+      },
+    );
   }, [setExtensionConfig, refresh]);
 
   useEffect(() => {
@@ -62,7 +78,10 @@ export function useAppInit(): AppInitState {
         setMCPServers(mcpServers);
         setWireSlashCommands(slashCommands);
 
-        const [loginStatus, kimiConfig] = await Promise.all([bridge.checkLoginStatus(), bridge.getModels()]);
+        const [loginStatus, kimiConfig] = await Promise.all([
+          bridge.checkLoginStatus(),
+          bridge.getModels(),
+        ]);
         if (cancelled) {
           return;
         }
@@ -70,7 +89,12 @@ export function useAppInit(): AppInitState {
         console.log("[AppInit] Login status:", loginStatus, "kimiConfig:", kimiConfig);
 
         setIsLoggedIn(loginStatus.loggedIn);
-        initModels(kimiConfig.models, kimiConfig.defaultModel, kimiConfig.defaultThinking, kimiConfig.defaultThinkingEffort);
+        initModels(
+          kimiConfig.models,
+          kimiConfig.defaultModel,
+          kimiConfig.defaultThinking,
+          kimiConfig.defaultThinkingEffort,
+        );
 
         const modelsCount = kimiConfig.models?.length ?? 0;
 
@@ -81,11 +105,6 @@ export function useAppInit(): AppInitState {
 
         if (modelsCount === 0) {
           setState({ status: "no-models", errorMessage: null, modelsCount: 0 });
-          return;
-        }
-
-        if (requiresManagedProviderLogin(kimiConfig.models, kimiConfig.defaultModel, loginStatus.loggedIn)) {
-          setState({ status: "not-logged-in", errorMessage: null, modelsCount });
           return;
         }
 

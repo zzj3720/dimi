@@ -17,7 +17,7 @@ import {
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -72,7 +72,7 @@ function makeHarness(
           }),
   } as unknown as Session;
   const harness = {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async (options: { id?: string; workDir: string }) => {
       captured.push({ options });
       return Object.assign({}, fakeSession, { id: options.id ?? sessionId }) as Session;
@@ -80,10 +80,10 @@ function makeHarness(
     // Phase 14: server.newSession reads these to assemble configOptions.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([
-        { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-        { id: 'kimi-plain', name: 'Kimi Plain', thinkingSupported: false },
+      defaultModel: 'test/kimi-coder',
+      models: makeProviderModels([
+        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+        { id: 'test/kimi-plain', name: 'Kimi Plain', thinkingSupported: false },
       ]),
       thinking: fallbackThinking,
     }),
@@ -126,7 +126,7 @@ describe('AcpServer session/new', () => {
   it('returns a distinct sessionId per call (one createSession per request)', async () => {
     const captured: CapturedCall[] = [];
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async (options: { id?: string; workDir: string }) => {
         captured.push({ options });
         return {
@@ -215,10 +215,10 @@ describe('AcpServer session/new', () => {
     if (modelOpt!.type !== 'select') {
       throw new Error('model option must be a select');
     }
-    expect(modelOpt!.currentValue).toBe('kimi-coder');
+    expect(modelOpt!.currentValue).toBe('test/kimi-coder');
     expect(modelOpt!.options).toHaveLength(2);
     const modelValues = modelOpt!.options.map((o) => 'value' in o ? o.value : '');
-    expect(modelValues).toEqual(['kimi-coder', 'kimi-plain']);
+    expect(modelValues).toEqual(['test/kimi-coder', 'test/kimi-plain']);
   });
 
   it('advertises thinking on when the created session status has a high effort', async () => {
@@ -233,11 +233,11 @@ describe('AcpServer session/new', () => {
 
     const thinking = response.configOptions?.find((option) => option.id === 'thinking');
     if (thinking?.type !== 'select') throw new Error('thinking option must be a select');
-    expect(thinking.currentValue).toBe('on');
+    expect(thinking.currentValue).toBe('high');
   });
 
   it.each([
-    { name: 'explicit high effort', config: { effort: 'high' }, expected: 'on' },
+    { name: 'explicit high effort', config: { effort: 'high' }, expected: 'high' },
     { name: 'explicit off effort', config: { effort: 'off' }, expected: 'off' },
     {
       name: 'disabled with a high effort',

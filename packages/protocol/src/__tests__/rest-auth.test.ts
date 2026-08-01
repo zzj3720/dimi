@@ -1,93 +1,69 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 
-import {
-  authSummarySchema,
-  managedProviderStatusSchema,
-  type AuthSummary,
-} from '../rest/auth';
+import { authSummarySchema, type AuthSummary } from "../rest/auth";
 
-describe('authSummarySchema', () => {
+describe("authSummarySchema", () => {
   const emptyState: AuthSummary = {
     ready: false,
     providers_count: 0,
     default_model: null,
-    managed_provider: null,
+    authenticated_providers: [],
   };
 
   const readyState: AuthSummary = {
     ready: true,
     providers_count: 1,
-    default_model: 'kimi-k2',
-    managed_provider: {
-      name: 'kimi-code-oauth',
-      status: 'authenticated',
-    },
+    default_model: "openai-codex/gpt-5",
+    authenticated_providers: [{ id: "openai-codex", type: "oauth", source: "OAuth" }],
   };
 
-  it('round-trips an empty (unprovisioned) state', () => {
+  it("round-trips an empty (unprovisioned) state", () => {
     const parsed = authSummarySchema.parse(emptyState);
     expect(parsed.ready).toBe(false);
     expect(parsed.providers_count).toBe(0);
     expect(parsed.default_model).toBeNull();
-    expect(parsed.managed_provider).toBeNull();
+    expect(parsed.authenticated_providers).toEqual([]);
   });
 
-  it('round-trips a ready state with managed provider', () => {
+  it("round-trips a ready state with a generic authenticated provider", () => {
     const parsed = authSummarySchema.parse(readyState);
     expect(parsed.ready).toBe(true);
     expect(parsed.providers_count).toBe(1);
-    expect(parsed.default_model).toBe('kimi-k2');
-    expect(parsed.managed_provider).toEqual({
-      name: 'kimi-code-oauth',
-      status: 'authenticated',
-    });
+    expect(parsed.default_model).toBe("openai-codex/gpt-5");
+    expect(parsed.authenticated_providers).toEqual([
+      { id: "openai-codex", type: "oauth", source: "OAuth" },
+    ]);
   });
 
-  it.each(['authenticated', 'expired', 'revoked', 'unauthenticated'] as const)(
-    'accepts managed_provider.status = %s',
-    (status) => {
-      const parsed = managedProviderStatusSchema.parse(status);
-      expect(parsed).toBe(status);
-    },
-  );
-
-  it('rejects an unknown managed_provider.status', () => {
-    const bad = {
-      ...readyState,
-      managed_provider: { name: 'kimi-code-oauth', status: 'pending' },
-    };
-    expect(authSummarySchema.safeParse(bad).success).toBe(false);
-  });
-
-  it('rejects missing ready', () => {
+  it("rejects missing ready", () => {
     const { ready: _omit, ...rest } = emptyState;
     expect(authSummarySchema.safeParse(rest).success).toBe(false);
   });
 
-  it('rejects missing providers_count', () => {
+  it("rejects missing providers_count", () => {
     const { providers_count: _omit, ...rest } = emptyState;
     expect(authSummarySchema.safeParse(rest).success).toBe(false);
   });
 
-  it('rejects missing default_model', () => {
+  it("rejects missing default_model", () => {
     const { default_model: _omit, ...rest } = emptyState;
     expect(authSummarySchema.safeParse(rest).success).toBe(false);
   });
 
-  it('rejects missing managed_provider', () => {
-    const { managed_provider: _omit, ...rest } = emptyState;
+  it("rejects missing authenticated_providers", () => {
+    const { authenticated_providers: _omit, ...rest } = emptyState;
     expect(authSummarySchema.safeParse(rest).success).toBe(false);
   });
 
-  it('rejects negative providers_count', () => {
+  it("rejects negative providers_count", () => {
     const bad = { ...emptyState, providers_count: -1 };
     expect(authSummarySchema.safeParse(bad).success).toBe(false);
   });
 
-  it('rejects empty managed_provider.name', () => {
+  it("rejects an unknown provider credential type", () => {
     const bad = {
       ...readyState,
-      managed_provider: { name: '', status: 'authenticated' as const },
+      authenticated_providers: [{ id: "xai", type: "cookie", source: "Stored" }],
     };
     expect(authSummarySchema.safeParse(bad).success).toBe(false);
   });

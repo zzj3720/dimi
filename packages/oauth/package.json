@@ -1,26 +1,26 @@
 {
   "name": "@moonshot-ai/kimi-code-oauth",
-  "version": "0.2.2",
+  "version": "0.1.0",
   "private": true,
-  "description": "Kimi OAuth toolkit for managed Kimi Code authentication",
+  "description": "Kimi identity and OAuth protocol utilities",
+  "keywords": [
+    "auth",
+    "authentication",
+    "cli",
+    "kimi",
+    "oauth"
+  ],
+  "homepage": "https://github.com/zzj3720/k-3720/tree/main/packages/oauth#readme",
+  "bugs": {
+    "url": "https://github.com/zzj3720/k-3720/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/oauth#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "url": "git+https://github.com/zzj3720/k-3720.git",
     "directory": "packages/oauth"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "oauth",
-    "authentication",
-    "auth",
-    "cli"
-  ],
   "files": [
     "dist"
   ],
@@ -38,11 +38,5 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "proper-lockfile": "^4.1.2"
-  },
-  "devDependencies": {
-    "@types/proper-lockfile": "^4.1.4"
   }
 }

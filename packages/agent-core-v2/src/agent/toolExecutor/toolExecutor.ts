@@ -7,19 +7,19 @@
  * preflight description extension points. Bound at Agent scope.
  */
 
-import { createDecorator } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
-import type { Event } from '#/_base/event';
-import type { ToolResult, ToolSource } from '#/tool/toolContract';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { IDisposable } from "#/_base/di/lifecycle";
+import type { Event } from "#/_base/event";
+import type { ToolResult, ToolSource } from "#/tool/toolContract";
 import type {
   BeforeToolExecuteEvent,
   ToolDidExecuteContext,
   WillExecuteToolEvent,
-} from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { OrderedHookSlot } from '#/hooks';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+} from "#/agent/toolExecutor/toolHooks";
+import type { ToolCall } from "#/llmProtocol/message";
+import type { ToolInputDisplay } from "#/tool/toolInputDisplay";
+import type { OrderedHookSlot } from "#/hooks";
+import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
 
 export interface ToolCallStartedPayload {
   readonly toolCallId: string;
@@ -77,7 +77,7 @@ export type ToolCallGuard = (tool: {
   readonly source: ToolSource;
 }) => string | undefined;
 
-export type ToolCallDupType = 'same_step' | 'cross_step';
+export type ToolCallDupType = "same_step" | "cross_step";
 
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
@@ -115,5 +115,5 @@ export interface IAgentToolExecutorService {
 }
 
 export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>(
-  'agentToolExecutorService',
+  "agentToolExecutorService",
 );

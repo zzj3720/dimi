@@ -8,7 +8,7 @@
  * `UNKNOWN_CAPABILITY`, so a capability gate would permanently skip the
  * tool. Registration instead re-runs whenever the resolved model changes:
  * every profile/model update publishes `agent.status.updated`, and this
- * service re-invokes {@link registerMediaTools} when the model alias or its
+ * service re-invokes {@link registerMediaTools} when the provider/model reference or its
  * media capabilities differ from what it last registered (rebinding the
  * video uploader to the new model, and dropping the tool when the model
  * loses media input). The `inlineVideoSupported` flag rides the same
@@ -26,27 +26,27 @@
  * bind runs, so the first `agent.status.updated` is always observed.
  */
 
-import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { type ModelRequester } from '#/kosong/model/modelRequester';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { extendWorkspaceWithSkillRoots } from '#/tool/path-access';
+import { Disposable, toDisposable, type IDisposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { defineState } from "#/_base/state/stateRegistry";
+import { IAgentStateService } from "#/agent/state/agentState";
+import { IEventBus } from "#/app/event/eventBus";
+import { ITelemetryService } from "#/app/telemetry/telemetry";
+import { IModelCatalog, type Model } from "#/app/modelCatalog/catalog";
+import { type ModelRequester } from "#/app/modelCatalog/modelRequester";
+import { IHostEnvironment } from "#/os/interface/hostEnvironment";
+import { IHostFileSystem } from "#/os/interface/hostFileSystem";
+import { ISessionSkillCatalog } from "#/session/sessionSkillCatalog/skillCatalog";
+import { ISessionWorkspaceContext } from "#/session/workspaceContext/workspaceContext";
+import { IAgentProfileService } from "#/agent/profile/profile";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { extendWorkspaceWithSkillRoots } from "#/tool/path-access";
 
-import { IAgentMediaToolsRegistrar } from './mediaTools';
-import { createVideoUploader, registerMediaTools } from './registerMediaTools';
+import { IAgentMediaToolsRegistrar } from "./mediaTools";
+import { createVideoUploader, registerMediaTools } from "./registerMediaTools";
 
 export const mediaRegisteredKeyKey = defineState<string | undefined>(
-  'media.registeredKey',
+  "media.registeredKey",
   () => undefined as string | undefined,
 );
 
@@ -70,7 +70,7 @@ export class AgentMediaToolsRegistrar extends Disposable implements IAgentMediaT
     super();
     this.states.register(mediaRegisteredKeyKey);
     this.refresh();
-    this._register(eventBus.subscribe('agent.status.updated', () => this.refresh()));
+    this._register(eventBus.subscribe("agent.status.updated", () => this.refresh()));
     this._register(toDisposable(() => this.registration?.dispose()));
   }
 
@@ -88,7 +88,7 @@ export class AgentMediaToolsRegistrar extends Disposable implements IAgentMediaT
       this.profile.getModel(),
       String(capabilities.image_in),
       String(capabilities.video_in),
-    ].join('|');
+    ].join("|");
     if (key === this.registeredKey) return;
     this.registeredKey = key;
     this.registration?.dispose();
@@ -98,9 +98,14 @@ export class AgentMediaToolsRegistrar extends Disposable implements IAgentMediaT
     const modelAlias = this.profile.getModel();
     let requester: ModelRequester | undefined;
     let model: Model | undefined;
-    if (modelAlias !== '') {
-      requester = this.modelCatalog.getRequester(modelAlias);
-      model = requester.model;
+    if (modelAlias !== "") {
+      try {
+        requester = this.modelCatalog.getRequester(modelAlias);
+        model = requester.model;
+      } catch {
+        requester = undefined;
+        model = undefined;
+      }
     }
     this.registration = registerMediaTools(this.toolRegistry, {
       fs: this.fs,
@@ -122,11 +127,11 @@ export class AgentMediaToolsRegistrar extends Disposable implements IAgentMediaT
         client: this.telemetry,
         props: {
           model: modelAlias,
-          provider_type: model?.providerType ?? model?.protocol,
-          protocol: model?.protocol,
+          provider_type: model?.provider,
+          protocol: model?.api,
         },
       }),
-      inlineVideoSupported: model?.protocol !== 'openai' && model?.protocol !== 'openai_responses',
+      inlineVideoSupported: false,
       telemetry: this.telemetry,
     });
   }
@@ -137,5 +142,5 @@ registerScopedService(
   IAgentMediaToolsRegistrar,
   AgentMediaToolsRegistrar,
   ScopeActivation.OnScopeCreated,
-  'media',
+  "media",
 );

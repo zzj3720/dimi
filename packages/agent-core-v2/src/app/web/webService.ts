@@ -2,46 +2,31 @@
  * `web` domain (L4) — `IWebFetchService` implementation.
  *
  * Yields the `UrlFetcher` the `FetchURL` tool uses, resolving the backend in
- * precedence order (mirroring v1's `createRuntimeConfig` and the
- * `WebSearchProviderService` chain): (1) an explicit
- * `[services.moonshot_fetch]` config section with a `baseUrl` — built with its
- * `apiKey` and/or an `oauth` ref resolved through
- * `IOAuthService.resolveTokenProvider(...)`; (2) the managed Kimi OAuth
- * provider when it carries an `oauth` ref (the state after a successful Kimi
- * login), routing fetches through the Moonshot fetch service
- * (`${provider.baseUrl}/fetch`); and (3) the built-in `LocalFetchURLProvider`,
- * so `FetchURL` keeps working without any configuration. The first two use the
- * host's Kimi identity headers (`IHostRequestHeaders`, mirroring v1's
- * `kimiRequestHeaders`) and fall back to the local fetcher on failure. Reads
- * config and the managed provider lazily on each `getUrlFetcher()` call so it
- * tracks edits and login state. Bound at App scope.
+ * precedence order: (1) an explicit `[services.moonshot_fetch]` endpoint;
+ * (2) the authenticated `kimi-coding` provider's managed fetch endpoint; and
+ * (3) the built-in `LocalFetchURLProvider`. Remote fetchers receive the host
+ * identity headers and fall back to the local fetcher on failure. Config and
+ * provider auth are resolved lazily so edits and login state take effect
+ * without rebuilding the service. Bound at App scope.
  */
 
-import {
-  KIMI_CODE_PROVIDER_NAME,
-  kimiCodeBaseUrl,
-} from '@moonshot-ai/kimi-code-oauth';
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { IConfigService } from "#/app/config/config";
+import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
+import { SERVICES_SECTION, type ServicesConfig } from "#/app/config/servicesConfig";
+import { IHostRequestHeaders } from "#/app/providerRuntime/hostRequestHeaders";
 
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth/auth';
-import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
-import { IConfigService } from '#/app/config/config';
-import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
-import { IProviderService } from '#/kosong/provider/provider';
-import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
-
-import { LocalFetchURLProvider } from './providers/local-fetch-url';
-import { MoonshotFetchURLProvider } from './providers/moonshot-fetch-url';
-import type { UrlFetcher } from './tools/fetch-url-types';
-import { IWebFetchService } from './web';
+import { LocalFetchURLProvider } from "./providers/local-fetch-url";
+import { MoonshotFetchURLProvider } from "./providers/moonshot-fetch-url";
+import type { UrlFetcher } from "./tools/fetch-url-types";
+import { IWebFetchService } from "./web";
 
 export class WebFetchService implements IWebFetchService {
   declare readonly _serviceBrand: undefined;
   private readonly localFetcher: UrlFetcher;
 
   constructor(
-    @IProviderService private readonly providers: IProviderService,
-    @IOAuthService private readonly oauth: IOAuthService,
+    @IProviderRuntime private readonly runtime: IProviderRuntime,
     @IHostRequestHeaders private readonly hostHeaders: IHostRequestHeaders,
     @IConfigService private readonly config: IConfigService,
   ) {
@@ -57,13 +42,9 @@ export class WebFetchService implements IWebFetchService {
     if (fetchConfig?.baseUrl === undefined) {
       return undefined;
     }
-    const tokenProvider =
-      fetchConfig.oauth === undefined
-        ? undefined
-        : this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, fetchConfig.oauth);
     return new MoonshotFetchURLProvider({
       baseUrl: fetchConfig.baseUrl,
-      tokenProvider,
+      tokenProvider: this.tokenProvider(),
       apiKey: nonEmptyString(fetchConfig.apiKey),
       defaultHeaders: { ...this.hostHeaders.headers },
       customHeaders: fetchConfig.customHeaders,
@@ -72,25 +53,25 @@ export class WebFetchService implements IWebFetchService {
   }
 
   private fromManagedOAuth(): UrlFetcher | undefined {
-    const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
-      return undefined;
-    }
-    const tokenProvider = this.oauth.resolveTokenProvider(
-      KIMI_CODE_PROVIDER_NAME,
-      provider.oauth,
-    );
-    if (tokenProvider === undefined) {
-      return undefined;
-    }
-    const baseUrl = `${(provider.baseUrl ?? kimiCodeBaseUrl()).replace(/\/+$/, '')}/fetch`;
+    const model = this.runtime.getModels("kimi-coding")[0];
+    if (model === undefined) return undefined;
+    const baseUrl = `${model.baseUrl.replace(/\/+$/, "")}/fetch`;
     return new MoonshotFetchURLProvider({
       baseUrl,
-      tokenProvider,
+      tokenProvider: this.tokenProvider(),
       defaultHeaders: { ...this.hostHeaders.headers },
-      customHeaders: provider.customHeaders,
       localFallback: this.localFetcher,
     });
+  }
+
+  private tokenProvider() {
+    return {
+      getAccessToken: async (): Promise<string> => {
+        const token = (await this.runtime.getAuth("kimi-coding"))?.auth.apiKey;
+        if (token === undefined) throw new Error("Kimi provider is not authenticated.");
+        return token;
+      },
+    };
   }
 }
 
@@ -104,5 +85,5 @@ registerScopedService(
   IWebFetchService,
   WebFetchService,
   ScopeActivation.OnScopeCreated,
-  'web',
+  "web",
 );

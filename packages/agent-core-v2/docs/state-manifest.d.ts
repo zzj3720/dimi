@@ -23,7 +23,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (Session: 28 keys · Agent: 69 keys)
+// Index (Session: 28 keys · Agent: 68 keys)
 //   Session
 //     cron.inFlight                             src/session/cron/sessionCronServiceImpl.ts
 //     cron.lastSeenAt                           src/session/cron/sessionCronServiceImpl.ts
@@ -93,7 +93,6 @@
 //     mcp.discoveryWritesReady                        src/agent/mcp/mcpService.ts
 //     mcp.mcpToolsByServer                            src/agent/mcp/mcpService.ts
 //     media.registeredKey                             src/agent/media/mediaToolsRegistrar.ts
-//     media.resolved                                  src/agent/media/videoResolverService.ts
 //     permissionMode.lastMode                         src/agent/permissionMode/injection/permissionModeInjection.ts
 //     plan.wasActive                                  src/agent/plan/injection/planModeInjection.ts
 //     profile.activeToolNamesOverlay                  src/agent/profile/profileService.ts
@@ -591,36 +590,36 @@ export interface SessionStateSnapshot {
     readonly disabledTools: readonly string[];
   };
   // src/session/workspaceCommand/workspaceCommandService.ts
-  'workspaceCommand.pendingMainInjections': (/* ContextMessage — packages/agent-core-v2/src/agent/contextMemory/types.ts */ /* Message — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    readonly role: /* Role — packages/agent-core-v2/src/kosong/contract/message.ts */ 'user' | 'system' | 'assistant' | 'tool';
+  'workspaceCommand.pendingMainInjections': (/* ContextMessage — packages/agent-core-v2/src/agent/contextMemory/types.ts */ /* Message — packages/agent-core-v2/src/llmProtocol/message.ts */ {
+    readonly role: /* Role — packages/agent-core-v2/src/llmProtocol/message.ts */ 'user' | 'system' | 'assistant' | 'tool';
     readonly name?: string;
-    readonly content: (/* ContentPart — packages/agent-core-v2/src/kosong/contract/message.ts */ /* TextPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    readonly content: (/* ContentPart — packages/agent-core-v2/src/llmProtocol/message.ts */ /* TextPart — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'text';
       text: string;
-    } | /* ThinkPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    } | /* ThinkPart — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'think';
       think: string;
       encrypted?: string;
-    } | /* ImageURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    } | /* ImageURLPart — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'image_url';
       imageUrl: {
         url: string;
         id?: string;
       };
-    } | /* AudioURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    } | /* AudioURLPart — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'audio_url';
       audioUrl: {
         url: string;
         id?: string;
       };
-    } | /* VideoURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    } | /* VideoURLPart — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'video_url';
       videoUrl: {
         url: string;
         id?: string;
       };
     })[];
-    readonly toolCalls: /* ToolCall — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+    readonly toolCalls: /* ToolCall — packages/agent-core-v2/src/llmProtocol/message.ts */ {
       type: 'function';
       id: string;
       name: string;
@@ -630,7 +629,7 @@ export interface SessionStateSnapshot {
     }[];
     readonly toolCallId?: string;
     readonly partial?: boolean;
-    readonly tools?: readonly /* Tool — packages/agent-core-v2/src/kosong/contract/tool.ts */ {
+    readonly tools?: readonly /* Tool — packages/agent-core-v2/src/llmProtocol/tool.ts */ {
       name: string;
       description: string;
       parameters: Record<string, unknown>;
@@ -1084,12 +1083,12 @@ export interface AgentStateSnapshot {
   'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.mediaDegradedTurns': Set<number>;
   'llmRequester.mediaStrippedTurns': Map<number, /* MediaStripSnapshot — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
-    readonly "__@mediaStripSnapshotBrand@2768": undefined;
+    readonly "__@mediaStripSnapshotBrand@2692": undefined;
   }>;
   'llmRequester.turnConfigs': Map<number, /* TurnRequestConfig — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly resolved: /* ProfileModelContext — packages/agent-core-v2/src/agent/profile/profile.ts */ {
       readonly modelAlias: string;
-      readonly modelCapabilities: /* ModelCapability — packages/agent-core-v2/src/kosong/contract/capability.ts */ {
+      readonly modelCapabilities: /* ModelCapability — packages/agent-core-v2/src/llmProtocol/capability.ts */ {
         readonly image_in: boolean;
         readonly video_in: boolean;
         readonly audio_in: boolean;
@@ -1101,13 +1100,13 @@ export interface AgentStateSnapshot {
       };
       readonly maxOutputSize: number | undefined;
       readonly alwaysThinking: boolean | undefined;
-      readonly thinkingLevel: /* ThinkingEffort — packages/agent-core-v2/src/kosong/contract/provider.ts */ 'off' | 'on' | (string & {});
+      readonly thinkingLevel: /* ThinkingEffort — packages/agent-core-v2/src/llmProtocol/provider.ts */ 'off' | 'on' | (string & {});
       readonly reservedContextSize: number | undefined;
       readonly compactionTriggerRatio: number | undefined;
     };
-    readonly params: /* ModelRequestParams — packages/agent-core-v2/src/kosong/model/modelRequester.ts */ {
+    readonly params: /* ModelRequestParams — packages/agent-core-v2/src/app/modelCatalog/modelRequester.ts */ {
       readonly cacheKey?: string;
-      readonly sampling?: /* SamplingOptions — packages/agent-core-v2/src/kosong/contract/provider.ts */ {
+      readonly sampling?: /* SamplingOptions — packages/agent-core-v2/src/llmProtocol/provider.ts */ {
         readonly temperature?: number;
         readonly topP?: number;
       };
@@ -1129,33 +1128,6 @@ export interface AgentStateSnapshot {
   'mcp.mcpToolsByServer': Map<string, string[]>;
   // src/agent/media/mediaToolsRegistrar.ts
   'media.registeredKey': string | undefined;
-  // src/agent/media/videoResolverService.ts
-  'media.resolved': Map<string, /* ContentPart — packages/agent-core-v2/src/kosong/contract/message.ts */ /* TextPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    type: 'text';
-    text: string;
-  } | /* ThinkPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    type: 'think';
-    think: string;
-    encrypted?: string;
-  } | /* ImageURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    type: 'image_url';
-    imageUrl: {
-      url: string;
-      id?: string;
-    };
-  } | /* AudioURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    type: 'audio_url';
-    audioUrl: {
-      url: string;
-      id?: string;
-    };
-  } | /* VideoURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
-    type: 'video_url';
-    videoUrl: {
-      url: string;
-      id?: string;
-    };
-  }>;
   // src/agent/permissionMode/injection/permissionModeInjection.ts
   'permissionMode.lastMode': 'manual' | 'yolo' | 'auto' | undefined;
   // src/agent/plan/injection/planModeInjection.ts
@@ -1250,7 +1222,7 @@ export interface AgentStateSnapshot {
   // src/agent/toolSelect/toolSelectService.ts
   'toolSelect.pendingLoaded': Set<string>;
   // src/agent/usage/usageService.ts
-  'usage.currentTurn': /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+  'usage.currentTurn': /* TokenUsage — packages/agent-core-v2/src/llmProtocol/usage.ts */ {
     inputOther: number;
     output: number;
     inputCacheRead: number;

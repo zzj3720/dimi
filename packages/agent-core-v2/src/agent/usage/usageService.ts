@@ -13,32 +13,32 @@
  * live record. Bound at Agent scope.
  */
 
-import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Emitter, type Event } from '#/_base/event';
-import { defineState } from '#/_base/state/stateRegistry';
+import { addUsage, type TokenUsage } from "#/llmProtocol/usage";
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { Emitter, type Event } from "#/_base/event";
+import { defineState } from "#/_base/state/stateRegistry";
 
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventBus } from '#/app/event/eventBus';
-import { IWireService } from '#/wire/wire';
-import type { UsageRecordedContext, UsageStatus } from './usage';
-import { IAgentUsageService } from './usage';
+import type { AgentLLMRequestSource } from "#/agent/llmRequester/llmRequester";
+import { IAgentStateService } from "#/agent/state/agentState";
+import { IEventBus } from "#/app/event/eventBus";
+import { IWireService } from "#/wire/wire";
+import type { UsageRecordedContext, UsageStatus } from "./usage";
+import { IAgentUsageService } from "./usage";
 import {
   copyUsage,
   recordUsage,
   UsageModel,
   usageStatusFromState,
   type UsageRecordScope,
-} from './usageOps';
+} from "./usageOps";
 
 export const usageCurrentTurnIdKey = defineState<number | undefined>(
-  'usage.currentTurnId',
+  "usage.currentTurnId",
   () => undefined as number | undefined,
 );
 export const usageCurrentTurnKey = defineState<TokenUsage | undefined>(
-  'usage.currentTurn',
+  "usage.currentTurn",
   () => undefined as TokenUsage | undefined,
 );
 
@@ -75,10 +75,10 @@ export class AgentUsageService extends Disposable implements IAgentUsageService 
   }
 
   record(model: string, usage: TokenUsage, source?: AgentLLMRequestSource): void {
-    const usageScope: UsageRecordScope = source?.type === 'turn' ? 'turn' : 'session';
+    const usageScope: UsageRecordScope = source?.type === "turn" ? "turn" : "session";
     this.wire.dispatch(recordUsage({ model, usage, usageScope }));
 
-    const turnId = source?.type === 'turn' ? source.turnId : undefined;
+    const turnId = source?.type === "turn" ? source.turnId : undefined;
     if (turnId !== undefined) {
       if (this.currentTurnId !== turnId) {
         this.currentTurnId = turnId;
@@ -89,7 +89,7 @@ export class AgentUsageService extends Disposable implements IAgentUsageService 
       }
     }
 
-    this.eventBus?.publish({ type: 'agent.status.updated', usage: this.status() });
+    this.eventBus?.publish({ type: "agent.status.updated", usage: this.status() });
     this._onDidRecord.fire({ model, usage: copyUsage(usage), source });
   }
 
@@ -103,5 +103,5 @@ registerScopedService(
   IAgentUsageService,
   AgentUsageService,
   ScopeActivation.OnScopeCreated,
-  'usage',
+  "usage",
 );

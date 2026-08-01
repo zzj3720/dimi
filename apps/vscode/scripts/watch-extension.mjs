@@ -1,35 +1,29 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { existsSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import { extname, join, resolve } from "node:path";
 
-import { runLocalCli } from './local-cli.mjs';
-import { extensionRoot, isMainModule } from './vsix-targets.mjs';
+import { runLocalCli } from "./local-cli.mjs";
+import { extensionRoot, isMainModule } from "./vsix-targets.mjs";
 
 const sourceDirectories = [
-  join(extensionRoot, 'src'),
-  join(extensionRoot, 'shared'),
-  ...[
-    'agent-core-v2',
-    'kaos',
-    'kosong',
-    'node-sdk',
-    'oauth',
-    'protocol',
-    'telemetry',
-  ].map((name) => resolve(extensionRoot, `../../packages/${name}/src`)),
+  join(extensionRoot, "src"),
+  join(extensionRoot, "shared"),
+  ...["agent-core-v2", "kaos", "node-sdk", "oauth", "protocol", "telemetry"].map((name) =>
+    resolve(extensionRoot, `../../packages/${name}/src`),
+  ),
 ].filter(existsSync);
-const rootConfigFiles = ['package.json', 'tsconfig.json', 'tsdown.config.ts'].map((name) =>
+const rootConfigFiles = ["package.json", "tsconfig.json", "tsdown.config.ts"].map((name) =>
   join(extensionRoot, name),
 );
-const watchedExtensions = new Set(['.cts', '.js', '.json', '.md', '.mjs', '.mts', '.ts', '.tsx']);
+const watchedExtensions = new Set([".cts", ".js", ".json", ".md", ".mjs", ".mts", ".ts", ".tsx"]);
 const pollIntervalMs = 1_500;
 
 function buildExtension() {
   runLocalCli(
-    'tsdown',
-    'tsdown',
-    ['--config', join(extensionRoot, 'tsdown.config.ts'), '--sourcemap'],
+    "tsdown",
+    "tsdown",
+    ["--config", join(extensionRoot, "tsdown.config.ts"), "--sourcemap"],
     { cwd: extensionRoot },
   );
 }
@@ -45,11 +39,13 @@ async function main() {
       const nextSnapshot = await sourceSnapshot();
       if (nextSnapshot === snapshot) return;
       snapshot = nextSnapshot;
-      console.log('\nExtension source changed; rebuilding with sourcemaps...');
+      console.log("\nExtension source changed; rebuilding with sourcemaps...");
       buildExtension();
-      console.log('Extension rebuild complete.');
+      console.log("Extension rebuild complete.");
     } catch (error) {
-      console.error(`Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       checking = false;
     }
@@ -60,16 +56,16 @@ async function main() {
     clearInterval(interval);
     process.exit(0);
   };
-  process.once('SIGINT', close);
-  process.once('SIGTERM', close);
-  console.log('Extension dev build complete; watching for changes.');
+  process.once("SIGINT", close);
+  process.once("SIGTERM", close);
+  console.log("Extension dev build complete; watching for changes.");
 }
 
 async function sourceSnapshot() {
   const records = [];
   for (const directory of sourceDirectories) await collectSourceRecords(directory, records);
   for (const file of rootConfigFiles) await addFileRecord(file, records);
-  return records.sort().join('\n');
+  return records.sort().join("\n");
 }
 
 async function collectSourceRecords(directory, records) {
@@ -90,7 +86,9 @@ async function addFileRecord(path, records) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(`Extension watch failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Extension watch failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exitCode = 1;
   });
 }

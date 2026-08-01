@@ -6,15 +6,16 @@
  * `kimi acp --login`.
  */
 
-import type { Command } from 'commander';
+import type { Command } from "commander";
 
-import { runLoginFlow } from './login-flow';
+import { runLoginFlow } from "./login-flow";
 
 export function registerLoginCommand(parent: Command): void {
   parent
-    .command('login')
-    .description('Authenticate with Kimi Code CLI via the device-code flow.')
-    .action(async () => {
-      await runLoginFlow();
+    .command("login [provider]")
+    .description("Connect an LLM provider with OAuth or an API key.")
+    .option("--method <method>", "Authentication method: oauth or api-key.")
+    .action(async (provider: string | undefined, options: { method?: string }) => {
+      await runLoginFlow(provider, options.method);
     });
 }

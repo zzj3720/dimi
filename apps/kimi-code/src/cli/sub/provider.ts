@@ -1,40 +1,15 @@
-/**
- * `kimi provider` sub-command — non-interactive provider management.
- *
- * Mirrors the TUI `/provider` flow (apps/kimi-code/src/tui/commands/provider.ts)
- * for the custom-registry path so users can import an api.json document, drop
- * a provider, or inspect what is configured without launching the TUI.
- *
- * `add` writes the same `source = { kind: 'apiJson', url, apiKey }` blob the
- * TUI does; the next launch's `refreshAllProviderModels`
- * (apps/kimi-code/src/tui/utils/refresh-providers.ts) groups by URL, retries
- * available API-key candidates, and re-fetches the model list, so periodic
- * refresh is automatic.
- */
-
 import {
-  applyCustomRegistryProvider,
-  CustomRegistryApiError,
-  fetchCustomRegistry,
-  type CustomRegistrySource,
-  type ManagedKimiConfigShape,
-} from '@moonshot-ai/kimi-code-oauth';
-import {
-  applyCatalogProvider,
-  catalogProviderModels,
-  CatalogFetchError,
   createKimiHarness,
-  DEFAULT_CATALOG_URL,
-  fetchCatalog,
-  resolveCatalogImport,
-  type Catalog,
-  type CatalogProviderEntry,
-  type KimiConfig,
   type KimiHarness,
-} from '@moonshot-ai/kimi-code-sdk';
-import type { Command } from 'commander';
+  type ProviderAuthState,
+  type ProviderModel,
+  type CustomProviderInput,
+  parseJsonc,
+} from "@moonshot-ai/kimi-code-sdk";
+import { readFile } from "node:fs/promises";
+import type { Command } from "commander";
 
-import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
+import { createKimiCodeHostIdentity } from "#/cli/version";
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -42,509 +17,295 @@ interface WritableLike {
 
 export interface ProviderDeps {
   readonly getHarness: () => KimiHarness;
+  readonly close: () => Promise<void>;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
-  readonly env: NodeJS.ProcessEnv;
   readonly exit: (code: number) => never;
-}
-
-interface AddOptions {
-  readonly apiKey?: string;
-}
-
-interface ListOptions {
-  readonly json: boolean;
-}
-
-interface CatalogListOptions {
-  readonly json: boolean;
-  readonly filter?: string;
-  readonly url?: string;
-}
-
-interface CatalogAddOptions {
-  readonly apiKey?: string;
-  readonly defaultModel?: string;
-  readonly url?: string;
-  readonly baseUrl?: string;
-}
-
-export async function handleProviderAdd(
-  deps: ProviderDeps,
-  url: string,
-  opts: AddOptions,
-): Promise<void> {
-  const apiKey = resolveApiKey(opts.apiKey, deps.env);
-  if (apiKey === undefined) {
-    deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
-    );
-    deps.exit(1);
-  }
-
-  const trimmedUrl = url.trim();
-  if (trimmedUrl.length === 0) {
-    deps.stderr.write('Registry URL is required.\n');
-    deps.exit(1);
-  }
-
-  const source: CustomRegistrySource = {
-    kind: 'apiJson',
-    url: trimmedUrl,
-    apiKey,
-  };
-
-  const harness = deps.getHarness();
-  await harness.ensureConfigFile();
-
-  let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
-  try {
-    entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
-  } catch (error) {
-    const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch registry${suffix}: ${errorMessage(error)}\n`);
-    deps.exit(1);
-  }
-
-  const entryList = Object.values(entries);
-  if (entryList.length === 0) {
-    deps.stderr.write(`Registry at ${trimmedUrl} contained no usable providers.\n`);
-    deps.exit(1);
-  }
-
-  // `harness.removeProvider` reloads the config from disk on each call (see
-  // `core-impl.ts removeKimiProvider`), so calling it inside the apply loop
-  // would discard providers we already applied in memory but have not yet
-  // persisted. Drop every stale id up front in a single batch instead, then
-  // apply against the resulting fresh config.
-  let config = await harness.getConfig();
-  const staleIds = entryList
-    .filter((entry) => config.providers[entry.id] !== undefined)
-    .map((entry) => entry.id);
-  for (const id of staleIds) {
-    config = await harness.removeProvider(id);
-  }
-
-  const addedProviderIds: string[] = [];
-  let modelCount = 0;
-  for (const entry of entryList) {
-    applyCustomRegistryProvider(asManaged(config), entry, source);
-    addedProviderIds.push(entry.id);
-    modelCount += Object.keys(entry.models).length;
-  }
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-  });
-
-  deps.stdout.write(
-    `Imported ${String(addedProviderIds.length)} provider${addedProviderIds.length === 1 ? '' : 's'} ` +
-      `(${String(modelCount)} model${modelCount === 1 ? '' : 's'}) from ${trimmedUrl}:\n`,
-  );
-  for (const id of addedProviderIds) {
-    deps.stdout.write(`  - ${id}\n`);
-  }
-}
-
-export async function handleProviderRemove(
-  deps: ProviderDeps,
-  providerId: string,
-): Promise<void> {
-  const harness = deps.getHarness();
-  await harness.ensureConfigFile();
-  const config = await harness.getConfig();
-  if (config.providers[providerId] === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found.\n`);
-    deps.exit(1);
-  }
-  await harness.removeProvider(providerId);
-  deps.stdout.write(`Removed provider "${providerId}".\n`);
 }
 
 export async function handleProviderList(
   deps: ProviderDeps,
-  opts: ListOptions,
+  options: { readonly json: boolean },
 ): Promise<void> {
   const harness = deps.getHarness();
-  await harness.ensureConfigFile();
-  const config = await harness.getConfig();
-
-  if (opts.json) {
-    deps.stdout.write(
-      `${JSON.stringify({ providers: config.providers, models: config.models ?? {} }, null, 2)}\n`,
-    );
+  const providers = await harness.auth.providers();
+  const models = await harness.auth.models();
+  const diagnostic = await harness.auth.providerDefinitionDiagnostic();
+  if (diagnostic !== undefined) deps.stderr.write(`${diagnostic}\n`);
+  if (options.json) {
+    deps.stdout.write(`${JSON.stringify({ providers, models }, null, 2)}\n`);
     return;
   }
-
-  const modelsByProvider = new Map<string, string[]>();
-  for (const [alias, model] of Object.entries(config.models ?? {})) {
-    const providerId = model.providerId ?? model.provider;
-    if (providerId === undefined) continue;
-    const list = modelsByProvider.get(providerId) ?? [];
-    list.push(alias);
-    modelsByProvider.set(providerId, list);
-  }
-
-  const providerIds = Object.keys(config.providers).toSorted();
-  if (providerIds.length === 0) {
-    deps.stdout.write('No providers configured.\n');
-    return;
-  }
-
-  for (const id of providerIds) {
-    const provider = config.providers[id]!;
-    const aliases = modelsByProvider.get(id) ?? [];
-    const sourceLabel = providerSourceLabel(provider);
-    deps.stdout.write(
-      `${id}  type=${provider.type}  models=${String(aliases.length)}  source=${sourceLabel}\n`,
-    );
-  }
-  if (config.defaultModel !== undefined) {
-    deps.stdout.write(`\nDefault model: ${config.defaultModel}\n`);
+  for (const provider of providers) {
+    const count = models.filter((model) => model.provider === provider.id).length;
+    deps.stdout.write(formatProvider(provider, count));
   }
 }
 
-/**
- * Fetches the models.dev-style public catalog and lists providers, or — when
- * `providerId` is given — drills into one provider and lists its models. This
- * mirrors the discovery half of the TUI "Known third-party provider" flow.
- */
-export async function handleCatalogList(
+export async function handleProviderModels(deps: ProviderDeps, providerId?: string): Promise<void> {
+  const auth = deps.getHarness().auth;
+  const models = await auth.models(providerId);
+  const diagnostic = await auth.providerDefinitionDiagnostic();
+  if (diagnostic !== undefined) deps.stderr.write(`${diagnostic}\n`);
+  if (models.length === 0) {
+    deps.stdout.write(
+      providerId === undefined
+        ? "No authenticated provider models are available.\n"
+        : `No models are available for "${providerId}". Connect it with "kimi login ${providerId}".\n`,
+    );
+    return;
+  }
+  for (const model of models) deps.stdout.write(formatModel(model));
+}
+
+export async function handleProviderRefresh(deps: ProviderDeps): Promise<void> {
+  const result = await deps.getHarness().auth.refreshModels({ force: true });
+  if (result.aborted) {
+    deps.stderr.write("Provider refresh cancelled.\n");
+    deps.exit(1);
+  }
+  for (const [provider, error] of result.errors) {
+    deps.stderr.write(`${provider}: ${error.message}\n`);
+  }
+  deps.stdout.write(
+    result.errors.size === 0
+      ? "Provider model catalogs refreshed.\n"
+      : `Provider model catalogs refreshed with ${String(result.errors.size)} failure(s).\n`,
+  );
+}
+
+export async function handleProviderUpsert(
   deps: ProviderDeps,
-  providerId: string | undefined,
-  opts: CatalogListOptions,
+  id: string,
+  options: CustomProviderOptions,
 ): Promise<void> {
-  const url = opts.url ?? DEFAULT_CATALOG_URL;
-  const catalog = await loadCatalogOrExit(deps, url);
-
-  if (providerId !== undefined) {
-    const entry = catalog[providerId];
-    if (entry === undefined) {
-      deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
-      deps.exit(1);
-    }
-    const models = catalogProviderModels(entry);
-    if (opts.json) {
-      deps.stdout.write(
-        `${JSON.stringify({ providerId, name: entry.name ?? providerId, models }, null, 2)}\n`,
-      );
-      return;
-    }
-    if (models.length === 0) {
-      deps.stdout.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
-      return;
-    }
-    deps.stdout.write(`${entry.name ?? providerId} (${providerId})\n`);
-    for (const model of models) {
-      const cap: string[] = [];
-      if (model.capability.tool_use) cap.push('tool_use');
-      if (model.capability.thinking) cap.push('thinking');
-      if (model.capability.image_in) cap.push('image_in');
-      const ctx =
-        typeof model.capability.max_context_tokens === 'number'
-          ? String(model.capability.max_context_tokens)
-          : '?';
-      const capLabel = cap.length > 0 ? ` [${cap.join(',')}]` : '';
-      deps.stdout.write(`  ${model.id}  ctx=${ctx}${capLabel}\n`);
-    }
+  const auth = deps.getHarness().auth;
+  const existing = (await auth.customProviders()).find((provider) => provider.id === id);
+  const imported = options.from === undefined ? undefined : await readProviderDefinition(options.from, id);
+  if (imported !== undefined) {
+    await auth.upsertCustomProvider(imported);
+    deps.stdout.write(`${existing === undefined ? "Added" : "Updated"} provider ${id}.\n`);
     return;
   }
-
-  const filter = opts.filter?.toLowerCase();
-  const entries = Object.entries(catalog)
-    .filter(([id, entry]) => {
-      if (filter === undefined) return true;
-      const haystack = `${id} ${entry.name ?? ''}`.toLowerCase();
-      return haystack.includes(filter);
-    })
-    .toSorted(([a], [b]) => a.localeCompare(b));
-
-  if (opts.json) {
-    const out: Record<string, CatalogProviderEntry> = {};
-    for (const [id, entry] of entries) out[id] = entry;
-    deps.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
-    return;
+  const modelId = options.model ?? existing?.models?.[0]?.id;
+  if (modelId === undefined) throw new Error("--model is required when creating a provider");
+  const baseUrl = options.baseUrl ?? existing?.baseUrl;
+  if (baseUrl === undefined) throw new Error("--base-url is required when creating a provider");
+  const api = options.api ?? existing?.api ?? "openai-completions";
+  if (
+    existing === undefined &&
+    (options.contextWindow === undefined || options.maxTokens === undefined)
+  ) {
+    throw new Error("--context-window and --max-tokens are required when creating a provider");
   }
-
-  if (entries.length === 0) {
-    if (filter !== undefined) {
-      deps.stdout.write(`No providers in catalog match "${filter}".\n`);
-    } else {
-      deps.stdout.write('Catalog is empty.\n');
-    }
-    return;
-  }
-
-  for (const [id, entry] of entries) {
-    const modelCount = entry.models === undefined ? 0 : Object.keys(entry.models).length;
-    const resolution = resolveCatalogImport(entry);
-    const wireLabel =
-      resolution.kind === 'invalid'
-        ? '?'
-        : resolution.guessed
-          ? `${resolution.wire} (guessed)`
-          : resolution.wire;
-    deps.stdout.write(
-      `${id}  wire=${wireLabel}  models=${String(modelCount)}  ${entry.name ?? ''}\n`,
-    );
-  }
+  const previousModel = existing?.models?.find((item) => item.id === modelId);
+  const model = {
+    ...previousModel,
+    id: modelId,
+    name: options.modelName ?? previousModel?.name,
+    contextWindow: options.contextWindow ?? previousModel?.contextWindow,
+    maxTokens: options.maxTokens ?? previousModel?.maxTokens,
+    reasoning: options.thinking === true ? true : previousModel?.reasoning,
+    input: options.image === true ? (["text", "image"] as const) : previousModel?.input,
+  };
+  const models = new Map(existing?.models?.map((item) => [item.id, item]) ?? []);
+  models.set(modelId, { ...models.get(modelId), ...model });
+  const definition: CustomProviderInput = {
+    ...existing,
+    id,
+    name: options.name ?? existing?.name ?? id,
+    api,
+    baseUrl,
+    apiKey: options.apiKeyEnv === undefined ? existing?.apiKey : `$${options.apiKeyEnv}`,
+    models: [...models.values()],
+  };
+  await auth.upsertCustomProvider(definition);
+  deps.stdout.write(`${existing === undefined ? "Added" : "Updated"} provider ${id}.\n`);
 }
 
-/**
- * Imports a known provider from the models.dev catalog by id. Unlike
- * `provider add` (which expects a custom api.json), this command relies on
- * the catalog's normalized metadata to fill in context limits and capabilities.
- */
-export async function handleCatalogAdd(
+export async function handleProviderRemove(deps: ProviderDeps, id: string): Promise<void> {
+  await deps.getHarness().auth.deleteCustomProvider(id);
+  deps.stdout.write(`Removed provider ${id}.\n`);
+}
+
+export async function handleProviderModelUpsert(
   deps: ProviderDeps,
   providerId: string,
-  opts: CatalogAddOptions,
+  modelId: string,
+  options: CustomModelOptions,
 ): Promise<void> {
-  const apiKey = resolveApiKey(opts.apiKey, deps.env);
-  if (apiKey === undefined) {
-    deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
-    );
-    deps.exit(1);
+  const provider = (await deps.getHarness().auth.customProviders())
+    .find((entry) => entry.id === providerId);
+  const existing = provider?.models?.find((model) => model.id === modelId);
+  if (
+    existing === undefined &&
+    (options.contextWindow === undefined || options.maxTokens === undefined)
+  ) {
+    throw new Error("--context-window and --max-tokens are required when adding a model");
   }
-
-  const url = opts.url ?? DEFAULT_CATALOG_URL;
-  const catalog = await loadCatalogOrExit(deps, url);
-
-  const entry = catalog[providerId];
-  if (entry === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
-    deps.exit(1);
-  }
-
-  const resolution = resolveCatalogImport(entry, opts.baseUrl);
-  if (resolution.kind === 'invalid') {
-    switch (resolution.reason) {
-      case 'unknown-explicit-type':
-        deps.stderr.write(
-          `Provider "${providerId}" declares protocol "${entry.type}" in the catalog, which this client version does not support.\n`,
-        );
-        break;
-      case 'proprietary-sdk':
-        deps.stderr.write(
-          `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.\n`,
-        );
-        break;
-      case 'empty-base-url':
-        deps.stderr.write('--base-url cannot be empty.\n');
-        break;
-      case 'placeholder-base-url':
-        deps.stderr.write(
-          `Base URL "${opts.baseUrl}" contains an env placeholder. Pass --base-url with the resolved value.\n`,
-        );
-        break;
-    }
-    deps.exit(1);
-  }
-  if (resolution.kind === 'needs-base-url') {
-    deps.stderr.write(
-      `The catalog does not declare an endpoint for "${providerId}". Pass --base-url <url> (e.g. the vendor's OpenAI-compatible base URL).\n`,
-    );
-    deps.exit(1);
-  }
-  const { wire, baseUrl } = resolution;
-
-  const models = catalogProviderModels(entry);
-  if (models.length === 0) {
-    deps.stderr.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
-    deps.exit(1);
-  }
-
-  if (opts.defaultModel !== undefined && !models.some((m) => m.id === opts.defaultModel)) {
-    deps.stderr.write(
-      `Model "${opts.defaultModel}" is not in provider "${providerId}". Run "kimi provider catalog list ${providerId}" to see available ids.\n`,
-    );
-    deps.exit(1);
-  }
-
-  const harness = deps.getHarness();
-  await harness.ensureConfigFile();
-
-  let config = await harness.getConfig();
-
-  // Capture defaults BEFORE `removeProvider`, because that call clears
-  // `defaultModel` when it points at one of this provider's aliases (see
-  // `core-impl.ts removeKimiProvider`). Without this, re-importing an
-  // already-configured provider would lose the user's previously-set default
-  // even when `--default-model` is not supplied.
-  const previousDefaultModel = config.defaultModel;
-  const previousThinking = config.thinking;
-
-  if (config.providers[providerId] !== undefined) {
-    config = await harness.removeProvider(providerId);
-  }
-
-  // `applyCatalogProvider` always overwrites both `defaultModel` and
-  // `[thinking]`. The values we pass here are temporary; we restore
-  // a consistent state in the post-apply block below.
-  applyCatalogProvider(config, {
-    providerId,
-    wire,
-    ...(baseUrl === undefined ? {} : { baseUrl }),
-    apiKey,
-    models,
-    selectedModelId: opts.defaultModel ?? '',
-    thinking: false,
+  await deps.getHarness().auth.upsertCustomModel(providerId, {
+    ...existing,
+    id: modelId,
+    name: options.name ?? existing?.name,
+    contextWindow: options.contextWindow ?? existing?.contextWindow,
+    maxTokens: options.maxTokens ?? existing?.maxTokens,
+    reasoning: options.thinking === true ? true : existing?.reasoning,
+    input: options.image === true ? ["text", "image"] : existing?.input,
   });
-
-  // Resolve the final `defaultModel`:
-  //   - If the caller asked for one, `applyCatalogProvider` already set it.
-  //   - Else, restore the previous default ONLY when its alias still resolves
-  //     after the catalog refresh; the catalog may have dropped the old
-  //     model, in which case restoring would point default_model at a
-  //     non-existent alias and break the next session.
-  if (opts.defaultModel === undefined) {
-    const stillResolves =
-      previousDefaultModel !== undefined &&
-      config.models?.[previousDefaultModel] !== undefined;
-    config.defaultModel = stillResolves ? previousDefaultModel : undefined;
-  }
-
-  // Always restore `[thinking]` from what was there before — including
-  // `undefined`. Persisting `enabled: false` when the user never set it would
-  // make `resolveThinkingEffort` (agent-core/src/agent/config/thinking.ts) treat
-  // it as an explicit "off" request and silently disable thinking, even for
-  // thinking-capable models.
-  config.thinking = previousThinking;
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  const displayName = entry.name ?? providerId;
-  deps.stdout.write(
-    `Imported ${displayName} (${providerId}) with ${String(models.length)} model${models.length === 1 ? '' : 's'} from ${url}.\n`,
-  );
-  if (resolution.guessed) {
-    deps.stdout.write(
-      `Note: the catalog does not declare a protocol for "${providerId}"; guessed "openai". Edit "type" in config.toml if requests fail.\n`,
-    );
-  }
-  if (opts.defaultModel !== undefined) {
-    deps.stdout.write(`Default model set to ${providerId}/${opts.defaultModel}.\n`);
-  }
+  deps.stdout.write(`Saved model ${providerId}/${modelId}.\n`);
 }
 
-async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catalog> {
-  try {
-    return await fetchCatalog(url, { userAgent: createKimiCodeUserAgent() });
-  } catch (error) {
-    const suffix = error instanceof CatalogFetchError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch catalog from ${url}${suffix}: ${errorMessage(error)}\n`);
-    deps.exit(1);
-  }
+export async function handleProviderModelRemove(
+  deps: ProviderDeps,
+  providerId: string,
+  modelId: string,
+): Promise<void> {
+  await deps.getHarness().auth.deleteCustomModel(providerId, modelId);
+  deps.stdout.write(`Removed model ${providerId}/${modelId}.\n`);
 }
 
 export function registerProviderCommand(parent: Command, deps?: Partial<ProviderDeps>): void {
   const provider = parent
-    .command('provider')
-    .description('Manage LLM providers non-interactively.');
-
-  // Last-resort boundary: handlers report expected failures themselves, but
-  // anything that escapes (e.g. a config write rejected because config.toml
-  // is invalid) must end as a one-line error + exit 1, not an unhandled
-  // rejection dumping a stack trace.
-  const runAction = async (resolved: ProviderDeps, run: () => Promise<void>): Promise<void> => {
-    try {
-      await run();
-    } catch (error) {
-      resolved.stderr.write(`${errorMessage(error)}\n`);
-      resolved.exit(1);
-    }
-  };
+    .command("provider")
+    .description("Inspect, connect, and manage built-in or custom providers.");
 
   provider
-    .command('add <url>')
-    .description('Import every provider listed in a custom registry (api.json).')
-    .option('--api-key <key>', 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.')
-    .action(async (url: string, options: { apiKey?: string }) => {
-      const resolved = resolveDeps(deps);
-      await runAction(resolved, () => handleProviderAdd(resolved, url, { apiKey: options.apiKey }));
-    });
-
-  provider
-    .command('remove <providerId>')
-    .description('Remove a provider and every model alias that referenced it.')
-    .action(async (providerId: string) => {
-      const resolved = resolveDeps(deps);
-      await runAction(resolved, () => handleProviderRemove(resolved, providerId));
-    });
-
-  provider
-    .command('list')
-    .description('Show configured providers and their model counts.')
-    .option('--json', 'Emit the raw providers/models config as JSON.', false)
+    .command("list")
+    .description("List built-in providers and connection state.")
+    .option("--json", "Emit provider and model data as JSON.", false)
     .action(async (options: { json?: boolean }) => {
-      const resolved = resolveDeps(deps);
-      await runAction(resolved, () => handleProviderList(resolved, { json: options.json === true }));
+      await run(resolveDeps(deps), (resolved) =>
+        handleProviderList(resolved, { json: options.json === true }),
+      );
     });
 
-  const catalog = provider
-    .command('catalog')
-    .description('Discover and import providers from the public models.dev catalog.');
+  provider
+    .command("models [providerId]")
+    .description("List models currently available through authenticated providers.")
+    .action(async (providerId?: string) => {
+      await run(resolveDeps(deps), (resolved) => handleProviderModels(resolved, providerId));
+    });
 
-  catalog
-    .command('list [providerId]')
-    .description('List providers in the catalog, or models when a providerId is given.')
-    .option('--filter <substring>', 'Case-insensitive id/name substring filter.')
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
-    .option('--json', 'Emit the matching catalog slice as JSON.', false)
-    .action(
-      async (
-        providerId: string | undefined,
-        options: { filter?: string; url?: string; json?: boolean },
-      ) => {
-        const resolved = resolveDeps(deps);
-        await runAction(resolved, () =>
-          handleCatalogList(resolved, providerId, {
-            json: options.json === true,
-            ...(options.filter === undefined ? {} : { filter: options.filter }),
-            ...(options.url === undefined ? {} : { url: options.url }),
-          }),
-        );
-      },
-    );
+  provider
+    .command("refresh")
+    .description("Refresh authenticated providers from their model-list endpoints.")
+    .action(async () => {
+      await run(resolveDeps(deps), handleProviderRefresh);
+    });
 
-  catalog
-    .command('add <providerId>')
-    .description('Import a known provider from the catalog by id.')
-    .option('--api-key <key>', 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.')
-    .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
-    .option(
-      '--base-url <url>',
-      'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
-    )
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
-    .action(
-      async (
-        providerId: string,
-        options: { apiKey?: string; defaultModel?: string; url?: string; baseUrl?: string },
-      ) => {
-        const resolved = resolveDeps(deps);
-        await runAction(resolved, () =>
-          handleCatalogAdd(resolved, providerId, {
-            ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
-            ...(options.defaultModel === undefined ? {} : { defaultModel: options.defaultModel }),
-            ...(options.url === undefined ? {} : { url: options.url }),
-            ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
-          }),
+  provider
+    .command("add <id>")
+    .description("Create a custom provider and its first model.")
+    .option("--base-url <url>", "Provider API base URL")
+    .option("--model <id>", "Initial model id")
+    .option("--from <path>", "Complete custom-provider JSON definition")
+    .option("--name <name>", "Display name")
+    .option("--model-name <name>", "Initial model display name")
+    .option("--api <api>", "Protocol adapter", "openai-completions")
+    .option("--api-key-env <name>", "Optional environment variable holding the API key")
+    .option("--context-window <tokens>", "Model context window", parsePositiveInteger)
+    .option("--max-tokens <tokens>", "Model max output tokens", parsePositiveInteger)
+    .option("--thinking", "Enable thinking controls for this model")
+    .option("--image", "Enable image input for this model")
+    .action(async (id: string, options: CustomProviderOptions) => {
+      await run(resolveDeps(deps), (resolved) => handleProviderUpsert(resolved, id, options));
+    });
+
+  provider
+    .command("update <id>")
+    .description("Update a custom provider or add/update one of its models.")
+    .option("--base-url <url>", "Provider API base URL")
+    .option("--model <id>", "Model id to add or update")
+    .option("--from <path>", "Complete custom-provider JSON definition")
+    .option("--name <name>", "Display name")
+    .option("--model-name <name>", "Model display name")
+    .option("--api <api>", "Protocol adapter")
+    .option("--api-key-env <name>", "Optional environment variable holding the API key")
+    .option("--context-window <tokens>", "Model context window", parsePositiveInteger)
+    .option("--max-tokens <tokens>", "Model max output tokens", parsePositiveInteger)
+    .option("--thinking", "Enable thinking controls for this model")
+    .option("--image", "Enable image input for this model")
+    .action(async (id: string, options: CustomProviderOptions) => {
+      await run(resolveDeps(deps), (resolved) => handleProviderUpsert(resolved, id, options));
+    });
+
+  provider
+    .command("remove <id>")
+    .description("Remove a custom provider and its stored API key.")
+    .action(async (id: string) => {
+      await run(resolveDeps(deps), (resolved) => handleProviderRemove(resolved, id));
+    });
+
+  const model = provider.command("model").description("Manage custom provider models.");
+  for (const name of ["add", "update"] as const) {
+    model
+      .command(`${name} <providerId> <modelId>`)
+      .description(`${name === "add" ? "Add" : "Update"} a custom provider model.`)
+      .option("--name <name>", "Model display name")
+      .option("--context-window <tokens>", "Model context window", parsePositiveInteger)
+      .option("--max-tokens <tokens>", "Model max output tokens", parsePositiveInteger)
+      .option("--thinking", "Enable thinking controls")
+      .option("--image", "Enable image input")
+      .action(async (providerId: string, modelId: string, options: CustomModelOptions) => {
+        await run(resolveDeps(deps), (resolved) =>
+          handleProviderModelUpsert(resolved, providerId, modelId, options),
         );
-      },
-    );
+      });
+  }
+  model
+    .command("remove <providerId> <modelId>")
+    .description("Remove one custom provider model.")
+    .action(async (providerId: string, modelId: string) => {
+      await run(resolveDeps(deps), (resolved) =>
+        handleProviderModelRemove(resolved, providerId, modelId),
+      );
+    });
+}
+
+interface CustomProviderOptions {
+  readonly from?: string;
+  readonly baseUrl?: string;
+  readonly model?: string;
+  readonly name?: string;
+  readonly modelName?: string;
+  readonly api?: CustomProviderInput["api"];
+  readonly apiKeyEnv?: string;
+  readonly contextWindow?: number;
+  readonly maxTokens?: number;
+  readonly thinking?: boolean;
+  readonly image?: boolean;
+}
+
+async function readProviderDefinition(path: string, id: string): Promise<CustomProviderInput> {
+  const parsed = parseJsonc(await readFile(path, "utf8"));
+  const definition =
+    typeof parsed === "object" && parsed !== null && "providers" in parsed
+      ? (parsed as { providers?: Record<string, unknown> }).providers?.[id]
+      : parsed;
+  if (typeof definition !== "object" || definition === null) {
+    throw new Error(`Provider definition ${id} was not found in ${path}`);
+  }
+  return { ...(definition as CustomProviderInput), id };
+}
+
+interface CustomModelOptions {
+  readonly name?: string;
+  readonly contextWindow?: number;
+  readonly maxTokens?: number;
+  readonly thinking?: boolean;
+  readonly image?: boolean;
+}
+
+function parsePositiveInteger(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("Expected a positive integer");
+  return parsed;
 }
 
 function resolveDeps(overrides: Partial<ProviderDeps> = {}): ProviderDeps {
   let harness: KimiHarness | undefined;
   const identity = createKimiCodeHostIdentity();
+  const ownsHarness = overrides.getHarness === undefined;
   return {
     getHarness:
       overrides.getHarness ??
@@ -552,35 +313,46 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ProviderDeps {
         harness ??= createKimiHarness({ identity });
         return harness;
       }),
+    close:
+      overrides.close ??
+      (ownsHarness
+        ? async () => {
+            await harness?.close();
+          }
+        : async () => {}),
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
-    env: overrides.env ?? process.env,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
   };
 }
 
-function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
-  if (typeof flag === 'string' && flag.length > 0) return flag;
-  const fromEnv = env['KIMI_REGISTRY_API_KEY'];
-  if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv;
-  return undefined;
-}
-
-function asManaged(config: KimiConfig): ManagedKimiConfigShape {
-  return config as unknown as ManagedKimiConfigShape;
-}
-
-function providerSourceLabel(provider: KimiConfig['providers'][string]): string {
-  const source = provider.source;
-  if (source !== undefined) {
-    if (source['kind'] === 'apiJson' && typeof source['url'] === 'string') {
-      return `apiJson(${source['url']})`;
-    }
+async function run(
+  deps: ProviderDeps,
+  action: (deps: ProviderDeps) => Promise<void>,
+): Promise<void> {
+  try {
+    await action(deps);
+  } catch (error) {
+    deps.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    deps.exit(1);
+  } finally {
+    await deps.close();
   }
-  if (provider.oauth !== undefined) return 'oauth';
-  return 'inline';
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function formatProvider(provider: ProviderAuthState, models: number): string {
+  const connection = provider.configured
+    ? provider.credentialType === "oauth"
+      ? "oauth"
+      : "api-key"
+    : "disconnected";
+  return `${provider.id}\t${connection}\tmodels=${String(models)}\t${provider.name}\n`;
+}
+
+function formatModel(model: ProviderModel): string {
+  const flags = [
+    model.reasoning ? "reasoning" : undefined,
+    model.input.includes("image") ? "image" : undefined,
+  ].filter((value): value is string => value !== undefined);
+  return `${model.provider}/${model.id}\tcontext=${String(model.contextWindow)}${flags.length === 0 ? "" : `\t${flags.join(",")}`}\t${model.name}\n`;
 }

@@ -2,28 +2,45 @@ import * as vscode from "vscode";
 
 import { Events, Methods } from "../../shared/bridge";
 import type { LoginResult } from "../../shared/legacy-sdk";
-import type { LoginStatus } from "../../shared/types";
+import type { LoginRequest, LoginStatus } from "../../shared/types";
 import { updateLoginContext } from "../utils/context";
 import type { Handler } from "./types";
 
 export const authHandlers: Record<string, Handler<any, any>> = {
   [Methods.CheckLoginStatus]: async (_, ctx): Promise<LoginStatus> => {
-    return { loggedIn: await updateLoginContext(ctx.harness) };
+    const providers = await ctx.harness.auth.providers();
+    return {
+      loggedIn: await updateLoginContext(ctx.harness),
+      providers: providers.map((provider) => ({
+        id: provider.id,
+        name: provider.name,
+        configured: provider.configured,
+        methods: provider.methods.map((method) => ({
+          type: method.type,
+          label: method.label,
+        })),
+      })),
+    };
   },
 
-  [Methods.Login]: async (_, ctx): Promise<LoginResult> => {
+  [Methods.Login]: async (params: LoginRequest, ctx): Promise<LoginResult> => {
     try {
-      await ctx.harness.auth.login(undefined, {
-        onDeviceCode: async (authorization) => {
-          const url = authorization.verificationUriComplete || authorization.verificationUri;
+      await ctx.harness.auth.login(params.providerId, params.method, {
+        prompt: async () => {
+          if (params.value !== undefined) return params.value;
+          throw new Error(`${params.method} login requires interactive input`);
+        },
+        notify: (event) => {
+          if (event.type !== "device_code" && event.type !== "auth_url") return;
+          const url = event.type === "device_code" ? event.verificationUri : event.url;
           ctx.broadcast(Events.LoginUrl, { url }, ctx.webviewId);
-          await vscode.env.openExternal(vscode.Uri.parse(url));
+          void vscode.env.openExternal(vscode.Uri.parse(url));
         },
       });
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi login failed", error);
+      ctx.logError(`Provider login failed: ${params.providerId}`, error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
         ctx.logError("Unable to refresh login status after a failed login", statusError);
       });
@@ -36,11 +53,16 @@ export const authHandlers: Record<string, Handler<any, any>> = {
 
   [Methods.Logout]: async (_, ctx): Promise<LoginResult> => {
     try {
-      await ctx.harness.auth.logout();
+      const providers = await ctx.harness.auth.providers();
+      await Promise.all(
+        providers
+          .filter((provider) => provider.configured)
+          .map((provider) => ctx.harness.auth.logout(provider.id)),
+      );
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi logout failed", error);
+      ctx.logError("Provider logout failed", error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
         ctx.logError("Unable to refresh login status after a failed logout", statusError);
       });

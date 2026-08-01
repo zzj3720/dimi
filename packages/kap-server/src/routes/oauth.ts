@@ -1,220 +1,223 @@
-/**
- * `/oauth/*` REST routes.
- *
- *   POST   /oauth/login   start a device-code flow → OAuthFlowStart
- *   GET    /oauth/login   poll current flow state  → OAuthFlowSnapshot | null
- *   DELETE /oauth/login   cancel pending flow       → { cancelled, status }
- *   POST   /oauth/logout  logout                    → { logged_out, provider }
- *
- * Backed by the v2 `IOAuthService` (Core scope), which already returns the
- * protocol wire types, so the handlers only swap the v1 accessor
- * (`ix.invokeFunction`) for the v2 one (`core.accessor.get`).
- */
+import { randomUUID } from "node:crypto";
 
-import { IOAuthService, type Scope } from '@moonshot-ai/agent-core-v2';
 import {
-  managedUsageResultSchema,
+  IProviderRuntime,
+  type AuthEvent,
+  type AuthInteraction,
+  type Scope,
+} from "@moonshot-ai/agent-core-v2";
+import { z } from "zod";
+
+import { okEnvelope } from "../envelope";
+import { requestLog } from "../lib/requestLog";
+import { defineRoute } from "../middleware/defineRoute";
+import {
   oauthFlowSnapshotSchema,
   oauthFlowStartSchema,
   oauthLoginCancelResponseSchema,
-  oauthLogoutResponseSchema,
-  type ManagedUsageResult,
-  type UsageRow,
-} from '@moonshot-ai/agent-core-v2/app/auth/oauthProtocol';
-import { z } from 'zod';
-
-import { okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
-import {
   oauthLoginQuerySchema,
   oauthLoginStartRequestSchema,
-  oauthLogoutRequestSchema,
-} from '../protocol/rest-oauth';
+} from "../protocol/rest-oauth";
 
 interface RouteHost {
-  get(
-    path: string,
-    options: { preHandler?: unknown[]; schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string; query: unknown },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void,
-  ): unknown;
-  post(
-    path: string,
-    options: { preHandler?: unknown[]; schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string; body: unknown },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void,
-  ): unknown;
-  delete(
-    path: string,
-    options: { preHandler?: unknown[]; schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string; query: unknown },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void,
-  ): unknown;
+  get(path: string, options: object, handler: (req: any, reply: any) => unknown): unknown;
+  post(path: string, options: object, handler: (req: any, reply: any) => unknown): unknown;
+  delete(path: string, options: object, handler: (req: any, reply: any) => unknown): unknown;
 }
 
-const oauthFlowSnapshotOrNullSchema = z.union([
-  oauthFlowSnapshotSchema,
-  z.null(),
-]);
+type FlowStatus = "pending" | "authenticated" | "denied" | "expired" | "cancelled";
+
+interface LoginFlow {
+  flow_id: string;
+  provider: string;
+  status: FlowStatus;
+  controller: AbortController;
+  verification_uri?: string;
+  verification_uri_complete?: string;
+  user_code?: string;
+  expires_in?: number;
+  interval?: number;
+  expires_at?: string;
+  resolved_at?: string;
+  error_message?: string;
+  announced: Promise<void>;
+  announce(): void;
+}
+
+const flows = new Map<string, LoginFlow>();
 
 export function registerOAuthRoutes(app: RouteHost, core: Scope): void {
-  // POST /oauth/login — start device flow ----------------------------------
-  const loginStartRoute = defineRoute(
+  const start = defineRoute(
     {
-      method: 'POST',
-      path: '/oauth/login',
+      method: "POST",
+      path: "/oauth/login",
       body: oauthLoginStartRequestSchema,
       success: { data: oauthFlowStartSchema },
-      description: 'Start an OAuth device-code flow',
-      tags: ['auth'],
+      description: "Start an OAuth flow for a provider",
+      tags: ["auth"],
     },
     async (req, reply) => {
-      const result = await core.accessor.get(IOAuthService).startLogin(req.body.provider);
-      requestLog(req)?.info({ provider: req.body.provider, action: 'login' }, 'oauth login started');
-      reply.send(okEnvelope(result, req.id));
+      const provider = req.body.provider;
+      const runtime = core.accessor.get(IProviderRuntime);
+      await runtime.ready;
+      if ((await runtime.checkAuth(provider))?.type === "oauth") {
+        reply.send(
+          okEnvelope({ flow_id: randomUUID(), provider, status: "authenticated" as const }, req.id),
+        );
+        return;
+      }
+      flows.get(provider)?.controller.abort();
+      const flow = createFlow(provider);
+      flows.set(provider, flow);
+      const interaction = interactionFor(flow);
+      void runtime
+        .login(provider, "oauth", interaction)
+        .then(async () => {
+          await runtime.refresh({ provider, allowNetwork: true, force: true });
+          settle(flow, "authenticated");
+        })
+        .catch((error: unknown) => {
+          if (flow.controller.signal.aborted) {
+            settle(flow, "cancelled");
+            return;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          settle(flow, /expired|timed out/iu.test(message) ? "expired" : "denied", message);
+        });
+      await flow.announced;
+      if (flow.status === "authenticated") {
+        reply.send(
+          okEnvelope({ flow_id: flow.flow_id, provider, status: "authenticated" as const }, req.id),
+        );
+        return;
+      }
+      if (flow.status !== "pending") {
+        throw new Error(flow.error_message ?? `OAuth login ${flow.status} for ${provider}`);
+      }
+      requestLog(req)?.info({ provider, action: "login" }, "oauth login started");
+      reply.send(okEnvelope(toPendingStart(flow), req.id));
     },
   );
-  app.post(
-    loginStartRoute.path,
-    loginStartRoute.options,
-    loginStartRoute.handler as Parameters<RouteHost['post']>[2],
-  );
+  app.post(start.path, start.options, start.handler);
 
-  // GET /oauth/login — poll current flow state -----------------------------
-  const loginPollRoute = defineRoute(
+  const poll = defineRoute(
     {
-      method: 'GET',
-      path: '/oauth/login',
+      method: "GET",
+      path: "/oauth/login",
       querystring: oauthLoginQuerySchema,
-      success: { data: oauthFlowSnapshotOrNullSchema },
-      description: 'Poll the current OAuth device-code flow',
-      tags: ['auth'],
+      success: { data: z.union([oauthFlowSnapshotSchema, z.null()]) },
+      description: "Poll an OAuth flow",
+      tags: ["auth"],
     },
-    async (req, reply) => {
-      const snapshot = core.accessor.get(IOAuthService).getFlow(req.query.provider);
-      reply.send(okEnvelope(snapshot ?? null, req.id));
+    (req, reply) => {
+      const provider = req.query.provider;
+      const flow = flows.get(provider);
+      reply.send(okEnvelope(flow === undefined ? null : snapshot(flow), req.id));
     },
   );
-  app.get(
-    loginPollRoute.path,
-    loginPollRoute.options,
-    loginPollRoute.handler as Parameters<RouteHost['get']>[2],
-  );
+  app.get(poll.path, poll.options, poll.handler);
 
-  // DELETE /oauth/login — cancel pending flow ------------------------------
-  const loginCancelRoute = defineRoute(
+  const cancel = defineRoute(
     {
-      method: 'DELETE',
-      path: '/oauth/login',
+      method: "DELETE",
+      path: "/oauth/login",
       querystring: oauthLoginQuerySchema,
       success: { data: oauthLoginCancelResponseSchema },
-      description: 'Cancel the current OAuth device-code flow',
-      tags: ['auth'],
+      description: "Cancel an OAuth flow",
+      tags: ["auth"],
     },
-    async (req, reply) => {
-      const result = await core.accessor.get(IOAuthService).cancelLogin(req.query.provider);
-      requestLog(req)?.info(
-        { provider: req.query.provider, action: 'cancel_login' },
-        'oauth login cancelled',
-      );
-      reply.send(okEnvelope(result, req.id));
-    },
-  );
-  app.delete(
-    loginCancelRoute.path,
-    loginCancelRoute.options,
-    loginCancelRoute.handler as Parameters<RouteHost['delete']>[2],
-  );
-
-  // POST /oauth/logout -----------------------------------------------------
-  const logoutRoute = defineRoute(
-    {
-      method: 'POST',
-      path: '/oauth/logout',
-      body: oauthLogoutRequestSchema,
-      success: { data: oauthLogoutResponseSchema },
-      description: 'Logout the managed OAuth provider',
-      tags: ['auth'],
-    },
-    async (req, reply) => {
-      const result = await core.accessor.get(IOAuthService).logout(req.body.provider);
-      requestLog(req)?.info({ provider: req.body.provider, action: 'logout' }, 'oauth logout');
-      reply.send(okEnvelope(result, req.id));
+    (req, reply) => {
+      const provider = req.query.provider;
+      const flow = flows.get(provider);
+      const cancelled = flow?.status === "pending";
+      if (cancelled) {
+        flow.controller.abort();
+        settle(flow, "cancelled");
+      }
+      reply.send(okEnvelope({ cancelled, status: flow?.status ?? ("cancelled" as const) }, req.id));
     },
   );
-  app.post(
-    logoutRoute.path,
-    logoutRoute.options,
-    logoutRoute.handler as Parameters<RouteHost['post']>[2],
-  );
-
-  // GET /oauth/usage — managed-account plan usage (limits + booster wallet) ---
-  const usageRoute = defineRoute(
-    {
-      method: 'GET',
-      path: '/oauth/usage',
-      querystring: oauthLoginQuerySchema,
-      success: { data: managedUsageResultSchema },
-      description: 'Get the managed account usage summary',
-      tags: ['auth'],
-    },
-    async (req, reply) => {
-      const result = await core.accessor.get(IOAuthService).getManagedUsage(req.query.provider);
-      reply.send(okEnvelope(toWireUsage(result), req.id));
-    },
-  );
-  app.get(
-    usageRoute.path,
-    usageRoute.options,
-    usageRoute.handler as Parameters<RouteHost['get']>[2],
-  );
+  app.delete(cancel.path, cancel.options, cancel.handler);
 }
 
-/** Domain (camelCase) → wire (snake_case) mapping for the usage payload. */
-function toWireUsage(result: ManagedUsageDomainResult): ManagedUsageResult {
-  if (result.kind === 'error') {
-    return { kind: 'error', message: result.message, status: result.status };
-  }
+function createFlow(provider: string): LoginFlow {
+  let announce = () => {};
+  const announced = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
   return {
-    kind: 'ok',
-    summary: result.summary === null ? null : toWireUsageRow(result.summary),
-    limits: result.limits.map(toWireUsageRow),
-    extra_usage:
-      result.extraUsage === null
-        ? null
-        : {
-            balance_cents: result.extraUsage.balanceCents,
-            total_cents: result.extraUsage.totalCents,
-            monthly_charge_limit_enabled: result.extraUsage.monthlyChargeLimitEnabled,
-            monthly_charge_limit_cents: result.extraUsage.monthlyChargeLimitCents,
-            monthly_used_cents: result.extraUsage.monthlyUsedCents,
-            currency: result.extraUsage.currency,
-          },
+    flow_id: randomUUID(),
+    provider,
+    status: "pending",
+    controller: new AbortController(),
+    announced,
+    announce,
   };
 }
 
-type ManagedUsageDomainResult = Awaited<ReturnType<IOAuthService['getManagedUsage']>>;
-type DomainUsageRow = {
-  name?: string;
-  window?: { duration: number; unit: 'minute' | 'hour' | 'day' | 'week' };
-  used: number;
-  limit: number;
-  resetAt?: string;
-};
-
-function toWireUsageRow(row: DomainUsageRow): UsageRow {
+function interactionFor(flow: LoginFlow): AuthInteraction {
   return {
-    name: row.name,
-    window: row.window,
-    used: row.used,
-    limit: row.limit,
-    reset_at: row.resetAt,
+    signal: flow.controller.signal,
+    prompt: async () => {
+      throw new Error("This OAuth flow requires an interactive client");
+    },
+    notify: (event: AuthEvent) => {
+      if (event.type !== "device_code") return;
+      const expiresIn = event.expiresInSeconds ?? 15 * 60;
+      flow.verification_uri = event.verificationUri;
+      flow.verification_uri_complete = event.verificationUri;
+      flow.user_code = event.userCode;
+      flow.expires_in = expiresIn;
+      flow.interval = event.intervalSeconds ?? 5;
+      flow.expires_at = new Date(Date.now() + expiresIn * 1_000).toISOString();
+      flow.announce();
+    },
+  };
+}
+
+function settle(flow: LoginFlow, status: Exclude<FlowStatus, "pending">, message?: string): void {
+  flow.status = status;
+  flow.resolved_at = new Date().toISOString();
+  flow.error_message = message;
+  flow.announce();
+}
+
+function toPendingStart(flow: LoginFlow) {
+  if (
+    flow.verification_uri === undefined ||
+    flow.verification_uri_complete === undefined ||
+    flow.user_code === undefined ||
+    flow.expires_in === undefined ||
+    flow.interval === undefined ||
+    flow.expires_at === undefined
+  ) {
+    throw new Error(flow.error_message ?? `OAuth login did not start for ${flow.provider}`);
+  }
+  return {
+    flow_id: flow.flow_id,
+    provider: flow.provider,
+    status: "pending" as const,
+    verification_uri: flow.verification_uri,
+    verification_uri_complete: flow.verification_uri_complete,
+    user_code: flow.user_code,
+    expires_in: flow.expires_in,
+    interval: flow.interval,
+    expires_at: flow.expires_at,
+  };
+}
+
+function snapshot(flow: LoginFlow) {
+  return {
+    flow_id: flow.flow_id,
+    provider: flow.provider,
+    status: flow.status,
+    verification_uri: flow.verification_uri,
+    verification_uri_complete: flow.verification_uri_complete,
+    user_code: flow.user_code,
+    expires_in: flow.expires_in,
+    interval: flow.interval,
+    expires_at: flow.expires_at,
+    resolved_at: flow.resolved_at,
+    error_message: flow.error_message,
   };
 }

@@ -2,6 +2,7 @@ import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
+import { hasUpdateChannel } from '#/cli/update/cdn';
 import { selectUpdateTarget } from '#/cli/update/select';
 import { detectInstallSource } from '#/cli/update/source';
 import {
@@ -46,6 +47,8 @@ export interface UpgradeDeps {
   readonly isInteractive: boolean;
   readonly track: UpgradeTrack;
   readonly logger: UpgradeLogger;
+  /** An injected fetcher is an explicit authority in SDK/tests. */
+  readonly updatesEnabled: boolean;
 }
 
 export async function handleUpgrade(
@@ -53,6 +56,11 @@ export async function handleUpgrade(
   overrides: Partial<UpgradeDeps> = {},
 ): Promise<number> {
   const deps = createDefaultUpgradeDeps(overrides);
+
+  if (!deps.updatesEnabled) {
+    deps.stdout.write('Automatic upgrades are not configured for this build.\n');
+    return 0;
+  }
 
   let cache: UpdateCache;
   try {
@@ -184,6 +192,7 @@ function createDefaultUpgradeDeps(overrides: Partial<UpgradeDeps>): UpgradeDeps 
     isInteractive: overrides.isInteractive ?? (process.stdin.isTTY && process.stdout.isTTY),
     track: overrides.track ?? trackTelemetry,
     logger: overrides.logger ?? log,
+    updatesEnabled: overrides.updatesEnabled ?? (overrides.refreshUpdateCache !== undefined || hasUpdateChannel()),
   };
 }
 

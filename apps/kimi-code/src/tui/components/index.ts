@@ -1,4 +1,3 @@
-export * from './chrome/device-code-box';
 export * from './chrome/footer';
 export * from './chrome/moon-loader';
 export * from './chrome/todo-panel';
@@ -11,6 +10,9 @@ export * from './dialogs/experiments-selector';
 export * from './dialogs/help-panel';
 export * from './dialogs/model-selector';
 export * from './dialogs/permission-selector';
+export * from './dialogs/provider-auth-selector';
+export * from './dialogs/provider-login-dialog';
+export * from './dialogs/custom-provider-dialog';
 export * from './dialogs/question-dialog';
 export * from './dialogs/session-picker';
 export * from './dialogs/settings-selector';

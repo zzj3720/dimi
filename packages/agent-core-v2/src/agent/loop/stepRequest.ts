@@ -13,18 +13,22 @@
  * the container.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 
-import type { ContentPart } from '#/kosong/contract/message';
-import { USER_PROMPT_ORIGIN, type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
+import type { ContentPart } from "#/llmProtocol/message";
+import {
+  USER_PROMPT_ORIGIN,
+  type ContextMessage,
+  type PromptOrigin,
+} from "#/agent/contextMemory/types";
 
-export type StepRequestState = 'pending' | 'materialized' | 'aborted';
+export type StepRequestState = "pending" | "materialized" | "aborted";
 
 export type StepRequestAdmission =
-  | 'newTurn'
-  | 'activeOrNewTurn'
-  | 'activeOrNextTurn'
-  | 'activeTurnOnly';
+  | "newTurn"
+  | "activeOrNewTurn"
+  | "activeOrNextTurn"
+  | "activeTurnOnly";
 
 export interface TurnSeed {
   readonly input: readonly ContentPart[];
@@ -44,12 +48,12 @@ export abstract class StepRequest {
   readonly turnScoped: boolean;
   readonly admission: StepRequestAdmission;
 
-  private _state: StepRequestState = 'pending';
+  private _state: StepRequestState = "pending";
 
   constructor(options: StepRequestOptions = {}) {
     this.mergeable = options.mergeable ?? false;
     this.turnScoped = options.turnScoped ?? true;
-    this.admission = options.admission ?? 'activeOrNextTurn';
+    this.admission = options.admission ?? "activeOrNextTurn";
   }
 
   get turnSeed(): TurnSeed | undefined {
@@ -61,12 +65,12 @@ export abstract class StepRequest {
   }
 
   get aborted(): boolean {
-    return this._state === 'aborted';
+    return this._state === "aborted";
   }
 
   abort(): boolean {
-    if (this._state !== 'pending') return false;
-    this._state = 'aborted';
+    if (this._state !== "pending") return false;
+    this._state = "aborted";
     this.onSettled();
     return true;
   }
@@ -76,8 +80,8 @@ export abstract class StepRequest {
   abstract resolveContextMessages(): readonly ContextMessage[];
 
   markMaterialized(): void {
-    if (this._state !== 'pending') return;
-    this._state = 'materialized';
+    if (this._state !== "pending") return;
+    this._state = "materialized";
     this.onSettled();
   }
 
@@ -96,7 +100,7 @@ export class MessageStepRequest extends StepRequest {
     options: MessageStepRequestOptions = {},
   ) {
     super(options);
-    this.kind = options.kind ?? 'message';
+    this.kind = options.kind ?? "message";
   }
 
   override get turnSeed(): TurnSeed {
@@ -113,7 +117,7 @@ export class ContinuationStepRequest extends StepRequest {
 
   constructor(options: MessageStepRequestOptions = {}) {
     super(options);
-    this.kind = options.kind ?? 'continuation';
+    this.kind = options.kind ?? "continuation";
   }
 
   resolveContextMessages(): readonly ContextMessage[] {

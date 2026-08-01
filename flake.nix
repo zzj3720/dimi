@@ -67,7 +67,6 @@
         ./packages/kap-server
         ./packages/kaos
         ./packages/klient
-        ./packages/kosong
         ./packages/minidb
         ./packages/node-sdk
         ./packages/oauth
@@ -94,7 +93,6 @@
         "@moonshot-ai/agent-core-v2"
         "@moonshot-ai/kap-server"
         "@moonshot-ai/kaos"
-        "@moonshot-ai/kosong"
         "@moonshot-ai/minidb"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
@@ -164,7 +162,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-f5Reo/6A2kV2G/yBY86eb2yHzL9m4OqcPbYRkwKQoxE=";
+              hash = "sha256-vXvWSqS7xRWL0yxIJ5zkCTJMKlbqJYthsOIybVKbYFQ=";
             };
 
             nativeBuildInputs = [

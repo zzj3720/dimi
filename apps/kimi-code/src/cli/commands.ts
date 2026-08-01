@@ -6,6 +6,7 @@ import { registerAcpCommand } from "./sub/acp";
 import { registerDoctorCommand } from "./sub/doctor";
 import { registerExportCommand } from "./sub/export";
 import { registerLoginCommand } from "./sub/login";
+import { registerLogoutCommand } from "./sub/logout";
 import { registerProviderCommand } from "./sub/provider";
 import { registerRemoteCommand } from "./sub/remote";
 import { registerVisCommand } from "./sub/vis";
@@ -28,7 +29,7 @@ export function createProgram(
     .configureHelp({ helpWidth: 100 })
     .helpOption("-h, --help", "Show help.")
     .usage("[options] [command]")
-    .addHelpText("after", "\nDocumentation:        https://moonshotai.github.io/kimi-code/\n");
+    .addHelpText("after", "\nDocumentation:        https://github.com/zzj3720/k-3720/tree/main/docs\n");
 
   program
     .addOption(
@@ -57,7 +58,7 @@ export function createProgram(
     .addOption(
       new Option(
         "-m, --model <model>",
-        "LLM model alias to use for this invocation. Defaults to default_model in config.toml.",
+        "LLM model reference (<provider>/<model>) for this invocation. Defaults to default_provider/default_model in config.toml.",
       ),
     )
     .addOption(
@@ -125,6 +126,7 @@ export function createProgram(
   registerAcpCommand(program);
   registerWebCommand(program);
   registerLoginCommand(program);
+  registerLogoutCommand(program);
   registerDoctorCommand(program);
   registerVisCommand(program);
   program

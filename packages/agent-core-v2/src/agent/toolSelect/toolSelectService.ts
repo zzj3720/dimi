@@ -11,20 +11,20 @@
  * at Agent scope.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
-import type { Tool } from '#/kosong/contract/tool';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { defineState } from "#/_base/state/stateRegistry";
+import { IEventBus } from "#/app/event/eventBus";
+import { IFlagService } from "#/app/flag/flag";
+import type { Tool } from "#/llmProtocol/tool";
+import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
+import type { ContextMessage } from "#/agent/contextMemory/types";
+import { IAgentProfileService } from "#/agent/profile/profile";
+import { IAgentStateService } from "#/agent/state/agentState";
+import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
+import { isMcpToolName, type ToolInfo } from "#/tool/toolContract";
+import { IAgentToolExecutorService } from "#/agent/toolExecutor/toolExecutor";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 
 import {
   collectLoadedDynamicToolNames,
@@ -32,17 +32,17 @@ import {
   foldAnnouncedToolNames,
   renderLoadableToolsAnnouncement,
   stripDynamicToolContext,
-} from './dynamicTools';
-import { TOOL_SELECT_FLAG_ID } from './flag';
+} from "./dynamicTools";
+import { TOOL_SELECT_FLAG_ID } from "./flag";
 import {
   IAgentToolSelectService,
   SELECT_TOOLS_TOOL_NAME,
   type LoadToolsResult,
   type ShapedToolEntry,
-} from './toolSelect';
+} from "./toolSelect";
 
 export const toolSelectPendingLoadedKey = defineState<Set<string>>(
-  'toolSelect.pendingLoaded',
+  "toolSelect.pendingLoaded",
   () => new Set(),
 );
 
@@ -68,12 +68,12 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
       toolExecutor.registerMissingToolDescriber((name) => this.describeMissingTool(name)),
     );
     this._register(
-      eventBus.subscribe('compaction.completed', () => {
+      eventBus.subscribe("compaction.completed", () => {
         this.pendingLoaded.clear();
       }),
     );
     this._register(
-      eventBus.subscribe('context.spliced', (splice) => {
+      eventBus.subscribe("context.spliced", (splice) => {
         if (splice.deleteCount === 0 || this.pendingLoaded.size === 0) return;
         this.dropPendingLoadedNotLanded();
       }),
@@ -117,7 +117,7 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
         continue;
       }
       if (!loaded.has(entry.name)) continue;
-      shaped.push({ ...entry, deferred: true });
+      shaped.push(entry);
     }
     return shaped;
   }
@@ -148,11 +148,11 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
         .map((name) => this.schemaOf(name))
         .filter((tool): tool is Tool => tool !== undefined);
       this.context.append({
-        role: 'system',
+        role: "system",
         content: [],
         toolCalls: [],
         tools,
-        origin: { kind: 'injection', variant: DYNAMIC_TOOL_SCHEMA_VARIANT },
+        origin: { kind: "injection", variant: DYNAMIC_TOOL_SCHEMA_VARIANT },
       });
       for (const name of toLoad) this.pendingLoaded.add(name);
     }
@@ -193,12 +193,12 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
     if (isMcpToolName(name)) {
       return (
         `Tool "${name}" was loaded but its MCP server is currently disconnected. ` +
-        'It may become available again when the server reconnects; do not retry immediately.'
+        "It may become available again when the server reconnects; do not retry immediately."
       );
     }
     return (
       `Tool "${name}" was loaded but is no longer registered. ` +
-      'Do not retry it unless it becomes available again.'
+      "Do not retry it unless it becomes available again."
     );
   }
 
@@ -207,8 +207,7 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
       .list()
       .filter(
         (info) =>
-          this.isDynamicallyLoadable(info) &&
-          this.toolPolicy.isToolActive(info.name, info.source),
+          this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
       )
       .map((info) => info.name)
       .toSorted((a, b) => a.localeCompare(b));
@@ -236,17 +235,14 @@ export class AgentToolSelectService extends Disposable implements IAgentToolSele
   private isLoadedToolActive(name: string): boolean {
     const info = this.toolRegistry.list().find((entry) => entry.name === name);
     if (info !== undefined) {
-      return (
-        this.isDynamicallyLoadable(info) &&
-        this.toolPolicy.isToolActive(name, info.source)
-      );
+      return this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(name, info.source);
     }
-    if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, 'mcp');
+    if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, "mcp");
     return false;
   }
 
   private isDynamicallyLoadable(info: ToolInfo): boolean {
-    return info.source === 'mcp' || info.disclosure === 'deferred';
+    return info.source === "mcp" || info.disclosure === "deferred";
   }
 
   private shapeActiveHistory(messages: readonly ContextMessage[]): readonly ContextMessage[] {
@@ -326,7 +322,7 @@ function notLoadedToolOutput(name: string): string {
 function inactiveLoadedToolOutput(name: string): string {
   return (
     `Tool "${name}" was loaded but is no longer active. ` +
-    'Ask the user to enable it before calling it again.'
+    "Ask the user to enable it before calling it again."
   );
 }
 
@@ -335,5 +331,5 @@ registerScopedService(
   IAgentToolSelectService,
   AgentToolSelectService,
   ScopeActivation.OnScopeCreated,
-  'toolSelect',
+  "toolSelect",
 );

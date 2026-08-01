@@ -12,16 +12,16 @@
  * Session-scoped — one instance per session.
  */
 
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { Event } from '#/_base/event';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { Turn } from '#/agent/loop/loop';
-import type { Hooks } from '#/hooks';
+import { createDecorator, type ServiceIdentifier } from "#/_base/di/instantiation";
+import type { Event } from "#/_base/event";
+import type { TokenUsage } from "#/llmProtocol/usage";
+import type { AgentProfileSummaryPolicy } from "#/app/agentProfileCatalog/agentProfileCatalog";
+import type { Turn } from "#/agent/loop/loop";
+import type { Hooks } from "#/hooks";
 
 export type AgentRunRequest =
-  | { readonly kind: 'prompt'; readonly prompt: string }
-  | { readonly kind: 'retry'; readonly trigger?: string };
+  | { readonly kind: "prompt"; readonly prompt: string }
+  | { readonly kind: "retry"; readonly trigger?: string };
 
 export interface RunAgentOptions {
   /** Cancellation signal. Aborting it cancels the agent's turn. */
@@ -97,4 +97,4 @@ export interface ISessionSubagentService {
 }
 
 export const ISessionSubagentService: ServiceIdentifier<ISessionSubagentService> =
-  createDecorator<ISessionSubagentService>('sessionSubagentService');
+  createDecorator<ISessionSubagentService>("sessionSubagentService");

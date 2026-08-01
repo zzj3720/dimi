@@ -18,9 +18,12 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  chatCompletionAllDoneChunks,
   createFakeProviderHarness,
+  isCompletionReview,
   type FakeProviderHarness,
-} from "../../../packages/kosong/test/e2e/fake-provider-harness";
+} from "../../../test/fixtures/fake-provider-harness";
+import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
 import { replaySessionToWebviewEvents } from "../src/runtime/replay-adapter";
 
 const MODEL_ALIAS = "vscode-replay-test";
@@ -47,22 +50,13 @@ async function createReplayRig(): Promise<ReplayRig> {
   const harness = createKimiHarness({
     homeDir,
     identity: { userAgentProduct: "kimi-code-vscode", version: "test" },
+    providerRuntime: createTestProviderRuntime({
+      providerId: "local",
+      modelId: MODEL_ALIAS,
+      baseUrl: `${provider.baseUrl}/v1`,
+    }),
   });
   await harness.setConfig({
-    providers: {
-      local: {
-        type: "kimi",
-        baseUrl: `${provider.baseUrl}/v1`,
-        apiKey: "sk-test",
-      },
-    },
-    models: {
-      [MODEL_ALIAS]: {
-        provider: "local",
-        model: "mock-model",
-        maxContextSize: 128_000,
-      },
-    },
     defaultModel: MODEL_ALIAS,
   });
   cleanups.push(async () => {
@@ -101,10 +95,7 @@ async function runPrompt(session: Session, prompt: string): Promise<void> {
   await ended;
 }
 
-function waitForEvent(
-  session: Session,
-  predicate: (event: Event) => boolean,
-): Promise<Event> {
+function waitForEvent(session: Session, predicate: (event: Event) => boolean): Promise<Event> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       unsubscribe();
@@ -125,7 +116,11 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     const filePath = join(rig.workDir, "sample.txt");
     await writeFile(filePath, "before\n", "utf8");
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-replay-done-${request.index}`));
+        return;
+      }
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [
@@ -201,12 +196,14 @@ describe("VS Code replay from a public Node SDK resume state", () => {
         payload: expect.objectContaining({
           tool_call_id: "write-call-1",
           return_value: expect.objectContaining({
-            display: [{
-              type: "diff",
-              path: join(rig.workDir, "created.txt"),
-              old_text: "",
-              new_text: "created content\n",
-            }],
+            display: [
+              {
+                type: "diff",
+                path: join(rig.workDir, "created.txt"),
+                old_text: "",
+                new_text: "created content\n",
+              },
+            ],
           }),
         }),
       }),
@@ -228,10 +225,12 @@ describe("VS Code replay from a public Node SDK resume state", () => {
         payload: expect.objectContaining({
           tool_call_id: "todo-call-1",
           return_value: expect.objectContaining({
-            display: [{
-              type: "todo",
-              items: [{ title: "Verify resume", status: "done" }],
-            }],
+            display: [
+              {
+                type: "todo",
+                items: [{ title: "Verify resume", status: "done" }],
+              },
+            ],
           }),
         }),
       }),
@@ -242,25 +241,31 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     const rig = await createReplayRig();
     const childAnswer = `Subagent restored evidence. ${"Detailed persisted finding. ".repeat(10)}`;
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-replay-done-${request.index}`));
+        return;
+      }
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [
           completionChunk({
-            tool_calls: [{
-              index: 0,
-              id: "agent-call-1",
-              type: "function",
-              function: {
-                name: "Agent",
-                arguments: JSON.stringify({
-                  prompt: "Inspect the workspace and report one finding.",
-                  description: "inspect workspace",
-                  subagent_type: "coder",
-                  run_in_background: false,
-                }),
+            tool_calls: [
+              {
+                index: 0,
+                id: "agent-call-1",
+                type: "function",
+                function: {
+                  name: "Agent",
+                  arguments: JSON.stringify({
+                    prompt: "Inspect the workspace and report one finding.",
+                    description: "inspect workspace",
+                    subagent_type: "coder",
+                    run_in_background: false,
+                  }),
+                },
               },
-            }],
+            ],
           }),
           completionChunk({}, "tool_calls"),
         ]);

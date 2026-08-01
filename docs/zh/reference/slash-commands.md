@@ -10,49 +10,50 @@
 
 ## 账号与配置
 
-| 命令 | 别名 | 说明 | 随时可用 |
-| --- | --- | --- | --- |
-| `/login` | — | 选择账号或平台并登录：Kimi Code 走 OAuth 验证码流程，Kimi Platform 通过 API 密钥登录 | 否 |
-| `/logout` | — | 清除当前所选账号的凭据 | 否 |
-| `/provider` | — | 打开交互式供应商管理器，查看、添加和删除已配置的供应商。详见[平台与模型 — `/provider` 与供应商管理](../configuration/providers.md#provider-—-交互式供应商管理) | 是 |
-| `/model` | — | 切换当前会话使用的 LLM 模型 | 是 |
-| `/secondary_model` | — | 配置子 Agent 使用的第二模型（写入 [`[secondary_model]`](../configuration/config-files.md#secondary-model) 配置并在当前会话立即生效）。需开启 `secondary-model` 实验功能 | 是 |
-| `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
-| `/experiments` | `/experimental` | 打开实验功能面板 | 是 |
-| `/permission` | — | 选择权限模式 | 是 |
-| `/editor` | — | 配置 `Ctrl-G` 调起的外部编辑器 | 是 |
-| `/theme` | — | 切换终端 UI 配色主题 | 是 |
+| 命令                              | 别名            | 说明                                                                                                                                                                    | 随时可用 |
+| --------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `/login [<provider>]`             | —               | 选择认证方式与供应商，或直接连接指定供应商；登录成功后打开该供应商的模型选择器                                                                                          | 否       |
+| `/logout`                         | —               | 选择供应商并删除其已保存凭证                                                                                                                                            | 否       |
+| `/provider [<provider>\|add\|import\|remove\|refresh]` | `/providers` | 连接供应商、添加/导入/移除 `models.json` 定义，或刷新动态目录。详见[供应商与模型](../configuration/providers.md) | 是 |
+| `/model`                          | —               | 切换当前会话使用的 LLM 模型；选择器使用模型声明的上下文限制和能力 | 是 |
+| `/effort [<level>]`               | `/thinking`      | 调整所选模型的 Thinking 档位，或打开 Thinking 选择器。仅显示声明的档位；没有档位映射的推理模型只有开/关 | 是 |
+| `/secondary_model`                | —               | 配置子 Agent 使用的第二模型（写入 [`[secondary_model]`](../configuration/config-files.md#secondary-model) 配置并在当前会话立即生效）。需开启 `secondary-model` 实验功能 | 是       |
+| `/settings`                       | `/config`       | 打开 TUI 内的设置面板                                                                                                                                                   | 是       |
+| `/experiments`                    | `/experimental` | 打开实验功能面板                                                                                                                                                        | 是       |
+| `/permission`                     | —               | 选择权限模式                                                                                                                                                            | 是       |
+| `/editor`                         | —               | 配置 `Ctrl-G` 调起的外部编辑器                                                                                                                                          | 是       |
+| `/theme`                          | —               | 切换终端 UI 配色主题                                                                                                                                                    | 是       |
 
 ## 会话管理
 
-| 命令 | 别名 | 说明 | 随时可用 |
-| --- | --- | --- | --- |
-| `/new` | `/clear` | 开启全新会话，丢弃当前上下文 | 否 |
-| `/sessions` | `/resume` | 浏览历史会话并切换/恢复 | 否 |
-| `/tasks` | `/task` | 浏览后台任务列表 | 是 |
-| `/fork` | — | 基于当前会话 fork 一份新会话，保留完整对话历史 | 否 |
-| `/title [<text>]` | `/rename` | 不带参数时显示当前会话标题；带参数时设置为新标题（最长 200 字符） | 是 |
-| `/compact [<instruction>]` | — | 压缩当前对话上下文，释放 token 占用；可附带自定义指令，提示模型压缩时保留哪些信息 | 否 |
-| `/undo [<count>]` | — | 从当前上下文撤销最近的提示词。不带数量时打开选择器；带数量时撤销对应条数。最后一次上下文压缩之前的提示词不能撤销。撤销会一并回滚这些提示词产生的 todo 列表和计划模式状态（不回滚代码改动） | 否 |
-| `/init` | — | 分析当前代码库并生成 `AGENTS.md` | 否 |
-| `/export-md [<path>]` | `/export` | 将当前会话导出为 Markdown 文件 | 否 |
-| `/export-debug-zip` | — | 将当前会话导出为调试用 ZIP 压缩包（与 [`kimi export`](./kimi-command.md#kimi-export) 行为一致） | 否 |
-| `/copy` | — | 将最后一条 AI 回复复制到剪贴板 | 否 |
-| `/add-dir [<path>]` | — | 为当前会话添加额外的工作目录。不带路径（或传入 `list`）运行时列出已配置的目录。添加时可选择是否将目录记入项目的 `.kimi-code/local.toml` | 否 |
-| `/web` | — | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web) | 是 |
-| `/remote start\|pair\|stop` | — | 开启或关闭加密的移动端 remote，或生成一次性二维码配对新设备。已配对设备会自动重连；启用期间状态栏显示实时 relay 状态。参见 [`kimi remote`](./kimi-command.md#kimi-remote) | 是 |
+| 命令                       | 别名      | 说明                                                                                                                                                                                       | 随时可用 |
+| -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `/new`                     | `/clear`  | 开启全新会话，丢弃当前上下文                                                                                                                                                               | 否       |
+| `/sessions`                | `/resume` | 浏览历史会话并切换/恢复                                                                                                                                                                    | 否       |
+| `/tasks`                   | `/task`   | 浏览后台任务列表                                                                                                                                                                           | 是       |
+| `/fork`                    | —         | 基于当前会话 fork 一份新会话，保留完整对话历史                                                                                                                                             | 否       |
+| `/title [<text>]`          | `/rename` | 不带参数时显示当前会话标题；带参数时设置为新标题（最长 200 字符）                                                                                                                          | 是       |
+| `/compact [<instruction>]` | —         | 压缩当前对话上下文，释放 token 占用；可附带自定义指令，提示模型压缩时保留哪些信息                                                                                                          | 否       |
+| `/undo [<count>]`          | —         | 从当前上下文撤销最近的提示词。不带数量时打开选择器；带数量时撤销对应条数。最后一次上下文压缩之前的提示词不能撤销。撤销会一并回滚这些提示词产生的 todo 列表和计划模式状态（不回滚代码改动） | 否       |
+| `/init`                    | —         | 分析当前代码库并生成 `AGENTS.md`                                                                                                                                                           | 否       |
+| `/export-md [<path>]`      | `/export` | 将当前会话导出为 Markdown 文件                                                                                                                                                             | 否       |
+| `/export-debug-zip`        | —         | 将当前会话导出为调试用 ZIP 压缩包（与 [`kimi export`](./kimi-command.md#kimi-export) 行为一致）                                                                                            | 否       |
+| `/copy`                    | —         | 将最后一条 AI 回复复制到剪贴板                                                                                                                                                             | 否       |
+| `/add-dir [<path>]`        | —         | 为当前会话添加额外的工作目录。不带路径（或传入 `list`）运行时列出已配置的目录。添加时可选择是否将目录记入项目的 `.kimi-code/local.toml`                                                    | 否       |
+| `/web`                     | —         | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web)                                                   | 是       |
+| `/remote start\|pair\|stop` | —         | 开启或关闭加密的移动端 remote，或生成一次性二维码配对新设备。已配对设备会自动重连；启用期间状态栏显示实时 relay 状态。参见 [`kimi remote`](./kimi-command.md#kimi-remote)                    | 是       |
 
 ## 模式与运行控制
 
-| 命令 | 别名 | 说明 | 随时可用 |
-| --- | --- | --- | --- |
-| `/yolo [on\|off]` | `/yes` | 切换 YOLO 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。开启后跳过普通工具调用审批；Plan 模式的退出审批不受影响 | 是 |
-| `/auto [on\|off]` | — | 切换 auto 权限模式。开启后工具审批自动处理，Agent 不会向用户提问 | 是 |
-| `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
-| `/plan clear` | — | 清除当前 plan 方案 | 否 |
-| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 是 |
-| `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到 `auto` 或 `yolo`。 | 否 |
-| `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
+| 命令              | 别名   | 说明                                                                                                                                                                  | 随时可用 |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `/yolo [on\|off]` | `/yes` | 切换 YOLO 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。开启后跳过普通工具调用审批；Plan 模式的退出审批不受影响                                                 | 是       |
+| `/auto [on\|off]` | —      | 切换 auto 权限模式。开启后工具审批自动处理，Agent 不会向用户提问                                                                                                      | 是       |
+| `/plan [on\|off]` | —      | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件                                                                              | 是       |
+| `/plan clear`     | —      | 清除当前 plan 方案                                                                                                                                                    | 否       |
+| `/swarm on\|off`  | —      | 开启或关闭 swarm mode，但不发送提示词。                                                                                                                               | 是       |
+| `/swarm <task>`   | —      | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到 `auto` 或 `yolo`。 | 否       |
+| `/goal [...]`     | —      | 开始或管理目标模式                                                                                                                                                    | 见下文   |
 
 ::: warning 注意
 `/yolo` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/yolo` 跳过；Plan 模式下的 `Bash` 也按 `/yolo` 的普通放行规则处理。
@@ -66,15 +67,15 @@
 /goal 更新 checkout 文档，运行 docs build，如果 20 轮后仍被阻塞就停止
 ```
 
-| 命令 | 作用 | 可用性 |
-| --- | --- | --- |
-| `/goal` 或 `/goal status` | 显示当前目标及其状态、已用时间、轮次数、token 数 | 随时可用 |
-| `/goal pause` | 暂停当前的目标，但不删除 | 随时可用 |
-| `/goal resume` | 继续被暂停或被阻塞的目标 | 仅空闲时 |
-| `/goal cancel` | 移除当前目标 | 随时可用 |
-| `/goal replace <objective>` | 用新目标替换已保存的目标 | 仅空闲时 |
-| `/goal next <objective>` | 为当前会话安排一个后续目标。如果当前没有目标，则立即开始它。当前目标完成前，Agent 不会看到已排队的目标 | 随时可用 |
-| `/goal next manage` | 打开后续目标管理器。用 <kbd>↑</kbd> / <kbd>↓</kbd> 浏览，<kbd>Space</kbd> 选择一个目标以便移动，选中后用 <kbd>↑</kbd> / <kbd>↓</kbd> 调整顺序，<kbd>E</kbd> 编辑，<kbd>D</kbd> 删除，<kbd>Esc</kbd> 取消。编辑输入框中，用 <kbd>Shift-Enter</kbd> 或 <kbd>Ctrl-J</kbd> 添加新行，用 <kbd>Enter</kbd> 保存 | 随时可用 |
+| 命令                        | 作用                                                                                                                                                                                                                                                                                                      | 可用性   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `/goal` 或 `/goal status`   | 显示当前目标及其状态、已用时间、轮次数、token 数                                                                                                                                                                                                                                                          | 随时可用 |
+| `/goal pause`               | 暂停当前的目标，但不删除                                                                                                                                                                                                                                                                                  | 随时可用 |
+| `/goal resume`              | 继续被暂停或被阻塞的目标                                                                                                                                                                                                                                                                                  | 仅空闲时 |
+| `/goal cancel`              | 移除当前目标                                                                                                                                                                                                                                                                                              | 随时可用 |
+| `/goal replace <objective>` | 用新目标替换已保存的目标                                                                                                                                                                                                                                                                                  | 仅空闲时 |
+| `/goal next <objective>`    | 为当前会话安排一个后续目标。如果当前没有目标，则立即开始它。当前目标完成前，Agent 不会看到已排队的目标                                                                                                                                                                                                    | 随时可用 |
+| `/goal next manage`         | 打开后续目标管理器。用 <kbd>↑</kbd> / <kbd>↓</kbd> 浏览，<kbd>Space</kbd> 选择一个目标以便移动，选中后用 <kbd>↑</kbd> / <kbd>↓</kbd> 调整顺序，<kbd>E</kbd> 编辑，<kbd>D</kbd> 删除，<kbd>Esc</kbd> 取消。编辑输入框中，用 <kbd>Shift-Enter</kbd> 或 <kbd>Ctrl-J</kbd> 添加新行，用 <kbd>Enter</kbd> 保存 | 随时可用 |
 
 `status`、`pause`、`resume`、`cancel`、`replace` 和 `next` 只有作为 `/goal` 后的第一个词时才是子命令。如果你的目标需要以这些词开头，请在目标前加 `--`：
 
@@ -98,35 +99,35 @@ Prompt 模式在目标完成时以退出码 `0` 退出，在目标阻塞时以 `
 
 ## 信息与状态
 
-| 命令 | 别名 | 说明 | 随时可用 |
-| --- | --- | --- | --- |
-| `/help` | `/h`、`/?` | 显示快捷键和所有可用命令 | 是 |
-| `/btw [问题]` | — | 在 fork 出的子 Agent 中打开旁路对话，不改变当前主 Agent 轮次；不带问题时会先打开面板等待输入 | 是 |
-| `/usage` | — | 显示 token 用量、上下文占用以及配额信息 | 是 |
-| `/status` | — | 显示当前会话运行时状态：版本、模型、工作目录、权限模式等 | 是 |
-| `/mcp` | — | 列出当前会话中的 MCP server 及连接状态 | 是 |
-| `/plugins` | — | 打开交互式 plugin 管理器 | 是 |
-| `/version` | — | 显示 Kimi Code CLI 版本号 | 是 |
-| `/feedback` | — | 提交反馈，可附加诊断日志和代码库上下文 | 是 |
+| 命令          | 别名       | 说明                                                                                         | 随时可用 |
+| ------------- | ---------- | -------------------------------------------------------------------------------------------- | -------- |
+| `/help`       | `/h`、`/?` | 显示快捷键和所有可用命令                                                                     | 是       |
+| `/btw [问题]` | —          | 在 fork 出的子 Agent 中打开旁路对话，不改变当前主 Agent 轮次；不带问题时会先打开面板等待输入 | 是       |
+| `/usage`      | —          | 显示 token 用量、上下文占用以及配额信息                                                      | 是       |
+| `/status`     | —          | 显示当前会话运行时状态：版本、模型、工作目录、权限模式等                                     | 是       |
+| `/mcp`        | —          | 列出当前会话中的 MCP server 及连接状态                                                       | 是       |
+| `/plugins`    | —          | 打开交互式 plugin 管理器                                                                     | 是       |
+| `/version`    | —          | 显示 Kimi Code CLI 版本号                                                                    | 是       |
+| `/feedback`   | —          | 提交反馈，可附加诊断日志和代码库上下文                                                       | 是       |
 
 ## 退出
 
-| 命令 | 别名 | 说明 | 随时可用 |
-| --- | --- | --- | --- |
-| `/exit` | `/quit`、`/q` | 退出 Kimi Code CLI | 否 |
+| 命令    | 别名          | 说明               | 随时可用 |
+| ------- | ------------- | ------------------ | -------- |
+| `/exit` | `/quit`、`/q` | 退出 Kimi Code CLI | 否       |
 
 ## 内置 Skill 命令
 
 Kimi Code CLI 随包内置了一组 Skill，直接以 `/<name>` 形式出现在斜杠命令面板中。与外部 Skill 不同，它们不需要 `skill:` 前缀，开箱即用。
 
-| 命令 | 说明 |
-| --- | --- |
-| `/mcp-config` | 配置 MCP server 并处理 MCP OAuth 登录。详见 [MCP](../customization/mcp.md) |
-| `/custom-theme [<text>]` | 创建或编辑自定义 TUI 配色主题。详见 [主题](../customization/themes.md) |
-| `/update-config` | 查看或编辑 `config.toml`（模型、供应商、权限、hooks）和 `tui.toml`（主题、编辑器、通知、自动更新） |
-| `/check-kimi-code-docs` | 依据官方文档回答 Kimi Code 产品问题（CLI 用法、配置、会员、错误码） |
-| `/import-from-cc-codex` | 从 Claude Code 和 Codex 导入 instructions、skills 和 MCP 设置 |
-| `/sub-skill` | 发现并将本地 skill 库存重组为分层子 skill 包。包含 `/sub-skill.review`（只读提案）和 `/sub-skill.consolidate`（执行重组） |
+| 命令                     | 说明                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `/mcp-config`            | 配置 MCP server 并处理 MCP OAuth 登录。详见 [MCP](../customization/mcp.md)                                                |
+| `/custom-theme [<text>]` | 创建或编辑自定义 TUI 配色主题。详见 [主题](../customization/themes.md)                                                    |
+| `/update-config`         | 查看或编辑 `config.toml`（模型、供应商、权限、hooks）和 `tui.toml`（主题、编辑器、通知、自动更新）                        |
+| `/check-kimi-code-docs`  | 依据官方文档回答 Kimi Code 产品问题（CLI 用法、配置、会员、错误码）                                                       |
+| `/import-from-cc-codex`  | 从 Claude Code 和 Codex 导入 instructions、skills 和 MCP 设置                                                             |
+| `/sub-skill`             | 发现并将本地 skill 库存重组为分层子 skill 包。包含 `/sub-skill.review`（只读提案）和 `/sub-skill.consolidate`（执行重组） |
 
 所有内置 Skill 命令仅在空闲状态下可用。
 

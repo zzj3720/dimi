@@ -3,15 +3,19 @@
  * for live rewrites, wire replay, and snapshot reducers.
  */
 
-import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
-import type { ContentPart } from '#/kosong/contract/message';
-import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
-import type { ContextMessage, PromptOrigin } from './types';
+import {
+  estimateTokens,
+  estimateTokensForMessage,
+  estimateTokensForMessages,
+} from "#/llmProtocol/tokens";
+import type { ContentPart } from "#/llmProtocol/message";
+import summaryPrefixTemplate from "./compaction-summary-prefix.md?raw";
+import type { ContextMessage, PromptOrigin } from "./types";
 
 export const COMPACTION_SUMMARY_PREFIX = summaryPrefixTemplate.trimEnd();
 export const COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000;
 export const COMPACT_USER_MESSAGE_HEAD_TOKENS = 2_000;
-export const COMPACTION_ELISION_VARIANT = 'compaction_elision';
+export const COMPACTION_ELISION_VARIANT = "compaction_elision";
 
 type MessageLike = ContextMessage;
 
@@ -52,9 +56,10 @@ export function buildContextCompactionShape(
   const elisionMessage = selection.elided
     ? createCompactionElisionMessage(selection.omittedTokens)
     : undefined;
-  const keptMessages = elisionMessage === undefined
-    ? [...selection.head, ...selection.tail]
-    : [...selection.head, elisionMessage, ...selection.tail];
+  const keptMessages =
+    elisionMessage === undefined
+      ? [...selection.head, ...selection.tail]
+      : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const tokensAfter =
     input.tokensAfter ?? estimateTokens(contextSummary) + estimateTokensForMessages(keptMessages);
@@ -76,33 +81,33 @@ export function buildContextCompactionShape(
 
 export function buildCompactionSummaryText(summary: string): string {
   const suffix = summary.trim();
-  return `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : '(no summary available)'}`;
+  return `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : "(no summary available)"}`;
 }
 
 export function createCompactionSummaryMessage(text: string): ContextMessage {
   return {
-    role: 'user',
-    content: [{ type: 'text', text }],
+    role: "user",
+    content: [{ type: "text", text }],
     toolCalls: [],
-    origin: { kind: 'compaction_summary' },
+    origin: { kind: "compaction_summary" },
   };
 }
 
 export function createCompactionElisionMessage(omittedTokens: number): ContextMessage {
   return {
-    role: 'user',
-    content: [{ type: 'text', text: buildCompactionElisionText(omittedTokens) }],
+    role: "user",
+    content: [{ type: "text", text: buildCompactionElisionText(omittedTokens) }],
     toolCalls: [],
-    origin: { kind: 'injection', variant: COMPACTION_ELISION_VARIANT },
+    origin: { kind: "injection", variant: COMPACTION_ELISION_VARIANT },
   };
 }
 
 export function buildCompactionElisionText(omittedTokens: number): string {
   return [
-    '<system-reminder>',
+    "<system-reminder>",
     `Some of this conversation's user messages were omitted here during compaction: the messages above this note are the oldest user input, the messages below are the most recent, and roughly ${String(omittedTokens)} tokens in between were dropped. The omitted content is covered by the compaction summary at the end of the conversation.`,
-    '</system-reminder>',
-  ].join('\n');
+    "</system-reminder>",
+  ].join("\n");
 }
 
 export function collectCompactableUserMessages<T extends MessageLike>(messages: readonly T[]): T[] {
@@ -112,37 +117,37 @@ export function collectCompactableUserMessages<T extends MessageLike>(messages: 
 }
 
 export function isCompactionSummaryMessage(message: MessageLike): boolean {
-  return message.origin?.kind === 'compaction_summary';
+  return message.origin?.kind === "compaction_summary";
 }
 
 export function isRealUserInput(message: MessageLike): boolean {
-  return message.role === 'user' && compactionUserMessageDisposition(message.origin) === 'keep';
+  return message.role === "user" && compactionUserMessageDisposition(message.origin) === "keep";
 }
 
 export function compactionUserMessageDisposition(
   origin: PromptOrigin | undefined,
-): 'keep' | 'drop' {
-  if (origin === undefined) return 'keep';
+): "keep" | "drop" {
+  if (origin === undefined) return "keep";
   switch (origin.kind) {
-    case 'user':
-      return 'keep';
-    case 'skill_activation':
-    case 'plugin_command':
-      return origin.trigger === 'user-slash' ? 'keep' : 'drop';
-    case 'injection':
-    case 'shell_command':
-    case 'compaction_summary':
-    case 'system_trigger':
-    case 'task':
-    case 'cron_job':
-    case 'cron_missed':
-    case 'hook_result':
-    case 'retry':
-      return 'drop';
+    case "user":
+      return "keep";
+    case "skill_activation":
+    case "plugin_command":
+      return origin.trigger === "user-slash" ? "keep" : "drop";
+    case "injection":
+    case "shell_command":
+    case "compaction_summary":
+    case "system_trigger":
+    case "task":
+    case "cron_job":
+    case "cron_missed":
+    case "hook_result":
+    case "retry":
+      return "drop";
     default: {
       const exhaustive: never = origin;
       void exhaustive;
-      return 'drop';
+      return "drop";
     }
   }
 }
@@ -233,9 +238,9 @@ export function selectCompactionUserMessages<T extends MessageLike>(
 }
 
 function extractText(content: readonly ContentPart[]): string {
-  let text = '';
+  let text = "";
   for (const part of content) {
-    if (part.type === 'text') {
+    if (part.type === "text") {
       text += part.text;
     }
   }
@@ -243,7 +248,7 @@ function extractText(content: readonly ContentPart[]): string {
 }
 
 function truncateTextToTokens(text: string, maxTokens: number): string {
-  if (maxTokens <= 0) return '';
+  if (maxTokens <= 0) return "";
   let asciiCount = 0;
   let nonAsciiCount = 0;
   let end = 0;
@@ -260,7 +265,7 @@ function truncateTextToTokens(text: string, maxTokens: number): string {
 }
 
 function truncateTextToTokensFromEnd(text: string, maxTokens: number): string {
-  if (maxTokens <= 0) return '';
+  if (maxTokens <= 0) return "";
   let asciiCount = 0;
   let nonAsciiCount = 0;
   let start = text.length;
@@ -289,7 +294,7 @@ function truncateTextToTokensFromEnd(text: string, maxTokens: number): string {
 function replaceMessageText<T extends MessageLike>(message: T, text: string): T {
   return {
     ...message,
-    content: [{ type: 'text', text }],
+    content: [{ type: "text", text }],
     toolCalls: [],
   } as unknown as T;
 }

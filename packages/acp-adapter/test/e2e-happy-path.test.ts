@@ -42,7 +42,7 @@ import {
 import type { Event, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS, makeModelsMap } from './_helpers/harness-stubs';
+import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
 
 class CollectingClient implements Client {
   readonly updates: SessionNotification[] = [];
@@ -120,14 +120,17 @@ function makeScriptedSession(
 }
 
 function makeHarness(session: Session): KimiHarness {
+  const models = makeProviderModels([
+    { id: 'test/kimi-coder', name: 'Kimi Coder' },
+  ]);
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth({ models }),
     createSession: async () => session,
     // Phase 14: server.newSession reads these for configOptions.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'kimi-coder',
-      models: makeModelsMap([{ id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: false }]),
+      defaultModel: 'test/kimi-coder',
+      models,
     }),
   } as unknown as KimiHarness;
 }
@@ -140,7 +143,7 @@ describe('AcpServer end-to-end happy path', () => {
     // handshake to lock the capability surface. `createSession` would
     // throw if it were ever called.
     const harness = {
-      auth: { status: async () => AUTHED_STATUS },
+      auth: makeAuth(),
       createSession: async () => {
         throw new Error('createSession should not be called from initialize-only test');
       },

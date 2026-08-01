@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   configuredModel,
+  qualifiedDefaultModel,
   installPromptTerminationCleanup,
   raceWithTimeout,
   requireConfiguredModel,
@@ -63,6 +64,14 @@ describe('prompt lifecycle helpers', () => {
     expect(configuredModel(undefined, ' ', 'grok-code')).toBe('grok-code');
     expect(requireConfiguredModel(undefined, 'grok-code')).toBe('grok-code');
     expect(() => requireConfiguredModel(undefined, ' ')).toThrow('No model configured');
+  });
+
+  it('qualifies the persisted model with its provider for the runtime lookup', () => {
+    expect(qualifiedDefaultModel('xai', 'grok-4.5')).toBe('xai/grok-4.5');
+    expect(qualifiedDefaultModel('xai', 'xai/grok-4.5')).toBe('xai/grok-4.5');
+    expect(qualifiedDefaultModel('openrouter', 'anthropic/claude-sonnet-4')).toBe(
+      'openrouter/anthropic/claude-sonnet-4',
+    );
   });
 
   it('surfaces an early cleanup failure', async () => {

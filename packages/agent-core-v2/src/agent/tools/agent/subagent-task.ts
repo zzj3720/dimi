@@ -1,11 +1,7 @@
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from "#/llmProtocol/usage";
 
-import { isAbortError } from '#/_base/utils/abort';
-import {
-  type AgentTask,
-  type AgentTaskInfoBase,
-  type AgentTaskSink,
-} from '#/agent/task/types';
+import { isAbortError } from "#/_base/utils/abort";
+import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from "#/agent/task/types";
 
 type SubagentCompletion = {
   readonly result: string;
@@ -19,12 +15,12 @@ export type SubagentHandle = {
 };
 
 export interface SubagentTaskInfo extends AgentTaskInfoBase {
-  readonly kind: 'agent';
+  readonly kind: "agent";
   readonly agentId?: string;
   readonly subagentType?: string;
 }
 
-declare module '#/agent/task/types' {
+declare module "#/agent/task/types" {
   interface AgentTaskInfoByKind {
     readonly agent: SubagentTaskInfo;
   }
@@ -45,7 +41,7 @@ export function createSubagentExecutor(
     if (signal.aborted) {
       requestAbort();
     } else {
-      signal.addEventListener('abort', requestAbort, { once: true });
+      signal.addEventListener("abort", requestAbort, { once: true });
     }
 
     try {
@@ -58,14 +54,14 @@ export function createSubagentExecutor(
       }
       throw error;
     } finally {
-      signal.removeEventListener('abort', requestAbort);
+      signal.removeEventListener("abort", requestAbort);
     }
   };
 }
 
 export class SubagentTask implements AgentTask {
-  readonly kind = 'agent' as const;
-  readonly idPrefix: string = 'agent';
+  readonly kind = "agent" as const;
+  readonly idPrefix: string = "agent";
   readonly agentId: string;
   readonly subagentType: string;
 
@@ -85,28 +81,28 @@ export class SubagentTask implements AgentTask {
     if (sink.signal.aborted) {
       requestAbort();
     } else {
-      sink.signal.addEventListener('abort', requestAbort, { once: true });
+      sink.signal.addEventListener("abort", requestAbort, { once: true });
     }
 
     try {
       const outcome = await this.handle.completion;
       sink.appendOutput(outcome.result);
-      await sink.settle({ status: 'completed' });
+      await sink.settle({ status: "completed" });
     } catch (error: unknown) {
       if (sink.signal.aborted && (isAbortError(error) || error === sink.signal.reason)) {
-        await sink.settle({ status: 'killed' });
+        await sink.settle({ status: "killed" });
         return;
       }
-      await sink.settle({ status: 'failed', stopReason: errorMessage(error) });
+      await sink.settle({ status: "failed", stopReason: errorMessage(error) });
     } finally {
-      sink.signal.removeEventListener('abort', requestAbort);
+      sink.signal.removeEventListener("abort", requestAbort);
     }
   }
 
   toInfo(base: AgentTaskInfoBase): SubagentTaskInfo {
     return {
       ...base,
-      kind: 'agent',
+      kind: "agent",
       agentId: this.agentId,
       subagentType: this.subagentType,
     };

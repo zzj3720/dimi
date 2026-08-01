@@ -2,35 +2,38 @@
  * `kimi login`
  *
  * Verifies that the login sub-command is registered on the program and
- * that the action drives `harness.auth.login`, prints the device code to
- * stderr, and exits with the right code on success / failure.
+ * that the action resolves a provider method, drives `harness.auth.login`,
+ * prints device-code state to stderr, and exits with the right code.
  */
 
-import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Command } from "commander";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createKimiHarness } from "@moonshot-ai/kimi-code-sdk";
+
+import { registerLoginCommand } from "#/cli/sub/login";
+import { openUrl } from "#/utils/open-url";
 
 const mockLogin = vi.fn();
+const mockProviders = vi.fn();
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@moonshot-ai/kimi-code-sdk')>(
-    '@moonshot-ai/kimi-code-sdk',
+vi.mock("@moonshot-ai/kimi-code-sdk", async () => {
+  const actual = await vi.importActual<typeof import("@moonshot-ai/kimi-code-sdk")>(
+    "@moonshot-ai/kimi-code-sdk",
   );
   return {
     ...actual,
     createKimiHarness: vi.fn(() => ({
       auth: {
         login: mockLogin,
+        providers: mockProviders,
       },
+      close: vi.fn(),
     })),
   };
 });
 
-vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
-
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
-
-import { registerLoginCommand } from '#/cli/sub/login';
-import { openUrl } from '#/utils/open-url';
+vi.mock("#/utils/open-url", () => ({ openUrl: vi.fn() }));
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
@@ -38,18 +41,27 @@ class ExitCalled extends Error {
   }
 }
 
-describe('kimi login', () => {
+describe("kimi login", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mockLogin.mockReset();
+    mockProviders.mockReset();
+    mockProviders.mockResolvedValue([
+      {
+        id: "kimi-coding",
+        name: "Kimi Code",
+        configured: false,
+        methods: [{ type: "oauth" }],
+      },
+    ]);
     vi.mocked(openUrl).mockReset();
     vi.mocked(createKimiHarness).mockClear();
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -57,121 +69,120 @@ describe('kimi login', () => {
     stderrSpy.mockRestore();
   });
 
-  it('registers a `login` subcommand on the program', () => {
-    const program = new Command('kimi');
+  it("registers a `login` subcommand on the program", () => {
+    const program = new Command("kimi");
     registerLoginCommand(program);
 
-    const login = program.commands.find((c) => c.name() === 'login');
+    const login = program.commands.find((c) => c.name() === "login");
     expect(login).toBeDefined();
-    expect(login?.description()).toMatch(/[Aa]uthenticat/);
+    expect(login?.description()).toMatch(/[Cc]onnect/);
   });
 
-  it('invokes harness.auth.login and exits 0 on success', async () => {
-    mockLogin.mockResolvedValue({ providerName: 'kimi-code', ok: true });
+  it("invokes harness.auth.login and exits 0 on success", async () => {
+    mockLogin.mockResolvedValue({ provider: "kimi-coding", credentialType: "oauth", models: [] });
 
-    const program = new Command('kimi').exitOverride();
+    const program = new Command("kimi").exitOverride();
     registerLoginCommand(program);
 
-    await expect(program.parseAsync(['node', 'kimi', 'login'])).rejects.toThrow(ExitCalled);
+    await expect(program.parseAsync(["node", "kimi", "login"])).rejects.toThrow(ExitCalled);
 
     expect(mockLogin).toHaveBeenCalledTimes(1);
     expect(mockLogin).toHaveBeenCalledWith(
-      undefined,
+      "kimi-coding",
+      "oauth",
       expect.objectContaining({
         signal: expect.any(AbortSignal),
-        onDeviceCode: expect.any(Function),
+        notify: expect.any(Function),
       }),
     );
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('prints device code prompt to stderr', async () => {
+  it("prints device code prompt to stderr", async () => {
     mockLogin.mockImplementation(
       async (
-        _providerName: string | undefined,
+        _providerName: string,
+        _method: string,
         options: {
-          onDeviceCode?: (data: {
+          notify?: (data: {
+            type: "device_code";
             userCode: string;
             verificationUri: string;
-            verificationUriComplete: string;
-            expiresIn: number | null;
-          }) => void | Promise<void>;
+          }) => void;
         },
       ) => {
-        await options.onDeviceCode?.({
-          userCode: 'ABCD-EFGH',
-          verificationUri: 'https://example.com/v',
-          verificationUriComplete: 'https://example.com/v?code=ABCD-EFGH',
-          expiresIn: 600,
+        options.notify?.({
+          type: "device_code",
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://example.com/v",
         });
-        return { providerName: 'kimi-code', ok: true };
+        return { provider: "kimi-coding", credentialType: "oauth", models: [] };
       },
     );
 
-    const program = new Command('kimi').exitOverride();
+    const program = new Command("kimi").exitOverride();
     registerLoginCommand(program);
 
-    await expect(program.parseAsync(['node', 'kimi', 'login'])).rejects.toThrow(ExitCalled);
+    await expect(program.parseAsync(["node", "kimi", "login"])).rejects.toThrow(ExitCalled);
 
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
-    expect(writtenChunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
+    expect(writtenChunks.some((chunk: string) => chunk.includes("ABCD-EFGH"))).toBe(true);
+    expect(writtenChunks.some((chunk: string) => chunk.includes("https://example.com/v"))).toBe(
       true,
     );
-    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/v");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('still prints device code prompt when opening the browser fails', async () => {
+  it("still prints device code prompt when opening the browser fails", async () => {
     vi.mocked(openUrl).mockImplementation(() => {
-      throw new Error('no browser');
+      throw new Error("no browser");
     });
     mockLogin.mockImplementation(
       async (
-        _providerName: string | undefined,
+        _providerName: string,
+        _method: string,
         options: {
-          onDeviceCode?: (data: {
+          notify?: (data: {
+            type: "device_code";
             userCode: string;
             verificationUri: string;
-            verificationUriComplete: string;
-            expiresIn: number | null;
-          }) => void | Promise<void>;
+          }) => void;
         },
       ) => {
-        await options.onDeviceCode?.({
-          userCode: 'ABCD-EFGH',
-          verificationUri: 'https://example.com/v',
-          verificationUriComplete: 'https://example.com/v?code=ABCD-EFGH',
-          expiresIn: 600,
+        options.notify?.({
+          type: "device_code",
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://example.com/v",
         });
-        return { providerName: 'kimi-code', ok: true };
+        return { provider: "kimi-coding", credentialType: "oauth", models: [] };
       },
     );
 
-    const program = new Command('kimi').exitOverride();
+    const program = new Command("kimi").exitOverride();
     registerLoginCommand(program);
 
-    await expect(program.parseAsync(['node', 'kimi', 'login'])).rejects.toThrow(ExitCalled);
+    await expect(program.parseAsync(["node", "kimi", "login"])).rejects.toThrow(ExitCalled);
 
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
-    expect(writtenChunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
+    expect(writtenChunks.some((chunk: string) => chunk.includes("ABCD-EFGH"))).toBe(true);
+    expect(writtenChunks.some((chunk: string) => chunk.includes("https://example.com/v"))).toBe(
       true,
     );
-    expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/v");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('exits 1 when auth.login throws', async () => {
-    mockLogin.mockRejectedValue(new Error('boom'));
+  it("exits 1 when auth.login throws", async () => {
+    mockLogin.mockRejectedValue(new Error("boom"));
 
-    const program = new Command('kimi').exitOverride();
+    const program = new Command("kimi").exitOverride();
     registerLoginCommand(program);
 
-    await expect(program.parseAsync(['node', 'kimi', 'login'])).rejects.toThrow(ExitCalled);
+    await expect(program.parseAsync(["node", "kimi", "login"])).rejects.toThrow(ExitCalled);
 
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
-    expect(writtenChunks.some((chunk: string) => chunk.includes('boom'))).toBe(true);
+    expect(writtenChunks.some((chunk: string) => chunk.includes("boom"))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });

@@ -38,10 +38,7 @@ import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
-import {
-  OAUTH_LOGIN_REQUIRED_CODE,
-  OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
-} from '../constant/kimi-tui';
+import { AUTH_LOGIN_REQUIRED_CODE, AUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/kimi-tui';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   argsRecord,
@@ -261,45 +258,103 @@ export class SessionEventHandler {
     }
 
     switch (event.type) {
-      case 'turn.started': this.handleTurnBegin(event); break;
-      case 'turn.ended': this.handleTurnEnd(event, sendQueued); break;
-      case 'turn.step.started': this.handleStepBegin(event); break;
-      case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
-      case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': break;
-      case 'tool.progress': this.handleToolProgress(event); break;
-      case 'shell.output': this.host.handleShellOutput(event); break;
-      case 'shell.started': this.host.handleShellStarted(event); break;
-      case 'assistant.delta': this.handleAssistantDelta(event); break;
-      case 'hook.result': this.handleHookResult(event); break;
-      case 'thinking.delta': this.handleThinkingDelta(event); break;
-      case 'tool.call.started': this.handleToolCall(event); break;
-      case 'tool.call.delta': this.handleToolCallDelta(event); break;
-      case 'tool.result': this.handleToolResult(event); break;
-      case 'agent.status.updated': this.handleStatusUpdate(event); break;
-      case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
-      case 'goal.updated': this.handleGoalUpdated(event); break;
-      case 'skill.activated': this.handleSkillActivated(event); break;
-      case 'plugin_command.activated': this.handlePluginCommandActivated(event); break;
-      case 'error': this.handleSessionError(event); break;
-      case 'warning': this.handleSessionWarning(event); break;
-      case 'compaction.started': this.handleCompactionBegin(event); break;
-      case 'compaction.completed': this.handleCompactionEnd(event, sendQueued); break;
-      case 'compaction.blocked': break;
-      case 'compaction.cancelled': this.handleCompactionCancel(event, sendQueued); break;
+      case 'turn.started':
+        this.handleTurnBegin(event);
+        break;
+      case 'turn.ended':
+        this.handleTurnEnd(event, sendQueued);
+        break;
+      case 'turn.step.started':
+        this.handleStepBegin(event);
+        break;
+      case 'turn.step.interrupted':
+        this.handleStepInterrupted(event);
+        break;
+      case 'turn.step.completed':
+        this.handleStepCompleted(event);
+        break;
+      case 'turn.step.retrying':
+        break;
+      case 'tool.progress':
+        this.handleToolProgress(event);
+        break;
+      case 'shell.output':
+        this.host.handleShellOutput(event);
+        break;
+      case 'shell.started':
+        this.host.handleShellStarted(event);
+        break;
+      case 'assistant.delta':
+        this.handleAssistantDelta(event);
+        break;
+      case 'hook.result':
+        this.handleHookResult(event);
+        break;
+      case 'thinking.delta':
+        this.handleThinkingDelta(event);
+        break;
+      case 'tool.call.started':
+        this.handleToolCall(event);
+        break;
+      case 'tool.call.delta':
+        this.handleToolCallDelta(event);
+        break;
+      case 'tool.result':
+        this.handleToolResult(event);
+        break;
+      case 'agent.status.updated':
+        this.handleStatusUpdate(event);
+        break;
+      case 'session.meta.updated':
+        this.handleSessionMetaChanged(event);
+        break;
+      case 'goal.updated':
+        this.handleGoalUpdated(event);
+        break;
+      case 'skill.activated':
+        this.handleSkillActivated(event);
+        break;
+      case 'plugin_command.activated':
+        this.handlePluginCommandActivated(event);
+        break;
+      case 'error':
+        this.handleSessionError(event);
+        break;
+      case 'warning':
+        this.handleSessionWarning(event);
+        break;
+      case 'compaction.started':
+        this.handleCompactionBegin(event);
+        break;
+      case 'compaction.completed':
+        this.handleCompactionEnd(event, sendQueued);
+        break;
+      case 'compaction.blocked':
+        break;
+      case 'compaction.cancelled':
+        this.handleCompactionCancel(event, sendQueued);
+        break;
       case 'subagent.spawned':
       case 'subagent.started':
       case 'subagent.suspended':
       case 'subagent.completed':
       case 'subagent.failed':
-        this.subAgentEventHandler.handleLifecycleEvent(event); break;
+        this.subAgentEventHandler.handleLifecycleEvent(event);
+        break;
       case 'task.started':
       case 'task.terminated':
-        this.handleBackgroundTaskEvent(event); break;
-      case 'cron.fired': this.handleCronFired(event); break;
-      case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
-      case 'tool.list.updated': break;
-      default: break;
+        this.handleBackgroundTaskEvent(event);
+        break;
+      case 'cron.fired':
+        this.handleCronFired(event);
+        break;
+      case 'mcp.server.status':
+        this.renderMcpServerStatus(event.server);
+        break;
+      case 'tool.list.updated':
+        break;
+      default:
+        break;
     }
   }
 
@@ -435,10 +490,7 @@ export class SessionEventHandler {
       truncatedCount > 0
         ? 'Model hit max_tokens — tool call was truncated before it could run.'
         : 'Model hit max_tokens — no tool call was emitted.';
-    const detail = this.isAnthropicSessionActive()
-      ? 'If this limit is wrong for your model, set `max_output_size` on the model alias in your kimi-code config.'
-      : undefined;
-    this.host.showNotice(title, detail);
+    this.host.showNotice(title);
   }
 
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
@@ -456,15 +508,6 @@ export class SessionEventHandler {
 
   private markActiveAgentSwarmsCancelled(): void {
     this.subAgentEventHandler.markActiveAgentSwarmsCancelled();
-  }
-
-  private isAnthropicSessionActive(): boolean {
-    const { state } = this.host;
-    const model = state.appState.availableModels[state.appState.model];
-    if (model === undefined) return false;
-    if (model.protocol === 'anthropic') return true;
-    const providerId = model.providerId ?? model.provider;
-    return providerId !== undefined && state.appState.availableProviders[providerId]?.type === 'anthropic';
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
@@ -586,7 +629,8 @@ export class SessionEventHandler {
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
     if (
       preview !== undefined &&
-      (preview.name === 'AgentSwarm' || this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
+      (preview.name === 'AgentSwarm' ||
+        this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
     ) {
       this.subAgentEventHandler.handleAgentSwarmToolCallDelta(event.toolCallId, preview.args, {
         streamingArguments: preview.argumentsText,
@@ -679,9 +723,7 @@ export class SessionEventHandler {
   }
 
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {
-    this.host.state.transcriptContainer.addChild(
-      new SwarmModeMarkerComponent(state),
-    );
+    this.host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
     this.host.state.ui.requestRender();
   }
 
@@ -722,9 +764,7 @@ export class SessionEventHandler {
     if (change.kind === 'lifecycle' && change.status === 'blocked') {
       void this.notifyQueuedGoalWaitingOnBlocked();
       if (change.actor === 'model' || change.reason === undefined) {
-        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText
-          ? undefined
-          : change;
+        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText ? undefined : change;
         return;
       }
       this.pendingModelBlockedFallback = undefined;
@@ -837,7 +877,9 @@ export class SessionEventHandler {
             await removeGoalQueueItem(session, { goalId: next.id });
           } catch (error) {
             host.showError(
-              `Queued goal started, but could not be removed from the queue: ${formatErrorMessage(error)}`,
+              `Queued goal started, but could not be removed from the queue: ${formatErrorMessage(
+                error,
+              )}`,
             );
             await this.cancelStartedQueuedGoal(session);
             return false;
@@ -908,8 +950,8 @@ export class SessionEventHandler {
     this.host.streamingUI.flushNow();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
-    if (event.code === OAUTH_LOGIN_REQUIRED_CODE) {
-      this.host.showError(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+    if (event.code === AUTH_LOGIN_REQUIRED_CODE) {
+      this.host.showError(AUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
       return;
     }
     this.host.showError(formatErrorPayload(event));
@@ -939,7 +981,9 @@ export class SessionEventHandler {
         return;
       }
       case 'failed': {
-        const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
+        const message = `MCP server "${server.name}" failed${
+          server.error !== undefined ? `: ${server.error}` : ''
+        }`;
         this.finalizeMcpServerStatusRow(server.name, message, 'error');
         return;
       }
@@ -1090,9 +1134,7 @@ export class SessionEventHandler {
   // Background task lifecycle
   // ---------------------------------------------------------------------------
 
-  private handleBackgroundTaskEvent(
-    event: TaskStartedEvent | TaskTerminatedEvent,
-  ): void {
+  private handleBackgroundTaskEvent(event: TaskStartedEvent | TaskTerminatedEvent): void {
     const { state } = this.host;
     const { info } = event;
     const previous = this.backgroundTasks.get(info.taskId);

@@ -1,6 +1,6 @@
-import { createDecorator } from '#/_base/di/instantiation';
-import type { Message } from '#/kosong/contract/message';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Message } from "#/llmProtocol/message";
+import type { TokenUsage } from "#/llmProtocol/usage";
 
 export interface ContextSize {
   readonly size: number;
@@ -16,4 +16,4 @@ export interface IAgentContextSizeService {
 }
 
 export const IAgentContextSizeService =
-  createDecorator<IAgentContextSizeService>('agentContextSizeService');
+  createDecorator<IAgentContextSizeService>("agentContextSizeService");

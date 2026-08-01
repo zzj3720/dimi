@@ -16,17 +16,17 @@
  * scoped service.
  */
 
-import type { ContentPart, ToolCall } from '#/kosong/contract/message';
-import type { Tool } from '#/kosong/contract/tool';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { ContentPart, ToolCall } from "#/llmProtocol/message";
+import type { Tool } from "#/llmProtocol/tool";
+import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
+import type { ToolInputDisplay } from "@moonshot-ai/protocol";
 
 export type ExecutableToolOutput = string | ContentPart[];
 
-export type ToolDeliveryKind = 'steer';
+export type ToolDeliveryKind = "steer";
 
 export interface ToolDeliveryMessage {
-  readonly role: 'user';
+  readonly role: "user";
   readonly content: readonly ContentPart[];
   readonly toolCalls?: readonly ToolCall[];
   readonly origin?: unknown;
@@ -58,7 +58,7 @@ export interface ExecutableToolErrorResult {
 export type ExecutableToolResult = ExecutableToolSuccessResult | ExecutableToolErrorResult;
 
 export interface ToolUpdate {
-  kind: 'stdout' | 'stderr' | 'progress' | 'status' | 'custom';
+  kind: "stdout" | "stderr" | "progress" | "status" | "custom";
   text?: string | undefined;
   percent?: number | undefined;
   customKind?: string | undefined;
@@ -81,7 +81,7 @@ export interface RunnableToolExecution {
   readonly display?: ToolInputDisplay | undefined;
   readonly description?: string;
   readonly stopBatchAfterThis?: boolean | undefined;
-  readonly taskMode?: 'managed' | 'control' | undefined;
+  readonly taskMode?: "managed" | "control" | undefined;
   readonly autoWaitTimeoutSeconds?: number | undefined;
   readonly approvalRule: string;
   readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
@@ -90,12 +90,19 @@ export interface RunnableToolExecution {
 
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
 
-export interface ExecutableTool<Input = unknown> extends Tool {
-  resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
+export interface ToolResolutionContext {
+  readonly toolCalls: readonly ToolCall[];
 }
 
-export type ToolSource = 'builtin' | 'user' | 'mcp';
-export type ToolDisclosure = 'inline' | 'deferred';
+export interface ExecutableTool<Input = unknown> extends Tool {
+  resolveExecution(
+    input: Input,
+    context?: ToolResolutionContext,
+  ): ToolExecution | Promise<ToolExecution>;
+}
+
+export type ToolSource = "builtin" | "user" | "mcp";
+export type ToolDisclosure = "inline" | "deferred";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -121,17 +128,17 @@ export type ToolResult = ExecutableToolResult & {
   readonly stopBatchAfterThis?: boolean;
 };
 
-export type ToolFileAccessOperation = 'read' | 'write' | 'readwrite' | 'search';
+export type ToolFileAccessOperation = "read" | "write" | "readwrite" | "search";
 
 export interface ToolFileAccess {
-  readonly kind: 'file';
+  readonly kind: "file";
   readonly operation: ToolFileAccessOperation;
   readonly path: string;
   readonly recursive?: boolean;
 }
 
 export interface ToolResourceAccessAll {
-  readonly kind: 'all';
+  readonly kind: "all";
 }
 
 export type ToolResourceAccess = ToolFileAccess | ToolResourceAccessAll;
@@ -143,7 +150,7 @@ export const ToolAccesses = {
   },
 
   all(): ToolAccesses {
-    return [{ kind: 'all' }];
+    return [{ kind: "all" }];
   },
 
   file(
@@ -151,35 +158,35 @@ export const ToolAccesses = {
     path: string,
     options: { readonly recursive?: boolean } = {},
   ): ToolAccesses {
-    return [{ kind: 'file', operation, path, recursive: options.recursive }];
+    return [{ kind: "file", operation, path, recursive: options.recursive }];
   },
 
   readFile(path: string): ToolAccesses {
-    return ToolAccesses.file('read', path);
+    return ToolAccesses.file("read", path);
   },
 
   readTree(path: string): ToolAccesses {
-    return ToolAccesses.file('read', path, { recursive: true });
+    return ToolAccesses.file("read", path, { recursive: true });
   },
 
   writeFile(path: string): ToolAccesses {
-    return ToolAccesses.file('write', path);
+    return ToolAccesses.file("write", path);
   },
 
   writeTree(path: string): ToolAccesses {
-    return ToolAccesses.file('write', path, { recursive: true });
+    return ToolAccesses.file("write", path, { recursive: true });
   },
 
   readWriteFile(path: string): ToolAccesses {
-    return ToolAccesses.file('readwrite', path);
+    return ToolAccesses.file("readwrite", path);
   },
 
   readWriteTree(path: string): ToolAccesses {
-    return ToolAccesses.file('readwrite', path, { recursive: true });
+    return ToolAccesses.file("readwrite", path, { recursive: true });
   },
 
   searchTree(path: string): ToolAccesses {
-    return ToolAccesses.file('search', path, { recursive: true });
+    return ToolAccesses.file("search", path, { recursive: true });
   },
 
   conflict(left: ToolAccesses, right: ToolAccesses): boolean {
@@ -190,7 +197,7 @@ export const ToolAccesses = {
 };
 
 function resourceAccessesConflict(left: ToolResourceAccess, right: ToolResourceAccess): boolean {
-  if (left.kind === 'all' || right.kind === 'all') return true;
+  if (left.kind === "all" || right.kind === "all") return true;
   if (!fileOperationsConflict(left.operation, right.operation)) return false;
   return fileAccessesOverlap(left, right);
 }
@@ -204,11 +211,11 @@ function fileOperationsConflict(
 
 function fileOperationWrites(operation: ToolFileAccessOperation): boolean {
   switch (operation) {
-    case 'read':
-    case 'search':
+    case "read":
+    case "search":
       return false;
-    case 'write':
-    case 'readwrite':
+    case "write":
+    case "readwrite":
       return true;
   }
 }
@@ -218,8 +225,8 @@ function fileAccessesOverlap(left: ToolFileAccess, right: ToolFileAccess): boole
   const rightPath = normalizePath(right.path);
   if (leftPath === rightPath) return true;
 
-  const leftPrefix = leftPath.endsWith('/') ? leftPath : `${leftPath}/`;
-  const rightPrefix = rightPath.endsWith('/') ? rightPath : `${rightPath}/`;
+  const leftPrefix = leftPath.endsWith("/") ? leftPath : `${leftPath}/`;
+  const rightPrefix = rightPath.endsWith("/") ? rightPath : `${rightPath}/`;
   return (
     (left.recursive === true && rightPath.startsWith(leftPrefix)) ||
     (right.recursive === true && leftPath.startsWith(rightPrefix))
@@ -227,15 +234,15 @@ function fileAccessesOverlap(left: ToolFileAccess, right: ToolFileAccess): boole
 }
 
 function normalizePath(path: string): string {
-  const normalized = path.replaceAll('\\', '/').replaceAll(/\/+/g, '/');
+  const normalized = path.replaceAll("\\", "/").replaceAll(/\/+/g, "/");
   const folded = normalized.toLowerCase();
-  if (folded.length > 1 && folded.endsWith('/')) {
+  if (folded.length > 1 && folded.endsWith("/")) {
     return folded.slice(0, -1);
   }
   return folded;
 }
 
-const MCP_NAME_PREFIX = 'mcp__';
+const MCP_NAME_PREFIX = "mcp__";
 
 export function isMcpToolName(name: string): boolean {
   return name.startsWith(MCP_NAME_PREFIX);

@@ -6,24 +6,24 @@
  * scope.
  */
 
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { AgentLLMRequestSource } from "#/agent/llmRequester/llmRequester";
+import type { TokenUsage } from "#/llmProtocol/usage";
 
-import { createDecorator } from '#/_base/di/instantiation';
-import type { Event } from '#/_base/event';
-import type { ErrorCode } from '#/errors';
-import { Error2 } from '#/_base/errors/errors';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Event } from "#/_base/event";
+import type { ErrorCode } from "#/errors";
+import { Error2 } from "#/_base/errors/errors";
 
-import { UsageErrors } from './errors';
+import { UsageErrors } from "./errors";
 
-export { UsageErrors } from './errors';
+export { UsageErrors } from "./errors";
 
 export type UsageErrorCode = (typeof UsageErrors.codes)[keyof typeof UsageErrors.codes];
 
 export class UsageError extends Error2 {
   constructor(code: UsageErrorCode, message: string, details?: Record<string, unknown>) {
     super(code as ErrorCode, message, { details });
-    this.name = 'UsageError';
+    this.name = "UsageError";
   }
 }
 
@@ -48,4 +48,4 @@ export interface IAgentUsageService {
   readonly onDidRecord: Event<UsageRecordedContext>;
 }
 
-export const IAgentUsageService = createDecorator<IAgentUsageService>('agentUsageService');
+export const IAgentUsageService = createDecorator<IAgentUsageService>("agentUsageService");

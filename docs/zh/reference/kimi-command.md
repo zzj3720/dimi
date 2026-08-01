@@ -11,22 +11,22 @@ kimi <subcommand> [options]
 
 所有 flag 都是可选的，直接运行 `kimi` 即可进入交互式会话：
 
-| 选项 | 简写 | 说明 |
-| --- | --- | --- |
-| `--version` | `-V` | 打印版本号并退出 |
-| `--help` | `-h` | 显示帮助信息并退出 |
-| `--session [id]` | `-S` | 恢复一个会话。带 ID 时直接打开指定会话；不带 ID 时进入交互式选择器 |
-| `--continue` | `-c` | 继续当前工作目录下最近一次的会话，无需手动指定 ID |
-| `--model <model>` | `-m` | 为本次启动指定模型别名。省略时新会话使用配置文件中的 `default_model` |
-| `--prompt <prompt>` | `-p` | 非交互执行单次 prompt，并把 Assistant 输出流式写到 stdout。该模式不会打开 TUI |
-| `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text` |
-| `--yolo` | `-y` | 自动批准普通工具调用，跳过审批请求 |
-| `--auto` | | 以 auto 权限模式启动；工具审批自动处理，Agent 不会向用户提问 |
-| `--plan` | | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划 |
-| `--skills-dir <dir>` | | 从指定目录加载 Skills，替换自动发现的用户和项目目录。可重复传入 |
-| `--agent <name>` | | 以指定 Agent 作为主 Agent 启动新会话。不能与 `--session`/`--continue` 同时使用 |
-| `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
-| `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
+| 选项                       | 简写 | 说明                                                                                                                      |
+| -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--version`                | `-V` | 打印版本号并退出                                                                                                          |
+| `--help`                   | `-h` | 显示帮助信息并退出                                                                                                        |
+| `--session [id]`           | `-S` | 恢复一个会话。带 ID 时直接打开指定会话；不带 ID 时进入交互式选择器                                                        |
+| `--continue`               | `-c` | 继续当前工作目录下最近一次的会话，无需手动指定 ID                                                                         |
+| `--model <model>`          | `-m` | 为本次启动选择 `<provider>/<model>`。省略时新会话使用 `default_provider` 与 `default_model`                               |
+| `--prompt <prompt>`        | `-p` | 非交互执行单次 prompt，并把 Assistant 输出流式写到 stdout。该模式不会打开 TUI                                             |
+| `--output-format <format>` |      | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text`                                 |
+| `--yolo`                   | `-y` | 自动批准普通工具调用，跳过审批请求                                                                                        |
+| `--auto`                   |      | 以 auto 权限模式启动；工具审批自动处理，Agent 不会向用户提问                                                              |
+| `--plan`                   |      | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划                                                               |
+| `--skills-dir <dir>`       |      | 从指定目录加载 Skills，替换自动发现的用户和项目目录。可重复传入                                                           |
+| `--agent <name>`           |      | 以指定 Agent 作为主 Agent 启动新会话。不能与 `--session`/`--continue` 同时使用                                            |
+| `--agent-file <path>`      |      | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
+| `--add-dir <dir>`          |      | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入                                                      |
 
 `-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。
 
@@ -120,7 +120,7 @@ kimi -p "Summarize the current repository status"
 临时切换模型：
 
 ```sh
-kimi -m kimi-code/kimi-for-coding -p "Explain the latest diff"
+kimi -m kimi-coding/kimi-for-coding -p "Explain the latest diff"
 ```
 
 需要结构化读取输出时，使用 `stream-json` 格式——stdout 每行都是一个 JSON 对象：
@@ -133,17 +133,34 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`remote`（通过加密 relay 连接原生客户端）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login` 与 `logout`（供应商凭证）、`provider`（供应商与模型目录）、`acp`（ACP IDE 模式）、`web`（本地 REST/WebSocket/web 服务）、`remote`（通过加密 relay 连接原生客户端）、`doctor`（校验配置文件）、`export`（导出会话）、`upgrade`（检查更新）。
 
 ### `kimi login`
 
-通过 RFC 8628 device-code 流程登录 Kimi Code OAuth，无需进入 TUI。命令会发起一次 device authorization 请求，将验证地址和用户码打印到 stderr，然后轮询直到浏览器侧完成授权。生成的 token 写入与 TUI `/login` 相同的本地位置，下次启动 `kimi` 时会自动加载。
+通过 OAuth 或 API 密钥连接一个内置或 `models.json` LLM 供应商。省略供应商时交互选择；供应商同时支持两种方式时，省略 `--method` 可交互选择登录方式。云供应商可能继续询问凭据链、account、project 或 location。
 
 ```sh
 kimi login
+kimi login openai-codex --method oauth
+kimi login anthropic --method api-key
 ```
 
-该子命令没有任何 flag。在轮询期间随时按 `Ctrl-C` 可取消登录；取消或失败时退出码为 `1`，成功为 `0`。
+OAuth 登录会打印供应商的授权 URL 或设备码并等待完成。API 密钥登录通过终端隐藏输入。保存的凭证写入 `auth.json`，下次启动时自动加载。
+
+| 选项                | 说明                                         |
+| ------------------- | -------------------------------------------- |
+| `[provider]`        | 内置或 `models.json` 目录中的供应商 ID；省略时交互选择 |
+| `--method <method>` | `oauth` 或 `api-key`；需要跳过交互选择时指定 |
+
+### `kimi logout`
+
+删除一个供应商已保存的凭证：
+
+```sh
+kimi logout anthropic
+```
+
+通过 shell 环境变量提供的 API 密钥会继续生效，直到取消设置。
 
 ### `kimi acp`
 
@@ -167,15 +184,15 @@ kimi web --port 58628    # 指定绑定端口
 
 同一 home 目录下可以同时运行多个实例：每个实例注册到 `~/.kimi-code/server/instances/`，端口被占用时自动 +1 重试（58628、58629……）。
 
-| 选项 | 说明 |
-| --- | --- |
-| `--port <port>` | 绑定端口；默认 `58627`；被占用时自动 +1 重试 |
-| `--host [host]` | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡） |
-| `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔 |
-| `--log-level <level>` | 按所选级别开启服务日志；默认不输出 |
-| `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
-| `--dangerous-bypass-auth` | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
-| `--no-open` | 就绪后不自动打开浏览器 |
+| 选项                       | 说明                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `--port <port>`            | 绑定端口；默认 `58627`；被占用时自动 +1 重试                                                                         |
+| `--host [host]`            | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡）                                           |
+| `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔                                                                   |
+| `--log-level <level>`      | 按所选级别开启服务日志；默认不输出                                                                                   |
+| `--debug-endpoints`        | 挂载 `/api/v1/debug/*` 调试路由（默认关闭）                                                                          |
+| `--dangerous-bypass-auth`  | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
+| `--no-open`                | 就绪后不自动打开浏览器                                                                                               |
 
 `kimi web` 默认只绑定本机 loopback 地址，并在启动横幅中打印 bearer token；web UI 通过 URL 的 `#token=` 片段自动完成鉴权。
 
@@ -222,11 +239,11 @@ kimi remote pair --relay wss://relay.example.test --name "Workstation"
 kimi doctor
 ```
 
-| 命令 | 说明 |
-| --- | --- |
-| `kimi doctor` | 校验默认 `config.toml` 和 `tui.toml` |
+| 命令                        | 说明                                                         |
+| --------------------------- | ------------------------------------------------------------ |
+| `kimi doctor`               | 校验默认 `config.toml` 和 `tui.toml`                         |
 | `kimi doctor config [path]` | 只校验 `config.toml`；传入 `path` 时使用该文件而不是默认文件 |
-| `kimi doctor tui [path]` | 只校验 `tui.toml`；传入 `path` 时使用该文件而不是默认文件 |
+| `kimi doctor tui [path]`    | 只校验 `tui.toml`；传入 `path` 时使用该文件而不是默认文件    |
 
 显式传入路径时，文件必须存在。所有被检查的文件都有效或被跳过时，退出码为 `0`；任何指定文件缺失或配置无效时，退出码为 `1`。
 
@@ -249,12 +266,12 @@ kimi doctor tui ./tui.toml
 kimi export [sessionId] [options]
 ```
 
-| 参数 / 选项 | 简写 | 说明 |
-| --- | --- | --- |
-| `sessionId` | | 要导出的会话 ID。省略时自动选择当前工作目录下最近一次的会话，并要求确认 |
-| `--output <path>` | `-o` | 输出 ZIP 文件路径。省略时写入当前目录下的默认文件名 |
-| `--yes` | `-y` | 跳过默认会话的确认提示，直接导出 |
-| `--no-include-global-log` | | 不打包全局诊断日志。默认包含 |
+| 参数 / 选项               | 简写 | 说明                                                                    |
+| ------------------------- | ---- | ----------------------------------------------------------------------- |
+| `sessionId`               |      | 要导出的会话 ID。省略时自动选择当前工作目录下最近一次的会话，并要求确认 |
+| `--output <path>`         | `-o` | 输出 ZIP 文件路径。省略时写入当前目录下的默认文件名                     |
+| `--yes`                   | `-y` | 跳过默认会话的确认提示，直接导出                                        |
+| `--no-include-global-log` |      | 不打包全局诊断日志。默认包含                                            |
 
 导出包含目标会话目录内的所有文件。全局诊断日志（`~/.kimi-code/logs/kimi-code.log`）默认包含，因为它可能含有其他会话或项目的事件；不想分享时加 `--no-include-global-log`。
 
@@ -271,13 +288,13 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi upgrade`
 
-立即检查最新版本并展示更新提示，选择操作后退出。也可以使用别名 `kimi update`。
+本源码构建未配置发布通道。`kimi upgrade` 会提示自动升级不可用后退出；`kimi update` 是它的别名。
 
 ```sh
 kimi upgrade
 ```
 
-对全局 npm、pnpm、yarn、bun 以及 macOS / Linux native 安装，`kimi upgrade` 会展示更新选项；选择 `Install update now` 后运行对应的前台安装命令。当前安装方式无法自动升级时（如 Windows native 安装），改为打印手动更新命令。
+它绝不会回退到上游 Kimi Code 安装源。请用 `git pull --ff-only` 更新此 checkout，再运行 `vp install` 和 `vp run dev:cli`。
 
 ### `kimi vis`
 
@@ -287,12 +304,12 @@ kimi upgrade
 kimi vis [sessionId] [options]
 ```
 
-| 参数 / 选项 | 说明 |
-| --- | --- |
-| `sessionId` | 直接打开指定会话的可视化页面。省略时打开列出所有会话的首页 |
-| `--port <number>` | 绑定的端口。默认自动挑选一个空闲端口 |
-| `--host <host>` | 绑定的主机。默认 `127.0.0.1` |
-| `--no-open` | 不自动打开浏览器，仅打印访问地址 |
+| 参数 / 选项       | 说明                                                       |
+| ----------------- | ---------------------------------------------------------- |
+| `sessionId`       | 直接打开指定会话的可视化页面。省略时打开列出所有会话的首页 |
+| `--port <number>` | 绑定的端口。默认自动挑选一个空闲端口                       |
+| `--host <host>`   | 绑定的主机。默认 `127.0.0.1`                               |
+| `--no-open`       | 不自动打开浏览器，仅打印访问地址                           |
 
 ```sh
 # 启动可视化工具并在浏览器中打开首页
@@ -307,81 +324,78 @@ kimi vis --host 0.0.0.0 --port 8123 --no-open
 
 ### `kimi provider`
 
-在 shell 中管理供应商，相当于 TUI 中 `/provider` 的非交互版本。适合脚本化部署、CI 初始化，以及在新机器上一行完成配置。
+查看供应商和模型、刷新动态目录，并管理用户拥有的 `models.json` 供应商层。内置和 SDK 供应商定义仍归运行时所有；同 ID 的自定义定义是覆盖层，不是替换目录。
 
 ```sh
-kimi provider <action> [options]
-```
-
-包含五个动作：
-
-#### `kimi provider add <url>`
-
-从自定义 registry（`api.json`）批量导入所有供应商。命令会拉取 registry，为每个条目创建 `[providers.<id>]` 和 `[models.<alias>]`，并写入 `source` 元数据，使 TUI 下次启动时自动刷新同一 registry 地址下的供应商和模型。
-
-| 参数 / 选项 | 说明 |
-| --- | --- |
-| `<url>` | Registry 地址 |
-| `--api-key <key>` | 访问 registry 时携带的 Bearer token。未传时回退到环境变量 `KIMI_REGISTRY_API_KEY`，必填 |
-
-```sh
-kimi provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
-
-# 或通过环境变量（适合 CI / .envrc）
-KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
-```
-
-如果某个 provider id 已存在，会先删除再重新写入。不会自动设置默认模型，后续可用 `-m` 或 TUI 内的 `/model` 选择。
-
-#### `kimi provider remove <providerId>`
-
-删除指定供应商及其所有模型 alias。如果被删除的供应商正好是 `default_model` 所属，则同时清空 `default_model`。
-
-```sh
-kimi provider remove kohub
+kimi provider list [--json]
+kimi provider models [providerId]
+kimi provider refresh
+kimi provider add <id> [options]
+kimi provider update <id> [options]
+kimi provider remove <id>
+kimi provider model add <providerId> <modelId> [options]
+kimi provider model update <providerId> <modelId> [options]
+kimi provider model remove <providerId> <modelId>
 ```
 
 #### `kimi provider list`
 
-按行打印每个已配置的供应商，含类型、模型数量、来源。加 `--json` 可输出原始的 `providers` 和 `models` 表，便于程序化处理。
+每行打印一个内置和已配置供应商、连接状态与当前可用模型数。加 `--json` 输出供应商认证状态与模型元数据。
 
 ```sh
 kimi provider list
-kimi provider list --json | jq '.providers | keys'
+kimi provider list --json
 ```
 
-#### `kimi provider catalog list [providerId]`
+#### `kimi provider models [providerId]`
 
-在不修改任何配置的情况下浏览公开的 [models.dev](https://models.dev/) 模型目录。不传参数时列出所有供应商及协议类型和模型数量；传 `providerId` 时列出该供应商下所有模型的上下文窗口和能力。
-
-| 参数 / 选项 | 说明 |
-| --- | --- |
-| `[providerId]` | 可选，要查看的供应商 id |
-| `--filter <substring>` | 按 id 或 name 大小写不敏感子串过滤 |
-| `--url <url>` | 覆盖 catalog 地址，默认 `https://models.dev/api.json` |
-| `--json` | 以 JSON 形式输出匹配片段 |
+列出已认证供应商当前可用的模型。可传供应商 ID 缩小范围。每行包含规范的 `<provider>/<model>` 引用、上下文窗口与相关能力。
 
 ```sh
-kimi provider catalog list
-kimi provider catalog list --filter anthropic
-kimi provider catalog list anthropic
+kimi provider models
+kimi provider models openai-codex
 ```
 
-#### `kimi provider catalog add <providerId>`
+#### `kimi provider refresh`
 
-按 id 从 catalog 直接导入一个已知供应商，协议类型、base URL、模型信息均由 catalog 提供，只需提供 API key。catalog 未声明协议的供应商（如 xai、openrouter 这类厂商专用 SDK）按 OpenAI 兼容协议导入，并在输出中标注 "guessed"；catalog 未提供可用端点时需用 `--base-url` 显式指定。专有协议（如 Amazon Bedrock）无法导入。
-
-| 参数 / 选项 | 说明 |
-| --- | --- |
-| `<providerId>` | catalog 中的供应商 id，如 `anthropic`、`openai` |
-| `--api-key <key>` | 供应商 API key。未传时回退到 `KIMI_REGISTRY_API_KEY`，必填 |
-| `--default-model <modelId>` | 可选，导入后把 `default_model` 设为 `<providerId>/<modelId>` |
-| `--base-url <url>` | 覆盖 catalog 声明的端点；catalog 未提供端点（或仅有环境变量占位符）时必填 |
-| `--url <url>` | 覆盖 catalog 地址，默认 `https://models.dev/api.json` |
+刷新所有已认证供应商的远程模型端点。失败会按供应商报告，其他成功目录仍会持久化。
 
 ```sh
-kimi provider catalog list anthropic          # 先看可选的模型
-kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-opus-4-7
+kimi provider refresh
+```
+
+#### `kimi provider add` 与 `update`
+
+创建或更新自定义供应商。`--from <path>` 导入单个供应商对象或 `{ "providers": { … } }` JSONC 文档，并选择请求的 ID。行内新建供应商时必须提供 `--base-url`、`--model`、`--context-window` 和 `--max-tokens`。`--api` 默认是 `openai-completions`；`--api-key-env` 会保存环境变量模板，而不是密钥。
+
+```sh
+kimi provider add example-gateway --from ./models.json
+kimi provider add example-gateway \
+  --base-url https://api.example.test/v1 --model example-chat \
+  --context-window 128000 --max-tokens 8192 \
+  --api-key-env EXAMPLE_GATEWAY_API_KEY --thinking --image
+kimi provider update example-gateway --model example-chat --max-tokens 16384
+```
+
+除了必填字段，行内选项还有 `--name`、`--model-name`、`--api`、`--api-key-env`、`--thinking` 和 `--image`。供应商 header、`compat`、OAuth 设置、模型覆盖、单模型 base URL 或多个模型请使用文件；完整 JSONC 形状见[供应商配置参考](../configuration/providers.md#使用-modelsjson-添加或覆盖供应商)。
+
+#### `kimi provider remove`
+
+移除用户拥有的供应商定义。若它是内置供应商的自定义覆盖层，底层内置供应商会重新出现。移除独立自定义供应商还会移除其保存的凭据。
+
+```sh
+kimi provider remove example-gateway
+```
+
+#### `kimi provider model`
+
+添加、更新或移除自定义供应商声明的模型。添加新模型必须提供 `--context-window` 与 `--max-tokens`；`--name`、`--thinking` 和 `--image` 可选。
+
+```sh
+kimi provider model add example-gateway example-reasoner \
+  --context-window 128000 --max-tokens 8192 --thinking
+kimi provider model update example-gateway example-reasoner --image
+kimi provider model remove example-gateway example-reasoner
 ```
 
 ## 下一步

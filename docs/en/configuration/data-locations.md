@@ -29,6 +29,9 @@ Once set, **all** Kimi Code data — config, sessions, logs, OAuth credentials, 
 $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── config.toml             # User configuration
 ├── tui.toml                # Terminal UI preferences (including auto-update toggle)
+├── auth.json               # Saved provider OAuth/API-key credentials (file 0600)
+├── models.json             # User-owned JSONC provider definitions and overlays (file 0600)
+├── models-store.json       # Dynamic provider model catalog cache
 ├── AGENTS.md               # Global Kimi-specific agent instructions (optional)
 ├── mcp.json                # User-level MCP server declarations (optional)
 ├── skills/                 # Kimi-specific user-level Skills (optional)
@@ -36,9 +39,8 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 │   ├── installed.json      # Installed plugin records and enabled state
 │   └── managed/            # Plugin copies installed from zip/local paths
 ├── workspaces.json         # Workspace catalog
-├── credentials/            # OAuth credentials (dir 0700, files 0600)
-│   ├── <name>.json
-│   └── mcp/
+├── credentials/
+│   └── mcp/                # MCP server OAuth credentials
 │       └── <key>-<suffix>.json
 ├── sessions/               # Session data (see below)
 │   └── <workspaceId>/<sessionId>/
@@ -65,14 +67,17 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 
 Each top-level file under the data root serves a specific purpose; most are managed automatically by the CLI:
 
-- **`config.toml`**: the main runtime configuration file, storing user-level settings such as providers, models, and loop control. See [Configuration files](./config-files.md).
-- **`tui.toml`**: terminal UI client preferences, including `[upgrade].auto_install` (auto-update, on by default). You can disable it in `/settings` or by manually setting `auto_install = false`.
+- **`config.toml`**: the main runtime configuration file, storing preferences such as the default provider/model and loop control. It does not store provider credentials. See [Configuration files](./config-files.md).
+- **`tui.toml`**: terminal UI client preferences, including the stored `[upgrade].auto_install` preference. This source build has no configured update channel, so the setting has no effect unless a distributor supplies one.
+- **`auth.json`**: provider OAuth tokens and API keys saved by `vp run dev:cli -- login`. The runtime writes the file atomically with mode `0o600`; edit it only through `vp run dev:cli -- login` and `vp run dev:cli -- logout`.
+- **`models.json`**: user-owned JSONC provider layer (`{ "providers": { … } }`). It can add a complete provider or overlay a built-in/SDK provider, and accepts comments and trailing commas. The runtime reloads it before model selection and catalog reads. Prefer `$ENVIRONMENT_VARIABLE` or `!command` for `apiKey` values; do not store a production secret as a literal. See [Providers and models](./providers.md#add-or-overlay-a-provider-with-modelsjson).
+- **`models-store.json`**: cached dynamic model catalogs returned by authenticated providers, including freshness and ETag metadata. `vp run dev:cli -- provider refresh` updates it; offline use requires a cache that is at least as new as the bundled catalog metadata.
 - **`AGENTS.md`**: global Kimi-specific agent instructions. This file moves with `KIMI_CODE_HOME`; generic cross-tool instructions can still live under `~/.agents/AGENTS.md`.
 - **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.kimi-code/mcp.json` on startup. See [MCP](../customization/mcp.md).
 - **`skills/`**: Kimi-specific user-level Skills. This directory moves with `KIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
 - **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
 - **`workspaces.json`**: maps stable workspace IDs to their root directories and display names. Session directories use these IDs instead of path-derived buckets.
-- **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Managed provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
+- **`credentials/mcp/`**: MCP server OAuth credentials. Provider credentials do not use this directory.
 
 ## Session data
 
@@ -103,7 +108,7 @@ The first time the `Grep` tool needs ripgrep, the CLI can automatically download
 
 When reporting a bug, prefer exporting the relevant session with `kimi export` (see [kimi command](../reference/kimi-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
 
-The files under `updates/` (`latest.json`, `install.json`, `install.lock`, `rollout.log`) are maintained automatically by the auto-update mechanism and normally do not need manual editing. `rollout.log` records which staged-rollout case each update check hit, which helps explain when a device will receive a new release.
+The `updates/` directory may contain data left by another distribution. This source build does not read it or contact an update service; update the checkout with `git pull --ff-only` instead.
 
 ## Input history
 
@@ -113,21 +118,23 @@ Terminal input history is saved separately per working directory, at `user-histo
 
 Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
 
-| Goal | Action |
-| --- | --- |
-| Reset configuration | Delete `~/.kimi-code/config.toml` |
-| Reset terminal UI preferences | Delete `~/.kimi-code/tui.toml` |
-| Clear all sessions | Delete `~/.kimi-code/sessions/` |
-| Clear diagnostic logs | Delete `~/.kimi-code/logs/` |
-| Clear input history | Delete `~/.kimi-code/user-history/` |
-| Reset update state | Delete `~/.kimi-code/updates/latest.json` |
-| Force re-download of managed `rg` and `fd` | Delete `~/.kimi-code/bin/` |
-| Clear provider OAuth login state | Run `/logout`, or delete the corresponding `credentials/<name>.json` |
-| Clear MCP server OAuth login state | Delete `credentials/mcp/` (`/logout` does not clear MCP credentials) |
-| Remove user-level MCP declarations | Delete `$KIMI_CODE_HOME/mcp.json` (default `~/.kimi-code/mcp.json`) |
-| Clear global Kimi-specific agent instructions | Delete `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`) |
-| Clear plugin install records | Delete `$KIMI_CODE_HOME/plugins/` (local plugin source directories are not affected) |
-| Clear Kimi-specific user-level Skills | Delete `$KIMI_CODE_HOME/skills/` (default `~/.kimi-code/skills/`) |
+| Goal                                          | Action                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Reset configuration                           | Delete `~/.kimi-code/config.toml`                                                    |
+| Reset terminal UI preferences                 | Delete `~/.kimi-code/tui.toml`                                                       |
+| Clear all sessions                            | Delete `~/.kimi-code/sessions/`                                                      |
+| Clear diagnostic logs                         | Delete `~/.kimi-code/logs/`                                                          |
+| Clear input history                           | Delete `~/.kimi-code/user-history/`                                                  |
+| Force re-download of managed `rg` and `fd`    | Delete `~/.kimi-code/bin/`                                                           |
+| Clear one provider login                      | Run `vp run dev:cli -- logout <provider>` or TUI `/logout`                                        |
+| Clear all saved provider credentials          | Delete `$KIMI_CODE_HOME/auth.json`                                                   |
+| Remove custom providers and local overlays    | Delete `$KIMI_CODE_HOME/models.json`                                                 |
+| Clear the dynamic model cache                 | Delete `$KIMI_CODE_HOME/models-store.json`; refresh or startup recreates it          |
+| Clear MCP server OAuth login state            | Delete `credentials/mcp/` (provider logout does not clear MCP credentials)           |
+| Remove user-level MCP declarations            | Delete `$KIMI_CODE_HOME/mcp.json` (default `~/.kimi-code/mcp.json`)                  |
+| Clear global Kimi-specific agent instructions | Delete `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`)                |
+| Clear plugin install records                  | Delete `$KIMI_CODE_HOME/plugins/` (local plugin source directories are not affected) |
+| Clear Kimi-specific user-level Skills         | Delete `$KIMI_CODE_HOME/skills/` (default `~/.kimi-code/skills/`)                    |
 
 ## Next steps
 

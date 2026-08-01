@@ -36,25 +36,21 @@
  *   data that was compacted away during the session.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
-import type { ContentPart } from '#/kosong/contract/message';
-import { defineModel, type PartsTransformer } from '#/wire/model';
-import type { WireRecord } from '#/wire/record';
+import type { ContentPart } from "#/llmProtocol/message";
+import { defineModel, type PartsTransformer } from "#/wire/model";
+import type { WireRecord } from "#/wire/record";
 
-import { buildContextCompactionShape } from './compactionHandoff';
-import {
-  isPromptOwnedInjection,
-  isUndoAnchor,
-  isValidUndoCount,
-} from './conversationTime';
+import { buildContextCompactionShape } from "./compactionHandoff";
+import { isPromptOwnedInjection, isUndoAnchor, isValidUndoCount } from "./conversationTime";
 import {
   foldAppendMessage,
   foldLoopEvent,
   resetFold,
   type LoopRecordedEvent,
-} from './loopEventFold';
-import type { ContextMessage } from './types';
+} from "./loopEventFold";
+import type { ContextMessage } from "./types";
 
 async function dehydrateMessages(
   messages: readonly ContextMessage[],
@@ -78,22 +74,22 @@ async function dehydrateRecord(
   record: WireRecord,
   transform: PartsTransformer,
 ): Promise<WireRecord> {
-  if (record.type === 'context.append_message') {
-    const message = record['message'] as ContextMessage | undefined;
+  if (record.type === "context.append_message") {
+    const message = record["message"] as ContextMessage | undefined;
     if (message === undefined) return record;
     const parts = await transform(message.content);
     if (parts === message.content) return record;
     return { ...record, message: { ...message, content: [...parts] } };
   }
-  if (record.type === 'context.append_loop_event') {
-    const event = record['event'] as LoopRecordedEvent | undefined;
+  if (record.type === "context.append_loop_event") {
+    const event = record["event"] as LoopRecordedEvent | undefined;
     if (event === undefined) return record;
-    if (event.type === 'content.part') {
+    if (event.type === "content.part") {
       const parts = await transform([event.part]);
       if (parts[0] === event.part) return record;
       return { ...record, event: { ...event, part: parts[0] } };
     }
-    if (event.type === 'tool.result') {
+    if (event.type === "tool.result") {
       const output = event.result.output;
       if (!Array.isArray(output)) return record;
       const parts = await transform(output);
@@ -105,7 +101,7 @@ async function dehydrateRecord(
   return record;
 }
 
-export const ContextModel = defineModel<ContextMessage[]>('contextMemory', () => [], {
+export const ContextModel = defineModel<ContextMessage[]>("contextMemory", () => [], {
   blobs: {
     dehydrate: dehydrateRecord,
     rehydrate: async (state, transform) => {
@@ -114,7 +110,7 @@ export const ContextModel = defineModel<ContextMessage[]>('contextMemory', () =>
     },
   },
   reducers: {
-    'swarm_mode.exit': popSwarmModeReminder,
+    "swarm_mode.exit": popSwarmModeReminder,
   },
 });
 
@@ -122,34 +118,34 @@ function popSwarmModeReminder(state: ContextMessage[], _payload: unknown): Conte
   const last = state[state.length - 1];
   if (last === undefined) return state;
   const origin = last.origin;
-  if (origin?.kind !== 'injection' || origin.variant !== 'swarm_mode') return state;
+  if (origin?.kind !== "injection" || origin.variant !== "swarm_mode") return state;
   return resetFold(state.slice(0, -1)) as ContextMessage[];
 }
 
-declare module '#/wire/types' {
+declare module "#/wire/types" {
   interface PersistedOpMap {
-    'context.append_message': typeof contextAppendMessage;
-    'context.append_loop_event': typeof contextAppendLoopEvent;
-    'context.clear': typeof contextClear;
-    'context.apply_compaction': typeof contextApplyCompaction;
-    'context.undo': typeof contextUndo;
+    "context.append_message": typeof contextAppendMessage;
+    "context.append_loop_event": typeof contextAppendLoopEvent;
+    "context.clear": typeof contextClear;
+    "context.apply_compaction": typeof contextApplyCompaction;
+    "context.undo": typeof contextUndo;
   }
 }
 
 const contextMessageSchema = z.custom<ContextMessage>();
 const loopRecordedEventSchema = z.custom<LoopRecordedEvent>();
 
-export const contextAppendMessage = ContextModel.defineOp('context.append_message', {
+export const contextAppendMessage = ContextModel.defineOp("context.append_message", {
   schema: z.object({ message: contextMessageSchema }),
   apply: (state, p) => foldAppendMessage(state, p.message) as ContextMessage[],
 });
 
-export const contextAppendLoopEvent = ContextModel.defineOp('context.append_loop_event', {
+export const contextAppendLoopEvent = ContextModel.defineOp("context.append_loop_event", {
   schema: z.object({ event: loopRecordedEventSchema }),
   apply: (state, p) => foldLoopEvent(state, p.event) as ContextMessage[],
 });
 
-export const contextClear = ContextModel.defineOp('context.clear', {
+export const contextClear = ContextModel.defineOp("context.clear", {
   schema: z.object({}),
   apply: (state) => (state.length === 0 ? state : (resetFold([]) as ContextMessage[])),
 });
@@ -167,7 +163,7 @@ const contextApplyCompactionSchema = z.object({
 
 export type ContextCompactionRecord = z.infer<typeof contextApplyCompactionSchema>;
 
-export const contextApplyCompaction = ContextModel.defineOp('context.apply_compaction', {
+export const contextApplyCompaction = ContextModel.defineOp("context.apply_compaction", {
   schema: contextApplyCompactionSchema,
   apply: (state, p) => {
     const result = buildContextCompactionShape(state, p);
@@ -192,8 +188,8 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
   let stoppedAtCompaction = false;
   for (let i = state.length - 1; i >= 0 && remaining > 0; i--) {
     const message = state[i];
-    if (message === undefined || message.origin?.kind === 'injection') continue;
-    if (message.origin?.kind === 'compaction_summary') {
+    if (message === undefined || message.origin?.kind === "injection") continue;
+    if (message.origin?.kind === "compaction_summary") {
       stoppedAtCompaction = true;
       break;
     }
@@ -201,10 +197,7 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
       remaining--;
       removedCount++;
       cutIndex = i;
-      while (
-        cutIndex > 0 &&
-        isPromptOwnedInjection(state[cutIndex - 1]!, message)
-      ) {
+      while (cutIndex > 0 && isPromptOwnedInjection(state[cutIndex - 1]!, message)) {
         cutIndex--;
       }
     }
@@ -217,10 +210,10 @@ export function isFullyUndoable(cut: UndoCut, count: number): boolean {
 }
 
 export type UndoUnavailableReason =
-  | 'empty'
-  | 'compaction_boundary'
-  | 'insufficient'
-  | 'checkpoint_lost';
+  | "empty"
+  | "compaction_boundary"
+  | "insufficient"
+  | "checkpoint_lost";
 
 export type UndoPrecheck =
   | { readonly ok: true }
@@ -235,10 +228,10 @@ export function precheckUndo(history: readonly ContextMessage[], count: number):
   const cut = computeUndoCut(history, count);
   if (isFullyUndoable(cut, count)) return { ok: true };
   const reason: UndoUnavailableReason = cut.stoppedAtCompaction
-    ? 'compaction_boundary'
+    ? "compaction_boundary"
     : cut.removedCount === 0
-      ? 'empty'
-      : 'insufficient';
+      ? "empty"
+      : "insufficient";
   return { ok: false, reason, requested: count, undoable: cut.removedCount };
 }
 
@@ -246,18 +239,18 @@ export function formatUndoUnavailableMessage(
   precheck: Extract<UndoPrecheck, { ok: false }>,
 ): string {
   switch (precheck.reason) {
-    case 'empty':
-      return 'Nothing to undo: no user message to undo';
-    case 'compaction_boundary':
-      return 'Nothing to undo: would cross a compaction boundary';
-    case 'insufficient':
+    case "empty":
+      return "Nothing to undo: no user message to undo";
+    case "compaction_boundary":
+      return "Nothing to undo: would cross a compaction boundary";
+    case "insufficient":
       return `Nothing to undo: only ${precheck.undoable} of ${precheck.requested} requested turn(s) available`;
-    case 'checkpoint_lost':
-      return 'Nothing to undo: conversation state checkpoints are incomplete';
+    case "checkpoint_lost":
+      return "Nothing to undo: conversation state checkpoints are incomplete";
   }
 }
 
-export const contextUndo = ContextModel.defineOp('context.undo', {
+export const contextUndo = ContextModel.defineOp("context.undo", {
   schema: z.object({
     count: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),

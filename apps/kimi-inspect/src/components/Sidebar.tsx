@@ -7,26 +7,26 @@
  * endpoint.
  */
 
-import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
+import { IAgentProfileService } from "@moonshot-ai/agent-core-v2/agent/profile/profile";
+import { IConfigService } from "@moonshot-ai/agent-core-v2/app/config/config";
 import {
   ISessionIndex,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/app/sessionLifecycle/sessionLifecycle';
+} from "@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex";
+import { ISessionLifecycleService } from "@moonshot-ai/agent-core-v2/app/sessionLifecycle/sessionLifecycle";
 import {
   IWorkspaceService,
   type Workspace,
-} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-import { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+} from "@moonshot-ai/agent-core-v2/app/workspace/workspace";
+import { IModelCatalog } from "@moonshot-ai/agent-core-v2/app/modelCatalog/catalog";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
-import type { SessionWorkFacts } from '../activity/store';
-import { useSessionActivities } from '../activity/useSessionActivity';
-import type { InspectClient } from '../channel';
-import { useConnection } from '../connection';
-import { Badge, ErrorLine, relTime } from '../ui';
+import type { SessionWorkFacts } from "../activity/store";
+import { useSessionActivities } from "../activity/useSessionActivity";
+import type { InspectClient } from "../channel";
+import { useConnection } from "../connection";
+import { Badge, ErrorLine, relTime } from "../ui";
 
 /**
  * Default model for a fresh session: the configured global `defaultModel`
@@ -36,11 +36,11 @@ import { Badge, ErrorLine, relTime } from '../ui';
  * `model.not_configured` as before.
  */
 async function resolveDefaultModel(klient: InspectClient): Promise<string | undefined> {
-  const configured: unknown = await klient.core(IConfigService).get('defaultModel');
-  if (typeof configured === 'string' && configured !== '') return configured;
+  const configured: unknown = await klient.core(IConfigService).get("defaultModel");
+  if (typeof configured === "string" && configured !== "") return configured;
   const providers = await klient.core(IModelCatalog).listProviders();
   const withDefault = providers.filter((p) => p.default_model !== undefined);
-  return (withDefault.find((p) => p.status === 'connected') ?? withDefault[0])?.default_model;
+  return (withDefault.find((p) => p.status === "connected") ?? withDefault[0])?.default_model;
 }
 
 export function Sidebar({
@@ -56,21 +56,19 @@ export function Sidebar({
   const activities = useSessionActivities();
 
   const workspaces = useQuery({
-    queryKey: ['workspaces'],
+    queryKey: ["workspaces"],
     queryFn: () => klient.core(IWorkspaceService).list(),
     refetchInterval: 15_000,
   });
 
   const sessions = useQuery({
-    queryKey: ['sessions', workspaceId],
+    queryKey: ["sessions", workspaceId],
     queryFn: () =>
-      klient
-        .core(ISessionIndex)
-        .list({
-          workspaceIds: workspaceId === null ? undefined : [workspaceId],
-          includeArchived: true,
-          limit: 200,
-        }),
+      klient.core(ISessionIndex).list({
+        workspaceIds: workspaceId === null ? undefined : [workspaceId],
+        includeArchived: true,
+        limit: 200,
+      }),
     refetchInterval: 15_000,
   });
 
@@ -85,14 +83,14 @@ export function Sidebar({
     if (ws !== null) {
       body = JSON.stringify({ workspace_id: ws.id });
     } else {
-      const cwd = window.prompt('Working directory for the new session:', '');
-      if (cwd === null || cwd.trim() === '') return;
+      const cwd = window.prompt("Working directory for the new session:", "");
+      if (cwd === null || cwd.trim() === "") return;
       body = JSON.stringify({ metadata: { cwd: cwd.trim() } });
     }
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (config.token.trim() !== '') headers['authorization'] = `Bearer ${config.token.trim()}`;
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (config.token.trim() !== "") headers["authorization"] = `Bearer ${config.token.trim()}`;
     const res = await fetch(`${baseUrl}/api/v1/sessions`, {
-      method: 'POST',
+      method: "POST",
       headers,
       body,
     });
@@ -110,12 +108,12 @@ export function Sidebar({
       const model = await resolveDefaultModel(klient);
       if (model !== undefined) {
         await klient.core(ISessionLifecycleService).resume(sessionId);
-        await klient.session(sessionId).agent('main').service(IAgentProfileService).setModel(model);
+        await klient.session(sessionId).agent("main").service(IAgentProfileService).setModel(model);
       }
     } catch (error) {
-      console.warn('failed to set the default model on the new session', error);
+      console.warn("failed to set the default model on the new session", error);
     }
-    await queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
     onSelectSession(sessionId);
   };
 
@@ -153,7 +151,7 @@ export function Sidebar({
       {/* Sessions */}
       <div className="flex w-1/2 flex-col">
         <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-          Sessions {workspaceId === null ? '(all)' : ''}
+          Sessions {workspaceId === null ? "(all)" : ""}
         </div>
         <div className="flex-1 overflow-y-auto">
           {sessions.isError ? <ErrorLine error={sessions.error} /> : null}
@@ -192,7 +190,7 @@ function WorkspaceRow({
   return (
     <div
       className={`group flex cursor-pointer items-center justify-between px-3 py-2 hover:bg-neutral-800/60 ${
-        selected ? 'bg-neutral-800' : ''
+        selected ? "bg-neutral-800" : ""
       }`}
       onClick={onClick}
     >
@@ -229,7 +227,7 @@ function SessionRow({
 }) {
   return (
     <div
-      className={`cursor-pointer px-3 py-2 hover:bg-neutral-800/60 ${active ? 'bg-sky-950/60' : ''}`}
+      className={`cursor-pointer px-3 py-2 hover:bg-neutral-800/60 ${active ? "bg-sky-950/60" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-1.5">
@@ -237,9 +235,9 @@ function SessionRow({
           {s.title ?? s.lastPrompt ?? s.id}
         </span>
         {activity?.busy ? <Badge tone="green">running</Badge> : null}
-        {activity?.pendingInteraction === 'approval' ? <Badge tone="amber">approval</Badge> : null}
-        {activity?.pendingInteraction === 'question' ? <Badge tone="sky">question</Badge> : null}
-        {activity !== undefined && !activity.busy && activity.lastTurnReason === 'failed' ? (
+        {activity?.pendingInteraction === "approval" ? <Badge tone="amber">approval</Badge> : null}
+        {activity?.pendingInteraction === "question" ? <Badge tone="sky">question</Badge> : null}
+        {activity !== undefined && !activity.busy && activity.lastTurnReason === "failed" ? (
           <Badge tone="red">failed</Badge>
         ) : null}
         {s.archived ? <Badge tone="neutral">archived</Badge> : null}

@@ -131,6 +131,64 @@ describe('SDKRpcClient', () => {
       await harness.close();
     }
   });
+
+  it('composes persisted models.json layers over SDK providers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-provider-'));
+    tempDirs.push(homeDir);
+    await writeFile(
+      join(homeDir, 'models.json'),
+      JSON.stringify({
+        providers: {
+          extension: {
+            name: 'Persisted definition',
+            api: 'openai-completions',
+            baseUrl: 'https://persisted.example.test/v1',
+            models: [{ id: 'persisted', contextWindow: 8_192, maxTokens: 1_024 }],
+          },
+        },
+      }),
+      'utf8',
+    );
+    const harness = createKimiHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      providers: [{
+        id: 'extension',
+        name: 'SDK extension',
+        baseUrl: 'https://extension.example.test/v1',
+        auth: {
+          apiKey: {
+            name: 'Extension key',
+            resolve: async () => ({ auth: { apiKey: 'test-key' }, source: 'test' }),
+          },
+        },
+        getModels: () => [{
+          id: 'extension-chat',
+          name: 'Extension chat',
+          api: 'openai-completions',
+          provider: 'extension',
+          baseUrl: 'https://extension.example.test/v1',
+          reasoning: true,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 16_384,
+          maxTokens: 2_048,
+        }],
+        stream: async function* () {},
+      }],
+    });
+    try {
+      await expect(harness.auth.providers()).resolves.toContainEqual(
+        expect.objectContaining({ id: 'extension', name: 'Persisted definition' }),
+      );
+      await expect(harness.auth.models('extension')).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'extension-chat', baseUrl: 'https://persisted.example.test/v1' }),
+        expect.objectContaining({ id: 'persisted', baseUrl: 'https://persisted.example.test/v1' }),
+      ]));
+    } finally {
+      await harness.close();
+    }
+  });
 });
 
 describe('SDKRpcClient engine telemetry', () => {

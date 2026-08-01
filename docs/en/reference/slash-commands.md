@@ -10,51 +10,52 @@ Some commands are only available in the idle state. Executing these commands whi
 
 ## Account & Configuration
 
-| Command | Alias | Description | Always available |
-| --- | --- | --- | --- |
-| `/login` | — | Select an account or platform and log in: Kimi Code uses OAuth device-code flow; Kimi Platform uses API key login | No |
-| `/logout` | — | Clear credentials for the currently selected account | No |
-| `/provider` | — | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
-| `/model` | — | Switch the LLM model used in the current session | Yes |
-| `/secondary_model` | — | Configure the secondary model used by subagents (writes the [`[secondary_model]`](../configuration/config-files.md#secondary-model) section and applies to the current session immediately). Requires the `secondary-model` experiment | Yes |
-| `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
-| `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
-| `/permission` | — | Select a permission mode | Yes |
-| `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
-| `/theme` | — | Switch the terminal UI color theme | Yes |
+| Command                           | Alias           | Description                                                                                                                                                                                                                            | Always available |
+| --------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `/login [<provider>]`             | —               | Choose an authentication type and provider, or connect directly to the named provider; successful login opens that provider's model selector                                                                                           | No               |
+| `/logout`                         | —               | Select a provider and remove its saved credential                                                                                                                                                                                      | No               |
+| `/provider [<provider>\|add\|import\|remove\|refresh]` | `/providers` | Connect a provider, add/import/remove a `models.json` definition, or refresh dynamic catalogs. See [Providers and models](../configuration/providers.md) | Yes |
+| `/model`                          | —               | Switch the LLM model used in the current session; the picker uses its declared context limit and capabilities | Yes              |
+| `/effort [<level>]`               | `/thinking`      | Change the selected model's Thinking level, or open its Thinking picker. Only declared levels are offered; an unmapped reasoning model is on/off | Yes |
+| `/secondary_model`                | —               | Configure the secondary model used by subagents (writes the [`[secondary_model]`](../configuration/config-files.md#secondary-model) section and applies to the current session immediately). Requires the `secondary-model` experiment | Yes              |
+| `/settings`                       | `/config`       | Open the settings panel inside the TUI                                                                                                                                                                                                 | Yes              |
+| `/experiments`                    | `/experimental` | Open the experimental feature panel                                                                                                                                                                                                    | Yes              |
+| `/permission`                     | —               | Select a permission mode                                                                                                                                                                                                               | Yes              |
+| `/editor`                         | —               | Configure the external editor launched by `Ctrl-G`                                                                                                                                                                                     | Yes              |
+| `/theme`                          | —               | Switch the terminal UI color theme                                                                                                                                                                                                     | Yes              |
 
 ## Session Management
 
-| Command | Alias | Description | Always available |
-| --- | --- | --- | --- |
-| `/new` | `/clear` | Start a fresh session, discarding the current context | No |
-| `/sessions` | `/resume` | Browse historical sessions and switch to / restore one | No |
-| `/tasks` | `/task` | Browse the background task list | Yes |
-| `/fork` | — | Fork a new session from the current one, preserving the full conversation history | No |
-| `/title [<text>]` | `/rename` | Without arguments, display the current session title; with an argument, set a new title (max 200 characters) | Yes |
-| `/compact [<instruction>]` | — | Compact the current conversation context to free up token usage; an optional custom instruction can hint to the model what to preserve | No |
-| `/undo [<count>]` | — | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone. Undoing also rolls back the todo list and plan mode state produced by those prompts (code changes are not reverted) | No |
-| `/reload` | — | Reload the current session and apply the latest `config.toml` settings (providers, models, etc.) and `tui.toml` UI preferences, without restarting the CLI | No |
-| `/reload-tui` | — | Reload only the `tui.toml` UI preferences (theme, editor, notifications, etc.) without rebuilding the session | Yes |
-| `/init` | — | Analyze the current codebase and generate `AGENTS.md` | No |
-| `/export-md [<path>]` | `/export` | Export the current session as a Markdown file | No |
-| `/export-debug-zip` | — | Export the current session as a debug ZIP archive (same behavior as [`kimi export`](./kimi-command.md#kimi-export)) | No |
-| `/copy` | — | Copy the last assistant message to the clipboard | No |
-| `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
-| `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
-| `/remote start\|pair\|stop` | — | Start or stop encrypted mobile remote access, or create a one-time QR code to pair a new device. Paired devices reconnect automatically; the footer shows the live relay state while enabled. See [`kimi remote`](./kimi-command.md#kimi-remote) | Yes |
+| Command                    | Alias     | Description                                                                                                                                                                                                                                                                                      | Always available |
+| -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| `/new`                     | `/clear`  | Start a fresh session, discarding the current context                                                                                                                                                                                                                                            | No               |
+| `/sessions`                | `/resume` | Browse historical sessions and switch to / restore one                                                                                                                                                                                                                                           | No               |
+| `/tasks`                   | `/task`   | Browse the background task list                                                                                                                                                                                                                                                                  | Yes              |
+| `/fork`                    | —         | Fork a new session from the current one, preserving the full conversation history                                                                                                                                                                                                                | No               |
+| `/title [<text>]`          | `/rename` | Without arguments, display the current session title; with an argument, set a new title (max 200 characters)                                                                                                                                                                                     | Yes              |
+| `/compact [<instruction>]` | —         | Compact the current conversation context to free up token usage; an optional custom instruction can hint to the model what to preserve                                                                                                                                                           | No               |
+| `/undo [<count>]`          | —         | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone. Undoing also rolls back the todo list and plan mode state produced by those prompts (code changes are not reverted) | No               |
+| `/reload`                  | —         | Reload the current session and apply the latest `config.toml` runtime preferences and `tui.toml` UI preferences, without restarting the CLI                                                                                                                                                      | No               |
+| `/reload-tui`              | —         | Reload only the `tui.toml` UI preferences (theme, editor, notifications, etc.) without rebuilding the session                                                                                                                                                                                    | Yes              |
+| `/init`                    | —         | Analyze the current codebase and generate `AGENTS.md`                                                                                                                                                                                                                                            | No               |
+| `/export-md [<path>]`      | `/export` | Export the current session as a Markdown file                                                                                                                                                                                                                                                    | No               |
+| `/export-debug-zip`        | —         | Export the current session as a debug ZIP archive (same behavior as [`kimi export`](./kimi-command.md#kimi-export))                                                                                                                                                                              | No               |
+| `/copy`                    | —         | Copy the last assistant message to the clipboard                                                                                                                                                                                                                                                 | No               |
+| `/add-dir [<path>]`        | —         | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml`                                                                    | No               |
+| `/web`                     | —         | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web)                                                                                                                  | Yes              |
+| `/remote start\|pair\|stop` | —         | Start or stop encrypted mobile remote access, or create a one-time QR code to pair a new device. Paired devices reconnect automatically; the footer shows the live relay state while enabled. See [`kimi remote`](./kimi-command.md#kimi-remote)                                                               | Yes              |
 
 ## Modes & Run Control
 
-| Command | Alias | Description | Always available |
-| --- | --- | --- | --- |
-| `/yolo [on\|off]` | `/yes` | Toggle YOLO mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. When enabled, skips approval for regular tool calls; Plan mode exit approval is not affected | Yes |
-| `/auto [on\|off]` | — | Toggle auto permission mode. When enabled, tool approvals are handled automatically and the Agent will not ask the user questions | Yes |
-| `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
-| `/plan clear` | — | Clear the current plan | No |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
-| `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to `auto` or `yolo` before starting. | No |
-| `/goal [...]` | — | Start or manage an autonomous goal | See below |
+| Command           | Alias  | Description                                                                                                                                                                                                                       | Always available |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `/yolo [on\|off]` | `/yes` | Toggle YOLO mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. When enabled, skips approval for regular tool calls; Plan mode exit approval is not affected                      | Yes              |
+| `/auto [on\|off]` | —      | Toggle auto permission mode. When enabled, tool approvals are handled automatically and the Agent will not ask the user questions                                                                                                 | Yes              |
+| `/plan [on\|off]` | —      | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file                                                                | Yes              |
+| `/plan clear`     | —      | Clear the current plan                                                                                                                                                                                                            | No               |
+| `/swarm on\|off`  | —      | Turn swarm mode on or off without sending a prompt.                                                                                                                                                                               | Yes              |
+| `/swarm <task>`   | —      | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to `auto` or `yolo` before starting. | No               |
+| `/goal [...]`     | —      | Start or manage an autonomous goal                                                                                                                                                                                                | See below        |
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
@@ -68,15 +69,15 @@ Some commands are only available in the idle state. Executing these commands whi
 /goal Update the checkout docs, run docs build, and stop if still blocked after 20 turns
 ```
 
-| Command | Action | Availability |
-| --- | --- | --- |
-| `/goal` or `/goal status` | Display the current goal along with its status, elapsed time, turn count, and token count | Always available |
-| `/goal pause` | Pause an active goal and keep it | Always available |
-| `/goal resume` | Resume a paused or blocked goal | Idle only |
-| `/goal cancel` | Remove the current goal | Always available |
-| `/goal replace <objective>` | Replace the saved goal with a new objective | Idle only |
-| `/goal next <objective>` | Queue an upcoming goal for this session. If no goal is active, start it immediately. The agent does not see queued goals until the current goal completes | Always available |
-| `/goal next manage` | Open the upcoming-goal manager. Use <kbd>↑</kbd> / <kbd>↓</kbd> to browse, <kbd>Space</kbd> to select a goal for moving, selected <kbd>↑</kbd> / <kbd>↓</kbd> to reorder it, <kbd>E</kbd> to edit, <kbd>D</kbd> to delete, and <kbd>Esc</kbd> to cancel. In the edit field, use <kbd>Shift-Enter</kbd> or <kbd>Ctrl-J</kbd> for a new line and <kbd>Enter</kbd> to save | Always available |
+| Command                     | Action                                                                                                                                                                                                                                                                                                                                                                  | Availability     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `/goal` or `/goal status`   | Display the current goal along with its status, elapsed time, turn count, and token count                                                                                                                                                                                                                                                                               | Always available |
+| `/goal pause`               | Pause an active goal and keep it                                                                                                                                                                                                                                                                                                                                        | Always available |
+| `/goal resume`              | Resume a paused or blocked goal                                                                                                                                                                                                                                                                                                                                         | Idle only        |
+| `/goal cancel`              | Remove the current goal                                                                                                                                                                                                                                                                                                                                                 | Always available |
+| `/goal replace <objective>` | Replace the saved goal with a new objective                                                                                                                                                                                                                                                                                                                             | Idle only        |
+| `/goal next <objective>`    | Queue an upcoming goal for this session. If no goal is active, start it immediately. The agent does not see queued goals until the current goal completes                                                                                                                                                                                                               | Always available |
+| `/goal next manage`         | Open the upcoming-goal manager. Use <kbd>↑</kbd> / <kbd>↓</kbd> to browse, <kbd>Space</kbd> to select a goal for moving, selected <kbd>↑</kbd> / <kbd>↓</kbd> to reorder it, <kbd>E</kbd> to edit, <kbd>D</kbd> to delete, and <kbd>Esc</kbd> to cancel. In the edit field, use <kbd>Shift-Enter</kbd> or <kbd>Ctrl-J</kbd> for a new line and <kbd>Enter</kbd> to save | Always available |
 
 The words `status`, `pause`, `resume`, `cancel`, `replace`, and `next` act as subcommands only when they are the first word after `/goal`. If your objective needs to start with one of those words, put `--` before it:
 
@@ -100,35 +101,35 @@ Prompt mode exits with code `0` when the goal completes, `3` when it blocks, and
 
 ## Information & Status
 
-| Command | Alias | Description | Always available |
-| --- | --- | --- | --- |
-| `/help` | `/h`, `/?` | Show keyboard shortcuts and all available commands | Yes |
-| `/btw [question]` | — | Open a side conversation in a forked sub-Agent without affecting the current main Agent turn; without a question, opens the panel first to wait for input | Yes |
-| `/usage` | — | Show token usage, context consumption, and quota information | Yes |
-| `/status` | — | Show the current session runtime state: version, model, working directory, permission mode, etc. | Yes |
-| `/mcp` | — | List MCP servers and their connection status in the current session | Yes |
-| `/plugins` | — | Open the interactive plugin manager | Yes |
-| `/version` | — | Display the Kimi Code CLI version number | Yes |
-| `/feedback` | — | Submit feedback with optional diagnostic logs and codebase context | Yes |
+| Command           | Alias      | Description                                                                                                                                               | Always available |
+| ----------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `/help`           | `/h`, `/?` | Show keyboard shortcuts and all available commands                                                                                                        | Yes              |
+| `/btw [question]` | —          | Open a side conversation in a forked sub-Agent without affecting the current main Agent turn; without a question, opens the panel first to wait for input | Yes              |
+| `/usage`          | —          | Show token usage, context consumption, and quota information                                                                                              | Yes              |
+| `/status`         | —          | Show the current session runtime state: version, model, working directory, permission mode, etc.                                                          | Yes              |
+| `/mcp`            | —          | List MCP servers and their connection status in the current session                                                                                       | Yes              |
+| `/plugins`        | —          | Open the interactive plugin manager                                                                                                                       | Yes              |
+| `/version`        | —          | Display the Kimi Code CLI version number                                                                                                                  | Yes              |
+| `/feedback`       | —          | Submit feedback with optional diagnostic logs and codebase context                                                                                        | Yes              |
 
 ## Exit
 
-| Command | Alias | Description | Always available |
-| --- | --- | --- | --- |
-| `/exit` | `/quit`, `/q` | Exit Kimi Code CLI | No |
+| Command | Alias         | Description        | Always available |
+| ------- | ------------- | ------------------ | ---------------- |
+| `/exit` | `/quit`, `/q` | Exit Kimi Code CLI | No               |
 
 ## Built-in skill commands
 
 Kimi Code CLI ships with a set of built-in Skills that appear directly as `/<name>` slash commands. Unlike external Skills, they do not require the `skill:` prefix and are available out of the box.
 
-| Command | Description |
-| --- | --- |
-| `/mcp-config` | Configure MCP servers and handle MCP OAuth login. See [MCP](../customization/mcp.md) |
-| `/custom-theme [<text>]` | Create or edit a custom TUI color theme. See [Themes](../customization/themes.md) |
-| `/update-config` | Inspect or edit `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update) |
-| `/check-kimi-code-docs` | Answer Kimi Code product questions (CLI usage, configuration, membership, error codes) against the official docs |
-| `/import-from-cc-codex` | Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code |
-| `/sub-skill` | Discover and reorganize the local skill inventory into hierarchical sub-skill bundles. Includes `/sub-skill.review` (read-only proposal) and `/sub-skill.consolidate` (apply the reorganization) |
+| Command                  | Description                                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/mcp-config`            | Configure MCP servers and handle MCP OAuth login. See [MCP](../customization/mcp.md)                                                                                                             |
+| `/custom-theme [<text>]` | Create or edit a custom TUI color theme. See [Themes](../customization/themes.md)                                                                                                                |
+| `/update-config`         | Inspect or edit `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update)                                                                    |
+| `/check-kimi-code-docs`  | Answer Kimi Code product questions (CLI usage, configuration, membership, error codes) against the official docs                                                                                 |
+| `/import-from-cc-codex`  | Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code                                                                                                               |
+| `/sub-skill`             | Discover and reorganize the local skill inventory into hierarchical sub-skill bundles. Includes `/sub-skill.review` (read-only proposal) and `/sub-skill.consolidate` (apply the reorganization) |
 
 All built-in Skill commands are only available in the idle state.
 

@@ -6,11 +6,11 @@
  * legacy loop-event observations. Consumed by the Agent-scope `loopService`.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
-import { defineModel } from '#/wire/model';
-import type { ContentPart } from '#/kosong/contract/message';
-import type { PromptOrigin } from '#/agent/contextMemory/types';
+import { defineModel } from "#/wire/model";
+import type { ContentPart } from "#/llmProtocol/message";
+import type { PromptOrigin } from "#/agent/contextMemory/types";
 
 export interface TurnModelState {
   readonly nextTurnId: number;
@@ -18,12 +18,12 @@ export interface TurnModelState {
 }
 
 export const TurnModel = defineModel<TurnModelState>(
-  'turn',
+  "turn",
   () => ({ nextTurnId: 0, cancelledTurnIds: [] }),
   {
     reducers: {
-      'context.append_loop_event': (state, { event }) => {
-        if (event.type === 'tool.result' || event.turnId === undefined) {
+      "context.append_loop_event": (state, { event }) => {
+        if (event.type === "tool.result" || event.turnId === undefined) {
           return state;
         }
 
@@ -41,28 +41,28 @@ const turnInputShape = {
   origin: z.custom<PromptOrigin>(),
 };
 
-declare module '#/wire/types' {
+declare module "#/wire/types" {
   interface PersistedOpMap {
-    'turn.prompt': typeof promptTurn;
-    'turn.steer': typeof steerTurn;
-    'turn.cancel': typeof cancelTurn;
+    "turn.prompt": typeof promptTurn;
+    "turn.steer": typeof steerTurn;
+    "turn.cancel": typeof cancelTurn;
   }
 }
 
-export const promptTurn = TurnModel.defineOp('turn.prompt', {
+export const promptTurn = TurnModel.defineOp("turn.prompt", {
   schema: z.object(turnInputShape),
   apply: (s) => advanceTurnClock(s, s.nextTurnId + 1),
 });
 
-export const steerTurn = TurnModel.defineOp('turn.steer', {
+export const steerTurn = TurnModel.defineOp("turn.steer", {
   schema: z.object(turnInputShape),
   apply: (s) => s,
 });
 
-export const cancelTurn = TurnModel.defineOp('turn.cancel', {
+export const cancelTurn = TurnModel.defineOp("turn.cancel", {
   schema: z.object({
     turnId: z.number().optional(),
-    target: z.enum(['active', 'queued']).optional(),
+    target: z.enum(["active", "queued"]).optional(),
   }),
   apply: (s, { turnId, target }) => {
     if (target === undefined || turnId === undefined || turnId < s.nextTurnId) return s;
@@ -75,9 +75,7 @@ function advanceTurnClock(
   nextTurnId: number,
   cancelledTurnIds: readonly number[] = state.cancelledTurnIds,
 ): TurnModelState {
-  const pendingCancellations = new Set(
-    cancelledTurnIds.filter((turnId) => turnId >= nextTurnId),
-  );
+  const pendingCancellations = new Set(cancelledTurnIds.filter((turnId) => turnId >= nextTurnId));
   while (pendingCancellations.delete(nextTurnId)) nextTurnId += 1;
   return {
     nextTurnId,

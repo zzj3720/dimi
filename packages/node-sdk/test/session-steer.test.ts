@@ -1,13 +1,18 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, type Event, type KimiError } from '#/index';
+import { createKimiHarness, type Event, type KimiError } from "#/index";
 
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
-} from '../../kosong/test/e2e/fake-provider-harness';
-import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
-import { TEST_IDENTITY } from './test-identity';
+} from "../../../test/fixtures/fake-provider-harness";
+import {
+  createTestProviderRuntime,
+  makeTempDir,
+  removeTempDirs,
+  waitForAgentWireEvent,
+} from "./session-runtime-helpers";
+import { TEST_IDENTITY } from "./test-identity";
 
 const tempDirs: string[] = [];
 let provider: FakeProviderHarness | undefined;
@@ -18,94 +23,109 @@ afterEach(async () => {
   await removeTempDirs(tempDirs);
 });
 
-describe('Session.steer', () => {
-  it('starts a new turn when the session is idle', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+describe("Session.steer", () => {
+  it("starts a new turn when the session is idle", async () => {
+    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
+    provider = await createFakeProviderHarness();
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      await reply.sseJson(
+        200,
+        request.index === 0
+          ? [
+              completionChunk({ content: "idle steer response" }),
+              completionChunk({}, "stop"),
+            ]
+          : allDoneChunks(),
+      );
+    });
+    const harness = createKimiHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      providerRuntime: createTestProviderRuntime({
+        providerId: "local",
+        modelId: "fake-model",
+        baseUrl: `${provider.baseUrl}/v1`,
+      }),
+    });
 
     try {
-      provider = await createFakeProviderHarness();
-      provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
-        await reply.sseJson(200, [
-          completionChunk({ content: 'idle steer response' }),
-          completionChunk({}, 'stop'),
-        ]);
-      });
       await harness.setConfig({
-        providers: {
-          local: { type: 'kimi', baseUrl: `${provider.baseUrl}/v1`, apiKey: 'sk-test' },
-        },
-        models: {
-          'fake-model': { provider: 'local', model: 'fake-model', maxContextSize: 262144 },
-        },
-        defaultModel: 'fake-model',
+        defaultProvider: "local",
+        defaultModel: "fake-model",
       });
-      const session = await harness.createSession({ id: 'ses_steer_idle', workDir });
-      const ended = waitForEvent(session, (event) => event.type === 'turn.ended');
+      const session = await harness.createSession({ id: "ses_steer_idle", workDir });
+      const ended = waitForEvent(session, (event) => event.type === "turn.ended");
 
-      await expect(session.steer('start from idle')).resolves.toBeUndefined();
+      await expect(session.steer("start from idle")).resolves.toBeUndefined();
       await ended;
       await expect(
-        waitForAgentWireEvent(homeDir, session.id, 'turn.prompt', (event) =>
-          Array.isArray(event['input']),
+        waitForAgentWireEvent(homeDir, session.id, "turn.prompt", (event) =>
+          Array.isArray(event["input"]),
         ),
       ).resolves.toMatchObject({
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'start from idle' }],
+        type: "turn.prompt",
+        input: [{ type: "text", text: "start from idle" }],
       });
     } finally {
       await harness.close();
     }
   });
 
-  it('sends turn.steer to the core session runtime', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+  it("sends turn.steer to the core session runtime", async () => {
+    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
+    provider = await createFakeProviderHarness();
+    let markStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (request.index > 0) {
+        await reply.sseJson(200, allDoneChunks());
+        return;
+      }
+      markStarted();
+      await blocked;
+      await reply.sseJson(200, [
+        completionChunk({ content: "steer response" }),
+        completionChunk({}, "stop"),
+      ]);
+    });
+    const harness = createKimiHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      providerRuntime: createTestProviderRuntime({
+        providerId: "local",
+        modelId: "fake-model",
+        baseUrl: `${provider.baseUrl}/v1`,
+      }),
+    });
 
     try {
-      provider = await createFakeProviderHarness();
-      let markStarted!: () => void;
-      let release!: () => void;
-      const started = new Promise<void>((resolve) => {
-        markStarted = resolve;
-      });
-      const blocked = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
-        markStarted();
-        await blocked;
-        await reply.sseJson(200, [
-          completionChunk({ content: 'steer response' }),
-          completionChunk({}, 'stop'),
-        ]);
-      });
       await harness.setConfig({
-        providers: {
-          local: { type: 'kimi', baseUrl: `${provider.baseUrl}/v1`, apiKey: 'sk-test' },
-        },
-        models: {
-          'fake-model': { provider: 'local', model: 'fake-model', maxContextSize: 262144 },
-        },
-        defaultModel: 'fake-model',
+        defaultProvider: "local",
+        defaultModel: "fake-model",
       });
-      const session = await harness.createSession({ id: 'ses_steer_wire', workDir });
-      const ended = waitForEvent(session, (event) => event.type === 'turn.ended');
-      await session.prompt('start the turn');
+      const session = await harness.createSession({ id: "ses_steer_wire", workDir });
+      const ended = waitForEvent(session, (event) => event.type === "turn.ended");
+      await session.prompt("start the turn");
       await started;
 
-      await session.steer('also do this');
+      await session.steer("also do this");
       release();
 
       await expect(
-        waitForAgentWireEvent(homeDir, session.id, 'turn.steer', (event) =>
-          Array.isArray(event['input']),
+        waitForAgentWireEvent(homeDir, session.id, "turn.steer", (event) =>
+          Array.isArray(event["input"]),
         ),
       ).resolves.toMatchObject({
-        type: 'turn.steer',
-        input: [{ type: 'text', text: 'also do this' }],
+        type: "turn.steer",
+        input: [{ type: "text", text: "also do this" }],
       });
       await ended;
     } finally {
@@ -113,35 +133,35 @@ describe('Session.steer', () => {
     }
   });
 
-  it('rejects empty steer input', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
+  it("rejects empty steer input", async () => {
+    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      const session = await harness.createSession({ id: 'ses_steer_empty', workDir });
+      const session = await harness.createSession({ id: "ses_steer_empty", workDir });
 
-      await expect(session.steer('   ')).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'request.prompt_input_empty',
+      await expect(session.steer("   ")).rejects.toMatchObject({
+        name: "KimiError",
+        code: "request.prompt_input_empty",
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
     }
   });
 
-  it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
+  it("rejects after the session is closed", async () => {
+    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      const session = await harness.createSession({ id: 'ses_steer_closed', workDir });
+      const session = await harness.createSession({ id: "ses_steer_closed", workDir });
       await session.close();
 
-      await expect(session.steer('hello')).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'session.closed',
+      await expect(session.steer("hello")).rejects.toMatchObject({
+        name: "KimiError",
+        code: "session.closed",
       } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
@@ -154,12 +174,28 @@ function completionChunk(
   finishReason: string | null = null,
 ): Record<string, unknown> {
   return {
-    id: 'chatcmpl-node-sdk-steer',
-    object: 'chat.completion.chunk',
+    id: "chatcmpl-node-sdk-steer",
+    object: "chat.completion.chunk",
     created: 1,
-    model: 'fake-model',
+    model: "fake-model",
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   };
+}
+
+function allDoneChunks(): Record<string, unknown>[] {
+  return [
+    completionChunk({
+      tool_calls: [
+        {
+          index: 0,
+          id: "call-node-sdk-all-done",
+          type: "function",
+          function: { name: "AllDone", arguments: "{}" },
+        },
+      ],
+    }),
+    completionChunk({}, "tool_calls"),
+  ];
 }
 
 function waitForEvent(
@@ -169,7 +205,7 @@ function waitForEvent(
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       unsubscribe();
-      reject(new Error('Timed out waiting for session event'));
+      reject(new Error("Timed out waiting for session event"));
     }, 5_000);
     const unsubscribe = session.onEvent((event) => {
       if (!predicate(event)) return;

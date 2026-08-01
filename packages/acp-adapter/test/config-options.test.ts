@@ -9,52 +9,20 @@ import {
   buildThinkingOption,
 } from '../src/config-options';
 import type { AcpModelEntry } from '../src/model-catalog';
+import {
+  makeProviderModels,
+  modelKey,
+  type TestProviderModel,
+} from './_helpers/harness-stubs';
 
 function makeHarnessWithModels(
-  entries: ReadonlyArray<{
-    id: string;
-    model?: string;
-    displayName?: string;
-    capabilities?: readonly string[];
-    protocol?: 'anthropic';
-    providerType?: 'anthropic' | 'kimi' | 'openai';
-    supportEfforts?: readonly string[];
-    defaultEffort?: string;
-  }>,
-): { harness: KimiHarness; getConfig: ReturnType<typeof vi.fn> } {
-  // Mirror the `listAvailableModels` derivation: `id` is the config map
-  // key, `model` defaults to id, `displayName` to model. The test fixtures
-  // below pick names that exercise the three thinkingSupported triggers
-  // (name regex, capabilities array, toggleable allow-list). Entries with a
-  // `providerType` also get a backing provider so provider-aware derivation
-  // (e.g. the Anthropic fallback profile) can resolve the provider's type.
-  const models: Record<string, {
-    provider?: string;
-    model: string;
-    displayName?: string;
-    capabilities?: readonly string[];
-    protocol?: 'anthropic';
-    supportEfforts?: readonly string[];
-    defaultEffort?: string;
-  }> = {};
-  const providers: Record<string, { type: string }> = {};
-  for (const entry of entries) {
-    const providerName = `provider-${entry.id}`;
-    models[entry.id] = {
-      ...(entry.providerType !== undefined ? { provider: providerName } : {}),
-      model: entry.model ?? entry.id,
-      ...(entry.displayName !== undefined ? { displayName: entry.displayName } : {}),
-      ...(entry.capabilities !== undefined ? { capabilities: entry.capabilities } : {}),
-      protocol: entry.protocol,
-      ...(entry.supportEfforts !== undefined ? { supportEfforts: entry.supportEfforts } : {}),
-      ...(entry.defaultEffort !== undefined ? { defaultEffort: entry.defaultEffort } : {}),
-    };
-    if (entry.providerType !== undefined) {
-      providers[providerName] = { type: entry.providerType };
-    }
-  }
-  const getConfig = vi.fn(async () => ({ models, providers }));
-  return { harness: { getConfig } as unknown as KimiHarness, getConfig };
+  entries: readonly TestProviderModel[],
+): { harness: KimiHarness; getModels: ReturnType<typeof vi.fn> } {
+  const getModels = vi.fn(async () => makeProviderModels(entries));
+  return {
+    harness: { auth: { models: getModels } } as unknown as KimiHarness,
+    getModels,
+  };
 }
 
 describe('buildModelOption', () => {
@@ -211,21 +179,24 @@ describe('buildModeOption', () => {
 });
 
 describe('buildSessionConfigOptions', () => {
-  it('composes [model, thinking, mode] when current model supports thinking and calls getConfig exactly once', async () => {
-    // `kimi-for-coding` is on the toggleable allow-list so its derived
-    // thinkingSupported is true even without explicit capabilities.
-    const { harness, getConfig } = makeHarnessWithModels([
-      { id: 'kimi-coder', model: 'kimi-for-coding', displayName: 'Kimi Coder' },
+  it('composes model, thinking, and mode when the live model supports reasoning', async () => {
+    const { harness, getModels } = makeHarnessWithModels([
+      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'kimi-coder', 'off', 'default');
+    const result = await buildSessionConfigOptions(
+      harness,
+      modelKey('test/kimi-coder'),
+      'off',
+      'default',
+    );
 
-    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(getModels).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(3);
     expect(result.map((o) => o.id)).toEqual(['model', 'thinking', 'mode']);
 
     if (result[0]!.type === 'select') {
-      expect(result[0]!.currentValue).toBe('kimi-coder');
+      expect(result[0]!.currentValue).toBe('test/kimi-coder');
     }
     if (result[1]!.type === 'select' && result[1]!.id === 'thinking') {
       expect(result[1]!.currentValue).toBe('off');
@@ -238,86 +209,76 @@ describe('buildSessionConfigOptions', () => {
     }
   });
 
-  it('shows the thinking control for an unknown Claude-marked model using the Anthropic protocol', async () => {
+  it('shows the thinking control when the live catalog marks a model as reasoning-capable', async () => {
     const { harness } = makeHarnessWithModels([
       {
         id: 'custom',
-        model: 'custom-claude-model',
-        protocol: 'anthropic',
-        providerType: 'anthropic',
+        name: 'Custom reasoning model',
+        thinkingSupported: true,
       },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'custom', 'off', 'default');
+    const result = await buildSessionConfigOptions(harness, modelKey('custom'), 'off', 'default');
 
     expect(result.map((option) => option.id)).toEqual(['model', 'thinking', 'mode']);
   });
 
-  it('hides the thinking control for a clearly non-Claude model using the Anthropic protocol', async () => {
+  it('hides the thinking control when the live catalog marks a model as non-reasoning', async () => {
     const { harness } = makeHarnessWithModels([
       {
         id: 'custom',
-        model: 'custom-anthropic-model',
-        protocol: 'anthropic',
-        providerType: 'anthropic',
+        name: 'Custom model',
       },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'custom', 'off', 'default');
-
-    expect(result.map((option) => option.id)).toEqual(['model', 'mode']);
-  });
-
-  it('hides the thinking control for an unknown model on a Kimi provider using the Anthropic protocol', async () => {
-    const { harness } = makeHarnessWithModels([
-      {
-        id: 'custom',
-        model: 'custom-anthropic-model',
-        protocol: 'anthropic',
-        providerType: 'kimi',
-      },
-    ]);
-
-    const result = await buildSessionConfigOptions(harness, 'custom', 'off', 'default');
+    const result = await buildSessionConfigOptions(harness, modelKey('custom'), 'off', 'default');
 
     expect(result.map((option) => option.id)).toEqual(['model', 'mode']);
   });
 
   it('omits the thinking toggle when current model is non-thinking-supported', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'kimi-coder', model: 'kimi-for-coding', displayName: 'Kimi Coder' },
-      { id: 'kimi-plain', model: 'qwen-2.5-coder', displayName: 'Kimi Plain' },
+      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+      { id: 'test/kimi-plain', name: 'Kimi Plain' },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'kimi-plain', 'off', 'default');
+    const result = await buildSessionConfigOptions(
+      harness,
+      modelKey('test/kimi-plain'),
+      'off',
+      'default',
+    );
 
     expect(result.map((o) => o.id)).toEqual(['model', 'mode']);
   });
 
   it('reflects the thinking toggle currentValue from the explicit argument', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'kimi-coder', model: 'kimi-for-coding', displayName: 'Kimi Coder' },
+      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'kimi-coder', 'on', 'default');
+    const result = await buildSessionConfigOptions(
+      harness,
+      modelKey('test/kimi-coder'),
+      'on',
+      'default',
+    );
     const toggle = result.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected thinking select toggle');
-    expect(toggle.currentValue).toBe('on');
+    expect(toggle.currentValue).toBe('medium');
   });
 
   it('advertises one row per declared effort level for effort-capable models', async () => {
     const { harness } = makeHarnessWithModels([
       {
-        id: 'kimi-k2',
-        model: 'kimi-k2-thinking',
-        displayName: 'Kimi K2',
-        capabilities: ['thinking'],
-        supportEfforts: ['low', 'medium', 'high'],
-        defaultEffort: 'medium',
+        id: 'test/kimi-k2',
+        name: 'Kimi K2',
+        thinkingSupported: true,
+        efforts: ['low', 'medium', 'high'],
       },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'kimi-k2', 'high', 'default');
+    const result = await buildSessionConfigOptions(harness, modelKey('test/kimi-k2'), 'high', 'default');
     const picker = result.find((o) => o.id === 'thinking');
     if (!picker || picker.type !== 'select') throw new Error('expected thinking select picker');
     expect(picker.currentValue).toBe('high');
@@ -329,7 +290,12 @@ describe('buildSessionConfigOptions', () => {
     ]);
 
     // The legacy `on` value projects onto the declared default level.
-    const defaulted = await buildSessionConfigOptions(harness, 'kimi-k2', 'on', 'default');
+    const defaulted = await buildSessionConfigOptions(
+      harness,
+      modelKey('test/kimi-k2'),
+      'on',
+      'default',
+    );
     const defaultedPicker = defaulted.find((o) => o.id === 'thinking');
     if (!defaultedPicker || defaultedPicker.type !== 'select') {
       throw new Error('expected thinking select picker');
@@ -340,14 +306,19 @@ describe('buildSessionConfigOptions', () => {
   it('locks the thinking toggle to on for always-thinking models even when the session state says off', async () => {
     const { harness } = makeHarnessWithModels([
       {
-        id: 'kimi-deep',
-        model: 'kimi-deep-coder',
-        displayName: 'Kimi Deep',
-        capabilities: ['thinking', 'always_thinking'],
+        id: 'test/kimi-deep',
+        name: 'Kimi Deep',
+        alwaysThinking: true,
+        efforts: ['on'],
       },
     ]);
 
-    const result = await buildSessionConfigOptions(harness, 'kimi-deep', 'off', 'default');
+    const result = await buildSessionConfigOptions(
+      harness,
+      modelKey('test/kimi-deep'),
+      'off',
+      'default',
+    );
 
     const toggle = result.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected thinking select toggle');
@@ -357,15 +328,15 @@ describe('buildSessionConfigOptions', () => {
 
   it('omits the thinking toggle when the current base model id is not in the catalog (defensive)', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'kimi-coder', model: 'kimi-for-coding', displayName: 'Kimi Coder' },
+      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
     ]);
 
     const result = await buildSessionConfigOptions(harness, 'unknown-model', 'on', 'default');
     expect(result.map((o) => o.id)).toEqual(['model', 'mode']);
   });
 
-  it('handles missing getConfig (partial-stub harness) by suppressing the toggle and shipping an empty model picker', async () => {
-    const harness = {} as unknown as KimiHarness;
+  it('ships an empty model picker when the live catalog is empty', async () => {
+    const harness = { auth: { models: async () => [] } } as unknown as KimiHarness;
 
     const result = await buildSessionConfigOptions(harness, '', 'off', 'default');
 

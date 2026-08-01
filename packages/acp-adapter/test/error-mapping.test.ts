@@ -25,7 +25,7 @@ import {
 
 import { turnEndReasonToStopReason } from '../src/events-map';
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { makeAuth } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -97,7 +97,7 @@ const textBlock = (text: string): ContentBlock => ({ type: 'text', text });
 
 function makeHarnessWithSession(session: Session): KimiHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async () => session,
   } as unknown as KimiHarness;
 }

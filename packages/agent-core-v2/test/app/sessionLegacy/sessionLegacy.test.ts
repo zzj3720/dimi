@@ -7,27 +7,27 @@
  * current model catalog.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { type IAgentScopeHandle, type ISessionScopeHandle, LifecycleScope } from '#/_base/di/scope';
-import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPlanService } from '#/agent/plan/plan';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentSwarmService } from '#/agent/swarm/swarm';
-import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
-import { ISessionLegacyService } from '#/app/sessionLegacy/sessionLegacy';
-import { SessionLegacyService } from '#/app/sessionLegacy/sessionLegacyService';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { SyncDescriptor } from "#/_base/di/descriptors";
+import type { ServiceIdentifier, ServicesAccessor } from "#/_base/di/instantiation";
+import { DisposableStore } from "#/_base/di/lifecycle";
+import { type IAgentScopeHandle, type ISessionScopeHandle, LifecycleScope } from "#/_base/di/scope";
+import { TestInstantiationService } from "#/_base/di/test";
+import { IAgentContextSizeService } from "#/agent/contextSize/contextSize";
+import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
+import { IAgentPlanService } from "#/agent/plan/plan";
+import { IAgentProfileService } from "#/agent/profile/profile";
+import { IAgentSwarmService } from "#/agent/swarm/swarm";
+import { UNKNOWN_CAPABILITY } from "#/llmProtocol/capability";
+import { ISessionLegacyService } from "#/app/sessionLegacy/sessionLegacy";
+import { SessionLegacyService } from "#/app/sessionLegacy/sessionLegacyService";
+import { ISessionLifecycleService } from "#/app/sessionLifecycle/sessionLifecycle";
+import { IAgentActivityView } from "#/agent/activityView/activityView";
+import { IAgentLifecycleService } from "#/session/agentLifecycle/agentLifecycle";
+import { ISessionContext } from "#/session/sessionContext/sessionContext";
+import { ISessionCronService } from "#/session/cron/sessionCronService";
+import { ISessionMetadata } from "#/session/sessionMetadata/sessionMetadata";
 
 function accessor(
   entries: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>,
@@ -42,7 +42,7 @@ function accessor(
   };
 }
 
-describe('Session legacy status (best-effort runtime state)', () => {
+describe("Session legacy status (best-effort runtime state)", () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
@@ -55,36 +55,33 @@ describe('Session legacy status (best-effort runtime state)', () => {
     disposables.dispose();
   });
 
-  it('returns the persisted effort when the saved model alias no longer resolves', async () => {
+  it("returns the persisted effort when the saved model alias no longer resolves", async () => {
     const profile = {
       _serviceBrand: undefined,
       data: () => ({
-        cwd: '/workspace',
-        modelAlias: 'removed-model',
+        cwd: "/workspace",
+        modelAlias: "removed-model",
         modelCapabilities: UNKNOWN_CAPABILITY,
-        thinkingLevel: 'high',
-        systemPrompt: '',
+        thinkingLevel: "high",
+        systemPrompt: "",
       }),
-      getModel: () => 'removed-model',
+      getModel: () => "removed-model",
       getModelCapabilities: () => UNKNOWN_CAPABILITY,
-      getEffectiveThinkingLevel: () => 'high',
+      getEffectiveThinkingLevel: () => "high",
       resolveModelContext: () => {
-        throw new Error('removed-model cannot be resolved');
+        throw new Error("removed-model cannot be resolved");
       },
     } as unknown as IAgentProfileService;
     const agent: IAgentScopeHandle = {
-      id: 'main',
+      id: "main",
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
         [IAgentContextSizeService, { get: () => ({ size: 25, measured: 20, estimated: 5 }) }],
-        [IAgentPermissionModeService, { mode: 'manual' }],
+        [IAgentPermissionModeService, { mode: "manual" }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: "ready", background: [] }) }],
       ]),
       dispose: () => {},
     };
@@ -96,7 +93,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
       list: () => [agent],
     } as unknown as IAgentLifecycleService;
     const session: ISessionScopeHandle = {
-      id: 'session-test',
+      id: "session-test",
       kind: LifecycleScope.Session,
       accessor: accessor([
         [IAgentLifecycleService, agents],
@@ -110,22 +107,22 @@ describe('Session legacy status (best-effort runtime state)', () => {
     });
     ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-test');
+    const status = await ix.get(ISessionLegacyService).status("session-test");
 
     expect(status).toMatchObject({
       busy: false,
-      model: 'removed-model',
-      thinking_level: 'high',
+      model: "removed-model",
+      thinking_level: "high",
       max_context_tokens: 0,
     });
   });
 
-  it('uses the input cap as the status denominator and clamps usage to 1', async () => {
+  it("uses the input cap as the status denominator and clamps usage to 1", async () => {
     const profile = {
       _serviceBrand: undefined,
       data: () => ({
-        cwd: '/workspace',
-        modelAlias: 'gpt-5',
+        cwd: "/workspace",
+        modelAlias: "gpt-5",
         modelCapabilities: {
           image_in: false,
           video_in: false,
@@ -136,10 +133,10 @@ describe('Session legacy status (best-effort runtime state)', () => {
           max_input_tokens: 100_000,
           dynamically_loaded_tools: false,
         },
-        thinkingLevel: 'medium',
-        systemPrompt: '',
+        thinkingLevel: "medium",
+        systemPrompt: "",
       }),
-      getModel: () => 'gpt-5',
+      getModel: () => "gpt-5",
       getModelCapabilities: () => ({
         image_in: false,
         video_in: false,
@@ -150,21 +147,21 @@ describe('Session legacy status (best-effort runtime state)', () => {
         max_input_tokens: 100_000,
         dynamically_loaded_tools: false,
       }),
-      getEffectiveThinkingLevel: () => 'medium',
+      getEffectiveThinkingLevel: () => "medium",
     } as unknown as IAgentProfileService;
     const agent: IAgentScopeHandle = {
-      id: 'main',
+      id: "main",
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
-        [IAgentContextSizeService, { get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }) }],
-        [IAgentPermissionModeService, { mode: 'manual' }],
+        [
+          IAgentContextSizeService,
+          { get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }) },
+        ],
+        [IAgentPermissionModeService, { mode: "manual" }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: "ready", background: [] }) }],
       ]),
       dispose: () => {},
     };
@@ -174,7 +171,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
       list: () => [agent],
     } as unknown as IAgentLifecycleService;
     const session: ISessionScopeHandle = {
-      id: 'session-capped',
+      id: "session-capped",
       kind: LifecycleScope.Session,
       accessor: accessor([
         [IAgentLifecycleService, agents],
@@ -188,7 +185,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
     });
     ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
 
-    const status = await ix.get(ISessionLegacyService).status('session-capped');
+    const status = await ix.get(ISessionLegacyService).status("session-capped");
 
     // 120k in context against the 100k input cap (not the 200k window):
     // usage would exceed the wire schema bound and is clamped to 1.
@@ -198,10 +195,10 @@ describe('Session legacy status (best-effort runtime state)', () => {
     });
   });
 
-  it('fans a permission_mode patch out through the session agent registry', async () => {
+  it("fans a permission_mode patch out through the session agent registry", async () => {
     const broadcastPermissionMode = vi.fn();
     const agent: IAgentScopeHandle = {
-      id: 'main',
+      id: "main",
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, { _serviceBrand: undefined }],
@@ -216,7 +213,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
       broadcastPermissionMode,
     } as unknown as IAgentLifecycleService;
     const session: ISessionScopeHandle = {
-      id: 'session-test',
+      id: "session-test",
       kind: LifecycleScope.Session,
       accessor: accessor([
         [IAgentLifecycleService, agents],
@@ -224,10 +221,10 @@ describe('Session legacy status (best-effort runtime state)', () => {
           ISessionMetadata,
           {
             read: () =>
-              Promise.resolve({ id: 'session-test', createdAt: 0, updatedAt: 0, archived: false }),
+              Promise.resolve({ id: "session-test", createdAt: 0, updatedAt: 0, archived: false }),
           },
         ],
-        [ISessionContext, { workspaceId: 'ws-test', cwd: '/workspace' }],
+        [ISessionContext, { workspaceId: "ws-test", cwd: "/workspace" }],
       ]),
       dispose: () => {},
     };
@@ -237,10 +234,10 @@ describe('Session legacy status (best-effort runtime state)', () => {
     });
     ix.set(ISessionLegacyService, new SyncDescriptor(SessionLegacyService));
 
-    await ix.get(ISessionLegacyService).updateProfile('session-test', {
-      agent_config: { permission_mode: 'yolo' },
+    await ix.get(ISessionLegacyService).updateProfile("session-test", {
+      agent_config: { permission_mode: "yolo" },
     });
 
-    expect(broadcastPermissionMode).toHaveBeenCalledWith('yolo');
+    expect(broadcastPermissionMode).toHaveBeenCalledWith("yolo");
   });
 });

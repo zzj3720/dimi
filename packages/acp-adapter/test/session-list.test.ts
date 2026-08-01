@@ -16,7 +16,7 @@ import {
 import type { KimiHarness, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { makeAuth } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -53,7 +53,7 @@ function makeHarness(
   captured: CapturedListOptions[] = [],
 ): KimiHarness {
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     listSessions: async (options: { workDir?: string; sessionId?: string } = {}) => {
       captured.push({ options });
       if (options.workDir !== undefined) {

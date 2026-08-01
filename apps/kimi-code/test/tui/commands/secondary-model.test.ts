@@ -30,20 +30,18 @@ function model(name: string): ModelAlias {
 
 function makeHost(options?: {
   readonly withSession?: boolean;
-  readonly secondaryModel?: { model: string; defaultEffort?: string };
-  readonly persistedModels?: Record<string, ModelAlias>;
+  readonly secondaryModel?: { provider?: string; model: string; defaultEffort?: string };
   /** The secondary model the reloaded config carries — env overlays win. */
-  readonly effectiveSecondary?: { model: string; defaultEffort?: string };
+  readonly effectiveSecondary?: { provider?: string; model: string; defaultEffort?: string };
 }) {
-  const session = options?.withSession === false
-    ? undefined
-    : { applyPersistedSecondaryModel: vi.fn(async () => {}) };
+  const session =
+    options?.withSession === false
+      ? undefined
+      : { applyPersistedSecondaryModel: vi.fn(async () => {}) };
   const appState = {
     availableModels: {
-      k2: model('k2'),
-      cheap: model('cheap'),
-      // The synthesized derived entry must never be selectable.
-      '__secondary__': model('cheap'),
+      'test/k2': model('k2'),
+      'test/cheap': model('cheap'),
     } as Record<string, ModelAlias>,
     availableProviders: {},
     transcriptEntries: [],
@@ -54,16 +52,13 @@ function makeHost(options?: {
       transcriptEntries: [],
     },
     authFlow: {
-      refreshOAuthProviderModels: vi.fn(async () => undefined),
+      refreshProviderModels: vi.fn(async () => undefined),
     },
     harness: {
       getConfig: vi.fn(async () => ({
-        providers: {},
         secondaryModel: options?.secondaryModel,
       })),
       setConfig: vi.fn(async () => ({
-        providers: {},
-        models: options?.persistedModels,
         secondaryModel: options?.effectiveSecondary,
       })),
     },
@@ -97,13 +92,15 @@ function mountedPicker(host: { mountEditorReplacement: ReturnType<typeof vi.fn> 
 
 describe('handleSecondaryModelCommand', () => {
   it('opens the picker filtered to user models, with the configured recipe as current', async () => {
-    const { host } = makeHost({ secondaryModel: { model: 'cheap', defaultEffort: 'high' } });
+    const { host } = makeHost({
+      secondaryModel: { provider: 'test', model: 'cheap', defaultEffort: 'high' },
+    });
 
     await handleSecondaryModelCommand(host, '');
 
     const opts = mountedPicker(host);
-    expect(Object.keys(opts.models)).toEqual(['k2', 'cheap']);
-    expect(opts.currentValue).toBe('cheap');
+    expect(Object.keys(opts.models)).toEqual(['test/k2', 'test/cheap']);
+    expect(opts.currentValue).toBe('test/cheap');
     expect(opts.currentThinkingEffort).toBe('high');
     expect(opts.title).toContain('secondary model');
   });
@@ -112,13 +109,13 @@ describe('handleSecondaryModelCommand', () => {
     const { host, session } = makeHost();
 
     await handleSecondaryModelCommand(host, '');
-    mountedPicker(host).onSelect({ alias: 'k2', thinking: 'high' });
+    mountedPicker(host).onSelect({ alias: 'test/k2', thinking: 'high' });
 
     await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      secondaryModel: { model: 'k2', defaultEffort: 'high' },
+      secondaryModel: { provider: 'test', model: 'k2', defaultEffort: 'high' },
     });
     expect(session!.applyPersistedSecondaryModel).toHaveBeenCalledWith();
     expect(host.harness.setConfig.mock.invocationCallOrder[0]).toBeLessThan(
@@ -127,22 +124,16 @@ describe('handleSecondaryModelCommand', () => {
     expect(host.showError).not.toHaveBeenCalled();
   });
 
-  it('refreshes the effective model map after a live secondary-model switch', async () => {
-    const { host } = makeHost({
-      persistedModels: {
-        k2: model('k2'),
-        cheap: model('cheap'),
-        '__secondary__': model('k2'),
-      },
-    });
+  it('keeps the runtime model catalog unchanged after a live secondary-model switch', async () => {
+    const { host } = makeHost();
 
     await handleSecondaryModelCommand(host, '');
-    mountedPicker(host).onSelect({ alias: 'k2', thinking: 'high' });
+    mountedPicker(host).onSelect({ alias: 'test/k2', thinking: 'high' });
 
     await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
-    expect(host.state.appState.availableModels['__secondary__']?.displayName).toBe('k2');
+    expect(Object.keys(host.state.appState.availableModels)).toEqual(['test/k2', 'test/cheap']);
   });
 
   it('warns with the env-overridden effective binding instead of the picked model', async () => {
@@ -150,11 +141,11 @@ describe('handleSecondaryModelCommand', () => {
     // recipe: the reloaded config carries the overlaid values, and the status
     // message must name them rather than echo the pick.
     const { host } = makeHost({
-      effectiveSecondary: { model: 'cheap', defaultEffort: 'low' },
+      effectiveSecondary: { provider: 'test', model: 'cheap', defaultEffort: 'low' },
     });
 
     await handleSecondaryModelCommand(host, '');
-    mountedPicker(host).onSelect({ alias: 'k2', thinking: 'high' });
+    mountedPicker(host).onSelect({ alias: 'test/k2', thinking: 'high' });
 
     await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
@@ -167,35 +158,29 @@ describe('handleSecondaryModelCommand', () => {
   });
 
   it('keeps the current effective model map when live apply fails', async () => {
-    const { host, session } = makeHost({
-      persistedModels: {
-        k2: model('k2'),
-        cheap: model('cheap'),
-        '__secondary__': model('k2'),
-      },
-    });
+    const { host, session } = makeHost();
     session!.applyPersistedSecondaryModel.mockRejectedValueOnce(new Error('apply failed'));
 
     await handleSecondaryModelCommand(host, '');
-    mountedPicker(host).onSelect({ alias: 'k2', thinking: 'high' });
+    mountedPicker(host).onSelect({ alias: 'test/k2', thinking: 'high' });
 
     await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalled();
     });
-    expect(host.state.appState.availableModels['__secondary__']?.displayName).toBe('cheap');
+    expect(Object.keys(host.state.appState.availableModels)).toEqual(['test/k2', 'test/cheap']);
   });
 
   it('persists only when there is no session', async () => {
     const { host } = makeHost({ withSession: false });
 
     await handleSecondaryModelCommand(host, '');
-    mountedPicker(host).onSelect({ alias: 'k2', thinking: 'off' });
+    mountedPicker(host).onSelect({ alias: 'test/k2', thinking: 'off' });
 
     await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      secondaryModel: { model: 'k2', defaultEffort: 'off' },
+      secondaryModel: { provider: 'test', model: 'k2', defaultEffort: 'off' },
     });
     expect(host.showStatus.mock.calls[0]![0]).toContain('new sessions');
   });
@@ -205,16 +190,16 @@ describe('handleSecondaryModelCommand', () => {
 
     await handleSecondaryModelCommand(host, 'nope');
 
-    expect(host.showError).toHaveBeenCalledWith('Unknown model alias: nope');
+    expect(host.showError).toHaveBeenCalledWith('Unknown model: nope');
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
   });
 
-  it('rejects the synthesized derived alias as an argument', async () => {
+  it('rejects a removed synthesized alias as an argument', async () => {
     const { host } = makeHost();
 
     await handleSecondaryModelCommand(host, '__secondary__');
 
-    expect(host.showError).toHaveBeenCalledWith('Unknown model alias: __secondary__');
+    expect(host.showError).toHaveBeenCalledWith('Unknown model: __secondary__');
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
   });
 

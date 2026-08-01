@@ -8,7 +8,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { BannerProvider } from '#/tui/banner/banner-provider';
 import { readBannerDisplayState } from '#/tui/banner/state';
 import { handleLoginCommand, handleLogoutCommand } from '#/tui/commands/auth';
-import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/commands/prompts';
+import {
+  promptAuthTypeSelection,
+  promptLogoutProviderSelection,
+  promptProviderAuthSelection,
+} from '#/tui/commands/prompts';
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
@@ -25,7 +29,13 @@ import {
 
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
-  return { ...actual, promptPlatformSelection: vi.fn(), promptLogoutProviderSelection: vi.fn() };
+  return {
+    ...actual,
+    promptAuthTypeSelection: vi.fn(async () => 'oauth'),
+    promptProviderAuthSelection: vi.fn(async () => 'kimi-coding'),
+    promptLogoutProviderSelection: vi.fn(),
+    runModelSelector: vi.fn(async () => ({ alias: 'kimi-coding/k2', thinking: 'off' })),
+  };
 });
 vi.mock('#/utils/clipboard/clipboard-text', () => ({
   copyTextToClipboard: vi.fn(async () => {}),
@@ -95,7 +105,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     model: 'k2',
     summary: { title: 'Session title' },
     getStatus: vi.fn(async () => ({
-      model: 'k2',
+      model: 'kimi-coding/k2',
       thinkingEffort: 'off',
       permission: 'manual',
       planMode: false,
@@ -173,18 +183,24 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
 }
 
 function loginRequiredError(): Error & { readonly code: string } {
-  return Object.assign(new Error('OAuth provider "managed:kimi-code" requires login.'), {
+  return Object.assign(new Error('OAuth provider "kimi-coding" requires login.'), {
     code: 'auth.login_required',
   });
 }
 
 function makeHarness(session = makeSession(), overrides: Record<string, unknown> = {}) {
+  const { auth: authOverrides, ...harnessOverrides } = overrides as {
+    auth?: Record<string, unknown>;
+  };
   return {
     getConfig: vi.fn(async () => ({
+      defaultProvider: 'kimi-coding',
+      defaultModel: 'k2',
       models: {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
+    setConfig: vi.fn(async () => ({ providers: {} })),
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     listSessions: vi.fn(async () => []),
@@ -194,11 +210,38 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     getExperimentalFeatures: vi.fn(async () => []),
     auth: {
       status: vi.fn(async () => ({ providers: [] })),
+      providers: vi.fn(async () => [
+        {
+          id: 'kimi-coding',
+          name: 'Kimi Code',
+          configured: true,
+          credentialType: 'oauth',
+          methods: [{ type: 'oauth', name: 'Kimi OAuth', label: 'Kimi OAuth' }],
+        },
+      ]),
+      models: vi.fn(async (providerId?: string) => {
+        const models = [
+          {
+            provider: 'kimi-coding',
+            id: 'k2',
+            name: 'K2',
+            contextWindow: 100,
+            maxTokens: 16_000,
+            input: ['text'],
+            reasoning: false,
+          },
+        ];
+        return providerId === undefined
+          ? models
+          : models.filter((model) => model.provider === providerId);
+      }),
+      refreshModels: vi.fn(async () => ({ aborted: false, errors: new Map() })),
       login: vi.fn(async () => {}),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),
+      ...authOverrides,
     },
-    ...overrides,
+    ...harnessOverrides,
   };
 }
 
@@ -775,10 +818,14 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const firstPicker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const firstPicker = driver.state.editorContainer.children[0] as {
+      handleInput(data: string): void;
+    };
     firstPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
-    const allPicker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const allPicker = driver.state.editorContainer.children[0] as {
+      handleInput(data: string): void;
+    };
     allPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -904,7 +951,9 @@ describe('KimiTUI startup', () => {
 
     expect(resumeSession).not.toHaveBeenCalled();
     expect(driver.state.activeDialog).toBeNull();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
+    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg(
+      'ses-other-cwd',
+    )}`;
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
     expect(transcript).toContain('Current session is in a different working directory.');
@@ -942,7 +991,9 @@ describe('KimiTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj$(touch /tmp/pwned)')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
+    const expectedResumeCmd = `cd ${quoteShellArg(
+      '/tmp/proj$(touch /tmp/pwned)',
+    )} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
     expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
@@ -979,7 +1030,9 @@ describe('KimiTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
+    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg(
+      'ses-other-cwd',
+    )}`;
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(0);
@@ -1106,15 +1159,15 @@ describe('KimiTUI startup', () => {
     expect(write).toHaveBeenCalledWith(DISABLE_TERMINAL_THEME_REPORTING);
   });
 
-  it("only shows provider refresh status for added models", async () => {
+  it('only shows provider refresh status for added models', async () => {
     const harness = makeHarness();
     const driver = makeDriver(harness, makeStartupInput());
-    const showStatus = vi.spyOn(driver as any, "showStatus").mockImplementation(() => {});
-    vi.spyOn((driver as any).authFlow, "refreshProviderModels").mockResolvedValue({
+    const showStatus = vi.spyOn(driver as any, 'showStatus').mockImplementation(() => {});
+    vi.spyOn((driver as any).authFlow, 'refreshProviderModels').mockResolvedValue({
       changed: [
-        { providerId: "new-models", providerName: "New Models", added: 2, removed: 0 },
-        { providerId: "removed-models", providerName: "Removed Models", added: 0, removed: 3 },
-        { providerId: "metadata-only", providerName: "Metadata Only", added: 0, removed: 0 },
+        { providerId: 'new-models', providerName: 'New Models', added: 2, removed: 0 },
+        { providerId: 'removed-models', providerName: 'Removed Models', added: 0, removed: 3 },
+        { providerId: 'metadata-only', providerName: 'Metadata Only', added: 0, removed: 0 },
       ],
       unchanged: [],
       failed: [],
@@ -1123,10 +1176,10 @@ describe('KimiTUI startup', () => {
     await (driver as any).refreshProviderModelsInBackground();
 
     expect(showStatus).toHaveBeenCalledTimes(1);
-    expect(showStatus).toHaveBeenCalledWith("New Models · +2 models.");
+    expect(showStatus).toHaveBeenCalledWith('New Models · +2 models.');
   });
 
-  it("starts TUI without a session when fresh startup needs OAuth login", async () => {
+  it('starts TUI without a session when fresh startup needs OAuth login', async () => {
     const harness = makeHarness(makeSession(), {
       createSession: vi.fn(async () => {
         throw loginRequiredError();
@@ -1137,7 +1190,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     expect(driver.state.startupState).toBe('ready');
-    expect((driver as any).startupNotice).toContain('OAuth login expired');
+    expect((driver as any).startupNotice).toContain('Provider authentication is required');
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
@@ -1167,6 +1220,7 @@ describe('KimiTUI startup', () => {
       .mockResolvedValueOnce(session);
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
+        defaultProvider: 'kimi-coding',
         defaultModel: 'k2',
         thinking: { enabled: false },
         models: {
@@ -1186,7 +1240,8 @@ describe('KimiTUI startup', () => {
       planMode: true,
     });
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+    vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
     await handleLoginCommand(driver as any);
 
     expect(createSession).toHaveBeenNthCalledWith(1, {
@@ -1196,14 +1251,14 @@ describe('KimiTUI startup', () => {
     });
     expect(createSession).toHaveBeenNthCalledWith(2, {
       workDir: '/tmp/proj-a',
-      model: 'k2',
+      model: 'kimi-coding/k2',
       thinking: 'off',
       permission: 'yolo',
       planMode: true,
     });
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
-      model: 'k2',
+      model: 'kimi-coding/k2',
       permissionMode: 'yolo',
       planMode: true,
     });
@@ -1217,6 +1272,7 @@ describe('KimiTUI startup', () => {
       .mockResolvedValueOnce(session);
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
+        defaultProvider: 'kimi-coding',
         defaultModel: 'k2',
         thinking: { enabled: false },
         models: {
@@ -1232,12 +1288,13 @@ describe('KimiTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+    vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
     await handleLoginCommand(driver as any);
 
     expect(createSession).toHaveBeenNthCalledWith(2, {
       workDir: '/tmp/proj-a',
-      model: 'k2',
+      model: 'kimi-coding/k2',
       thinking: 'off',
       permission: undefined,
       planMode: undefined,
@@ -1264,6 +1321,7 @@ describe('KimiTUI startup', () => {
       .mockResolvedValueOnce(session);
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
+        defaultProvider: 'kimi-coding',
         defaultModel: 'k2',
         thinking: { enabled: false },
         models: {
@@ -1275,12 +1333,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+    vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
     await handleLoginCommand(driver as any);
 
     expect(createSession).toHaveBeenNthCalledWith(2, {
       workDir: '/tmp/proj-a',
-      model: 'k2',
+      model: 'kimi-coding/k2',
       thinking: 'off',
       permission: undefined,
       planMode: undefined,
@@ -1294,6 +1353,7 @@ describe('KimiTUI startup', () => {
     const session = makeSession();
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
+        defaultProvider: 'kimi-coding',
         defaultModel: 'k2',
         thinking: { enabled: true },
         models: {
@@ -1306,31 +1366,31 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+    vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
     await handleLoginCommand(driver as any);
 
-    expect(session.setModel).toHaveBeenCalledWith('k2');
+    expect(session.setModel).toHaveBeenCalledWith('kimi-coding/k2');
     // `thinking.enabled === true` means "leave the session's current thinking
     // level alone" — only an explicit `enabled === false` forces `'off'`.
-    expect(session.setThinking).not.toHaveBeenCalled();
+    expect(session.setThinking).toHaveBeenCalledWith('off');
     expect(driver.state.appState).toMatchObject({
-      model: 'k2',
+      model: 'kimi-coding/k2',
       thinkingEffort: 'off',
       maxContextTokens: 100,
     });
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:kimi-code',
+      provider: 'kimi-coding',
       method: 'oauth',
-      already_logged_in: false,
     });
   });
 
-  it('tracks login with already_logged_in when a token already exists', async () => {
+  it('tracks provider login through the OAuth facade', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
+          providers: [{ providerName: 'kimi-coding', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1342,20 +1402,22 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+    vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
-      'managed:kimi-code',
+      'kimi-coding',
+      'oauth',
       expect.objectContaining({
         signal: expect.any(AbortSignal),
-        onDeviceCode: expect.any(Function),
+        prompt: expect.any(Function),
+        notify: expect.any(Function),
       }),
     );
     expect(harness.track).toHaveBeenCalledWith('login', {
-      provider: 'managed:kimi-code',
+      provider: 'kimi-coding',
       method: 'oauth',
-      already_logged_in: true,
     });
   });
 
@@ -1378,22 +1440,24 @@ describe('KimiTUI startup', () => {
     try {
       await expect(driver.init()).resolves.toBe(false);
 
-      vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+      vi.mocked(promptAuthTypeSelection).mockResolvedValue('oauth');
+      vi.mocked(promptProviderAuthSelection).mockResolvedValue('kimi-coding');
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(
-        'managed:kimi-code',
+        'kimi-coding',
+        'oauth',
         expect.objectContaining({
           signal: expect.any(AbortSignal),
-          onDeviceCode: expect.any(Function),
+          prompt: expect.any(Function),
+          notify: expect.any(Function),
         }),
       );
       expect(warn).toHaveBeenCalledWith(
-        'login failed',
+        'provider login failed',
         expect.objectContaining({
-          providerName: 'managed:kimi-code',
-          alreadyLoggedIn: false,
-          sessionId: 'ses-1',
+          providerId: 'kimi-coding',
+          methodType: 'oauth',
           error: expect.objectContaining({
             message: 'Failed to list Kimi Code models (HTTP 402).',
           }),
@@ -1409,13 +1473,13 @@ describe('KimiTUI startup', () => {
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:kimi-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'kimi-coding', model: 'moonshot-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:kimi-code': { type: 'kimi' } },
+        providers: { 'kimi-coding': { type: 'kimi' } },
       })),
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
+          providers: [{ providerName: 'kimi-coding', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1427,36 +1491,34 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('kimi-coding');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('kimi-coding');
     expect(session.close).toHaveBeenCalledOnce();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
       model: '',
       sessionTitle: null,
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'managed:kimi-code' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'kimi-coding' });
   });
 
   it('keeps the active session when logging out a different provider', async () => {
     const session = makeSession();
-    const removeProvider = vi.fn(async () => {});
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:kimi-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'kimi-coding', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: {
-          'managed:kimi-code': { type: 'kimi' },
+          'kimi-coding': { type: 'kimi' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
         },
       })),
-      removeProvider,
       auth: {
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
+          providers: [{ providerName: 'kimi-coding', hasToken: true }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1471,30 +1533,29 @@ describe('KimiTUI startup', () => {
     vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
-    expect(removeProvider).toHaveBeenCalledWith('openai');
-    expect(harness.auth.logout).not.toHaveBeenCalled();
+    expect(harness.auth.logout).toHaveBeenCalledWith('openai');
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
-      model: 'k2',
+      model: 'kimi-coding/k2',
     });
     expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
   });
 
-  it('can log out a stale managed entry even after the OAuth token is gone', async () => {
+  it('can log out a provider even after its stored credential is gone', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'managed:kimi-code', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'kimi-coding', model: 'moonshot-v1', maxContextSize: 100 },
         },
-        providers: { 'managed:kimi-code': { type: 'kimi' } },
+        providers: { 'kimi-coding': { type: 'kimi' } },
       })),
       auth: {
-        // Token gone (e.g. credentials file deleted) but the managed entry
-        // is still sitting in config.providers.
+        // The provider remains built in even when its credential file entry
+        // has already disappeared.
         status: vi.fn(async () => ({
-          providers: [{ providerName: 'managed:kimi-code', hasToken: false }],
+          providers: [{ providerName: 'kimi-coding', hasToken: false }],
         })),
         login: vi.fn(async () => {}),
         logout: vi.fn(),
@@ -1505,10 +1566,10 @@ describe('KimiTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('kimi-coding');
     await handleLogoutCommand(driver as any);
 
-    expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
+    expect(harness.auth.logout).toHaveBeenCalledWith('kimi-coding');
   });
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {
@@ -1663,7 +1724,9 @@ describe('KimiTUI startup', () => {
 
       await vi.waitFor(() => {
         expect(
-          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+          driver.state.transcriptContainer.children.some(
+            (child) => child instanceof BannerComponent,
+          ),
         ).toBe(true);
       });
 
@@ -1720,7 +1783,9 @@ describe('KimiTUI startup', () => {
 
       await vi.waitFor(() => {
         expect(
-          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+          driver.state.transcriptContainer.children.some(
+            (child) => child instanceof BannerComponent,
+          ),
         ).toBe(true);
       });
 

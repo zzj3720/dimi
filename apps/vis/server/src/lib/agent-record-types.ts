@@ -8,28 +8,28 @@ export type {
   LoopRecordedEvent,
   ContextMessage,
   PromptOrigin,
-} from '@moonshot-ai/agent-core-v2';
-export { WIRE_PROTOCOL_VERSION as AGENT_WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2';
-export type { Message, ContentPart, ToolCall, TokenUsage } from '@moonshot-ai/kosong';
+} from "@moonshot-ai/agent-core-v2";
+export { WIRE_PROTOCOL_VERSION as AGENT_WIRE_PROTOCOL_VERSION } from "@moonshot-ai/agent-core-v2";
+export type { Message, ContentPart, ToolCall, TokenUsage } from "@moonshot-ai/agent-core-v2";
 
 import type {
   AgentTaskInfo,
   AgentTaskStatus,
   PersistedWireRecord,
-} from '@moonshot-ai/agent-core-v2';
+} from "@moonshot-ai/agent-core-v2";
 
 type HistoricalAgentRecord =
-  | { type: 'context.update_token_count'; tokenCount: number; time?: number }
-  | { type: 'micro_compaction.apply'; cutoff: number; time?: number };
+  | { type: "context.update_token_count"; tokenCount: number; time?: number }
+  | { type: "micro_compaction.apply"; cutoff: number; time?: number };
 
 export type AgentRecord = PersistedWireRecord | HistoricalAgentRecord;
-export type AgentRecordEvents = AgentRecord['type'];
+export type AgentRecordEvents = AgentRecord["type"];
 export type AgentRecordOf<K extends AgentRecordEvents> = Extract<AgentRecord, { type: K }>;
 export type BackgroundTaskInfo = AgentTaskInfo;
 export type BackgroundTaskStatus = AgentTaskStatus;
-export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'process' }>;
-export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'agent' }>;
-export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: 'question' }>;
+export type ProcessBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "process" }>;
+export type AgentBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "agent" }>;
+export type QuestionBackgroundTaskInfo = Extract<AgentTaskInfo, { kind: "question" }>;
 
 /**
  * Persistent representation of a cron task.
@@ -89,19 +89,15 @@ export interface ImportInfo {
 export interface ApiError {
   error: string;
   code:
-    | 'NOT_FOUND'
-    | 'BAD_REQUEST'
-    | 'UNAUTHORIZED'
-    | 'READ_ERROR'
-    | 'PARSE_ERROR'
-    | 'DELETE_ERROR';
+    | "NOT_FOUND"
+    | "BAD_REQUEST"
+    | "UNAUTHORIZED"
+    | "READ_ERROR"
+    | "PARSE_ERROR"
+    | "DELETE_ERROR";
 }
 
-export type SessionHealth =
-  | 'ok'
-  | 'broken_state'
-  | 'broken_main_wire'
-  | 'missing_main_wire';
+export type SessionHealth = "ok" | "broken_state" | "broken_main_wire" | "missing_main_wire";
 
 export interface SessionSummary {
   sessionId: string;
@@ -125,7 +121,7 @@ export interface SessionSummary {
 
 export interface AgentInfo {
   agentId: string;
-  type: 'main' | 'sub' | 'independent';
+  type: "main" | "sub" | "independent";
   parentAgentId: string | null;
   homedir: string;
   wireExists: boolean;
@@ -263,7 +259,7 @@ export interface LogLine {
 
 export interface LogsResponse {
   sessionId: string;
-  which: 'session' | 'global';
+  which: "session" | "global";
   /** Which logs exist on disk for this session. */
   available: { session: boolean; global: boolean };
   lines: LogLine[];

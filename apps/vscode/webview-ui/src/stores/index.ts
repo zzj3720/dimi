@@ -1,5 +1,13 @@
 export { useChatStore } from "./chat.store";
-export type { ChatMessage, UIStep, UIStepItem, UIToolCall, MediaInConversation, TokenUsage, QueuedItem } from "./chat.store";
+export type {
+  ChatMessage,
+  UIStep,
+  UIStepItem,
+  UIToolCall,
+  MediaInConversation,
+  TokenUsage,
+  QueuedItem,
+} from "./chat.store";
 
 export { useSettingsStore } from "./settings.store";
 export {
@@ -12,7 +20,6 @@ export {
   isImageModel,
   isVideoModel,
   providerDisplayName,
-  requiresManagedProviderLogin,
 } from "./settings.store";
 export type { MediaRequirements, ModelProviderGroup } from "./settings.store";
 

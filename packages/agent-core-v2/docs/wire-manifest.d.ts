@@ -22,13 +22,13 @@
 // (foreign models that also reduce this record on dispatch and replay).
 
 // Index (46 record types)
-//   config.update                      profile              persisted  src/agent/profile/profileOps.ts
+//   config.update                      profile              persisted  (unresolved)
 //   context_size.measured              contextSize          transient  src/agent/contextSize/contextSizeOps.ts
-//   context.append_loop_event          contextMemory        persisted  src/agent/contextMemory/contextOps.ts
-//   context.append_message             contextMemory        persisted  src/agent/contextMemory/contextOps.ts
-//   context.apply_compaction           contextMemory        persisted  src/agent/contextMemory/contextOps.ts
-//   context.clear                      contextMemory        persisted  src/agent/contextMemory/contextOps.ts
-//   context.undo                       contextMemory        persisted  src/agent/contextMemory/contextOps.ts
+//   context.append_loop_event          contextMemory        persisted  (unresolved)
+//   context.append_message             contextMemory        persisted  (unresolved)
+//   context.apply_compaction           contextMemory        persisted  (unresolved)
+//   context.clear                      contextMemory        persisted  (unresolved)
+//   context.undo                       contextMemory        persisted  (unresolved)
 //   cron.add                           cron                 transient  src/session/cron/cronOps.ts
 //   cron.cursor                        cron                 transient  src/session/cron/cronOps.ts
 //   cron.delete                        cron                 transient  src/session/cron/cronOps.ts
@@ -41,8 +41,8 @@
 //   goal.update                        goal                 persisted  src/agent/goal/goalOps.ts
 //   interaction.request                interaction          persisted  src/session/interaction/interactionOps.ts
 //   interaction.resolved               interaction          persisted  src/session/interaction/interactionOps.ts
-//   llm.request                        llm.requestTrace     persisted  src/agent/llmRequester/llmRequestOps.ts
-//   llm.tools_snapshot                 llm.requestTrace     persisted  src/agent/llmRequester/llmRequestOps.ts
+//   llm.request                        llm.requestTrace     persisted  (unresolved)
+//   llm.tools_snapshot                 llm.requestTrace     persisted  (unresolved)
 //   mcp.tools_discovered               mcp.discovery        persisted  src/agent/mcp/mcpDiscoveryOps.ts
 //   permission.record_approval_result  permissionRules      persisted  src/agent/permissionRules/permissionRulesOps.ts
 //   permission.rules.add               permissionRules      transient  src/agent/permissionRules/permissionRulesOps.ts
@@ -51,39 +51,31 @@
 //   plan_mode.enter                    plan                 persisted  src/agent/plan/planOps.ts
 //   plan_mode.exit                     plan                 persisted  src/agent/plan/planOps.ts
 //   plan.revision                      plan                 persisted  src/agent/plan/planOps.ts
-//   profile.bind                       profile              persisted  src/agent/profile/profileOps.ts
+//   profile.bind                       profile              persisted  (unresolved)
 //   skill.activate                     skill                transient  src/agent/skill/skillOps.ts
 //   swarm_mode.enter                   swarm                persisted  src/agent/swarm/swarmOps.ts
 //   swarm_mode.exit                    swarm                persisted  src/agent/swarm/swarmOps.ts
 //   task.started                       task                 persisted  src/agent/task/taskOps.ts
 //   task.terminated                    task                 persisted  src/agent/task/taskOps.ts
 //   tools.register_user_tool           userTool             persisted  src/agent/userTool/userToolOps.ts
-//   tools.reset_active_tools           profile.activeTools  persisted  src/agent/profile/profileOps.ts
-//   tools.set_active_tools             profile.activeTools  persisted  src/agent/profile/profileOps.ts
+//   tools.reset_active_tools           profile.activeTools  persisted  (unresolved)
+//   tools.set_active_tools             profile.activeTools  persisted  (unresolved)
 //   tools.unregister_user_tool         userTool             persisted  src/agent/userTool/userToolOps.ts
 //   tools.update_store                 todo                 persisted  src/session/todo/todoOps.ts
-//   turn.cancel                        turn                 persisted  src/agent/loop/turnOps.ts
-//   turn.prompt                        turn                 persisted  src/agent/loop/turnOps.ts
-//   turn.steer                         turn                 persisted  src/agent/loop/turnOps.ts
-//   usage.record                       usage                persisted  src/agent/usage/usageOps.ts
+//   turn.cancel                        turn                 persisted  (unresolved)
+//   turn.prompt                        turn                 persisted  (unresolved)
+//   turn.steer                         turn                 persisted  (unresolved)
+//   usage.record                       usage                persisted  (unresolved)
 //   wait.started                       wait                 persisted  src/agent/wait/wait.ts
 //   wait.terminated                    wait                 persisted  src/agent/wait/wait.ts
 
 /**
  * model: profile · persisted
- * owner: src/agent/profile/profileOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface ConfigUpdatePayload {
   _name: 'config.update';
-  cwd?: string;
-  modelAlias?: string;
-  profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
-  /** ThinkingEffort */
-  thinkingLevel?: 'off' | 'on' | (string & {});
-  systemPrompt?: string;
-  disallowedTools?: string[];
 }
 
 /**
@@ -98,53 +90,25 @@ interface ContextSizeMeasuredPayload {
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: turn
- * owner: src/agent/contextMemory/contextOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface ContextAppendLoopEventPayload {
   _name: 'context.append_loop_event';
-  /** LoopRecordedEvent */
-  event: 'step.begin' | 'step.end' | 'content.part' | 'tool.call' | 'tool.result';
 }
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, goalForkNotice, task.notificationDelivery, todo
- * owner: src/agent/contextMemory/contextOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface ContextAppendMessagePayload {
   _name: 'context.append_message';
-  /** ContextMessage */
-  message: {
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    name?: string;
-    content: ('text' | 'think' | 'image_url' | 'audio_url' | 'video_url')[];
-    toolCalls: {
-      type: 'function';
-      id: string;
-      name: string;
-      arguments: string | null;
-      extras?: Record<string, unknown>;
-      _streamIndex?: number | string;
-    }[];
-    toolCallId?: string;
-    partial?: boolean;
-    tools?: {
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-      deferred?: true;
-    }[];
-    id?: string;
-    providerMessageId?: string;
-    origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined;
-    isError?: boolean;
-    note?: string;
-    toolCallDisplays?: Readonly<Record<string, ToolInputDisplay>>;
-  };
 }
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
- * owner: src/agent/contextMemory/contextOps.ts
+ * owner: (unresolved)
  */
 interface ContextApplyCompactionPayload {
   _name: 'context.apply_compaction';
@@ -160,7 +124,7 @@ interface ContextApplyCompactionPayload {
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
- * owner: src/agent/contextMemory/contextOps.ts
+ * owner: (unresolved)
  */
 interface ContextClearPayload {
   _name: 'context.clear';
@@ -168,7 +132,7 @@ interface ContextClearPayload {
 
 /**
  * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
- * owner: src/agent/contextMemory/contextOps.ts
+ * owner: (unresolved)
  */
 interface ContextUndoPayload {
   _name: 'context.undo';
@@ -320,35 +284,16 @@ interface InteractionResolvedPayload {
 
 /**
  * model: llm.requestTrace · persisted
- * owner: src/agent/llmRequester/llmRequestOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface LlmRequestPayload {
   _name: 'llm.request';
-  kind: 'loop' | 'compaction';
-  provider: string;
-  model: string;
-  modelAlias?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
-  thinkingKeep?: string;
-  temperature?: number;
-  topP?: number;
-  maxTokens?: number;
-  betaApi?: boolean;
-  toolSelect: boolean;
-  systemPromptHash: string;
-  systemPrompt?: string;
-  toolsHash: string;
-  messageCount: number;
-  turnStep?: string;
-  attempt?: string;
-  projection?: 'strict' | 'media-degraded' | 'media-stripped';
-  droppedCount?: number;
 }
 
 /**
  * model: llm.requestTrace · persisted
- * owner: src/agent/llmRequester/llmRequestOps.ts
+ * owner: (unresolved)
  */
 interface LlmToolsSnapshotPayload {
   _name: 'llm.tools_snapshot';
@@ -453,19 +398,11 @@ interface PlanRevisionPayload {
 
 /**
  * model: profile · persisted · cross-reducers: profile.activeTools
- * owner: src/agent/profile/profileOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface ProfileBindPayload {
   _name: 'profile.bind';
-  cwd?: string;
-  modelAlias?: string;
-  profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort: 'off' | 'on' | (string & {});
-  systemPrompt: string;
-  activeToolNames?: string[];
-  disallowedTools: string[];
-  subagents?: string[];
 }
 
 /**
@@ -476,14 +413,14 @@ interface SkillActivatePayload {
   _name: 'skill.activate';
   /** SkillActivationOrigin */
   origin: {
-    kind: 'skill_activation';
+    kind: "skill_activation";
     activationId: string;
     skillName: string;
     skillArgs?: string | undefined;
-    trigger: 'user-slash' | 'model-tool' | 'nested-skill';
+    trigger: "user-slash" | "model-tool" | "nested-skill";
     skillType?: string | undefined;
     skillPath?: string | undefined;
-    skillSource?: 'project' | 'user' | 'extra' | 'builtin' | undefined;
+    skillSource?: "project" | "user" | "extra" | "builtin" | undefined;
   };
 }
 
@@ -536,12 +473,12 @@ interface ToolsRegisterUserToolPayload {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  disclosure?: 'inline' | 'deferred';
+  disclosure?: "inline" | "deferred";
 }
 
 /**
  * model: profile.activeTools · persisted
- * owner: src/agent/profile/profileOps.ts
+ * owner: (unresolved)
  */
 interface ToolsResetActiveToolsPayload {
   _name: 'tools.reset_active_tools';
@@ -549,7 +486,7 @@ interface ToolsResetActiveToolsPayload {
 
 /**
  * model: profile.activeTools · persisted
- * owner: src/agent/profile/profileOps.ts
+ * owner: (unresolved)
  */
 interface ToolsSetActiveToolsPayload {
   _name: 'tools.set_active_tools';
@@ -577,7 +514,7 @@ interface ToolsUpdateStorePayload {
 
 /**
  * model: turn · persisted
- * owner: src/agent/loop/turnOps.ts
+ * owner: (unresolved)
  */
 interface TurnCancelPayload {
   _name: 'turn.cancel';
@@ -587,42 +524,29 @@ interface TurnCancelPayload {
 
 /**
  * model: turn · persisted
- * owner: src/agent/loop/turnOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface TurnPromptPayload {
   _name: 'turn.prompt';
-  input: readonly ContentPart[];
-  /** PromptOrigin */
-  origin: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry';
 }
 
 /**
  * model: turn · persisted
- * owner: src/agent/loop/turnOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface TurnSteerPayload {
   _name: 'turn.steer';
-  input: readonly ContentPart[];
-  /** PromptOrigin */
-  origin: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry';
 }
 
 /**
  * model: usage · persisted
- * owner: src/agent/usage/usageOps.ts
+ * owner: (unresolved)
+ * schema uses transforms; see the owner file
  */
 interface UsageRecordPayload {
   _name: 'usage.record';
-  model: string;
-  /** TokenUsage */
-  usage: {
-    inputOther: number;
-    output: number;
-    inputCacheRead: number;
-    inputCacheCreation: number;
-  };
-  /** UsageRecordScope */
-  usageScope?: 'session' | 'turn';
 }
 
 /**

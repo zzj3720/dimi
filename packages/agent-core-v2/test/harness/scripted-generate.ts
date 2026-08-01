@@ -1,16 +1,21 @@
-import { type FinishReason } from '#/kosong/contract/provider';
-import { isContentPart, isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
-import type { generate as kosongGenerate } from '#/kosong/contract/generate';
+import { type FinishReason } from "#/llmProtocol/provider";
+import {
+  isContentPart,
+  isToolCall,
+  type Message,
+  type StreamedMessagePart,
+} from "#/llmProtocol/message";
+import type { generate as llmGenerate } from "#/llmProtocol/generate";
 
-import { estimateTokensForMessages } from '#/kosong/contract/tokens';
+import { estimateTokensForMessages } from "#/llmProtocol/tokens";
 import {
   generateInputSnapshot,
   generateInputsSnapshot,
   normalizeGenerateInput,
   type GenerateCall,
-} from './snapshots';
+} from "./snapshots";
 
-type GenerateFn = typeof kosongGenerate;
+type GenerateFn = typeof llmGenerate;
 
 interface ScriptedResponse {
   readonly parts: readonly StreamedMessagePart[];
@@ -66,7 +71,7 @@ export function createScriptedGenerate() {
     const content = response.parts.filter((part) => isContentPart(part));
     const toolCalls = response.parts.filter((part) => isToolCall(part));
     const message: Message = {
-      role: 'assistant',
+      role: "assistant",
       content: structuredClone(content),
       toolCalls: structuredClone(toolCalls),
     };
@@ -77,7 +82,7 @@ export function createScriptedGenerate() {
     }
     options?.onStreamEnd?.();
 
-    const inferredFinishReason: FinishReason = toolCalls.length > 0 ? 'tool_calls' : 'completed';
+    const inferredFinishReason: FinishReason = toolCalls.length > 0 ? "tool_calls" : "completed";
     const finishReason = response.finishReason ?? inferredFinishReason;
     return {
       id: `mock-${String(calls.length)}`,
@@ -100,12 +105,12 @@ export function createScriptedGenerate() {
     lastInput() {
       const pendingCount = calls.length - assertedCallCount;
       if (pendingCount === 0) {
-        throw new Error('No unasserted LLM input. Call ctx.lastLlmInput() after an LLM call.');
+        throw new Error("No unasserted LLM input. Call ctx.lastLlmInput() after an LLM call.");
       }
       if (pendingCount > 1) {
         throw new Error(
           `Expected one unasserted LLM input, but ${String(pendingCount)} were produced. ` +
-            'Call ctx.lastLlmInput() after each LLM call.',
+            "Call ctx.lastLlmInput() after each LLM call.",
         );
       }
 
@@ -115,7 +120,7 @@ export function createScriptedGenerate() {
     inputs() {
       const pendingCount = calls.length - assertedCallCount;
       if (pendingCount === 0) {
-        throw new Error('No unasserted LLM inputs. Call ctx.llmInputs() after LLM calls.');
+        throw new Error("No unasserted LLM inputs. Call ctx.llmInputs() after LLM calls.");
       }
 
       const pending = calls.slice(assertedCallCount);
@@ -132,10 +137,10 @@ function normalizeMessagesForTokenEstimates(messages: Message[]): Message[] {
   return messages.map((message) => ({
     ...message,
     content: message.content.map((part) =>
-      part.type === 'text'
+      part.type === "text"
         ? {
             ...part,
-            text: part.text.replaceAll(/^Plan file: .+$/gm, 'Plan file: <plan-file>'),
+            text: part.text.replaceAll(/^Plan file: .+$/gm, "Plan file: <plan-file>"),
           }
         : part,
     ),
@@ -144,6 +149,6 @@ function normalizeMessagesForTokenEstimates(messages: Message[]): Message[] {
 
 function defaultRawFinishReason(finishReason: FinishReason | null): string | null {
   if (finishReason === null) return null;
-  if (finishReason === 'completed') return 'stop';
+  if (finishReason === "completed") return "stop";
   return finishReason;
 }

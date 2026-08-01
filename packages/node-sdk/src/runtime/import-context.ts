@@ -7,28 +7,28 @@
  * primitives — `context.append_message`, the token estimator, and model
  * capabilities — are available, so the SDK composes the operation directly.
  */
-import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
-import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/contract/tokens';
+import type { ContextMessage } from "@moonshot-ai/agent-core-v2";
+import { estimateTokensForMessages } from "@moonshot-ai/agent-core-v2/llmProtocol/tokens";
 
-import { ErrorCodes, KimiError } from '#/errors';
+import { ErrorCodes, KimiError } from "#/errors";
 
 /** Guidance embedded in imported-context messages. */
 const IMPORT_CONTEXT_GUIDANCE =
-  'This is a prior conversation history that may be relevant to the current session. ' +
-  'Please review this context and use it to inform your responses.';
+  "This is a prior conversation history that may be relevant to the current session. " +
+  "Please review this context and use it to inform your responses.";
 
 /** Escape XML text content. */
 function escapeXml(input: string): string {
   return input
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 /** Escape XML attribute content. */
 function escapeXmlAttr(input: string): string {
-  return input.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+  return input.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 }
 
 /**
@@ -39,34 +39,34 @@ function escapeXmlAttr(input: string): string {
  */
 export function buildImportContextMessage(content: string, source: string): ContextMessage {
   if (content.trim().length === 0) {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Imported context cannot be empty', {
-      details: { reason: 'import_content_empty' },
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, "Imported context cannot be empty", {
+      details: { reason: "import_content_empty" },
     });
   }
   const normalizedSource = source.trim();
   if (normalizedSource.length === 0) {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Imported context source cannot be empty', {
-      details: { reason: 'import_source_empty' },
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, "Imported context source cannot be empty", {
+      details: { reason: "import_source_empty" },
     });
   }
   return {
-    role: 'user',
+    role: "user",
     content: [
       {
-        type: 'text',
+        type: "text",
         text:
           `<system>The user has imported context from ${escapeXml(normalizedSource)}. ` +
           `${IMPORT_CONTEXT_GUIDANCE}</system>`,
       },
       {
-        type: 'text',
+        type: "text",
         text:
           `<imported_context source="${escapeXmlAttr(normalizedSource)}">\n` +
           `${content}\n</imported_context>`,
       },
     ],
     toolCalls: [],
-    origin: { kind: 'user' },
+    origin: { kind: "user" },
   };
 }
 
@@ -86,13 +86,13 @@ export function assertImportFits(
   if (maxContextTokens > 0 && totalTokenCount > maxContextTokens) {
     throw new KimiError(
       ErrorCodes.CONTEXT_OVERFLOW,
-      'Imported content is too large for the current model context ' +
+      "Imported content is too large for the current model context " +
         `(~${String(importTokenCount)} import tokens + ~${String(currentTokenCount)} existing ` +
         `= ~${String(totalTokenCount)} total > ${String(maxContextTokens)} token limit). ` +
-        'Please import a smaller file or session.',
+        "Please import a smaller file or session.",
       {
         details: {
-          reason: 'import_context_overflow',
+          reason: "import_context_overflow",
           importTokenCount,
           currentTokenCount,
           totalTokenCount,

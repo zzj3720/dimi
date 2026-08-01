@@ -1,40 +1,38 @@
-import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
+import type { KimiConfig } from "@moonshot-ai/kimi-code-sdk";
 
-import { currentTheme, lightColors } from '#/tui/theme';
-import { loadTuiConfig, type TuiConfig } from '../config';
-import type { SlashCommandHost } from './dispatch';
-import { setExperimentalFeatures } from './experimental-flags';
+import { currentTheme, lightColors } from "#/tui/theme";
+import { loadTuiConfig, type TuiConfig } from "../config";
+import type { SlashCommandHost } from "./dispatch";
+import { setExperimentalFeatures } from "./experimental-flags";
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {
   const tuiConfig = await loadTuiConfig(undefined, (message) =>
-    host.showStatus(message, 'warning'),
+    host.showStatus(message, "warning"),
   );
   await applyReloadedTuiConfig(host, tuiConfig);
-  host.showStatus('TUI config reloaded.', 'success');
+  host.showStatus("TUI config reloaded.", "success");
 }
 
 export async function handleReloadCommand(host: SlashCommandHost): Promise<void> {
   const tuiConfig = await loadTuiConfig(undefined, (message) =>
-    host.showStatus(message, 'warning'),
+    host.showStatus(message, "warning"),
   );
   const session = host.session;
 
   if (session !== undefined) {
     await session.reloadSession({ forcePluginSessionStartReminder: true });
-    await host.reloadCurrentSessionView(session, 'Session reloaded.');
+    await host.reloadCurrentSessionView(session, "Session reloaded.");
   }
 
   const config = await host.harness.getConfig({ reload: true });
   setExperimentalFeatures(await host.harness.getExperimentalFeatures());
   host.refreshSlashCommandAutocomplete();
   applyRuntimeConfig(host, config);
+  await host.authFlow.refreshAvailableModels();
   await applyReloadedTuiConfig(host, tuiConfig);
 
   if (session === undefined) {
-    host.showStatus(
-      'Runtime and TUI config reloaded; no active session.',
-      'success',
-    );
+    host.showStatus("Runtime and TUI config reloaded; no active session.", "success");
   }
 }
 
@@ -42,9 +40,8 @@ export async function applyReloadedTuiConfig(
   host: SlashCommandHost,
   config: TuiConfig,
 ): Promise<void> {
-  const resolved = config.theme === 'auto'
-    ? (currentTheme.palette === lightColors ? 'light' : 'dark')
-    : undefined;
+  const resolved =
+    config.theme === "auto" ? (currentTheme.palette === lightColors ? "light" : "dark") : undefined;
   await host.applyTheme(config.theme, resolved);
   host.refreshTerminalThemeTracking();
   host.setAppState({
@@ -59,8 +56,6 @@ export async function applyReloadedTuiConfig(
 }
 
 function applyRuntimeConfig(host: SlashCommandHost, config: KimiConfig): void {
-  host.setAppState({
-    availableModels: config.models ?? {},
-    availableProviders: config.providers ?? {},
-  });
+  void host;
+  void config;
 }

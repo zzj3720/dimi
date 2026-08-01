@@ -7,19 +7,19 @@
  * Agent scope.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { ContentPart } from '#/kosong/contract/message';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { join } from 'pathe';
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
+import type { ExecutableToolResult } from "#/tool/toolContract";
+import { IBootstrapService } from "#/app/bootstrap/bootstrap";
+import type { ContentPart } from "#/llmProtocol/message";
+import { IFileSystemStorageService } from "#/persistence/interface/storage";
+import { join } from "pathe";
 import {
   IAgentToolResultTruncationService,
   type ToolResultTruncationInput,
-} from './toolResultTruncation';
+} from "./toolResultTruncation";
 
 const TOOL_RESULT_MAX_CHARS = 50_000;
 const TOOL_RESULT_PREVIEW_CHARS = 2_000;
@@ -36,7 +36,7 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
     @IAgentScopeContext agent: IAgentScopeContext,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
   ) {
-    this.storageScope = agent.scope('tool-results');
+    this.storageScope = agent.scope("tool-results");
   }
 
   async truncateForModel<T extends ExecutableToolResult>(
@@ -71,14 +71,14 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
   }
 }
 
-function persistableToolResultText(output: ExecutableToolResult['output']): string | undefined {
-  if (typeof output === 'string') return output;
+function persistableToolResultText(output: ExecutableToolResult["output"]): string | undefined {
+  if (typeof output === "string") return output;
   if (
-    !output.every((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    !output.every((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text")
   ) {
     return undefined;
   }
-  return output.map((part) => part.text).join('');
+  return output.map((part) => part.text).join("");
 }
 
 function renderPersistedToolResult(
@@ -92,22 +92,22 @@ function renderPersistedToolResult(
     `tool_name: ${toolName}`,
     `tool_call_id: ${toolCallId}`,
     `output_size_chars: ${String(text.length)}`,
-    `output_size_bytes: ${String(Buffer.byteLength(text, 'utf8'))}`,
+    `output_size_bytes: ${String(Buffer.byteLength(text, "utf8"))}`,
     `output_path: ${outputPath}`,
-    'next_step: Use Read with output_path to page through the full output.',
-    '',
-    '[preview]',
+    "next_step: Use Read with output_path to page through the full output.",
+    "",
+    "[preview]",
     text.slice(0, TOOL_RESULT_PREVIEW_CHARS),
   ];
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 function safeToolResultFileStem(toolName: string, toolCallId: string): string {
   const label = `${toolName}-${toolCallId}`
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .slice(0, 80);
-  return label || 'tool-result';
+  return label || "tool-result";
 }
 
 registerScopedService(
@@ -115,5 +115,5 @@ registerScopedService(
   IAgentToolResultTruncationService,
   ToolResultTruncationService,
   ScopeActivation.OnScopeCreated,
-  'toolResultTruncation',
+  "toolResultTruncation",
 );

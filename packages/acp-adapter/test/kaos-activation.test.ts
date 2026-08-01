@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AcpKaos } from '../src/kaos-acp';
 import { AcpServer } from '../src/server';
-import { AUTHED_STATUS } from './_helpers/harness-stubs';
+import { makeAuth } from './_helpers/harness-stubs';
 
 class StubClient implements Client {
   async requestPermission(_p: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -71,7 +71,7 @@ function makeHarness(captured: CapturedCreate[]): KimiHarness {
       onEvent: () => () => undefined,
     }) as unknown as Session;
   return {
-    auth: { status: async () => AUTHED_STATUS },
+    auth: makeAuth(),
     createSession: async (options: { id?: string; workDir: string; kaos?: Kaos; persistenceKaos?: Kaos }) => {
       captured.push({ options });
       return fakeSession(options.id ?? 'fallback');

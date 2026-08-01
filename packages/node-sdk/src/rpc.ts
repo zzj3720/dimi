@@ -1,8 +1,12 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage } from "node:async_hooks";
 
-import type { AgentContextData, ExperimentalFeatureState, SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
-import type { Kaos } from '@moonshot-ai/kaos';
-import type { Event } from '@moonshot-ai/protocol';
+import type {
+  AgentContextData,
+  ExperimentalFeatureState,
+  SwarmModeTrigger,
+} from "@moonshot-ai/agent-core-v2";
+import type { Kaos } from "@moonshot-ai/kaos";
+import type { Event } from "@moonshot-ai/protocol";
 
 import type {
   ApprovalHandler,
@@ -13,7 +17,7 @@ import type {
   QuestionResult,
   ToolCallRequest,
   ToolCallResponse,
-} from '#/events';
+} from "#/events";
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -52,10 +56,10 @@ import type {
   SessionUsage,
   SkillSummary,
   Unsubscribe,
-} from '#/types';
-import { ErrorCodes, KimiError } from '#/errors';
+} from "#/types";
+import { ErrorCodes, KimiError } from "#/errors";
 
-const MAIN_AGENT_ID = 'main';
+const MAIN_AGENT_ID = "main";
 
 export interface SessionPromptRpcInput {
   readonly sessionId: string;
@@ -121,9 +125,9 @@ export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
 }
 
 export type BeginGlobalMcpServerAuthResult =
-  | { readonly status: 'already-authorized' }
+  | { readonly status: "already-authorized" }
   | {
-      readonly status: 'authorization-required';
+      readonly status: "authorization-required";
       readonly flowId: string;
       readonly authorizationUrl: string;
     };
@@ -146,7 +150,6 @@ export interface SDKRpcClientBase {
   getConfigDiagnostics(): Promise<ConfigDiagnostics>;
   getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]>;
   setConfig(input: KimiConfigPatch): Promise<KimiConfig>;
-  removeProvider(providerId: string): Promise<KimiConfig>;
   listGlobalMcpServers(): Promise<readonly McpServerConfig[]>;
   addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]>;
   updateGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]>;
@@ -165,12 +168,15 @@ export interface SDKRpcClientBase {
     readonly command: string;
     readonly commandId?: string;
   }): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }>;
-  cancelShellCommand(input: { readonly sessionId: string; readonly commandId: string }): Promise<void>;
+  cancelShellCommand(input: {
+    readonly sessionId: string;
+    readonly commandId: string;
+  }): Promise<void>;
   steer(input: SessionPromptRpcInput): Promise<void>;
   generateAgentsMd(input: SessionIdRpcInput): Promise<void>;
   getSessionWarnings(
     input: SessionIdRpcInput,
-  ): Promise<readonly { code: string; message: string; severity: 'info' | 'warning' | 'error' }[]>;
+  ): Promise<readonly { code: string; message: string; severity: "info" | "warning" | "error" }[]>;
   addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult>;
   startBtw(input: SessionIdRpcInput): Promise<string>;
   cancel(input: SessionIdRpcInput): Promise<void>;
@@ -207,7 +213,7 @@ export interface SDKRpcClientBase {
     input: SessionIdRpcInput & { readonly taskId: string },
   ): Promise<BackgroundTaskInfo | undefined>;
   waitForBackgroundTasksOnPrint(input: SessionIdRpcInput): Promise<void>;
-  handlePrintMainTurnCompleted(input: SessionIdRpcInput): Promise<'finish' | 'continue'>;
+  handlePrintMainTurnCompleted(input: SessionIdRpcInput): Promise<"finish" | "continue">;
   createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot>;
   getGoal(input: SessionIdRpcInput): Promise<GoalToolResult>;
   pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
@@ -263,7 +269,7 @@ export class SDKRpcClientBase {
 
   deleteSession(_input: SessionIdRpcInput): Promise<void> {
     return Promise.reject(
-      new KimiError(ErrorCodes.NOT_IMPLEMENTED, 'Session deletion is not supported.'),
+      new KimiError(ErrorCodes.NOT_IMPLEMENTED, "Session deletion is not supported."),
     );
   }
 
@@ -296,13 +302,13 @@ export class SDKRpcClientBase {
   ): Promise<ApprovalResponse> {
     const handler = this.approvalHandlers.get(request.sessionId);
     if (handler === undefined) {
-      return { decision: 'cancelled', feedback: 'No approval handler registered.' };
+      return { decision: "cancelled", feedback: "No approval handler registered." };
     }
     try {
       return await handler(request);
     } catch (error) {
-      this.emitHandlerError(request, 'session.approval_handler_error', error);
-      return { decision: 'cancelled', feedback: 'Approval handler failed.' };
+      this.emitHandlerError(request, "session.approval_handler_error", error);
+      return { decision: "cancelled", feedback: "Approval handler failed." };
     }
   }
 
@@ -314,7 +320,7 @@ export class SDKRpcClientBase {
     try {
       return await handler(request);
     } catch (error) {
-      this.emitHandlerError(request, 'session.question_handler_error', error);
+      this.emitHandlerError(request, "session.question_handler_error", error);
       return null;
     }
   }
@@ -328,11 +334,11 @@ export class SDKRpcClientBase {
 
   private emitHandlerError(
     request: { readonly sessionId: string; readonly agentId: string },
-    code: 'session.approval_handler_error' | 'session.question_handler_error',
+    code: "session.approval_handler_error" | "session.question_handler_error",
     error: unknown,
   ): void {
     this.receiveEvent({
-      type: 'error',
+      type: "error",
       sessionId: request.sessionId,
       agentId: request.agentId,
       code,

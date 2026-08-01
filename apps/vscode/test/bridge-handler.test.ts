@@ -23,6 +23,9 @@ const host = vi.hoisted(() => {
   };
   const harness = {
     homeDir: "/tmp/kimi-code-test-home",
+    auth: {
+      models: vi.fn(async (): Promise<unknown[]> => []),
+    },
     close: vi.fn(async () => undefined),
     getConfig: vi.fn(),
     setConfig: vi.fn(async () => undefined),
@@ -91,7 +94,9 @@ beforeEach(async () => {
   writeLog = vi.fn();
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
-  host.harness.getConfig.mockResolvedValue({ models: {} });
+  host.harness.getConfig.mockResolvedValue({});
+  host.harness.auth.models.mockReset();
+  host.harness.auth.models.mockResolvedValue([]);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
   workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
@@ -193,21 +198,11 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
   it("keeps provider identity when configured models share a display name", async () => {
     host.harness.getConfig.mockResolvedValueOnce({
       defaultModel: "openai/shared",
-      models: {
-        "openai/shared": {
-          provider: "openai",
-          model: "shared",
-          displayName: "Shared",
-          maxContextSize: 128_000,
-        },
-        "proxy/shared": {
-          provider: "company-proxy",
-          model: "shared",
-          displayName: "Shared",
-          maxContextSize: 128_000,
-        },
-      },
     });
+    host.harness.auth.models.mockResolvedValueOnce([
+      providerModel({ provider: "openai", id: "shared", name: "Shared" }),
+      providerModel({ provider: "company-proxy", id: "shared", name: "Shared" }),
+    ]);
 
     const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
 
@@ -217,35 +212,39 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
         defaultModel: "openai/shared",
         models: [
           { id: "openai/shared", name: "Shared", provider: "openai" },
-          { id: "proxy/shared", name: "Shared", provider: "company-proxy" },
+          { id: "company-proxy/shared", name: "Shared", provider: "company-proxy" },
         ],
       },
     });
   });
 
-  it("preserves adaptive thinking metadata in the Webview model list", async () => {
+  it("projects provider reasoning levels into Webview thinking metadata", async () => {
     host.harness.getConfig.mockResolvedValueOnce({
       defaultModel: "anthropic/claude",
-      models: {
-        "anthropic/claude": {
-          provider: "anthropic",
-          model: "claude-sonnet",
-          maxContextSize: 200_000,
-          adaptiveThinking: true,
-        },
-      },
     });
+    host.harness.auth.models.mockResolvedValueOnce([
+      providerModel({
+        provider: "anthropic",
+        id: "claude",
+        name: "claude-sonnet",
+        reasoning: true,
+        thinkingLevelMap: { off: "off", low: "low", high: "high" },
+      }),
+    ]);
 
     const result = await bridge.handle({ id: "rpc-models", method: Methods.GetModels }, "view-1");
 
     expect(result).toMatchObject({
       result: {
-        models: [{
-          id: "anthropic/claude",
-          name: "claude-sonnet",
-          provider: "anthropic",
-          adaptive_thinking: true,
-        }],
+        models: [
+          {
+            id: "anthropic/claude",
+            name: "claude-sonnet",
+            provider: "anthropic",
+            capabilities: ["thinking", "tool_use"],
+            support_efforts: ["low", "high"],
+          },
+        ],
       },
     });
   });
@@ -261,10 +260,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       },
     ] as never);
 
-    const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.GetKimiSessions },
-      "view-1",
-    );
+    const result = await bridge.handle({ id: "rpc-1", method: Methods.GetKimiSessions }, "view-1");
 
     expect(result).toEqual({
       id: "rpc-1",
@@ -372,12 +368,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const baselinesRoot = join(root, "global-storage", "baselines");
     const [homeDirectory] = await readdir(baselinesRoot);
     const [sessionDirectory] = await readdir(join(baselinesRoot, homeDirectory!));
-    const snapshotsDirectory = join(
-      baselinesRoot,
-      homeDirectory!,
-      sessionDirectory!,
-      "snapshots",
-    );
+    const snapshotsDirectory = join(baselinesRoot, homeDirectory!, sessionDirectory!, "snapshots");
     const [snapshot] = await readdir(snapshotsDirectory);
     await rm(join(snapshotsDirectory, snapshot!));
 
@@ -397,7 +388,9 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       ]),
     });
     expect(writeLog).toHaveBeenCalledWith(
-      expect.stringMatching(/Unable to restore session file changes.*Unable to read baseline snapshot/),
+      expect.stringMatching(
+        /Unable to restore session file changes.*Unable to read baseline snapshot/,
+      ),
     );
     await vi.waitFor(() => expect(showLogs).toHaveBeenCalledOnce());
   });
@@ -429,32 +422,36 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
 });
 
 describe("Webview config saves (thinking effort persistence parity with the TUI)", () => {
-  const effortModel = {
-    provider: "managed:kimi-code",
-    model: "reasoning",
-    supportEfforts: ["low", "high", "max"],
-    defaultEffort: "high",
-  };
+  const effortModel = providerModel({
+    provider: "kimi-coding",
+    id: "reasoning",
+    reasoning: true,
+    thinkingLevelMap: { off: "off", low: "low", high: "high", max: "max" },
+  });
 
   function mockConfig(thinking?: { enabled: boolean; effort?: string }) {
     host.harness.getConfig.mockResolvedValue({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "kimi-coding/reasoning",
       thinking,
-      models: { "kimi/reasoning": effortModel },
     } as never);
+    host.harness.auth.models.mockResolvedValue([effortModel]);
   }
 
   it("persists a non-top effort as the global default", async () => {
     mockConfig();
 
     const result = await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
+      {
+        id: "rpc-1",
+        method: Methods.SaveConfig,
+        params: { model: "kimi-coding/reasoning", thinking: true, effort: "high" },
+      },
       "view-1",
     );
 
     expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "kimi-coding/reasoning",
       thinking: { enabled: true, effort: "high" },
     });
   });
@@ -463,21 +460,30 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig();
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "max" } },
+      {
+        id: "rpc-1",
+        method: Methods.SaveConfig,
+        params: { model: "kimi-coding/reasoning", thinking: true, effort: "max" },
+      },
       "view-1",
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "kimi-coding/reasoning",
       thinking: { enabled: true },
     });
   });
 
   it("persists the concrete effort when the model's levels are unknown", async () => {
-    host.harness.getConfig.mockResolvedValue({ defaultModel: "other/model", models: {} });
+    host.harness.getConfig.mockResolvedValue({ defaultModel: "other/model" });
+    host.harness.auth.models.mockResolvedValue([]);
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "custom/model", thinking: true, effort: "max" } },
+      {
+        id: "rpc-1",
+        method: Methods.SaveConfig,
+        params: { model: "custom/model", thinking: true, effort: "max" },
+      },
       "view-1",
     );
 
@@ -491,12 +497,21 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: false, effort: "low" });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high", effortChanged: false } },
+      {
+        id: "rpc-1",
+        method: Methods.SaveConfig,
+        params: {
+          model: "kimi-coding/reasoning",
+          thinking: true,
+          effort: "high",
+          effortChanged: false,
+        },
+      },
       "view-1",
     );
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      defaultModel: "kimi/reasoning",
+      defaultModel: "kimi-coding/reasoning",
       thinking: { enabled: true },
     });
   });
@@ -505,13 +520,41 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
     mockConfig({ enabled: true, effort: "high" });
 
     await bridge.handle(
-      { id: "rpc-1", method: Methods.SaveConfig, params: { model: "kimi/reasoning", thinking: true, effort: "high" } },
+      {
+        id: "rpc-1",
+        method: Methods.SaveConfig,
+        params: { model: "kimi-coding/reasoning", thinking: true, effort: "high" },
+      },
       "view-1",
     );
 
     expect(host.harness.setConfig).not.toHaveBeenCalled();
   });
 });
+
+function providerModel(
+  overrides: Partial<{
+    provider: string;
+    id: string;
+    name: string;
+    reasoning: boolean;
+    thinkingLevelMap: Record<string, string | null>;
+  }> = {},
+) {
+  return {
+    provider: "test",
+    id: "model",
+    name: "model",
+    api: "openai-completions",
+    baseUrl: "https://example.test/v1",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 32_000,
+    ...overrides,
+  };
+}
 
 function createResumedSession(id: string, workDir: string) {
   const close = vi.fn(async () => undefined);

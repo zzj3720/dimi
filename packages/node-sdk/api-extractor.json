@@ -5,7 +5,6 @@
     "@moonshot-ai/agent-core-v2",
     "@moonshot-ai/kaos",
     "@moonshot-ai/kimi-code-oauth",
-    "@moonshot-ai/kosong",
     "@moonshot-ai/protocol"
   ],
   "compiler": {

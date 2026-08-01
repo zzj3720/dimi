@@ -15,7 +15,7 @@
  * This is the only print-mode runtime.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile } from "node:fs/promises";
 
 import {
   IAgentGoalService,
@@ -24,11 +24,10 @@ import {
   IAgentProfileService,
   IAgentPromptService,
   IAgentTaskService,
-  IAuthSummaryService,
   IBootstrapService,
   IConfigService,
   IEventBus,
-  IOAuthToolkit,
+  IProviderRuntime,
   ISessionCronService,
   ISessionIndex,
   ISessionLifecycleService,
@@ -55,15 +54,15 @@ import {
   type LoopRunResult,
   type PrintBackgroundMode,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
-import { resolve } from 'pathe';
+} from "@moonshot-ai/agent-core-v2";
+import { createKimiDefaultHeaders, createKimiDeviceId } from "@moonshot-ai/kimi-code-oauth";
+import { resolve } from "pathe";
 
 import {
   CLI_SHUTDOWN_TIMEOUT_MS,
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
-} from '#/constant/app';
+} from "#/constant/app";
 
 import {
   formatGoalSummaryText,
@@ -71,11 +70,11 @@ import {
   goalSummaryJson,
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
-} from './goal-prompt';
-import { createKimiCodeHostIdentity } from './version';
+} from "./goal-prompt";
+import { createKimiCodeHostIdentity } from "./version";
 
-import { resolveOutputFormat } from './options';
-import type { CLIOptions, PromptOutputFormat } from './options';
+import { resolveOutputFormat } from "./options";
+import type { CLIOptions, PromptOutputFormat } from "./options";
 import {
   type PromptOutput,
   PromptJsonWriter,
@@ -83,7 +82,7 @@ import {
   PromptTranscriptWriter,
   writeVersion,
   writeResumeHint,
-} from './prompt-render';
+} from "./prompt-render";
 
 export interface PromptRunIO {
   readonly stdout?: PromptOutput;
@@ -121,7 +120,7 @@ export function requireConfiguredModel(...models: readonly (string | undefined)[
   const model = configuredModel(...models);
   if (model === undefined) {
     throw new Error(
-      'No model configured. Run `kimi` and use /login to sign in, then retry; or set default_model in config.toml.',
+      "No model configured. Run `kimi` and use /login to sign in, then retry; or set default_model in config.toml.",
     );
   }
   return model;
@@ -129,6 +128,19 @@ export function requireConfiguredModel(...models: readonly (string | undefined)[
 
 export function configuredModel(...models: readonly (string | undefined)[]): string | undefined {
   return models.find((model) => model !== undefined && model.trim().length > 0);
+}
+
+/** Config stores provider and model separately; print mode needs the runtime alias. */
+export function qualifiedDefaultModel(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (model === undefined || provider === undefined || provider.length === 0) return model;
+  // Model ids are provider-owned and may themselves contain slashes (for
+  // example OpenRouter's `anthropic/...` ids).  The only already-qualified
+  // form is the exact configured provider prefix.
+  if (model.startsWith(`${provider}/`)) return model;
+  return `${provider}/${model}`;
 }
 
 export function installPromptTerminationCleanup(
@@ -145,26 +157,26 @@ export function installPromptTerminationCleanup(
       promptProcess.exit(signalExitCode(signal));
     }
   };
-  const onSigint = () => exitAfterCleanup('SIGINT');
-  const onSigterm = () => exitAfterCleanup('SIGTERM');
-  const onSighup = () => exitAfterCleanup('SIGHUP');
-  promptProcess.once('SIGINT', onSigint);
-  promptProcess.once('SIGTERM', onSigterm);
-  promptProcess.once('SIGHUP', onSighup);
+  const onSigint = () => exitAfterCleanup("SIGINT");
+  const onSigterm = () => exitAfterCleanup("SIGTERM");
+  const onSighup = () => exitAfterCleanup("SIGHUP");
+  promptProcess.once("SIGINT", onSigint);
+  promptProcess.once("SIGTERM", onSigterm);
+  promptProcess.once("SIGHUP", onSighup);
   return () => {
-    promptProcess.off('SIGINT', onSigint);
-    promptProcess.off('SIGTERM', onSigterm);
-    promptProcess.off('SIGHUP', onSighup);
+    promptProcess.off("SIGINT", onSigint);
+    promptProcess.off("SIGTERM", onSigterm);
+    promptProcess.off("SIGHUP", onSighup);
   };
 }
 
 export function signalExitCode(signal: NodeJS.Signals): number {
-  if (signal === 'SIGINT') return 130;
-  if (signal === 'SIGHUP') return 129;
+  if (signal === "SIGINT") return 130;
+  if (signal === "SIGHUP") return 129;
   return 143;
 }
 
-const PROMPT_UI_MODE = 'print';
+const PROMPT_UI_MODE = "print";
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
 const GOAL_WAIT_POLL_MS = 250;
 /**
@@ -211,7 +223,8 @@ export async function runPrint(
     // workDir (mirroring `--skills-dir`).
     ...agentCatalogRuntimeOptionsSeed(opts.agentFiles),
   ]);
-  const auth = app.accessor.get(IOAuthToolkit);
+  const providers = app.accessor.get(IProviderRuntime);
+  await providers.ready;
 
   const configService = app.accessor.get(IConfigService);
   await configService.ready;
@@ -219,15 +232,18 @@ export async function runPrint(
   // timeout → unbounded) before anything resolves a session; only keys the
   // user left unset are filled, in the memory layer.
   await applyPrintModeConfigDefaults(configService);
-  const defaultModel = configService.get<string>('defaultModel') ?? undefined;
+  const defaultModel = qualifiedDefaultModel(
+    configService.get<string>("defaultProvider") ?? undefined,
+    configService.get<string>("defaultModel") ?? undefined,
+  );
   let telemetryEnabled = true;
   try {
-    telemetryEnabled = configService.get('telemetry') !== false;
+    telemetryEnabled = configService.get("telemetry") !== false;
   } catch {
     telemetryEnabled = true;
   }
   for (const diagnostic of configService.diagnostics()) {
-    if (diagnostic.severity === 'warning') {
+    if (diagnostic.severity === "warning") {
       stderr.write(`Warning: ${diagnostic.message}\n`);
     }
   }
@@ -266,7 +282,10 @@ export async function runPrint(
           appName: CLI_USER_AGENT_PRODUCT,
           uiMode: PROMPT_UI_MODE,
           model: opts.model ?? defaultModel,
-          getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
+          getAccessToken: async () => {
+            const auth = await providers.getAuth("kimi-coding");
+            return auth?.auth.apiKey ?? null;
+          },
         }),
       );
     }
@@ -276,7 +295,7 @@ export async function runPrint(
 
     telemetryService.setContext({ sessionId: resolved.session.id, model: resolved.telemetryModel });
     if (firstLaunch) {
-      telemetryService.track2('first_launch');
+      telemetryService.track2("first_launch");
     }
 
     const goalCreate = parseHeadlessGoalCreate(opts.prompt!);
@@ -304,7 +323,7 @@ export async function runPrint(
     }
     writeResumeHint(resolved.session.id, outputFormat, stdout, stderr);
 
-    telemetryService.withContext({ sessionId: resolved.session.id }).track2('exit', {
+    telemetryService.withContext({ sessionId: resolved.session.id }).track2("exit", {
       duration_ms: Date.now() - startedAt,
     });
   } finally {
@@ -343,7 +362,7 @@ async function resolveNativeSession(
     );
     let agentFileText: string;
     try {
-      agentFileText = await readFile(agentFilePath, 'utf8');
+      agentFileText = await readFile(agentFilePath, "utf8");
     } catch (error) {
       throw new Error(
         `Failed to read agent file "${agentFilePath}": ${error instanceof Error ? error.message : String(error)}`,
@@ -353,7 +372,7 @@ async function resolveNativeSession(
     try {
       agentProfileName = parseAgentFileText({
         path: agentFilePath,
-        source: 'explicit',
+        source: "explicit",
         text: agentFileText,
       }).name;
     } catch (error) {
@@ -387,7 +406,7 @@ async function resolveNativeSession(
   ): { readonly restorePermission: () => Promise<void> } => {
     const permissionMode = agent.accessor.get(IAgentPermissionModeService);
     const previous = permissionMode.mode;
-    permissionMode.setMode('auto');
+    permissionMode.setMode("auto");
     return {
       restorePermission: async () => {
         permissionMode.setMode(previous);
@@ -449,12 +468,12 @@ async function resolveNativeSession(
     workDir,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     mainAgentBinding: {
-      profile: agentProfileName ?? 'agent',
+      profile: agentProfileName ?? "agent",
       model,
     },
   });
   const agent = await ensureMainAgent(session);
-  agent.accessor.get(IAgentPermissionModeService).setMode('auto');
+  agent.accessor.get(IAgentPermissionModeService).setMode("auto");
   return {
     session,
     agent,
@@ -474,11 +493,9 @@ async function runNativeTurn(
   stderr: PromptOutput,
 ): Promise<void> {
   const writer: PromptTurnWriter =
-    outputFormat === 'stream-json'
+    outputFormat === "stream-json"
       ? new PromptJsonWriter(stdout)
       : new PromptTranscriptWriter(stdout, stderr);
-
-  await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
   const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
@@ -486,15 +503,15 @@ async function runNativeTurn(
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
     // turn ends cannot have its `turn.ended` slip past the policy loop.
-    if (event.type === 'turn.ended') turnEndings.push(event);
+    if (event.type === "turn.ended") turnEndings.push(event);
   });
   try {
     const handle = await agent.accessor.get(IAgentPromptService).enqueue({
       message: {
-        role: 'user',
-        content: [{ type: 'text', text: prompt }],
+        role: "user",
+        content: [{ type: "text", text: prompt }],
         toolCalls: [],
-        origin: { kind: 'user' },
+        origin: { kind: "user" },
       },
     });
     const turn = await handle.launched;
@@ -503,9 +520,9 @@ async function runNativeTurn(
       writer.finish();
       const completion = await handle.completion;
       throw new Error(
-        completion.state === 'blocked'
-          ? 'Prompt hook blocked the request.'
-          : 'Prompt turn could not be started',
+        completion.state === "blocked"
+          ? "Prompt hook blocked the request."
+          : "Prompt turn could not be started",
       );
     }
     const result = await turn.result;
@@ -515,7 +532,7 @@ async function runNativeTurn(
     // assistant message first so a long drain/steer wait does not withhold the
     // final message.
     writer.flushAssistant();
-    if (result.type === 'completed') {
+    if (result.type === "completed") {
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);
       const goalService = agent.accessor.get(IAgentGoalService);
@@ -531,7 +548,7 @@ async function runNativeTurn(
           skipTurnId: turn.id,
           warn: (message) => stderr.write(`Warning: ${message}\n`),
           now: () => Date.now(),
-          goalActive: () => goalService.getGoal().goal?.status === 'active',
+          goalActive: () => goalService.getGoal().goal?.status === "active",
           cronNextFireAt: () => cronService.getNextFireTime(),
         });
       } catch (error) {
@@ -580,8 +597,8 @@ async function runNativeGoal(
   let completedSnapshot: { readonly status: string } | null = null;
   const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
     if (
-      event.type === 'goal.updated' &&
-      event.change?.kind === 'completion' &&
+      event.type === "goal.updated" &&
+      event.change?.kind === "completion" &&
       event.snapshot !== null
     ) {
       completedSnapshot = event.snapshot;
@@ -592,12 +609,12 @@ async function runNativeGoal(
   } finally {
     subscription.dispose();
     const snapshot = completedSnapshot ?? goalService.getGoal().goal;
-    if (outputFormat === 'stream-json') {
+    if (outputFormat === "stream-json") {
       stdout.write(`${JSON.stringify(goalSummaryJson(snapshot))}\n`);
     } else {
       stderr.write(`${formatGoalSummaryText(snapshot)}\n`);
     }
-    if (snapshot !== null && snapshot.status !== 'complete') {
+    if (snapshot !== null && snapshot.status !== "complete") {
       process.exitCode = goalExitCode(snapshot.status);
     }
   }
@@ -609,41 +626,43 @@ function dispatchNativeEvent(
   stderr: PromptOutput,
 ): void {
   switch (event.type) {
-    case 'turn.step.started':
-    case 'turn.step.interrupted':
+    case "turn.step.started":
+    case "turn.step.interrupted":
       writer.flushAssistant();
       return;
-    case 'turn.step.retrying':
+    case "turn.step.retrying":
       writer.discardAssistant();
       writer.writeRetrying(event);
       return;
-    case 'assistant.delta':
+    case "assistant.delta":
       writer.writeAssistantDelta(event.delta);
       return;
-    case 'hook.result':
+    case "hook.result":
       writer.writeHookResult(event);
       return;
-    case 'thinking.delta':
+    case "thinking.delta":
       writer.writeThinkingDelta(event.delta);
       return;
-    case 'tool.call.started':
+    case "tool.call.started":
       writer.writeToolCall(event.toolCallId, event.name, event.args);
       return;
-    case 'tool.call.delta':
+    case "tool.call.delta":
       writer.writeToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
       return;
-    case 'tool.result':
+    case "tool.result":
       writer.writeToolResult(event.toolCallId, event.output);
       return;
-    case 'tool.progress':
+    case "tool.progress":
       if (event.update.text !== undefined && event.update.text.length > 0) {
-        stderr.write(event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`);
+        stderr.write(
+          event.update.text.endsWith("\n") ? event.update.text : `${event.update.text}\n`,
+        );
       }
       return;
   }
 }
 
-export type PrintTurnEnding = Extract<DomainEvent, { type: 'turn.ended' }>;
+export type PrintTurnEnding = Extract<DomainEvent, { type: "turn.ended" }>;
 
 /**
  * Node's `setTimeout` delay is a signed 32-bit int. Values above this are
@@ -798,9 +817,7 @@ export interface PrintBackgroundPolicyInput {
  * The steer ceiling deadline is set once on entry, so goal/cron waiting
  * consumes the same budget.
  */
-export async function applyPrintBackgroundPolicy(
-  input: PrintBackgroundPolicyInput,
-): Promise<void> {
+export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInput): Promise<void> {
   const deadline = input.now() + input.ceilingS * 1000;
   let turns = 0;
   // Cron anti-spin guard: the last fire time seen already in the past. Two
@@ -834,7 +851,7 @@ export async function applyPrintBackgroundPolicy(
         if (fireAt <= input.now() && lastPastFireAt === fireAt) {
           cronWedged = true;
           input.warn(
-            'print cron wait: next fire time stuck in the past; cron tick appears wedged, giving up on cron',
+            "print cron wait: next fire time stuck in the past; cron tick appears wedged, giving up on cron",
           );
         } else {
           if (fireAt <= input.now()) lastPastFireAt = fireAt;
@@ -842,7 +859,7 @@ export async function applyPrintBackgroundPolicy(
             Math.max(fireAt - input.now(), 0) + CRON_FIRE_GRACE_MS,
             input.skipTurnId,
           );
-          if (ended !== null && ended.reason !== 'completed') {
+          if (ended !== null && ended.reason !== "completed") {
             throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
           }
           // Fire observed (or its grace elapsed without a turn): re-read the
@@ -853,8 +870,8 @@ export async function applyPrintBackgroundPolicy(
     }
 
     // (c) background-task mode.
-    if (input.mode === 'exit') return;
-    if (input.mode === 'drain') {
+    if (input.mode === "exit") return;
+    if (input.mode === "drain") {
       await input.drain();
       return;
     }
@@ -872,19 +889,19 @@ export async function applyPrintBackgroundPolicy(
     if (input.countPending() === 0) return;
     const ended = await input.turnEndings.next(deadline - input.now(), input.skipTurnId);
     if (ended === null) return;
-    if (ended.reason !== 'completed') {
+    if (ended.reason !== "completed") {
       throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
     }
   }
 }
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
-  if (ending.error?.code === 'provider.filtered') {
-    return 'Provider safety policy blocked the response.';
+  if (ending.error?.code === "provider.filtered") {
+    return "Provider safety policy blocked the response.";
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
-  if (ending.reason === 'blocked') {
-    return 'Prompt hook blocked the request.';
+  if (ending.reason === "blocked") {
+    return "Prompt hook blocked the request.";
   }
   return `Prompt turn ended with reason: ${ending.reason}`;
 }
@@ -902,7 +919,7 @@ async function drainBackgroundTasks(
   ceilingS: number | undefined,
 ): Promise<void> {
   const ceilingMs =
-    typeof ceilingS === 'number' && Number.isFinite(ceilingS) && ceilingS > 0
+    typeof ceilingS === "number" && Number.isFinite(ceilingS) && ceilingS > 0
       ? ceilingS * 1000
       : PRINT_WAIT_CEILING_S_DEFAULT * 1000;
 
@@ -936,13 +953,13 @@ async function drainBackgroundTasks(
 }
 
 function formatNativeTurnFailure(result: LoopRunResult): string {
-  if (result.type === 'failed') {
+  if (result.type === "failed") {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
-    if (error?.code === 'provider.filtered') {
-      return 'Provider safety policy blocked the response.';
+    if (error?.code === "provider.filtered") {
+      return "Provider safety policy blocked the response.";
     }
     if (error?.code !== undefined) {
-      return `${error.code}: ${error.message ?? ''}`.trimEnd();
+      return `${error.code}: ${error.message ?? ""}`.trimEnd();
     }
     if (result.error instanceof Error) {
       return result.error.message;

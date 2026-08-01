@@ -37,9 +37,9 @@
  *    so its raw `<system>` markup never renders in the UI.
  */
 
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from "#/llmProtocol/message";
 
-import { sniffImageDimensions } from './file-type';
+import { sniffImageDimensions } from "./file-type";
 import {
   buildMalformedImageNotice,
   buildUnsupportedImageNotice,
@@ -50,8 +50,8 @@ import {
   parseImageDataUrl,
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
-} from './image-format-policy';
-import { decodeWebp, isAnimatedWebp } from './webp-decode';
+} from "./image-format-policy";
+import { decodeWebp, isAnimatedWebp } from "./webp-decode";
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
@@ -72,8 +72,7 @@ export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 let configuredReadImageByteBudget: number | undefined;
 
 export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget =
-    value !== undefined && isPositiveInt(value) ? value : undefined;
+  configuredReadImageByteBudget = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
 export function resolveReadImageByteBudget(): number {
@@ -93,7 +92,7 @@ const MAX_DECODE_PIXELS = 100_000_000;
 
 export const MAX_IMAGE_DECODE_BYTES = 64 * 1024 * 1024;
 
-const RECODABLE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const RECODABLE_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 export interface CompressImageOptions {
   readonly maxEdge?: number;
@@ -115,12 +114,12 @@ export interface ImageCompressionTelemetry {
 }
 
 type CompressOutcome =
-  | 'compressed'
-  | 'passthrough_fast'
-  | 'passthrough_guard'
-  | 'passthrough_unsupported'
-  | 'passthrough_unhelpful'
-  | 'passthrough_error';
+  | "compressed"
+  | "passthrough_fast"
+  | "passthrough_guard"
+  | "passthrough_unsupported"
+  | "passthrough_unhelpful"
+  | "passthrough_error";
 
 export interface CompressImageResult {
   readonly data: Uint8Array;
@@ -168,27 +167,27 @@ export async function compressImageForModel(
     return result;
   };
 
-  if (bytes.length === 0) return finish('passthrough_unsupported', passthrough());
-  if (!RECODABLE_MIME.has(normalizedMime)) return finish('passthrough_unsupported', passthrough());
-  if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {
-    return finish('passthrough_unsupported', passthrough());
+  if (bytes.length === 0) return finish("passthrough_unsupported", passthrough());
+  if (!RECODABLE_MIME.has(normalizedMime)) return finish("passthrough_unsupported", passthrough());
+  if (normalizedMime === "image/webp" && isAnimatedWebp(bytes)) {
+    return finish("passthrough_unsupported", passthrough());
   }
 
   const longestEdge = dims ? Math.max(dims.width, dims.height) : 0;
   const withinBytes = bytes.length <= byteBudget;
   const withinEdge = longestEdge > 0 && longestEdge <= maxEdge;
   if (withinBytes && (withinEdge || longestEdge === 0)) {
-    return finish('passthrough_fast', passthrough());
+    return finish("passthrough_fast", passthrough());
   }
 
   if (dims && dims.width * dims.height > MAX_DECODE_PIXELS) {
-    return finish('passthrough_guard', passthrough());
+    return finish("passthrough_guard", passthrough());
   }
-  if (bytes.length > maxDecodeBytes) return finish('passthrough_guard', passthrough());
+  if (bytes.length > maxDecodeBytes) return finish("passthrough_guard", passthrough());
 
   try {
     const image = await decodeToJimp(bytes, normalizedMime);
-    const preferLossless = normalizedMime !== 'image/jpeg';
+    const preferLossless = normalizedMime !== "image/jpeg";
     const decodedWidth = image.width;
     const decodedHeight = image.height;
 
@@ -204,9 +203,9 @@ export async function compressImageForModel(
     const finalPixels = encoded.width * encoded.height;
     const shrankBytes = encoded.data.length < bytes.length;
     const shrankPixels = finalPixels < originalPixels;
-    if (!shrankBytes && !shrankPixels) return finish('passthrough_unhelpful', passthrough());
+    if (!shrankBytes && !shrankPixels) return finish("passthrough_unhelpful", passthrough());
 
-    return finish('compressed', {
+    return finish("compressed", {
       data: encoded.data,
       mimeType: encoded.mimeType,
       width: encoded.width,
@@ -218,7 +217,7 @@ export async function compressImageForModel(
       finalByteLength: encoded.data.length,
     });
   } catch {
-    return finish('passthrough_error', passthrough());
+    return finish("passthrough_error", passthrough());
   }
 }
 
@@ -255,7 +254,7 @@ export async function compressBase64ForModel(
       finalByteLength: approxBytes,
     };
     reportCompressEvent(options.telemetry, {
-      outcome: 'passthrough_guard',
+      outcome: "passthrough_guard",
       startedAt,
       inputMime: normalizeImageMime(mimeType),
       exifTransposed: false,
@@ -265,7 +264,7 @@ export async function compressBase64ForModel(
   }
   let bytes: Buffer;
   try {
-    bytes = Buffer.from(base64, 'base64');
+    bytes = Buffer.from(base64, "base64");
   } catch {
     const result: CompressBase64Result = {
       base64,
@@ -279,7 +278,7 @@ export async function compressBase64ForModel(
       finalByteLength: 0,
     };
     reportCompressEvent(options.telemetry, {
-      outcome: 'passthrough_error',
+      outcome: "passthrough_error",
       startedAt,
       inputMime: normalizeImageMime(mimeType),
       exifTransposed: false,
@@ -302,7 +301,7 @@ export async function compressBase64ForModel(
     };
   }
   return {
-    base64: Buffer.from(result.data).toString('base64'),
+    base64: Buffer.from(result.data).toString("base64"),
     mimeType: result.mimeType,
     width: result.width,
     height: result.height,
@@ -322,17 +321,17 @@ export interface CompressedContentParts {
 export function gateImageFormatParts(parts: readonly ContentPart[]): ContentPart[] {
   const out: ContentPart[] = [];
   for (const part of parts) {
-    if (part.type === 'image_url') {
+    if (part.type === "image_url") {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed === null) {
         if (isDataUrl(part.imageUrl.url)) {
-          out.push({ type: 'text', text: buildMalformedImageNotice(part.imageUrl.url) });
+          out.push({ type: "text", text: buildMalformedImageNotice(part.imageUrl.url) });
           continue;
         }
         const extMime = unsupportedImageMimeFromUrl(part.imageUrl.url);
         if (extMime !== null) {
           out.push({
-            type: 'text',
+            type: "text",
             text: buildUnsupportedImageNotice(extMime, part.imageUrl.url),
           });
           continue;
@@ -345,12 +344,12 @@ export function gateImageFormatParts(parts: readonly ContentPart[]): ContentPart
         decodeBase64Prefix(parsed.base64),
       );
       if (!isModelAcceptedImageMime(effectiveMime)) {
-        out.push({ type: 'text', text: buildUnsupportedImageNotice(effectiveMime) });
+        out.push({ type: "text", text: buildUnsupportedImageNotice(effectiveMime) });
         continue;
       }
       const canonicalUrl = `data:${normalizeImageMime(effectiveMime)};base64,${parsed.base64}`;
       if (part.imageUrl.url !== canonicalUrl) {
-        out.push({ type: 'image_url', imageUrl: { ...part.imageUrl, url: canonicalUrl } });
+        out.push({ type: "image_url", imageUrl: { ...part.imageUrl, url: canonicalUrl } });
         continue;
       }
     }
@@ -367,17 +366,21 @@ export async function compressImageContentParts(
   const out: ContentPart[] = [];
   const captions: string[] = [];
   for (const part of gateImageFormatParts(parts)) {
-    if (part.type === 'image_url') {
+    if (part.type === "image_url") {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed !== null) {
-        const result = await compressBase64ForModel(parsed.base64, parsed.mimeType, compressOptions);
+        const result = await compressBase64ForModel(
+          parsed.base64,
+          parsed.mimeType,
+          compressOptions,
+        );
         if (result.changed) {
           if (annotate !== undefined) {
             let originalPath: string | null = null;
             if (annotate.persistOriginal !== undefined) {
               try {
                 originalPath = await annotate.persistOriginal(
-                  Buffer.from(parsed.base64, 'base64'),
+                  Buffer.from(parsed.base64, "base64"),
                   parsed.mimeType,
                 );
               } catch {
@@ -403,7 +406,7 @@ export async function compressImageContentParts(
             );
           }
           out.push({
-            type: 'image_url',
+            type: "image_url",
             imageUrl: { ...part.imageUrl, url: `data:${result.mimeType};base64,${result.base64}` },
           });
           continue;
@@ -418,7 +421,6 @@ export async function compressImageContentParts(
 export interface CompressAnnotateOptions {
   readonly persistOriginal?: (bytes: Uint8Array, mimeType: string) => Promise<string | null>;
 }
-
 
 export interface ImageCropRegion {
   readonly x: number;
@@ -474,22 +476,20 @@ export async function cropImageForModel(
   };
 
   if (bytes.length === 0) {
-    return fail('empty', 'The image is empty.');
+    return fail("empty", "The image is empty.");
   }
   if (!RECODABLE_MIME.has(normalizedMime)) {
     return fail(
-      'unsupported_format',
+      "unsupported_format",
       `Cropping is only supported for PNG, JPEG, and WebP images; got ${mimeType}.`,
     );
   }
-  if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {
-    return fail('unsupported_format', 'Cropping is not supported for animated WebP images.');
+  if (normalizedMime === "image/webp" && isAnimatedWebp(bytes)) {
+    return fail("unsupported_format", "Cropping is not supported for animated WebP images.");
   }
-  if (
-    ![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))
-  ) {
+  if (![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))) {
     return fail(
-      'region_invalid',
+      "region_invalid",
       `Region coordinates must be finite numbers; got x=${String(region.x)}, ` +
         `y=${String(region.y)}, width=${String(region.width)}, height=${String(region.height)}.`,
     );
@@ -497,12 +497,12 @@ export async function cropImageForModel(
   const dims = sniffImageDimensions(bytes);
   if (dims && dims.width * dims.height > MAX_DECODE_PIXELS) {
     return fail(
-      'too_large',
+      "too_large",
       `The image (${String(dims.width)}x${String(dims.height)} pixels) is too large to decode for cropping.`,
     );
   }
   if (bytes.length > maxDecodeBytes) {
-    return fail('too_large', 'The image is too large to decode for cropping.');
+    return fail("too_large", "The image is too large to decode for cropping.");
   }
 
   try {
@@ -512,9 +512,16 @@ export async function cropImageForModel(
 
     const x = Math.floor(region.x);
     const y = Math.floor(region.y);
-    if (x < 0 || y < 0 || x >= originalWidth || y >= originalHeight || region.width < 1 || region.height < 1) {
+    if (
+      x < 0 ||
+      y < 0 ||
+      x >= originalWidth ||
+      y >= originalHeight ||
+      region.width < 1 ||
+      region.height < 1
+    ) {
       return fail(
-        'out_of_bounds',
+        "out_of_bounds",
         `Region (x=${String(region.x)}, y=${String(region.y)}, width=${String(region.width)}, ` +
           `height=${String(region.height)}) lies outside the ${String(originalWidth)}x${String(originalHeight)} image.`,
       );
@@ -523,25 +530,25 @@ export async function cropImageForModel(
     const h = Math.min(Math.floor(region.height), originalHeight - y);
     const applied: ImageCropRegion = { x, y, width: w, height: h };
     image.crop({ x, y, w, h });
-    const preferLossless = normalizedMime !== 'image/jpeg';
+    const preferLossless = normalizedMime !== "image/jpeg";
 
     if (options.skipResize === true) {
       const buffer = preferLossless
-        ? await image.getBuffer('image/png', { deflateLevel: 9 })
-        : await image.getBuffer('image/jpeg', { quality: 90 });
+        ? await image.getBuffer("image/png", { deflateLevel: 9 })
+        : await image.getBuffer("image/jpeg", { quality: 90 });
       if (buffer.length > byteBudget) {
         return fail(
-          'budget',
+          "budget",
           `The cropped region encodes to ${String(buffer.length)} bytes ` +
             `(${formatByteSize(buffer.length)}), over the ${String(byteBudget)}-byte ` +
             `(${formatByteSize(byteBudget)}) per-image limit. ` +
-            'Choose a smaller region, or allow downscaling.',
+            "Choose a smaller region, or allow downscaling.",
         );
       }
       return succeed({
         ok: true,
         data: new Uint8Array(buffer),
-        mimeType: preferLossless ? 'image/png' : 'image/jpeg',
+        mimeType: preferLossless ? "image/png" : "image/jpeg",
         width: image.width,
         height: image.height,
         originalWidth,
@@ -574,12 +581,11 @@ export async function cropImageForModel(
     });
   } catch (error) {
     return fail(
-      'decode_failed',
+      "decode_failed",
       `Failed to decode the image for cropping: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
-
 
 export interface ImageVariantDescription {
   readonly width: number;
@@ -598,21 +604,21 @@ export function buildImageCompressionCaption(input: ImageCompressionCaptionInput
   const sentences = [
     `Image compressed to fit model limits: original ${describeImageVariant(input.original)} -> ` +
       `sent ${describeImageVariant(input.final)}.`,
-    'Fine detail may be lost.',
+    "Fine detail may be lost.",
   ];
-  if (typeof input.originalPath === 'string' && input.originalPath.length > 0) {
+  if (typeof input.originalPath === "string" && input.originalPath.length > 0) {
     sentences.push(
       `The uncompressed original is saved at "${input.originalPath}"; if you need fine detail ` +
-        '(e.g. small text), call ReadMediaFile on that path with the region parameter ' +
-        '(original-pixel coordinates) to view a crop at full fidelity.',
+        "(e.g. small text), call ReadMediaFile on that path with the region parameter " +
+        "(original-pixel coordinates) to view a crop at full fidelity.",
     );
   } else {
-    sentences.push('The uncompressed original was not preserved.');
+    sentences.push("The uncompressed original was not preserved.");
   }
-  return `<system>${sentences.join(' ')}</system>`;
+  return `<system>${sentences.join(" ")}</system>`;
 }
 
-const CAPTION_OPENING = '<system>Image compressed to fit model limits:';
+const CAPTION_OPENING = "<system>Image compressed to fit model limits:";
 
 const CAPTION_PATTERN = /<system>(Image compressed to fit model limits:[\s\S]*?)<\/system>/g;
 
@@ -626,7 +632,7 @@ export function extractImageCompressionCaptions(text: string): ImageCompressionC
   const captions: string[] = [];
   const remainder = text.replace(CAPTION_PATTERN, (_match, body: string) => {
     captions.push(body);
-    return '';
+    return "";
   });
   return { captions, text: remainder };
 }
@@ -645,8 +651,7 @@ export function formatByteSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-
-type JimpImage = Awaited<ReturnType<(typeof import('jimp'))['Jimp']['fromBuffer']>>;
+type JimpImage = Awaited<ReturnType<(typeof import("jimp"))["Jimp"]["fromBuffer"]>>;
 
 interface EncodedImage {
   readonly data: Buffer;
@@ -662,8 +667,8 @@ interface EncodeOptions {
 }
 
 async function decodeToJimp(bytes: Uint8Array, normalizedMime: string): Promise<JimpImage> {
-  const { Jimp } = await import('jimp');
-  if (normalizedMime === 'image/webp') {
+  const { Jimp } = await import("jimp");
+  if (normalizedMime === "image/webp") {
     const decoded = await decodeWebp(bytes);
     return Jimp.fromBitmap({
       data: Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
@@ -688,24 +693,24 @@ async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promis
 
   const jpegLadder = async (): Promise<EncodedImage | null> => {
     for (const quality of JPEG_QUALITY_STEPS) {
-      const jpeg = await image.getBuffer('image/jpeg', { quality });
-      if (jpeg.length <= byteBudget) return consider(jpeg, 'image/jpeg');
-      consider(jpeg, 'image/jpeg');
+      const jpeg = await image.getBuffer("image/jpeg", { quality });
+      if (jpeg.length <= byteBudget) return consider(jpeg, "image/jpeg");
+      consider(jpeg, "image/jpeg");
     }
     return null;
   };
 
   if (preferLossless) {
-    const png = await image.getBuffer('image/png', { deflateLevel: 9 });
-    if (png.length <= byteBudget) return consider(png, 'image/png');
-    consider(png, 'image/png');
+    const png = await image.getBuffer("image/png", { deflateLevel: 9 });
+    if (png.length <= byteBudget) return consider(png, "image/png");
+    consider(png, "image/png");
 
     for (const edge of fallbackEdges) {
       if (edge < PNG_RESCALE_FLOOR_PX) break;
       if (!fitWithinEdge(image, edge)) continue;
-      const smallerPng = await image.getBuffer('image/png', { deflateLevel: 9 });
-      if (smallerPng.length <= byteBudget) return consider(smallerPng, 'image/png');
-      consider(smallerPng, 'image/png');
+      const smallerPng = await image.getBuffer("image/png", { deflateLevel: 9 });
+      if (smallerPng.length <= byteBudget) return consider(smallerPng, "image/png");
+      consider(smallerPng, "image/png");
     }
 
     const atFloor = await jpegLadder();
@@ -741,15 +746,14 @@ function fitWithinEdge(image: JimpImage, edge: number): boolean {
   return true;
 }
 
-
 type CropErrorKind =
-  | 'empty'
-  | 'unsupported_format'
-  | 'region_invalid'
-  | 'too_large'
-  | 'out_of_bounds'
-  | 'budget'
-  | 'decode_failed';
+  | "empty"
+  | "unsupported_format"
+  | "region_invalid"
+  | "too_large"
+  | "out_of_bounds"
+  | "budget"
+  | "decode_failed";
 
 interface CompressEventResult {
   readonly mimeType: string;
@@ -773,7 +777,7 @@ function reportCompressEvent(
 ): void {
   if (telemetry === undefined) return;
   try {
-    telemetry.client.track('image_compress', {
+    telemetry.client.track("image_compress", {
       source: telemetry.source,
       outcome: input.outcome,
       input_mime: input.inputMime,
@@ -787,8 +791,7 @@ function reportCompressEvent(
       exif_transposed: input.exifTransposed,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {
-  }
+  } catch {}
 }
 
 function reportCropEvent(
@@ -803,9 +806,8 @@ function reportCropEvent(
   if (telemetry === undefined) return;
   try {
     const { result } = input;
-    const originalPixels =
-      result === undefined ? 0 : result.originalWidth * result.originalHeight;
-    telemetry.client.track('image_crop', {
+    const originalPixels = result === undefined ? 0 : result.originalWidth * result.originalHeight;
+    telemetry.client.track("image_crop", {
       source: telemetry.source,
       ok: input.ok,
       error_kind: input.errorKind,
@@ -819,6 +821,5 @@ function reportCropEvent(
       final_bytes: result?.finalByteLength,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {
-  }
+  } catch {}
 }

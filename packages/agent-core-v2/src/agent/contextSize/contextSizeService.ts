@@ -20,22 +20,22 @@
  * and read/written through it. Bound at Agent scope.
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import { estimateTokensForMessages } from '#/kosong/contract/tokens';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentStateService } from '#/agent/state/agentState';
-import type { Message } from '#/kosong/contract/message';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import { IWireService } from '#/wire/wire';
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { defineState } from "#/_base/state/stateRegistry";
+import { estimateTokensForMessages } from "#/llmProtocol/tokens";
+import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
+import type { ContextMessage } from "#/agent/contextMemory/types";
+import { IAgentStateService } from "#/agent/state/agentState";
+import type { Message } from "#/llmProtocol/message";
+import type { TokenUsage } from "#/llmProtocol/usage";
+import { IWireService } from "#/wire/wire";
 
-import { IAgentContextSizeService, type ContextSize } from './contextSize';
-import { ContextSizeModel, contextSizeMeasured } from './contextSizeOps';
+import { IAgentContextSizeService, type ContextSize } from "./contextSize";
+import { ContextSizeModel, contextSizeMeasured } from "./contextSizeOps";
 
 export const contextSizeLastEmittedTokensKey = defineState<number>(
-  'contextSize.lastEmittedTokens',
+  "contextSize.lastEmittedTokens",
   () => 0,
 );
 
@@ -123,5 +123,5 @@ registerScopedService(
   IAgentContextSizeService,
   AgentContextSizeService,
   ScopeActivation.OnScopeCreated,
-  'contextSize',
+  "contextSize",
 );

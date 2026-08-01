@@ -16,31 +16,28 @@
  * `fullCompaction`).
  */
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
+import { defineState } from "#/_base/state/stateRegistry";
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   readRetryAfterMs,
   retryBackoffDelays,
   retryErrorFields,
   sleepForRetry,
-} from '#/_base/utils/retry';
-import { isRetryableGenerateError } from '#/kosong/contract/errors';
-import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
-import { unwrapErrorCause } from '#/errors';
-import {
-  IAgentLoopService,
-  type LoopErrorContext,
-} from '#/agent/loop/loop';
-import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
-import { IAgentStateService } from '#/agent/state/agentState';
+} from "#/_base/utils/retry";
+import { isRetryableGenerateError } from "#/llmProtocol/errors";
+import { IConfigService } from "#/app/config/config";
+import { IEventBus } from "#/app/event/eventBus";
+import { unwrapErrorCause } from "#/errors";
+import { IAgentLoopService, type LoopErrorContext } from "#/agent/loop/loop";
+import { LOOP_CONTROL_SECTION, type LoopControl } from "#/agent/loop/configSection";
+import { IAgentStateService } from "#/agent/state/agentState";
 
-import { IAgentStepRetryService } from './stepRetry';
+import { IAgentStepRetryService } from "./stepRetry";
 
 export interface TurnStepRetryingEvent {
-  readonly type: 'turn.step.retrying';
+  readonly type: "turn.step.retrying";
   readonly turnId: number;
   readonly step: number;
   readonly stepId?: string;
@@ -53,20 +50,17 @@ export interface TurnStepRetryingEvent {
   readonly statusCode?: number;
 }
 
-declare module '#/app/event/eventBus' {
+declare module "#/app/event/eventBus" {
   interface DomainEventMap {
-    'turn.step.retrying': TurnStepRetryingEvent;
+    "turn.step.retrying": TurnStepRetryingEvent;
   }
 }
 
 export const stepRetryLastFailedDriverIdKey = defineState<string | undefined>(
-  'stepRetry.lastFailedDriverId',
+  "stepRetry.lastFailedDriverId",
   () => undefined as string | undefined,
 );
-export const stepRetryFailedAttemptsKey = defineState<number>(
-  'stepRetry.failedAttempts',
-  () => 0,
-);
+export const stepRetryFailedAttemptsKey = defineState<number>("stepRetry.failedAttempts", () => 0);
 
 export class AgentStepRetryService extends Disposable implements IAgentStepRetryService {
   declare readonly _serviceBrand: undefined;
@@ -82,18 +76,18 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     this.states.register(stepRetryFailedAttemptsKey);
     this._register(
       this.loopService.registerLoopErrorHandler({
-        id: 'step-retry',
+        id: "step-retry",
         match: (context) => isRetryableGenerateError(unwrapErrorCause(context.error)),
         handle: (context) => this.recover(context),
       }),
     );
     this._register(
-      this.loopService.hooks.onDidFinishStep.register('step-retry', async (_ctx, next) => {
+      this.loopService.hooks.onDidFinishStep.register("step-retry", async (_ctx, next) => {
         this.resetAttempts();
         await next();
       }),
     );
-    this._register(this.eventBus.subscribe('turn.started', () => this.resetAttempts()));
+    this._register(this.eventBus.subscribe("turn.started", () => this.resetAttempts()));
   }
 
   private get lastFailedDriverId(): string | undefined {
@@ -141,7 +135,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     const delayMs =
       readRetryAfterMs(error) ?? retryBackoffDelays(maxAttempts)[this.failedAttempts - 1] ?? 0;
     this.eventBus.publish({
-      type: 'turn.step.retrying',
+      type: "turn.step.retrying",
       turnId: context.turnId,
       step: context.step,
       stepId: context.stepId,
@@ -154,7 +148,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     await sleepForRetry(delayMs, context.signal);
 
     if (context.currentStep?.signal.aborted === true) return false;
-    context.retry(driver, { at: 'head' });
+    context.retry(driver, { at: "head" });
     return true;
   }
 }
@@ -164,5 +158,5 @@ registerScopedService(
   IAgentStepRetryService,
   AgentStepRetryService,
   ScopeActivation.OnScopeCreated,
-  'stepRetry',
+  "stepRetry",
 );

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const modelCatalogItemSchema = z.object({
   provider: z.string().min(1),
@@ -11,19 +11,16 @@ export const modelCatalogItemSchema = z.object({
 });
 export type ModelCatalogItem = z.infer<typeof modelCatalogItemSchema>;
 
-export const providerCatalogStatusSchema = z.enum([
-  'connected',
-  'error',
-  'unconfigured',
-]);
+export const providerCatalogStatusSchema = z.enum(["connected", "error", "unconfigured"]);
 export type ProviderCatalogStatus = z.infer<typeof providerCatalogStatusSchema>;
 
 export const providerCatalogItemSchema = z.object({
   id: z.string().min(1),
-  type: z.string().min(1),
+  name: z.string().min(1),
   base_url: z.string().min(1).optional(),
   default_model: z.string().min(1).optional(),
-  has_api_key: z.boolean(),
+  auth_methods: z.array(z.enum(["oauth", "api_key"])),
+  credential_type: z.enum(["oauth", "api_key"]).optional(),
   status: providerCatalogStatusSchema,
   models: z.array(z.string().min(1)).optional(),
 });

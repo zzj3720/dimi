@@ -1,11 +1,11 @@
-import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import chalk from "chalk";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FooterComponent } from '#/tui/components/chrome/footer';
-import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
-import { currentTheme, darkColors, lightColors } from '#/tui/theme';
-import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import type { AppState } from '#/tui/types';
+import { FooterComponent } from "#/tui/components/chrome/footer";
+import { setRainbowDance, type RainbowDanceController } from "#/tui/easter-eggs/dance";
+import { currentTheme, darkColors, lightColors } from "#/tui/theme";
+import type { ModelAlias } from "@moonshot-ai/kimi-code-sdk";
+import type { AppState } from "#/tui/types";
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
 
@@ -18,8 +18,8 @@ function truecolorCodes(text: string): Set<string> {
 }
 
 // Dark dance colors the footer never uses outside of /dance.
-const RAINBOW_CYAN = '91,192,190';
-const RAINBOW_GREEN = '78,200,126';
+const RAINBOW_CYAN = "91,192,190";
+const RAINBOW_GREEN = "78,200,126";
 
 function setDanceView(colored: boolean, phase: number): void {
   const dance: RainbowDanceController = {
@@ -33,34 +33,34 @@ function setDanceView(colored: boolean, phase: number): void {
 }
 
 const appState: AppState = {
-  version: '1.2.3',
-  workDir: '/tmp/project',
+  version: "1.2.3",
+  workDir: "/tmp/project",
   additionalDirs: [],
-  sessionId: 'ses-1',
+  sessionId: "ses-1",
   sessionTitle: null,
-  model: 'kimi-k2',
-  permissionMode: 'manual',
-  thinkingEffort: 'off',
+  model: "kimi-k2",
+  permissionMode: "manual",
+  thinkingEffort: "off",
   contextUsage: 0,
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
   isReplaying: false,
-  streamingPhase: 'idle',
+  streamingPhase: "idle",
   streamingStartTime: 0,
   planMode: false,
-  inputMode: 'prompt',
+  inputMode: "prompt",
   swarmMode: false,
-  theme: 'dark',
+  theme: "dark",
   editorCommand: null,
-  notifications: { enabled: true, condition: 'unfocused' },
+  notifications: { enabled: true, condition: "unfocused" },
   upgrade: { autoInstall: true },
   availableModels: {},
   availableProviders: {},
   mcpServersSummary: null,
 };
 
-describe('FooterComponent', () => {
+describe("FooterComponent", () => {
   const previousChalkLevel = chalk.level;
 
   beforeEach(() => {
@@ -72,11 +72,11 @@ describe('FooterComponent', () => {
     setRainbowDance(undefined);
   });
 
-  it('paints the model name in rainbow while colored', () => {
+  it("paints the model name in rainbow while colored", () => {
     setDanceView(true, 0);
     const footer = new FooterComponent(appState);
 
-    const codes = truecolorCodes(footer.render(120).join('\n'));
+    const codes = truecolorCodes(footer.render(120).join("\n"));
 
     // "kimi-k2" spreads across the palette, pulling in colors the footer
     // never renders on its own.
@@ -84,46 +84,46 @@ describe('FooterComponent', () => {
     expect(codes.has(RAINBOW_GREEN)).toBe(true);
   });
 
-  it('renders the model name in its normal color when not dancing', () => {
+  it("renders the model name in its normal color when not dancing", () => {
     const footer = new FooterComponent(appState);
 
-    const codes = truecolorCodes(footer.render(120).join('\n'));
+    const codes = truecolorCodes(footer.render(120).join("\n"));
 
     expect(codes.has(RAINBOW_CYAN)).toBe(false);
     expect(codes.has(RAINBOW_GREEN)).toBe(false);
   });
 
-  it('shows the live remote state only while remote access is enabled', () => {
-    const footer = new FooterComponent({ ...appState, remoteStatus: 'connecting' });
+  it("shows the live remote state only while remote access is enabled", () => {
+    const footer = new FooterComponent({ ...appState, remoteStatus: "connecting" });
 
-    expect(footer.render(120).join('\n')).toContain('remote');
-    expect(footer.render(120).join('\n')).toContain('connecting');
+    expect(footer.render(120).join("\n")).toContain("remote");
+    expect(footer.render(120).join("\n")).toContain("connecting");
 
-    footer.setState({ ...appState, remoteStatus: 'online' });
-    expect(footer.render(120).join('\n')).toContain('online');
+    footer.setState({ ...appState, remoteStatus: "online" });
+    expect(footer.render(120).join("\n")).toContain("online");
 
     footer.setState({ ...appState, remoteStatus: null });
-    expect(footer.render(120).join('\n')).not.toContain('remote');
+    expect(footer.render(120).join("\n")).not.toContain("remote");
   });
 
-  it('keeps active remote status visible with an older custom status line', () => {
+  it("keeps active remote status visible with an older custom status line", () => {
     const footer = new FooterComponent({
       ...appState,
-      remoteStatus: 'online',
-      statusLine: { items: ['model', 'cwd'], command: null },
+      remoteStatus: "online",
+      statusLine: { items: ["model", "cwd"], command: null },
     });
 
-    expect(footer.render(120).join('\n')).toContain('remote');
-    expect(footer.render(120).join('\n')).toContain('online');
+    expect(footer.render(120).join("\n")).toContain("remote");
+    expect(footer.render(120).join("\n")).toContain("online");
   });
 
-  it('repaints from the active palette on the next render (no setColors needed)', () => {
+  it("repaints from the active palette on the next render (no setColors needed)", () => {
     const footer = new FooterComponent(appState);
-    const before = footer.render(120).join('\n');
+    const before = footer.render(120).join("\n");
 
     currentTheme.setPalette(lightColors);
     try {
-      const after = footer.render(120).join('\n');
+      const after = footer.render(120).join("\n");
       // Reads currentTheme live, so a palette swap changes the emitted colours.
       expect(after).not.toBe(before);
     } finally {
@@ -131,83 +131,81 @@ describe('FooterComponent', () => {
     }
   });
 
-  it('shows the effort for an effort-capable model', () => {
+  it("shows the effort for an effort-capable model", () => {
     const effortModel: ModelAlias = {
-      provider: 'managed:kimi-code',
-      model: 'kimi-k2',
+      provider: "kimi-coding",
+      model: "kimi-k2",
       maxContextSize: 262144,
-      supportEfforts: ['low', 'high', 'max'],
-      defaultEffort: 'high',
+      supportEfforts: ["low", "high", "max"],
+      defaultEffort: "high",
     };
     const state: AppState = {
       ...appState,
-      thinkingEffort: 'max',
-      availableModels: { 'kimi-k2': effortModel },
+      thinkingEffort: "max",
+      availableModels: { "kimi-k2": effortModel },
     };
     const footer = new FooterComponent(state);
 
-    expect(footer.render(120).join('\n')).toContain('thinking: max');
+    expect(footer.render(120).join("\n")).toContain("thinking: max");
   });
 
-  it('does not show the effort for a legacy boolean model', () => {
+  it("does not show the effort for a legacy boolean model", () => {
     const plainModel: ModelAlias = {
-      provider: 'managed:kimi-code',
-      model: 'kimi-k2',
+      provider: "kimi-coding",
+      model: "kimi-k2",
       maxContextSize: 262144,
-      capabilities: ['thinking'],
+      capabilities: ["thinking"],
     };
     const state: AppState = {
       ...appState,
-      thinkingEffort: 'high',
-      availableModels: { 'kimi-k2': plainModel },
+      thinkingEffort: "high",
+      availableModels: { "kimi-k2": plainModel },
     };
     const footer = new FooterComponent(state);
-    const rendered = footer.render(120).join('\n');
+    const rendered = footer.render(120).join("\n");
 
-    expect(rendered).toContain('thinking');
-    expect(rendered).not.toContain('thinking:high');
+    expect(rendered).toContain("thinking");
+    expect(rendered).not.toContain("thinking:high");
   });
 });
 
-describe('FooterComponent overrides', () => {
-  it('shows the overridden effort list', () => {
+describe("FooterComponent overrides", () => {
+  it("shows the overridden effort list", () => {
     const effortModelWithOverride: ModelAlias = {
-      provider: 'managed:kimi-code',
-      model: 'kimi-k2',
+      provider: "kimi-coding",
+      model: "kimi-k2",
       maxContextSize: 262144,
-      supportEfforts: ['low', 'high', 'max'],
-      defaultEffort: 'max',
-      overrides: { supportEfforts: ['low', 'high'], defaultEffort: 'high' },
+      supportEfforts: ["low", "high"],
+      defaultEffort: "high",
     };
     const state: AppState = {
       ...appState,
-      thinkingEffort: 'high',
-      availableModels: { 'kimi-k2': effortModelWithOverride },
+      thinkingEffort: "high",
+      availableModels: { "kimi-k2": effortModelWithOverride },
     };
     const footer = new FooterComponent(state);
 
-    expect(footer.render(120).join('\n')).toContain('thinking: high');
+    expect(footer.render(120).join("\n")).toContain("thinking: high");
   });
 });
 
-describe('FooterComponent displayName override', () => {
-  it('renders the overridden display name', () => {
+describe("FooterComponent displayName override", () => {
+  it("renders the overridden display name", () => {
     const state: AppState = {
       ...appState,
-      model: 'kimi-k2',
+      model: "kimi-k2",
       availableModels: {
-        'kimi-k2': {
-          provider: 'managed:kimi-code',
-          model: 'kimi-k2',
+        "kimi-k2": {
+          provider: "kimi-coding",
+          model: "kimi-k2",
           maxContextSize: 262144,
-          displayName: 'Remote Name',
-          overrides: { displayName: 'Custom Name' },
+          displayName: "Custom Name",
         },
       },
     };
     const footer = new FooterComponent(state);
 
-    expect(footer.render(120).join('\n')).toContain('Custom Name');
-    expect(footer.render(120).join('\n')).not.toContain('Remote Name');
+    expect(footer.render(120).join("\n")).toContain("Custom Name");
+    expect(footer.render(120).join("\n")).not.toContain("Remote Name");
   });
 });

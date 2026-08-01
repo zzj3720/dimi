@@ -2,8 +2,8 @@
  * Compile-time type equality.
  *
  * Used to pin a hand-written type to the zod schema that re-derives it —
- * e.g. kosong's persistence-free types vs the section schemas their
- * `kosongConfig` wrapper registers: a drift in either direction (added /
+ * e.g. LLM protocol's persistence-free types vs the section schemas their
+ * `providerRuntime` wrapper registers: a drift in either direction (added /
  * removed field, changed field type, optionality flip) fails typecheck.
  *
  * `Equal` compares by mutual assignability through a contravariant

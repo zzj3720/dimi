@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ISessionLifecycleService } from "@moonshot-ai/agent-core-v2";
+import { IProviderRuntime, ISessionLifecycleService } from "@moonshot-ai/agent-core-v2";
 import { startServer } from "@moonshot-ai/kap-server";
 import type { StoredRemote } from "@k-3720/remote";
 import { startRemoteBridge } from "@k-3720/remote/bridge";
@@ -14,7 +14,8 @@ import { startRelay } from "../../../packages/remote/test/server";
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
-} from "../../../packages/kosong/test/e2e/fake-provider-harness";
+} from "../../../test/fixtures/fake-provider-harness";
+import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
 import { MobileRuntime } from "../src/runtime";
 
 const stored = vi.hoisted(() => ({ value: undefined as StoredRemote | undefined }));
@@ -51,7 +52,23 @@ describe("Android client real remote path", () => {
   it("pairs with a real Kap server, completes a prompt, and resyncs after bridge restart", async () => {
     const provider = await createFakeProviderHarness();
     cleanups.push(() => provider.close());
-    provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (request.index > 0) {
+        await reply.sseJson(200, [
+          completionChunk({
+            tool_calls: [
+              {
+                index: 0,
+                id: "call-mobile-all-done",
+                type: "function",
+                function: { name: "AllDone", arguments: "{}" },
+              },
+            ],
+          }),
+          completionChunk({}, "tool_calls"),
+        ]);
+        return;
+      }
       await reply.sseJson(200, [
         completionChunk({ content: "hello from the real mobile path" }),
         completionChunk({}, "stop"),
@@ -63,17 +80,8 @@ describe("Android client real remote path", () => {
     await writeFile(
       join(home, "config.toml"),
       [
+        'default_provider = "local"',
         'default_model = "fake-model"',
-        "",
-        "[providers.local]",
-        'type = "kimi"',
-        `base_url = "${provider.baseUrl}/v1"`,
-        'api_key = "test-only"',
-        "",
-        "[models.fake-model]",
-        'provider = "local"',
-        'model = "fake-model"',
-        "max_context_size = 262144",
         "",
       ].join("\n"),
     );
@@ -83,6 +91,16 @@ describe("Android client real remote path", () => {
       port: 0,
       homeDir: home,
       logLevel: "silent",
+      seeds: [
+        [
+          IProviderRuntime,
+          createTestProviderRuntime({
+            providerId: "local",
+            modelId: "fake-model",
+            baseUrl: `${provider.baseUrl}/v1`,
+          }),
+        ],
+      ],
     });
     cleanups.push(async () => {
       server.connectionRegistry.closeAll("test cleanup");
@@ -122,7 +140,8 @@ describe("Android client real remote path", () => {
     await runtime.selectSession(sessionId);
     await runtime.sendPrompt("Say hello from the mobile client.");
 
-    await eventually(() => provider.requests.length === 1);
+    await eventually(() => provider.requests.length === 2);
+    expect(provider.requests[1]?.bodyText).toContain("Review all of the user's requirements");
     await eventually(
       () => runtime.state.sessions.some((session) => session.id === sessionId && !session.busy),
       10_000,

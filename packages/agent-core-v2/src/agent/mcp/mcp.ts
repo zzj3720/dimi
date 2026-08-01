@@ -1,14 +1,14 @@
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
+import type { Tool as LLMTool } from "#/llmProtocol/tool";
 
 import { createDecorator } from "#/_base/di/instantiation";
 import { type IDisposable } from "#/_base/di/lifecycle";
-import type { McpServerEntry } from './connection-manager';
-import type { McpOAuthService } from '#/agent/mcp/oauth/service';
-import type { MCPClient, MCPToolDefinition } from './types';
+import type { McpServerEntry } from "./connection-manager";
+import type { McpOAuthService } from "#/agent/mcp/oauth/service";
+import type { MCPClient, MCPToolDefinition } from "./types";
 
 export interface McpResolvedServer {
   readonly client: MCPClient;
-  readonly tools: readonly KosongTool[];
+  readonly tools: readonly LLMTool[];
   readonly rawTools: readonly MCPToolDefinition[];
   readonly enabledNames: ReadonlySet<string>;
 }
@@ -26,4 +26,4 @@ export interface IAgentMcpService {
   onStatusChange(listener: (entry: McpServerEntry) => void): IDisposable;
 }
 
-export const IAgentMcpService = createDecorator<IAgentMcpService>('agentMcpService');
+export const IAgentMcpService = createDecorator<IAgentMcpService>("agentMcpService");

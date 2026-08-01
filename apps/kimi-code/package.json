@@ -1,27 +1,27 @@
 {
   "name": "@moonshot-ai/kimi-code",
-  "version": "0.30.0",
+  "version": "0.1.0",
   "description": "The Starting Point for Next-Gen Agents",
-  "license": "MIT",
-  "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/apps/kimi-code#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
-    "directory": "apps/kimi-code"
-  },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
   "keywords": [
+    "agent",
+    "ai",
+    "cli",
+    "coding-agent",
     "kimi",
     "kimi-code",
-    "cli",
-    "agent",
-    "coding-agent",
-    "ai",
     "tui"
   ],
+  "homepage": "https://github.com/zzj3720/k-3720/tree/main/apps/kimi-code#readme",
+  "bugs": {
+    "url": "https://github.com/zzj3720/k-3720/issues"
+  },
+  "license": "MIT",
+  "author": "Moonshot AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "directory": "apps/kimi-code"
+  },
   "bin": {
     "kimi": "dist/main.mjs"
   },
@@ -50,7 +50,6 @@
   "scripts": {
     "build": "pnpm -C ../kimi-web run build && tsdown && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
     "prebuild": "node scripts/build-vis-asset.mjs",
-    "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
     "build:native:js": "node scripts/native/01-bundle.mjs",
     "build:native:sea": "node scripts/native/build.mjs --profile=local",
@@ -60,7 +59,7 @@
     "release:native:resolve": "node scripts/native/resolve-release.mjs",
     "test:native:smoke": "node scripts/native/smoke.mjs",
     "dev": "node scripts/dev.mjs",
-    "dev:cli-only": "tsx --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
+    "dev:cli-only": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
     "dev:server": "KIMI_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
     "dev:kap-server": "KIMI_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
     "dev:kap-server:multi": "KIMI_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
@@ -73,10 +72,6 @@
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",
     "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts"
-  },
-  "optionalDependencies": {
-    "@mariozechner/clipboard": "^0.3.9",
-    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@k-3720/remote": "workspace:^",
@@ -105,6 +100,10 @@
     "tsx": "^4.21.0",
     "yazl": "^3.3.1",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "@mariozechner/clipboard": "^0.3.9",
+    "node-pty": "^1.1.0"
   },
   "engines": {
     "node": ">=22.19.0"

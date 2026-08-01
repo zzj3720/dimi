@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di/instantiation";
 import type { IDisposable } from "#/_base/di/lifecycle";
-import type { ContentPart } from "#/kosong/contract/message";
+import type { ContentPart } from "#/llmProtocol/message";
 
 export interface ContextInjectionContext {
   readonly injectedPositions: readonly number[];
@@ -17,14 +17,11 @@ export type ContextInjectionProvider = (
 export interface IAgentContextInjectorService {
   readonly _serviceBrand: undefined;
 
-  register(
-    name: string,
-    provider: ContextInjectionProvider,
-  ): IDisposable;
+  register(name: string, provider: ContextInjectionProvider): IDisposable;
 
   injectAfterCompaction(): Promise<void>;
 }
 
 export const IAgentContextInjectorService = createDecorator<IAgentContextInjectorService>(
-  'agentContextInjectorService',
+  "agentContextInjectorService",
 );

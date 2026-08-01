@@ -27,11 +27,15 @@
  * Pure contract (types only); no scoped service.
  */
 
-import type { IWaitUntil } from '#/_base/event';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import type { IWaitUntil } from "#/_base/event";
+import type { ToolCall } from "#/llmProtocol/message";
+import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
 
-import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution } from '#/tool/toolContract';
+import type {
+  ExecutableTool,
+  ExecutableToolResult,
+  RunnableToolExecution,
+} from "#/tool/toolContract";
 
 export interface ToolExecutionHookContext {
   readonly turnId: number;
