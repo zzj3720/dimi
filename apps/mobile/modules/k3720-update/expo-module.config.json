@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["org.k3720.update.K3720UpdateModule"]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "k3720-distribution-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "install.k.test.3720.org",
+      "custom_domain": true
+    },
+    {
+      "pattern": "updates.k.test.3720.org",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "BUILDS",
+      "bucket_name": "k3720-internal-builds-test"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

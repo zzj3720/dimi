@@ -94,7 +94,10 @@ export class SessionInteractionService extends Disposable implements ISessionInt
   cancelPendingForTurn(turnId: number): void {
     let changed = false;
     for (const [id, entry] of this.pending) {
-      if (entry.interaction.origin?.turnId !== turnId) continue;
+      // Remote (mobile) questions are answered by a human elsewhere — do not
+      // cancel them just because the driving turn ended.
+      if (entry.interaction.kind === 'question' || entry.interaction.origin?.turnId !== turnId)
+        continue;
       this.pending.delete(id);
       this.rememberResolved(id);
       const response = { cancelled: true, reason: 'turn_ended' };

@@ -1,0 +1,50 @@
+{
+  "name": "@dimi-agent/mobile",
+  "version": "0.1.0",
+  "license": "MIT",
+  "main": "index.ts",
+  "description": "Native mobile client for remote agent runtimes.",
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
+  },
+  "dependencies": {
+    "@expo/vector-icons": "15.1.1",
+    "@dimi-agent/remote": "workspace:^",
+    "@dimi-agent/protocol": "workspace:^",
+    "@dimi-agent/transcript": "workspace:^",
+    "expo": "57.0.9",
+    "expo-application": "57.0.2",
+    "expo-camera": "57.0.3",
+    "expo-clipboard": "57.0.1",
+    "expo-crypto": "57.0.1",
+    "expo-file-system": "57.0.1",
+    "expo-intent-launcher": "57.0.1",
+    "expo-secure-store": "57.0.1",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-markdown-renderer": "4.1.1",
+    "react-native-safe-area-context": "5.8.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@dimi-agent/agent-core-v2": "workspace:^",
+    "@dimi-agent/kap-server": "workspace:^",
+    "@types/react": "^19.1.2",
+    "@types/ws": "^8.18.0",
+    "typescript": "6.0.2",
+    "ws": "^8.18.0"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "android:internal": "K3720_CHANNEL=internal expo run:android",
+    "build:android:internal": "K3720_CHANNEL=internal expo prebuild --platform android --clean && cd android && ORG_GRADLE_PROJECT_reactNativeArchitectures=arm64-v8a ./gradlew assembleRelease",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "private": true
+}

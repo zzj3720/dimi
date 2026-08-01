@@ -589,6 +589,7 @@ describe("CLI options parsing", () => {
       expect(commandNames).toEqual([
         "export",
         "provider",
+        "remote",
         "acp",
         "web",
         "login",
@@ -597,6 +598,18 @@ describe("CLI options parsing", () => {
         "vis",
         "upgrade",
       ]);
+    });
+
+    it("connects remote runtimes to the hosted relay by default", () => {
+      const program = createProgram(
+        "0.0.0",
+        () => {},
+        () => {},
+      );
+      const remote = program.commands.find((command) => command.name() === "remote");
+      const relay = remote?.options.find((option) => option.long === "--relay");
+
+      expect(relay?.defaultValue).toBe("wss://relay.k.3720.org");
     });
   });
 
