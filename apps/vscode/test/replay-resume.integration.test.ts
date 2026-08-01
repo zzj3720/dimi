@@ -18,7 +18,9 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  chatCompletionAllDoneChunks,
   createFakeProviderHarness,
+  isCompletionReview,
   type FakeProviderHarness,
 } from "../../../test/fixtures/fake-provider-harness";
 import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
@@ -114,7 +116,11 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     const filePath = join(rig.workDir, "sample.txt");
     await writeFile(filePath, "before\n", "utf8");
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-replay-done-${request.index}`));
+        return;
+      }
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [
@@ -235,7 +241,11 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     const rig = await createReplayRig();
     const childAnswer = `Subagent restored evidence. ${"Detailed persisted finding. ".repeat(10)}`;
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-replay-done-${request.index}`));
+        return;
+      }
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [

@@ -64,6 +64,40 @@ function buildSseLines(events: unknown[]): string[] {
   return lines;
 }
 
+const COMPLETION_REVIEW_SENTINEL = "Only when every requirement is complete";
+
+export function isCompletionReview(value: unknown): boolean {
+  const messages =
+    typeof value === "object" && value !== null && "messages" in value
+      ? (value as { readonly messages?: unknown }).messages
+      : value;
+  const latest = Array.isArray(messages) ? messages.at(-1) : messages;
+  return JSON.stringify(latest)?.includes(COMPLETION_REVIEW_SENTINEL) ?? false;
+}
+
+export function chatCompletionAllDoneChunks(callId = "call-test-all-done"): unknown[] {
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) => ({
+    id: "chatcmpl-test-all-done",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: "fake-model",
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  });
+  return [
+    chunk({
+      tool_calls: [
+        {
+          index: 0,
+          id: callId,
+          type: "function",
+          function: { name: "AllDone", arguments: "{}" },
+        },
+      ],
+    }),
+    chunk({}, "tool_calls"),
+  ];
+}
+
 export async function readSseData(response: Response): Promise<string[]> {
   if (response.body === null) {
     return [];

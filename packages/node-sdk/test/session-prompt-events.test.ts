@@ -21,7 +21,9 @@ import {
 } from "#/index";
 
 import {
+  chatCompletionAllDoneChunks,
   createFakeProviderHarness,
+  isCompletionReview,
   type FakeProviderHarness,
 } from "../../../test/fixtures/fake-provider-harness";
 import { createTestProviderRuntime } from "./session-runtime-helpers";
@@ -34,7 +36,11 @@ let responseText: string;
 beforeEach(async () => {
   responseText = "hello from fake provider";
   provider = await createFakeProviderHarness();
-  provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+  provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+    if (isCompletionReview(request.bodyJson)) {
+      await reply.sseJson(200, chatCompletionAllDoneChunks(`call-sdk-done-${request.index}`));
+      return;
+    }
     await reply.sseJson(200, [
       completionChunk({ content: responseText }),
       completionChunk({}, "stop"),
@@ -424,8 +430,11 @@ describe("Session.prompt events", () => {
           type: "session.meta.updated",
         }),
       );
-      const firstMessages = requestMessages(provider.requests[0]?.bodyJson);
-      const secondMessages = requestMessages(provider.requests[1]?.bodyJson);
+      const promptRequests = provider.requests.filter(
+        (request) => !isCompletionReview(request.bodyJson),
+      );
+      const firstMessages = requestMessages(promptRequests[0]?.bodyJson);
+      const secondMessages = requestMessages(promptRequests[1]?.bodyJson);
       expect(secondMessages[0]).toEqual(firstMessages[0]);
       const btwHistoryText = JSON.stringify(secondMessages.slice(1));
       expect(btwHistoryText).toContain("main task context");
@@ -690,6 +699,7 @@ function visibleReplayText(
       .filter((part) => part.type === "text")
       .map((part) => part.text ?? "")
       .join("");
+    if (text === "") continue;
     entries.push(`${message.role}:${text}`);
   }
   return entries;

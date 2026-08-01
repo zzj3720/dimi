@@ -19,6 +19,7 @@ import {
 import type { SDKRpcClientBase } from "#/rpc";
 
 import { normalizeWorkDir } from "#/runtime/session-mapper";
+import { isCompletionReview } from "../../../test/fixtures/fake-provider-harness";
 import {
   makeTempDir,
   removeTempDirs,
@@ -341,11 +342,19 @@ async function writeSkill(workDir: string, name: string, lines: readonly string[
 
 function createSkillRuntime() {
   return createTestProviderRuntime({
-    stream: async function* (model) {
+    stream: async function* (model, context) {
       const timestamp = Date.now();
+      const allDone = isCompletionReview(context.messages);
+      const toolCall = {
+        type: "toolCall" as const,
+        id: "call-sdk-skill-all-done",
+        name: "AllDone",
+        arguments: {},
+        argumentsRaw: "{}",
+      };
       const pending = {
         role: "assistant" as const,
-        content: [],
+        content: allDone ? [toolCall] : [],
         api: model.api,
         provider: model.provider,
         model: model.id,
@@ -362,23 +371,36 @@ function createSkillRuntime() {
       };
       const message = {
         ...pending,
-        content: [{ type: "text" as const, text: fakeProviderState.responseText }],
+        content: allDone
+          ? [toolCall]
+          : [{ type: "text" as const, text: fakeProviderState.responseText }],
         usage: {
           ...pending.usage,
           output: 1,
           totalTokens: 1,
         },
-        stopReason: "stop" as const,
-        finishReason: "completed" as const,
-        rawStopReason: "stop",
+        stopReason: allDone ? ("toolUse" as const) : ("stop" as const),
+        finishReason: allDone ? ("tool_calls" as const) : ("completed" as const),
+        rawStopReason: allDone ? "tool_calls" : "stop",
       };
       yield { type: "start", partial: pending };
-      yield {
-        type: "text_delta",
-        delta: fakeProviderState.responseText,
-        partial: message,
-      };
-      yield { type: "done", reason: "stop", message };
+      if (allDone) {
+        yield {
+          type: "toolcall_start",
+          index: 0,
+          id: toolCall.id,
+          name: toolCall.name,
+          partial: message,
+        };
+        yield { type: "toolcall_end", toolCall, partial: message };
+      } else {
+        yield {
+          type: "text_delta",
+          delta: fakeProviderState.responseText,
+          partial: message,
+        };
+      }
+      yield { type: "done", reason: allDone ? "toolUse" : "stop", message };
     },
   });
 }

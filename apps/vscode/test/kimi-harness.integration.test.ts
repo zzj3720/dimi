@@ -11,21 +11,10 @@ import { join } from "node:path";
 
 import { createKimiHarness, type KimiHarness } from "@moonshot-ai/kimi-code-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("vscode", () => ({
-  Uri: { file: (path: string) => ({ fsPath: path }) },
-  window: {
-    showInformationMessage: async () => undefined,
-    showWarningMessage: async () => undefined,
-    showTextDocument: async () => undefined,
-  },
-  workspace: {
-    getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
-  },
-}));
-
 import {
+  chatCompletionAllDoneChunks,
   createFakeProviderHarness,
+  isCompletionReview,
   type FakeProviderHarness,
 } from "../../../test/fixtures/fake-provider-harness";
 import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
@@ -42,6 +31,18 @@ import { parseHostSlashCommand, runHostSlashCommand } from "../src/handlers/slas
 import type { HandlerContext } from "../src/handlers/types";
 import { KimiRuntime } from "../src/runtime/kimi-runtime";
 import type { SessionRuntime } from "../src/runtime/session-runtime";
+
+vi.mock("vscode", () => ({
+  Uri: { file: (path: string) => ({ fsPath: path }) },
+  window: {
+    showInformationMessage: async () => undefined,
+    showWarningMessage: async () => undefined,
+    showTextDocument: async () => undefined,
+  },
+  workspace: {
+    getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
+  },
+}));
 
 const MODEL_ALIAS = "vscode-test";
 const PROVIDER_TOKEN = "sk-vscode-boundary-secret";
@@ -230,7 +231,11 @@ max_retries_per_step = 1
 }
 
 function routeSuccessfulPrompt(provider: FakeProviderHarness): void {
-  provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+  provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+    if (isCompletionReview(request.bodyJson)) {
+      await reply.sseJson(200, chatCompletionAllDoneChunks(`call-vscode-done-${request.index}`));
+      return;
+    }
     await reply.sseJson(200, [
       completionChunk({ content: "mock response" }),
       completionChunk({}, "stop"),
@@ -261,7 +266,11 @@ function routeBlockedPrompt(provider: FakeProviderHarness): {
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
   });
-  provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+  provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+    if (isCompletionReview(request.bodyJson)) {
+      await reply.sseJson(200, chatCompletionAllDoneChunks(`call-vscode-done-${request.index}`));
+      return;
+    }
     markStarted();
     await blocked;
     await reply.sseJson(200, [
@@ -1234,7 +1243,11 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
   it("accepts a new prompt after a provider 400 ends the previous turn", async () => {
     const rig = await createRuntimeRig();
     let calls = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-vscode-done-${request.index}`));
+        return;
+      }
       calls += 1;
       if (calls === 1) {
         await reply.json(400, {
