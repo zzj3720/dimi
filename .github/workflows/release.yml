@@ -86,6 +86,7 @@ jobs:
           else
             echo "release ${TAG} missing; building native release"
             echo "published=true" >> "$GITHUB_OUTPUT"
+            printf 'publishedPackages=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_OUTPUT"
             printf 'CHANGESETS_PUBLISHED_PACKAGES=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_ENV"
           fi
         env:
