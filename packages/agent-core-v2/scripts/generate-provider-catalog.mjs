@@ -177,14 +177,27 @@ const providerCorrections = {
 
 const modelCorrections = {
   "deepseek/deepseek-v4-flash": {
+    thinkingLevelMap: {
+      low: "low",
+      high: "high",
+      max: "max",
+    },
+    defaultThinkingLevel: "high",
     compat: {
       requiresReasoningContentOnAssistantMessages: true,
+      supportsReasoningEffort: true,
       thinkingFormat: "deepseek",
     },
   },
   "deepseek/deepseek-v4-pro": {
+    thinkingLevelMap: {
+      high: "high",
+      max: "max",
+    },
+    defaultThinkingLevel: "high",
     compat: {
       requiresReasoningContentOnAssistantMessages: true,
+      supportsReasoningEffort: true,
       thinkingFormat: "deepseek",
     },
   },

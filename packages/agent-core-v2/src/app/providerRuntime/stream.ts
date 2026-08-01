@@ -1896,7 +1896,7 @@ function openAIChatReasoningFields(
   if (format === "deepseek") {
     return {
       thinking: { type: thinking === undefined ? "disabled" : "enabled" },
-      reasoning_effort: model.compat?.["supportsReasoningEffort"] === true ? thinking : undefined,
+      reasoning_effort: effort,
     };
   }
   if (format === "zai") {

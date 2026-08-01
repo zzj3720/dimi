@@ -62,6 +62,32 @@ function context(messages: Context["messages"] = []): Context {
   return { messages };
 }
 
+function deepSeekFlash(): Model {
+  return {
+    ...model,
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    baseUrl: "https://api.deepseek.com/v1",
+    compat: {
+      requiresReasoningContentOnAssistantMessages: true,
+      supportsReasoningEffort: true,
+      thinkingFormat: "deepseek",
+    },
+    thinkingLevelMap: { low: "low", high: "high", max: "max" },
+    defaultThinkingLevel: "high",
+  };
+}
+
+function deepSeekPro(): Model {
+  return {
+    ...deepSeekFlash(),
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    thinkingLevelMap: { high: "high", max: "max" },
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -374,21 +400,75 @@ describe("OpenAI Chat streaming", () => {
     );
   });
 
-  it("maps DeepSeek thinking levels and never turns an opaque signature into a JSON key", async () => {
-    const requests: Record<string, unknown>[] = [];
+  it.each(["low", "high", "max"] as const)(
+    "sends DeepSeek V4 Flash effort %s when thinking is enabled",
+    async (effort) => {
+      let body: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          body = requestJson(init);
+          return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+        }),
+      );
+
+      await collect(streamProvider(deepSeekFlash(), context(), auth, { reasoning: effort }));
+
+      expect(body).toMatchObject({
+        thinking: { type: "enabled" },
+        reasoning_effort: effort,
+      });
+    },
+  );
+
+  it.each([
+    ["low", "high"],
+    ["high", "high"],
+    ["xhigh", "max"],
+    ["max", "max"],
+  ] as const)("maps DeepSeek V4 Pro effort %s to %s", async (requested, expected) => {
+    let body: Record<string, unknown> | undefined;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        requests.push(requestJson(init));
+        body = requestJson(init);
         return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
       }),
     );
-    const deepSeek = {
-      ...model,
-      compat: { thinkingFormat: "deepseek", requiresReasoningContentOnAssistantMessages: true },
-      thinkingLevelMap: { high: "high" },
-      defaultThinkingLevel: "high",
-    };
+
+    await collect(streamProvider(deepSeekPro(), context(), auth, { reasoning: requested }));
+
+    expect(body).toMatchObject({
+      thinking: { type: "enabled" },
+      reasoning_effort: expected,
+    });
+  });
+
+  it("disables DeepSeek V4 Flash thinking without sending an effort", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = requestJson(init);
+        return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+      }),
+    );
+
+    await collect(streamProvider(deepSeekFlash(), context(), auth, { reasoning: "off" }));
+
+    expect(body).toMatchObject({ thinking: { type: "disabled" } });
+    expect(body).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("replays DeepSeek reasoning content without leaking its opaque signature", async () => {
+    let body: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        body = requestJson(init);
+        return sse([{ choices: [{ delta: {}, finish_reason: "stop" }] }]);
+      }),
+    );
     const history: Context = {
       messages: [
         {
@@ -404,20 +484,13 @@ describe("OpenAI Chat streaming", () => {
       ],
     };
 
-    await collect(streamProvider(deepSeek, history, auth, { reasoning: "high" }));
-    await collect(streamProvider(deepSeek, history, auth, { reasoning: "max" }));
+    await collect(streamProvider(deepSeekFlash(), history, auth, { reasoning: "high" }));
 
-    for (const body of requests) {
-      expect(body).toMatchObject({ thinking: { type: "enabled" } });
-      expect(body).not.toHaveProperty("reasoning_effort");
-    }
-    for (const body of requests) {
-      const assistant = (body["messages"] as Record<string, unknown>[]).find(
-        (message) => message["role"] === "assistant",
-      );
-      expect(assistant).toMatchObject({ reasoning_content: "prior" });
-      expect(assistant).not.toHaveProperty("encrypted-responses-value");
-    }
+    const assistant = (body?.["messages"] as Record<string, unknown>[]).find(
+      (message) => message["role"] === "assistant",
+    );
+    expect(assistant).toMatchObject({ reasoning_content: "prior" });
+    expect(assistant).not.toHaveProperty("encrypted-responses-value");
   });
 
   it("enables boolean OpenAI thinking with the protocol's default effort", async () => {

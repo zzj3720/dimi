@@ -5,7 +5,7 @@
 import type { BuiltinCatalogSnapshot } from "./builtinCatalog";
 
 export const BUILTIN_CATALOG = {
-  "generatedAt": "2026-07-31T14:04:21.846Z",
+  "generatedAt": "2026-08-01T10:52:47.156Z",
   "providers": [
     {
       "id": "amazon-bedrock",
@@ -2944,11 +2944,14 @@ export const BUILTIN_CATALOG = {
           "contextWindow": 1000000,
           "maxTokens": 384000,
           "thinkingLevelMap": {
-            "high": "high"
+            "low": "low",
+            "high": "high",
+            "max": "max"
           },
           "defaultThinkingLevel": "high",
           "compat": {
             "requiresReasoningContentOnAssistantMessages": true,
+            "supportsReasoningEffort": true,
             "thinkingFormat": "deepseek"
           }
         },
@@ -2968,11 +2971,13 @@ export const BUILTIN_CATALOG = {
           "contextWindow": 1000000,
           "maxTokens": 384000,
           "thinkingLevelMap": {
-            "high": "high"
+            "high": "high",
+            "max": "max"
           },
           "defaultThinkingLevel": "high",
           "compat": {
             "requiresReasoningContentOnAssistantMessages": true,
+            "supportsReasoningEffort": true,
             "thinkingFormat": "deepseek"
           }
         }
