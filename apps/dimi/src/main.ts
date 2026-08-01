@@ -24,6 +24,7 @@ import {
 
 import { createProgram } from './cli/commands';
 import { finalizeHeadlessRun } from './cli/headless-exit';
+import { loadLocalEnv } from './cli/load-local-env';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
 import { runPrompt } from './cli/run-prompt';
@@ -116,6 +117,7 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
 
 export function main(): void {
   process.title = PROCESS_NAME;
+  loadLocalEnv();
   installCrashHandlers();
   // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
   // before any client is constructed. No-op when no proxy variable is set; an
