@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.4.0
+
+### Minor Changes
+
+- [#5](https://github.com/zzj3720/dimi/pull/5) [`00e8096`](https://github.com/zzj3720/dimi/commit/00e80969518caeec23ddec29c84d93f788dd8fbe) Thanks [@zzj3720](https://github.com/zzj3720)! - Add the remote mobile bridge: a relay client that pairs native mobile clients with a running Kap server over an encrypted WebSocket relay. Run `dimi remote --relay <wss-url>` to connect, and pair the Android client from `apps/mobile`. Includes the Cloudflare Worker relay (`apps/relay`), the Android Expo client (`apps/mobile`), and the Android distribution page (`apps/distribution`). Remote questions also stay pending across the end of their originating turn so a paired client can answer them later.
+
 ## 0.3.0
 
 ### Minor Changes
