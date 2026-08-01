@@ -27,6 +27,7 @@ import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { ALL_DONE_TOOL_NAME } from '#/agent/completion/completion';
 import { isToolActive } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
@@ -57,7 +58,9 @@ export class AgentToolActivationService extends Disposable implements IAgentTool
       for (const { id, options } of getAgentToolContributions()) {
         const source = options.source ?? 'builtin';
         if (this.toolRegistry.resolve(options.name) !== undefined) continue;
-        if (!isToolActive(policy, options.name, source)) continue;
+        if (options.name !== ALL_DONE_TOOL_NAME && !isToolActive(policy, options.name, source)) {
+          continue;
+        }
         if (options.when !== undefined && !options.when(accessor)) continue;
         const tool = accessor.get(id);
         this._register(

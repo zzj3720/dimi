@@ -12,6 +12,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService, ProfileError, ProfileErrors } from '#/agent/profile/profile';
+import { ALL_DONE_TOOL_NAME } from '#/agent/completion/completion';
 import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
@@ -46,6 +47,7 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
   }
 
   isToolActive(name: string, source: ToolSource = 'builtin'): boolean {
+    if (name === ALL_DONE_TOOL_NAME) return true;
     const profile = this.profile.data();
     return this.isToolActiveForProfile(
       {

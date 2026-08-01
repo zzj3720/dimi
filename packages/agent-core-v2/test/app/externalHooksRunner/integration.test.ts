@@ -85,6 +85,7 @@ function makeAfterStep(signal: AbortSignal): AfterStepContext {
     signal,
     usage: emptyUsage(),
     finishReason: "completed",
+    toolCalls: [],
     stopTurn: false,
   };
 }

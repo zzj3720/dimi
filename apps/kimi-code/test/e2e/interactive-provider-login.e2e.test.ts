@@ -75,12 +75,25 @@ describe('interactive provider login', () => {
           for await (const chunk of request) chunks.push(Buffer.from(chunk));
           requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
           response.writeHead(200, { 'content-type': 'text/event-stream' });
-          response.end([
-            'data: {"type":"response.output_text.delta","delta":"wrapper grok reply"}',
-            '',
-            'data: {"type":"response.completed","response":{"id":"resp-wrapper","model":"grok-4.5","status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}',
-            '',
-          ].join('\n'));
+          response.end(
+            requests.length === 1
+              ? [
+                  'data: {"type":"response.output_text.delta","delta":"wrapper grok reply"}',
+                  '',
+                  'data: {"type":"response.completed","response":{"id":"resp-wrapper","model":"grok-4.5","status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}',
+                  '',
+                ].join('\n')
+              : [
+                  'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item-done","call_id":"call-done","name":"AllDone","arguments":""}}',
+                  '',
+                  'data: {"type":"response.function_call_arguments.done","item_id":"item-done","arguments":"{}"}',
+                  '',
+                  'data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item-done","call_id":"call-done","name":"AllDone","arguments":"{}"}}',
+                  '',
+                  'data: {"type":"response.completed","response":{"id":"resp-done","model":"grok-4.5","status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}',
+                  '',
+                ].join('\n'),
+          );
         })().catch((error: unknown) => response.destroy(error instanceof Error ? error : new Error(String(error))));
       });
       await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -111,8 +124,12 @@ describe('interactive provider login', () => {
           expect(stripTerminalControls(first.read())).toContain('(0 / 488k)');
           await writeLine(first.terminal, first.read, 'hello from dev wrapper');
           await waitForText(first.terminal, first.read, 'wrapper grok reply');
+          await waitForPlainText(first.terminal, first.read, 'Used 1 tool');
           await writeCommand(first.terminal, first.read, '/exit');
           await waitForExit(first.terminal);
+          expect(stripTerminalControls(first.read())).not.toContain(
+            "Review all of the user's requirements",
+          );
         } catch (error) {
           throw new Error(
             `${String(error)}\nFirst dev-wrapper TUI output:\n${stripTerminalControls(first.read()).slice(-12_000)}`,
@@ -141,13 +158,20 @@ describe('interactive provider login', () => {
           await waitForExit(restarted.terminal);
         }
 
-        expect(requests).toHaveLength(1);
+        expect(requests).toHaveLength(2);
         expect(requests[0]).toMatchObject({
           model: 'grok-4.5',
           reasoning: { effort: 'high', summary: 'auto' },
         });
+        expect(JSON.stringify(requests[0])).toContain('AllDone');
+        expect(JSON.stringify(requests[1])).toContain("Review all of the user's requirements");
       } finally {
-        await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error !== undefined) reject(error);
+            else resolve();
+          });
+        });
       }
     },
     120_000,
@@ -357,7 +381,7 @@ describe('interactive provider login', () => {
         expect(pickerOutput).toContain('← current');
 
         const beforeCancel = restarted.read().length;
-        restarted.terminal.stdin.write('\u001b');
+        restarted.terminal.stdin.write('\u001B');
         await waitForPlainPatternAfter(
           restarted.terminal,
           restarted.read,

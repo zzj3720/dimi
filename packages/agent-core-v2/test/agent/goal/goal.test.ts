@@ -221,6 +221,7 @@ async function runGoalStep(loopService: StubLoop, turn: Turn): Promise<boolean> 
     signal: turn.signal,
     usage: zeroUsage,
     finishReason: "completed" as const,
+    toolCalls: [],
     stopTurn: false,
   };
   await loopService.hooks.onWillBeginStep.run(step);
@@ -1052,6 +1053,7 @@ describe("AgentGoalService core workflow hooks", () => {
       signal: oldTurn.signal,
       usage: zeroUsage,
       finishReason: "completed",
+      toolCalls: [],
       stopTurn: false,
     });
 
@@ -1321,6 +1323,7 @@ describe("AgentGoalService core workflow hooks", () => {
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: "completed",
+      toolCalls: [],
       stopTurn: false,
     };
     await loopService.hooks.onDidFinishStep.run(afterStep);
@@ -1388,6 +1391,7 @@ describe("AgentGoalService core workflow hooks", () => {
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: "completed",
+      toolCalls: [],
       stopTurn: false,
     };
     await loopService.hooks.onDidFinishStep.run(afterStep);
@@ -1516,6 +1520,7 @@ describe("AgentGoalService core workflow hooks", () => {
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: "completed" as const,
+      toolCalls: [],
       stopTurn: false,
     };
     await loopService.hooks.onWillBeginStep.run(step);
@@ -1537,6 +1542,7 @@ describe("AgentGoalService core workflow hooks", () => {
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: "completed" as const,
+      toolCalls: [],
       stopTurn: false,
     };
     await loopService.hooks.onDidFinishStep.run(secondAfterStep);

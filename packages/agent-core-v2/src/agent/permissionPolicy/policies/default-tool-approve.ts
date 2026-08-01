@@ -1,4 +1,5 @@
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { ALL_DONE_TOOL_NAME } from '#/agent/completion/completion';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,
@@ -28,6 +29,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'SetGoalBudget',
   'UpdateGoal',
   'select_tools',
+  ALL_DONE_TOOL_NAME,
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {

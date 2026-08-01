@@ -871,6 +871,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       currentStep,
       response.usage,
       finishReason,
+      response.message.toolCalls,
     );
     return { stopReason: finishReason, hookStopTurn };
   }
@@ -1014,6 +1015,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     currentStep: number,
     usage: TokenUsage,
     finishReason: FinishReason,
+    toolCalls: AgentLLMRequestFinish["message"]["toolCalls"],
   ): Promise<boolean> {
     const context: AfterStepContext = {
       turnId,
@@ -1021,6 +1023,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       signal,
       usage,
       finishReason,
+      toolCalls,
       stopTurn: false,
     };
     try {
