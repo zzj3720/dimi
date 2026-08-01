@@ -158,27 +158,60 @@ describe("builtin provider model catalogs", () => {
     }
   });
 
-  it("publishes complete DeepSeek V4 metadata", () => {
-    const models = runtime();
-
-    expect(models.getModel("deepseek", "deepseek-v4-flash")).toMatchObject({
+  it("publishes DeepSeek V4 Flash with its selectable effort levels", () => {
+    expect(runtime().getModel("deepseek", "deepseek-v4-flash")).toMatchObject({
       name: "DeepSeek V4 Flash",
       reasoning: true,
       input: ["text"],
       contextWindow: 1_000_000,
       maxTokens: 384_000,
       cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
+      thinkingLevelMap: { low: "low", high: "high", max: "max" },
+      defaultThinkingLevel: "high",
       compat: {
         requiresReasoningContentOnAssistantMessages: true,
+        supportsReasoningEffort: true,
         thinkingFormat: "deepseek",
       },
     });
-    expect(models.getModel("deepseek", "deepseek-v4-pro")).toMatchObject({
+  });
+
+  it("publishes DeepSeek V4 Pro with its distinct effort levels", () => {
+    expect(runtime().getModel("deepseek", "deepseek-v4-pro")).toMatchObject({
       name: "DeepSeek V4 Pro",
       reasoning: true,
       contextWindow: 1_000_000,
       maxTokens: 384_000,
       cost: { input: 0.435, output: 0.87, cacheRead: 0.003625, cacheWrite: 0 },
+      thinkingLevelMap: { high: "high", max: "max" },
+      defaultThinkingLevel: "high",
+      compat: {
+        requiresReasoningContentOnAssistantMessages: true,
+        supportsReasoningEffort: true,
+        thinkingFormat: "deepseek",
+      },
+    });
+  });
+
+  it("retains DeepSeek V4 Flash effort metadata after a live catalog refresh", async () => {
+    const credentials = new MemoryCredentials();
+    await setApiKey(credentials, "deepseek");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response({ data: [{ id: "deepseek-v4-flash" }] })),
+    );
+    const models = runtime(credentials);
+
+    await models.refresh({ provider: "deepseek", force: true });
+
+    expect(models.getModel("deepseek", "deepseek-v4-flash")).toMatchObject({
+      thinkingLevelMap: { low: "low", high: "high", max: "max" },
+      defaultThinkingLevel: "high",
+      compat: {
+        requiresReasoningContentOnAssistantMessages: true,
+        supportsReasoningEffort: true,
+        thinkingFormat: "deepseek",
+      },
     });
   });
 
