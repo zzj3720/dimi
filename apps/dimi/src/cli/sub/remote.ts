@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getLiveServerInstance, startServer, type RunningServer } from "@dimi-agent/kap-server";
 import { startRemoteBridge } from "@dimi-agent/remote/bridge";
 import type { Command } from "commander";
-import qrcode from "qrcode-terminal";
+import QRCode from "qrcode";
 
 import { getVersion } from "#/cli/version";
 import { getDataDir } from "#/utils/paths";
@@ -52,7 +52,8 @@ async function runRemoteCommand(options: RemoteCliOptions): Promise<void> {
 
   process.stdout.write(`Runtime: ${bridge.runtimeId}\n`);
   process.stdout.write("Scan with the mobile app:\n\n");
-  qrcode.generate(bridge.pairingUri, { small: true }, (code) => process.stdout.write(`${code}\n`));
+  const code = await QRCode.toString(bridge.pairingUri, { type: "terminal", small: true });
+  process.stdout.write(`${code}\n`);
   process.stdout.write(`${bridge.pairingUri}\n\n`);
   process.stdout.write("Press Ctrl+C to stop remote access.\n");
 
