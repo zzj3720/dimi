@@ -295,7 +295,14 @@ function thinkingMetadata(options) {
   const thinkingLevelMap = Object.fromEntries(
     values.flatMap((value) => {
       if (value === "none") return [["off", null]];
-      if (value === "minimal" || value === "low" || value === "medium" || value === "high") {
+      if (
+        value === "minimal" ||
+        value === "low" ||
+        value === "medium" ||
+        value === "high" ||
+        value === "xhigh" ||
+        value === "max"
+      ) {
         return [[value, value]];
       }
       return [];

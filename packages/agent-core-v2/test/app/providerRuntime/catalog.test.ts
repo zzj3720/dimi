@@ -193,6 +193,19 @@ describe("builtin provider model catalogs", () => {
     });
   });
 
+  it("publishes OpenCode Go DeepSeek models with max effort", () => {
+    expect(runtime().getModel("opencode-go", "deepseek-v4-flash")).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { high: "high", max: "max" },
+      defaultThinkingLevel: "high",
+    });
+    expect(runtime().getModel("opencode-go", "deepseek-v4-pro")).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { high: "high", max: "max" },
+      defaultThinkingLevel: "high",
+    });
+  });
+
   it("retains DeepSeek V4 Flash effort metadata after a live catalog refresh", async () => {
     const credentials = new MemoryCredentials();
     await setApiKey(credentials, "deepseek");

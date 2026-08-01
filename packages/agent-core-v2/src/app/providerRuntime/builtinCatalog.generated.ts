@@ -10322,7 +10322,8 @@ export const BUILTIN_CATALOG = {
           "contextWindow": 1000000,
           "maxTokens": 384000,
           "thinkingLevelMap": {
-            "high": "high"
+            "high": "high",
+            "max": "max"
           },
           "defaultThinkingLevel": "high"
         },
@@ -10342,7 +10343,8 @@ export const BUILTIN_CATALOG = {
           "contextWindow": 1000000,
           "maxTokens": 384000,
           "thinkingLevelMap": {
-            "high": "high"
+            "high": "high",
+            "max": "max"
           },
           "defaultThinkingLevel": "high"
         },
