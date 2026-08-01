@@ -77,14 +77,6 @@ jobs:
           certificate-p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
-      - name: Generate built-in catalog (release artifacts)
-        if: inputs.sign-macos
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/dimi-built-in-catalog.json"
-          node apps/dimi/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "DIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
-
       - name: Build Dimi web assets
         # The SEA blob step embeds apps/dimi/dist-web; build the web app
         # and stage its assets before producing the native executable.

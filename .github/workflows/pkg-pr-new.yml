@@ -39,13 +39,6 @@ jobs:
       - name: Build Dimi web assets
         run: pnpm --filter @dimi-agent/dimi-web run build
 
-      - name: Generate Dimi built-in catalog
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/dimi-built-in-catalog.json"
-          node apps/dimi/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "DIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
-
       - name: Build Dimi package
         run: pnpm --filter @dimi-agent/cli run build
 
