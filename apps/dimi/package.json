@@ -70,11 +70,11 @@
   },
   "devDependencies": {
     "@dimi-agent/agent-core-v2": "workspace:^",
-    "@dimi-agent/kap-server": "workspace:^",
     "@dimi-agent/dimi-oauth": "workspace:^",
     "@dimi-agent/dimi-sdk": "workspace:^",
     "@dimi-agent/dimi-telemetry": "workspace:^",
     "@dimi-agent/dimi-web": "workspace:^",
+    "@dimi-agent/kap-server": "workspace:^",
     "@dimi-agent/pi-tui": "workspace:^",
     "@dimi-agent/remote": "workspace:^",
     "@types/qrcode": "^1.5.6",

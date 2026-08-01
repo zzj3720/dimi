@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
-import { builtinModules, createRequire } from "node:module";
+import { builtinModules } from "node:module";
 import { join, resolve } from "node:path";
 
 import { defineConfig } from "tsdown";
 
 import { rawTextPlugin } from "../../build/raw-text-plugin.mjs";
 const appRoot = import.meta.dirname;
-const requireFromCli = createRequire(import.meta.url);
 const packageJson = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf-8"),
 ) as { version: string };

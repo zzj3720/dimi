@@ -1,12 +1,10 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 
 import { defineConfig } from "tsdown";
 
 import { rawTextPlugin } from "../../build/raw-text-plugin.mjs";
 const appRoot = import.meta.dirname;
-const requireFromCli = createRequire(import.meta.url);
 
 function jsoncParserEsmEntry(): string {
   // See tsdown.native.config.ts: jsonc-parser's CJS entry requires ./impl/*

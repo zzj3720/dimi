@@ -6,15 +6,9 @@
  * their shape; every call is a no-op.
  */
 
-import type {
-  TelemetryPrimitive as TelemetryPrimitiveType,
-  TelemetryProperties as TelemetryPropertiesType,
-} from './types';
+import type { TelemetryProperties as TelemetryPropertiesType } from './types';
 
-export type {
-  TelemetryPrimitive as TelemetryPrimitive,
-  TelemetryProperties as TelemetryProperties,
-} from './types';
+export type { TelemetryPrimitive, TelemetryProperties } from './types';
 
 export function track(_event: string, _properties: TelemetryPropertiesType = {}): void {}
 
