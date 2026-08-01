@@ -14,16 +14,38 @@ const MANIFEST: UpdateManifest = {
 };
 
 describe('refreshUpdateCache', () => {
-  it('returns an empty cache without contacting the former product channel', async () => {
+  it('fetches from the configured channel by default', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          version: '0.5.0',
+          publishedAt: '2026-08-01T00:00:00.000Z',
+          rollout: [],
+        }),
+    }));
+    vi.stubGlobal('fetch', fetchImpl);
     const writeCache = vi.fn(async () => {});
 
-    await expect(refreshUpdateCache({ writeCache })).resolves.toEqual({
+    await expect(
+      refreshUpdateCache({ writeCache, now: () => new Date('2026-08-01T12:00:00.000Z') }),
+    ).resolves.toEqual({
       source: 'cdn',
-      checkedAt: null,
-      latest: null,
-      manifest: null,
+      checkedAt: '2026-08-01T12:00:00.000Z',
+      latest: '0.5.0',
+      manifest: {
+        version: '0.5.0',
+        publishedAt: '2026-08-01T00:00:00.000Z',
+        rollout: [],
+      },
     });
-    expect(writeCache).not.toHaveBeenCalled();
+    expect(writeCache).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://github.com/zzj3720/dimi/releases/latest/download/latest.json',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    vi.unstubAllGlobals();
   });
 
   it('writes a fresh cache carrying the manifest on successful fetch', async () => {

@@ -234,6 +234,10 @@ describe('runUpdatePreflight', () => {
     // regardless of the host environment (the flag bypasses batch holds).
     // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+    // Isolate the host's auto-update kill switch (e.g. a dev machine that
+    // exports KIMI_CODE_NO_AUTO_UPDATE=1) so the update path is exercised;
+    // the dedicated test below opts back in with `vi.stubEnv(..., '1')`.
+    vi.stubEnv('KIMI_CODE_NO_AUTO_UPDATE', '');
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -346,7 +350,7 @@ describe('runUpdatePreflight', () => {
       ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
       { stdio: 'inherit' },
     );
-    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
+    expect(stdout.join('')).toContain('Updated Dimi to 0.5.0');
   });
 
   it('refreshes a stale cached target before showing the foreground install prompt', async () => {
@@ -372,7 +376,7 @@ describe('runUpdatePreflight', () => {
       ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
       { stdio: 'inherit' },
     );
-    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
+    expect(stdout.join('')).toContain('Updated Dimi to 0.7.0');
   });
 
   it('falls back to the cached foreground prompt target when the refresh hangs', async () => {
@@ -527,13 +531,13 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('unsupported: prints fallback npm command', async () => {
+  it('unsupported: prints git pull fallback command', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('unsupported');
     const { stdout, options } = captureOutput();
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(stdout.join('')).toContain('npm install -g @moonshot-ai/kimi-code@0.5.0');
+    expect(stdout.join('')).toContain('git pull --ff-only && vp install');
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
@@ -559,7 +563,7 @@ describe('runUpdatePreflight', () => {
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
     expect(stderr.join('')).toContain('warning: failed to install');
     // A failed install must never print the "Updated …" success line.
-    expect(stdout.join('')).not.toContain('Updated @moonshot-ai/kimi-code');
+    expect(stdout.join('')).not.toContain('Updated Dimi');
   });
 
   it('starts an automatic update in the background by default', async () => {
@@ -814,7 +818,7 @@ describe('runUpdatePreflight', () => {
     await expect(runUpdatePreflight('0.5.0', { ...options, track, logger })).resolves.toBe('continue');
 
     const rendered = stdout.join('');
-    expect(rendered).toContain('Kimi Code updated to v0.5.0');
+    expect(rendered).toContain('Dimi updated to v0.5.0');
     expect(rendered).toContain('https://github.com/zzj3720/dimi/releases');
     expect(track).toHaveBeenCalledWith('update_success_notice_shown', expect.objectContaining({
       version: '0.5.0',
@@ -847,7 +851,7 @@ describe('runUpdatePreflight', () => {
 
     await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
 
-    expect(stdout.join('')).toContain('Kimi Code updated to v0.5.0');
+    expect(stdout.join('')).toContain('Dimi updated to v0.5.0');
     expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
       active: null,
       lastFailure: null,

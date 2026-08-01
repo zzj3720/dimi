@@ -46,9 +46,10 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: string): Promise
 }
 
 /**
- * A release authority is deliberately absent until this repository publishes
- * one.  Keeping this guard at the HTTP boundary prevents direct callers from
- * accidentally reviving the old product's update channel.
+ * The Dimi update authority is the `latest.json` manifest attached to the
+ * newest GitHub Release (see `KIMI_CODE_UPDATE_CHANNEL_URL`). The guard below
+ * keeps the HTTP boundary honest when no channel is configured: direct
+ * callers cannot accidentally fall back to the old product's update channel.
  */
 export function hasUpdateChannel(): boolean {
   return KIMI_CODE_UPDATE_CHANNEL_URL !== undefined;

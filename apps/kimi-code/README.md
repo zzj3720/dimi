@@ -19,7 +19,7 @@ vp install
 vp run dev:cli
 ```
 
-For updates, use `git pull --ff-only && vp install`; `kimi upgrade` deliberately reports that automatic upgrades are unavailable for this build.
+For updates, use `git pull --ff-only && vp install`; `kimi upgrade` checks the Dimi GitHub Releases for newer versions.
 
 ## Quick Start
 

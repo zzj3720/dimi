@@ -71,13 +71,17 @@ export const FEEDBACK_VERSION_PREFIX = "kimi-code-";
 export const FEEDBACK_TELEMETRY_EVENT = "feedback_submitted";
 
 // Legacy CDN used by the pre-fork installer and plugin marketplace.
-//
-// This repository intentionally has no release channel yet.  In particular,
-// do not derive an update endpoint from this legacy base: doing so would let a
-// fresh 0.1.x build install an unrelated pre-fork release.
 export const KIMI_CODE_CDN_BASE = "https://code.kimi.com/kimi-code";
-/** No update authority is configured for the new repository. */
-export const KIMI_CODE_UPDATE_CHANNEL_URL: string | undefined = undefined;
+/**
+ * Dimi's own update authority: the `latest.json` manifest attached to the
+ * newest GitHub Release. GitHub's `releases/latest/download/<asset>` endpoint
+ * redirects to the latest release's asset, so publishing a tag and attaching
+ * `latest.json` (see `.github/workflows/publish-update-channel.yml`) is the
+ * entire release process. The URL 404s until the first release exists, which
+ * degrades cleanly to "no update available".
+ */
+export const KIMI_CODE_UPDATE_CHANNEL_URL =
+  "https://github.com/zzj3720/dimi/releases/latest/download/latest.json";
 /** The old product's remotely controlled banner must not be shown by this build. */
 export const KIMI_CODE_TIPS_BANNER_URL: string | undefined = undefined;
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL = `${KIMI_CODE_CDN_BASE}/plugins/marketplace.json`;

@@ -86,7 +86,10 @@ export function installCommandFor(
     case 'native':
       return platform === 'win32' ? NATIVE_INSTALL_COMMAND_WIN : NATIVE_INSTALL_COMMAND_UNIX;
     case 'unsupported':
-      return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
+      // Dimi is distributed from source: the manual upgrade path is a git
+      // pull of the release tag followed by a local rebuild. Never point a
+      // source build at the pre-fork npm package.
+      return 'git pull --ff-only && vp install';
   }
 }
 
@@ -174,7 +177,7 @@ export function renderManualUpdateMessage(
       break;
   }
   return (
-    `A newer version of ${NPM_PACKAGE_NAME} is available ` +
+    `A newer version of Dimi is available ` +
     `(${currentVersion} -> ${target.version}).\n` +
     `Detected install source: ${sourceDesc}\n` +
     `To update manually, run: ${installCommand}\n` +
@@ -183,12 +186,12 @@ export function renderManualUpdateMessage(
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
+  return `Updated Dimi to ${target.version}. Restart the CLI to use the new version.\n`;
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
   const displayVersion = version.startsWith('v') ? version : `v${version}`;
-  return `Kimi Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
+  return `Dimi updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
 }
 
 function refreshInBackground(): void {

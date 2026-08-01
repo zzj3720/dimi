@@ -21,7 +21,7 @@ vp install
 vp run dev:cli
 ```
 
-更新时运行 `git pull --ff-only && vp install`。`kimi upgrade` 会安全提示本构建未配置自动升级。详见[快速上手](docs/zh/guides/getting-started.md)。
+更新时运行 `git pull --ff-only && vp install`。`kimi upgrade` 会检查 Dimi 的 GitHub Releases 是否有新版本并显示更新命令。详见[快速上手](docs/zh/guides/getting-started.md)。
 
 ## 快速开始
 

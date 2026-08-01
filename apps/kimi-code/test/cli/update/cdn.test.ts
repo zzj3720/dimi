@@ -52,17 +52,31 @@ const MANIFEST_BODY = JSON.stringify({
 });
 
 describe('update channel', () => {
-  it('is absent from the reset product build', () => {
-    expect(hasUpdateChannel()).toBe(false);
+  it('points at the Dimi GitHub release manifest', () => {
+    expect(hasUpdateChannel()).toBe(true);
   });
 
-  it('rejects before making a network request without an explicit authority', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
-
-    await expect(fetchLatestFromCdn(fetchImpl)).rejects.toThrow(
-      'Automatic updates are not configured for this build',
+  it('fetches the Dimi channel when no explicit authority is passed', async () => {
+    const fetchImpl = mockFetchOk(
+      JSON.stringify({
+        version: '0.5.0',
+        publishedAt: '2026-08-01T00:00:00.000Z',
+        rollout: [],
+      }),
     );
-    expect(fetchImpl).not.toHaveBeenCalled();
+
+    await expect(fetchLatestFromCdn(fetchImpl)).resolves.toEqual({
+      latest: '0.5.0',
+      manifest: {
+        version: '0.5.0',
+        publishedAt: '2026-08-01T00:00:00.000Z',
+        rollout: [],
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://github.com/zzj3720/dimi/releases/latest/download/latest.json',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 });
 
