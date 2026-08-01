@@ -77,6 +77,8 @@ import {
   type AgentTaskLoadOptions,
   type AgentTask,
   type AgentTaskInfo,
+  type AgentTaskInput,
+  type AgentTaskInputResult,
   type AgentTaskOutputSnapshot,
   type AgentTaskStatus,
   type AgentTaskTrackOptions,
@@ -90,6 +92,7 @@ import { TaskModel, taskStarted, taskTerminated } from "./taskOps";
 import { formatTaskList } from "#/agent/tools/task/task-list/taskListTool";
 import "#/agent/tools/task/task-output/taskOutputTool";
 import "#/agent/tools/task/task-stop/taskStopTool";
+import "#/agent/tools/task/task-input/task-input";
 
 interface ForegroundRelease {
   readonly promise: Promise<ForegroundTaskReleaseReason>;
@@ -726,6 +729,19 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const output = (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
     if (tail === undefined) return output;
     return output.slice(-Math.max(0, Math.trunc(tail)));
+  }
+
+  async sendInput(taskId: string, input: AgentTaskInput): Promise<AgentTaskInputResult> {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) {
+      const state = this.ghosts.has(taskId) ? "is not running" : "not found";
+      return { ok: false, error: `Task ${state}: ${taskId}` };
+    }
+    if (TERMINAL_STATUSES.has(entry.status))
+      return { ok: false, error: `Task is not running: ${taskId}` };
+    if (entry.task?.sendInput === undefined)
+      return { ok: false, error: `Task does not accept input: ${taskId}` };
+    return entry.task.sendInput(input);
   }
 
   async suppressTerminalNotification(taskId: string): Promise<void> {

@@ -13,6 +13,8 @@ import { createDecorator } from '#/_base/di/instantiation';
 import type { ITaskHandle } from '#/app/task/task';
 import type {
   AgentTask,
+  AgentTaskInput,
+  AgentTaskInputResult,
   AgentTaskInfo,
   AgentTaskInfoBase,
   AgentTaskStatus,
@@ -21,6 +23,8 @@ import type {
 export { AgentTaskPersistence } from './persist';
 export type {
   AgentTask,
+  AgentTaskInput,
+  AgentTaskInputResult,
   AgentTaskInfo,
   AgentTaskInfoBase,
   AgentTaskKind,
@@ -89,6 +93,7 @@ export interface IAgentTaskService {
     maxPreviewBytes: number,
   ): Promise<AgentTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;
+  sendInput(taskId: string, input: AgentTaskInput): Promise<AgentTaskInputResult>;
   suppressTerminalNotification(taskId: string): Promise<void>;
   detach(taskId: string): AgentTaskInfo | undefined;
   stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined>;

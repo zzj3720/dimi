@@ -31,6 +31,7 @@ import type { IAgentScopeHandle } from "#/_base/di/scope";
 import { isAbortError, isUserCancellation, userCancellationReason } from "#/_base/utils/abort";
 import { toInputJsonSchema } from "#/tool/input-schema";
 import { matchesGlobRuleSubject } from "#/tool/rule-match";
+import { BACKGROUND_BASH_STDIN_FLAG_ID } from "#/agent/task/flag";
 import { IAgentTaskService, type RegisterAgentTaskOptions } from "#/agent/task/task";
 import { IAgentProfileService } from "#/agent/profile/profile";
 import {
@@ -149,6 +150,7 @@ export class SubagentTool implements ISubagentTool {
       this.knownToolReferences(),
       (profile, name, source) => this.toolPolicy.isToolActiveForProfile(profile, name, source),
       this.flags.enabled(SECONDARY_MODEL_FLAG_ID),
+      this.flags.enabled(BACKGROUND_BASH_STDIN_FLAG_ID),
     );
     if (typeLines) {
       description += `\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`;
@@ -460,7 +462,9 @@ function buildProfileDescriptions(
     source: ToolReference["source"],
   ) => boolean,
   showModelPreferences: boolean,
+  showTaskInput: boolean,
 ): string {
+  const visibleTools = showTaskInput ? tools : tools.filter(({ name }) => name !== "TaskInput");
   return profiles
     .map((profile) => {
       const details = [profile.description, profile.whenToUse].filter(
@@ -472,14 +476,14 @@ function buildProfileDescriptions(
         !showModelPreferences || profile.modelPreference === undefined
           ? header
           : `${header}\n  Model preference: ${profile.modelPreference}`;
-      const activeTools = resolveActiveToolNames(profile);
-      const externallyRestricted = tools.some(
+      const activeTools = resolveActiveToolNames(profile)?.filter((name) => showTaskInput || name !== "TaskInput");
+      const externallyRestricted = visibleTools.some(
         (tool) =>
           evaluateToolActive(profile, tool.name, tool.source) &&
           !isToolActive(profile, tool.name, tool.source),
       );
       if (externallyRestricted) {
-        const effectiveTools = tools
+        const effectiveTools = visibleTools
           .filter((tool) => isToolActive(profile, tool.name, tool.source))
           .map((tool) => tool.name);
         if (effectiveTools.length === 0) {

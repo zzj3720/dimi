@@ -17,8 +17,7 @@
  *                    lifecycle (timeouts, detach, user interrupt)
  *   - `toolPolicy` — `IAgentToolPolicyService`, gates background execution on
  *                    the Task* tools being active
- *   - `config`     — `IConfigService`, task config (auto-background on
- *                    timeout, detach timeout)
+ *   - `config`/`flags` — task timeouts and the background-stdin feature gate
  *
  * Execution goes through `ISessionProcessRunner`, never directly via
  * `node:child_process`.
@@ -28,8 +27,8 @@
  *     command whose deadline fires is moved to the background instead of
  *     being killed (unless disabled via config), while the ambient `signal`
  *     always stops the task.
- *   - stdin is closed immediately so interactive commands (`cat`, `read`,
- *     `python -c 'input()'`) receive EOF instead of hanging.
+ *   - stdin is closed by default; experimental background pipe mode keeps it
+ *     open for explicit `TaskInput` writes.
  *   - Two-phase kill is owned by `IAgentTaskService`: SIGTERM → grace → SIGKILL.
  *   - stdout/stderr are captured by `ProcessTask` for task output;
  *     foreground runs pass a callback to collect chunks for this call.
@@ -44,8 +43,10 @@
  */
 
 import { IAgentTaskService } from '#/agent/task/task';
+import { BACKGROUND_BASH_STDIN_FLAG_ID } from '#/agent/task/flag';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
@@ -80,6 +81,10 @@ const SHELL_TIMEOUT_VARS = {
   MAX_TIMEOUT_S,
   MAX_BACKGROUND_TIMEOUT_S,
 };
+
+const BASH_PARAMETERS = toInputJsonSchema(BashInputSchema);
+const BASH_PARAMETERS_WITHOUT_STDIN = structuredClone(BASH_PARAMETERS);
+delete (BASH_PARAMETERS_WITHOUT_STDIN['properties'] as Record<string, unknown>)['stdin_mode'];
 
 function timeoutCapS(isBackground: boolean): number {
   return isBackground ? MAX_BACKGROUND_TIMEOUT_S : MAX_TIMEOUT_S;
@@ -128,7 +133,6 @@ function withoutAutoBackgroundOnTimeout(description: string): string {
 export class BashTool implements IBashTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Bash' as const;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
   private readonly isWindowsBash: boolean;
 
@@ -141,6 +145,7 @@ export class BashTool implements IBashTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
+    @IFlagService private readonly flags: IFlagService,
   ) {
     this.isWindowsBash = this.env.osKind === 'Windows';
     this.renderedDescription = renderBashDescription(this.env.shellName);
@@ -156,6 +161,14 @@ export class BashTool implements IBashTool {
 
   private autoBackgroundOnTimeout(): boolean {
     return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
+  }
+
+  private allowTaskInput(): boolean {
+    return this.flags.enabled(BACKGROUND_BASH_STDIN_FLAG_ID) && this.toolPolicy.isToolActive('TaskInput');
+  }
+
+  get parameters(): Record<string, unknown> {
+    return this.allowTaskInput() ? BASH_PARAMETERS : BASH_PARAMETERS_WITHOUT_STDIN;
   }
 
   private detachTimeoutMs(): number {
@@ -240,8 +253,6 @@ export class BashTool implements IBashTool {
         output: error instanceof Error ? error.message : String(error),
       };
     }
-    closeProcessStdin(proc);
-
     let collectForegroundOutput = !startsInBackground;
     let foregroundOutputPersisted = false;
     let foregroundTaskId: string | undefined;
@@ -260,7 +271,7 @@ export class BashTool implements IBashTool {
     let taskId: string;
     try {
       taskId = this.tasks.registerTask(
-        new ProcessTask(proc, command, description, onProcessOutput),
+        new ProcessTask(proc, command, description, onProcessOutput, args.stdin_mode),
         {
           detached: startsInBackground,
           timeoutMs,
@@ -324,6 +335,14 @@ export class BashTool implements IBashTool {
   ): ExecutableToolResult | undefined {
     if (signal.aborted) return { isError: true, output: 'Aborted before command started' };
     if (args.command.length === 0) return { isError: true, output: 'Command cannot be empty.' };
+    if (args.stdin_mode === 'pipe') {
+      if (args.run_in_background !== true) {
+        return { isError: true, output: 'stdin_mode="pipe" requires run_in_background=true.' };
+      }
+      if (!this.allowTaskInput()) {
+        return { isError: true, output: 'Background stdin is not enabled for this agent.' };
+      }
+    }
     if (args.run_in_background !== true) return undefined;
     if (!this.allowBackground()) {
       return {
@@ -465,13 +484,6 @@ function foregroundDescription(args: BashInput): string {
   if (explicit !== undefined && explicit.length > 0) return explicit;
   const preview = args.command.length > 60 ? `${args.command.slice(0, 60)}…` : args.command;
   return `Bash: ${preview}`;
-}
-
-function closeProcessStdin(proc: IProcess): void {
-  try {
-    proc.stdin.end();
-  } catch {
-  }
 }
 
 async function killSpawnedProcess(proc: IProcess): Promise<void> {

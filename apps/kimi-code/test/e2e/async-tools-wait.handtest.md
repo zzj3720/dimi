@@ -20,6 +20,17 @@ Run this flow through the local interactive TUI. API calls and internal service 
 7. Start a second tool that outlives the 20-second auto wait. After the explicit timeout notification, ask the model to call `WaitFor(reason, timeout_seconds)` with a shorter timeout and verify that timeout wakes the model without cancelling the task; verify its later completion arrives once.
 8. Resume the session in a fresh TUI process and verify terminal task state and output remain readable.
 
+## Background Bash stdin flow
+
+Run this flow with the `background-bash-stdin` experiment enabled. A deterministic local model endpoint is suitable as long as the request still enters through `kimi -p` or the interactive TUI and emits real `Bash` and `TaskInput` tool calls.
+
+1. Ask the model to start a background program that reads stdin until EOF and prints the exact received text. Verify the `Bash` call uses `run_in_background=true` and `stdin_mode="pipe"`.
+2. Verify `Bash` returns a `bash-*` task ID without closing the process stdin.
+3. Ask the model to call `TaskInput` with text containing a trailing newline and `close_stdin=true`.
+4. Verify `TaskInput` reports the UTF-8 byte count and `stdin_closed: true`.
+5. Open `/tasks` or inspect the completed print-mode session. Verify the process task reaches `completed` with exit code 0 and its output contains the exact input text.
+6. Repeat without enabling the experiment and verify neither `TaskInput` nor Bash's `stdin_mode` parameter is exposed to the model.
+
 ## Evidence
 
 Save the terminal captures, session path, task IDs, wire records, and verification summary under the local runtime evidence directory. Do not store API keys or provider credential files.

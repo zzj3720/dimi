@@ -21,6 +21,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   IAgentTaskService,
   type AgentTask,
+  type AgentTaskInput,
+  type AgentTaskInputResult,
   type AgentTaskInfo,
   type AgentTaskOutputSnapshot,
   type AgentTaskStatus,
@@ -30,6 +32,7 @@ import {
 import type { AgentTaskSettlement } from '#/agent/task/types';
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IConfigService } from '#/app/config/config';
+import type { IFlagService } from '#/app/flag/flag';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
@@ -38,6 +41,7 @@ import type { IProcess, ISessionProcessRunner } from '#/session/process/processR
 import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { stubFlag } from '../../../../app/flag/stubs';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,
@@ -598,6 +602,16 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
       return output.slice(-Math.max(0, Math.trunc(tail)));
     },
 
+    async sendInput(taskId: string, input: AgentTaskInput): Promise<AgentTaskInputResult> {
+      const entry = tasks.get(taskId);
+      if (entry === undefined) return { ok: false, error: `Task not found: ${taskId}` };
+      if (isTerminal(entry.status)) return { ok: false, error: `Task is not running: ${taskId}` };
+      if (entry.task.sendInput === undefined) {
+        return { ok: false, error: `Task does not accept input: ${taskId}` };
+      }
+      return entry.task.sendInput(input);
+    },
+
     async suppressTerminalNotification(): Promise<void> {
     },
 
@@ -720,8 +734,9 @@ function bashTool(
   background: IAgentTaskService = createFakeTaskService().service,
   toolPolicy: IAgentToolPolicyService = stubToolPolicy(),
   config: IConfigService = stubConfig(),
+  flags: IFlagService = stubFlag(),
 ): BashTool {
-  return new BashTool(runner, env, ctx, background, toolPolicy, config);
+  return new BashTool(runner, env, ctx, background, toolPolicy, config, flags);
 }
 
 
@@ -742,6 +757,15 @@ describe('BashTool', () => {
     expect(BashInputSchema.safeParse({ command: 'echo x', timeout: 301 }).success).toBe(false);
     expect(BashInputSchema.safeParse({ command: 'echo x', timeout: 300_000 }).success).toBe(false);
     expect(BashInputSchema.safeParse({ command: 'echo x', timeout: 300_001 }).success).toBe(false);
+    expect(BashInputSchema.safeParse({ command: 'read x', stdin_mode: 'pipe' }).success).toBe(false);
+    expect(
+      BashInputSchema.safeParse({
+        command: 'read x',
+        run_in_background: true,
+        description: 'read input',
+        stdin_mode: 'pipe',
+      }).success,
+    ).toBe(true);
     expect(
       BashInputSchema.safeParse({
         command: 'watch',
@@ -802,6 +826,23 @@ describe('BashTool', () => {
       .properties;
 
     expect(properties['timeout']?.default).toBe(60);
+  });
+
+  it('exposes stdin_mode only when the experimental flag and TaskInput are enabled', () => {
+    const { runner } = createTestRunner(processWithOutput());
+    const disabled = bashTool(runner);
+    const enabled = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      createFakeTaskService().service,
+      stubToolPolicy(),
+      stubConfig(),
+      stubFlag(true),
+    );
+
+    expect((disabled.parameters['properties'] as Record<string, unknown>)['stdin_mode']).toBeUndefined();
+    expect((enabled.parameters['properties'] as Record<string, unknown>)['stdin_mode']).toBeDefined();
   });
 
   it('renders the available commands section and the /tasks hint', () => {
@@ -1552,6 +1593,36 @@ describe('BashTool background mode', () => {
     expect(result.output).toContain('do NOT wait, poll, or call TaskOutput on it');
     expect(result.output).not.toContain('block=false');
     expect(service.list(false)).toHaveLength(1);
+  });
+
+  it('keeps stdin open only for an enabled background pipe request', async () => {
+    const { proc, finish } = pendingProcess();
+    const { runner } = createTestRunner(proc);
+    const { service } = createFakeTaskService();
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      service,
+      stubToolPolicy(),
+      stubConfig(),
+      stubFlag(true),
+    );
+
+    const result = await executeTool(
+      tool,
+      context({
+        command: 'read value',
+        run_in_background: true,
+        description: 'read input',
+        stdin_mode: 'pipe',
+      }),
+    );
+
+    expect(result).toMatchObject({ isError: false });
+    expect(proc.stdin.end).not.toHaveBeenCalled();
+    finish();
+    await service.wait(service.list(false)[0]!.taskId);
   });
 
   it('kills a spawned background command when the task limit is reached', async () => {
