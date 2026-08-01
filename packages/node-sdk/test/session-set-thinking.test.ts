@@ -79,7 +79,7 @@ describe("Session.setThinking", () => {
         },
       ]);
     });
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({

@@ -257,10 +257,6 @@ describe("Session.prompt events", () => {
     const script =
       'process.stdin.setEncoding("utf8");let data="";process.stdin.on("data",chunk=>data+=chunk);process.stdin.on("end",()=>process.stdout.write("received:"+data))';
     provider.route("POST", "/v1/chat/completions", async (request, reply) => {
-      if (isCompletionReview(request.bodyJson)) {
-        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-stdin-done-${request.index}`));
-        return;
-      }
       if (request.index === 0) {
         await reply.sseJson(200, [
           toolCallChunk("call-bash-stdin", "Bash", {
