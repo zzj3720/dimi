@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.2.1
+
+### Patch Changes
+
+- [`9cc3700`](https://github.com/zzj3720/dimi/commit/9cc37008861e47dc3a25fb1aae7e2145097114d8) - Remove the bundled VS Code extension from the repository.
+
+- [`eb96994`](https://github.com/zzj3720/dimi/commit/eb9699455769c83e9ba9a76cd8b37f318a5a6af5) - Stop folding assistant messages into the transcript step summary, so model output stays visible instead of being collapsed into a message count.
+
 ## 0.2.0
 
 ### Minor Changes
