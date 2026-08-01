@@ -1,4 +1,4 @@
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import type { Event } from '@dimi-agent/dimi-sdk';
 
 import type {
   DisplayBlock,

@@ -6,12 +6,12 @@ import * as zlib from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, KimiError, resolveGlobalLogPath } from "#/index";
+import { createDimiHarness, DimiError, resolveGlobalLogPath } from "#/index";
 import {
   WIRE_PROTOCOL_VERSION,
   exportSessionDirectory,
   type ExportSessionDirectorySummary,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import { recordingTelemetry, type TelemetryRecord } from "./telemetry";
 import { TEST_IDENTITY } from "./test-identity";
 
@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "kimi-sdk-export-"));
+  const dir = await mkdtemp(join(tmpdir(), "dimi-sdk-export-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -146,7 +146,7 @@ describe("exportSessionDirectory", () => {
       sessionLastActivity: "2026-04-18T10:00:03.000Z",
       title: "Export Test",
       workspaceDir: workDir,
-      kimiCodeVersion: "1.0.0-test",
+      dimiCodeVersion: "1.0.0-test",
     });
     expect(result.manifest.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
@@ -179,7 +179,7 @@ describe("exportSessionDirectory", () => {
     });
 
     expect(dirname(result.zipPath)).toBe(toPosix(resolve(".")));
-    expect(basename(result.zipPath)).toMatch(/^kimi-debug-session_-\d{8}-\d{6}\.zip$/);
+    expect(basename(result.zipPath)).toMatch(/^dimi-debug-session_-\d{8}-\d{6}\.zip$/);
     expect(existsSync(result.zipPath)).toBe(true);
     await rm(result.zipPath, { force: true });
   });
@@ -229,9 +229,9 @@ describe("exportSessionDirectory", () => {
     });
 
     expect(result.manifest.globalLogPath).toBeUndefined();
-    expect(result.entries).not.toContain("logs/global/kimi-code.log");
+    expect(result.entries).not.toContain("logs/global/dimi.log");
     const entries = readZipEntries(await readFile(outputPath));
-    expect(entries.has("logs/global/kimi-code.log")).toBe(false);
+    expect(entries.has("logs/global/dimi.log")).toBe(false);
     const manifest = JSON.parse(entries.get("manifest.json")!.toString("utf-8")) as Record<
       string,
       unknown
@@ -286,16 +286,16 @@ describe("exportSessionDirectory", () => {
       }),
     ).rejects.toMatchObject({
       code: "session.export_not_found",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
   });
 });
 
-describe("KimiHarness.exportSession", () => {
+describe("DimiHarness.exportSession", () => {
   it("exports a created session through the public Harness API", async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       identity: TEST_IDENTITY,
       homeDir,
       telemetry: recordingTelemetry(records),
@@ -339,15 +339,15 @@ describe("KimiHarness.exportSession", () => {
 
   it("rejects missing session ids", async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const missingExport = harness.exportSession({ id: "ses_missing", version: "1.0.0-test" });
-      await expect(missingExport).rejects.toBeInstanceOf(KimiError);
+      await expect(missingExport).rejects.toBeInstanceOf(DimiError);
       await expect(missingExport).rejects.toMatchObject({
         code: "session.not_found",
         details: { sessionId: "ses_missing" },
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

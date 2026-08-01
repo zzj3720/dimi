@@ -41,7 +41,7 @@ import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@moonshot-ai/protocol';
+} from '@dimi-agent/protocol';
 
 import { unwrap } from './envelope.js';
 import { fetchWithReport, recordReportEvent } from './report.js';

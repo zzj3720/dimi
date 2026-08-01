@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, type KimiError, type KimiHarness } from "#/index";
+import { createDimiHarness, type DimiError, type DimiHarness } from "#/index";
 import {
   createTestProviderRuntime,
   makeTempDir,
@@ -17,8 +17,8 @@ afterEach(async () => {
 
 describe("Session.setModel", () => {
   it("updates the runtime model and sends config.update with the resolved model", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-model-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-model-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-model-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-model-work-");
     const harness = createLocalHarness(homeDir);
 
     try {
@@ -49,9 +49,9 @@ describe("Session.setModel", () => {
   });
 
   it("updates canonical references within an OAuth-capable provider", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-model-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-model-work-");
-    const harness = createKimiHarness({
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-model-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-model-work-");
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({
@@ -93,8 +93,8 @@ describe("Session.setModel", () => {
   });
 
   it("rejects empty model names", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-model-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-model-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-model-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-model-work-");
     const harness = createLocalHarness(homeDir);
 
     try {
@@ -103,15 +103,15 @@ describe("Session.setModel", () => {
 
       await expect(session.setModel("   ")).rejects.toMatchObject({
         code: "request.invalid",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it("rejects after the session is closed", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-model-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-model-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-model-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-model-work-");
     const harness = createLocalHarness(homeDir);
 
     try {
@@ -121,22 +121,22 @@ describe("Session.setModel", () => {
 
       await expect(session.setModel("next-model")).rejects.toMatchObject({
         code: "session.closed",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 });
 
-async function configureLocalProvider(harness: KimiHarness): Promise<void> {
+async function configureLocalProvider(harness: DimiHarness): Promise<void> {
   await harness.setConfig({
     defaultProvider: "local",
     defaultModel: "initial-model",
   });
 }
 
-function createLocalHarness(homeDir: string): KimiHarness {
-  return createKimiHarness({
+function createLocalHarness(homeDir: string): DimiHarness {
+  return createDimiHarness({
     homeDir,
     identity: TEST_IDENTITY,
     providerRuntime: createTestProviderRuntime({

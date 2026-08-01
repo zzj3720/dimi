@@ -3,7 +3,7 @@
  *
  * Exercises the real scoped catalog and source services with filesystem or
  * in-memory discovery boundaries, including controlled concurrent refreshes.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/session/sessionSkillCatalog/skillCatalog.test.ts`.
  */
 
@@ -741,7 +741,7 @@ describe("SessionSkillCatalogService", () => {
     const managedRoot = join(homeDir, "plugins", "managed", "demo");
     await mkdir(join(managedRoot, "skills", "demo-skill"), { recursive: true });
     await writeFile(
-      join(managedRoot, "kimi.plugin.json"),
+      join(managedRoot, "dimi.plugin.json"),
       JSON.stringify({ name: "demo", skills: "./skills/" }),
       "utf8",
     );

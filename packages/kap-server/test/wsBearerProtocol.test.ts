@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { IProviderRuntime } from "@moonshot-ai/agent-core-v2";
+import { IProviderRuntime } from "@dimi-agent/agent-core-v2";
 import WebSocket from "ws";
 
 import { type RunningServer, startServer } from "../src/start";
@@ -25,7 +25,7 @@ describe("server-v2 WS bearer subprotocol", () => {
   const sockets: WebSocket[] = [];
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-ws-bearer-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-ws-bearer-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,

@@ -3,7 +3,7 @@ import type { OAuthFlowConfig } from './types';
 export const DEFAULT_DIMI_CODE_OAUTH_HOST = 'https://auth.kimi.com';
 
 export const DIMI_CODE_FLOW_CONFIG: OAuthFlowConfig = {
-  name: 'kimi-code',
+  name: 'dimi',
   oauthHost:
     process.env['DIMI_CODE_OAUTH_HOST'] ??
     process.env['DIMI_OAUTH_HOST'] ??

@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/kimi-code": minor
+"@dimi-agent/cli": minor
 ---
 
 Support Markdown-defined custom agents on agent-core.

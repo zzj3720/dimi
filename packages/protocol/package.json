@@ -1,8 +1,8 @@
 {
-  "name": "@moonshot-ai/protocol",
+  "name": "@dimi-agent/protocol",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared REST + WS protocol schemas (envelope, error codes, pagination, ws-control) for the kimi-code daemon.",
+  "description": "Shared REST + WS protocol schemas (envelope, error codes, pagination, ws-control) for the dimi daemon.",
   "license": "MIT",
   "author": "Moonshot AI",
   "repository": {

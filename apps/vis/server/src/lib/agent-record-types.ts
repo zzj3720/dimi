@@ -8,15 +8,15 @@ export type {
   LoopRecordedEvent,
   ContextMessage,
   PromptOrigin,
-} from "@moonshot-ai/agent-core-v2";
-export { WIRE_PROTOCOL_VERSION as AGENT_WIRE_PROTOCOL_VERSION } from "@moonshot-ai/agent-core-v2";
-export type { Message, ContentPart, ToolCall, TokenUsage } from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
+export { WIRE_PROTOCOL_VERSION as AGENT_WIRE_PROTOCOL_VERSION } from "@dimi-agent/agent-core-v2";
+export type { Message, ContentPart, ToolCall, TokenUsage } from "@dimi-agent/agent-core-v2";
 
 import type {
   AgentTaskInfo,
   AgentTaskStatus,
   PersistedWireRecord,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 
 type HistoricalAgentRecord =
   | { type: "context.update_token_count"; tokenCount: number; time?: number }
@@ -52,12 +52,12 @@ export interface CronTask {
  * `manifest.json` shape inside a `/export-debug-zip` bundle. Structural
  * mirror of agent-core's `ExportSessionManifest` (`rpc/core-api.ts`), which
  * is not re-exported from the package entry. All fields optional-tolerant
- * because the manifest comes from another machine / kimi-code version.
+ * because the manifest comes from another machine / dimi version.
  */
 export interface ImportManifest {
   sessionId?: string;
   exportedAt?: string;
-  kimiCodeVersion?: string;
+  dimiCodeVersion?: string;
   wireProtocolVersion?: string;
   os?: string;
   nodejsVersion?: string;

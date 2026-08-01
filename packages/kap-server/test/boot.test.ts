@@ -22,7 +22,7 @@ import {
   IProviderRuntime,
   ITelemetryService,
   noopTelemetryService,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 
 import { listLiveServerInstances } from "../src/instanceRegistry";
 import { listenWithPortRetry, type RunningServer, startServer } from "../src/start";
@@ -45,7 +45,7 @@ describe("server-v2 boot", () => {
   });
 
   it("boots agent-core-v2 and serves the basic /api/v1 routes", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -103,7 +103,7 @@ describe("server-v2 boot", () => {
   });
 
   it("connects and disconnects a built-in provider through the public API", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-provider-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-provider-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -185,7 +185,7 @@ describe("server-v2 boot", () => {
   });
 
   it("reports opts.version as server_version instead of the package version", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-version-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-version-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -209,12 +209,12 @@ describe("server-v2 boot", () => {
 
     // ... and it backs the default product User-Agent.
     const defaults = server.core.accessor.get(IHostRequestHeaders);
-    expect(defaults.headers["User-Agent"]).toBe("kimi-code-cli/9.9.9-host");
+    expect(defaults.headers["User-Agent"]).toBe("dimi-cli/9.9.9-host");
     expect(server.core.accessor.get(IBootstrapService).clientVersion).toBe("9.9.9-host");
   });
 
   it("seeds a default product User-Agent that opts.seeds can override", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-ua-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-ua-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -222,10 +222,10 @@ describe("server-v2 boot", () => {
       logLevel: "silent",
     });
     const defaults = server.core.accessor.get(IHostRequestHeaders);
-    expect(defaults.headers["User-Agent"]).toBe(`kimi-code-cli/${getServerVersion()}`);
+    expect(defaults.headers["User-Agent"]).toBe(`dimi-cli/${getServerVersion()}`);
 
     // Restart on the same homeDir with a host-provided seed; it must win over
-    // the default (the CLI passes full Kimi identity headers this way).
+    // the default (the CLI passes full Dimi identity headers this way).
     await server.close();
     server = undefined;
     server = await startServer({
@@ -240,7 +240,7 @@ describe("server-v2 boot", () => {
   });
 
   it("seeds explicit skill dirs into the core scope when skillDirs is provided", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-skills-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-skills-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -265,7 +265,7 @@ describe("server-v2 boot", () => {
   });
 
   it("does not shut down a host-injected telemetry service when server telemetry is disabled", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-host-telemetry-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-host-telemetry-"));
     await writeFile(join(home, "config.toml"), "telemetry = false\n", "utf8");
     const shutdown = vi.fn(async () => {});
 
@@ -284,7 +284,7 @@ describe("server-v2 boot", () => {
   });
 
   it("completes server cleanup when owned telemetry shutdown fails", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-telemetry-failure-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-telemetry-failure-"));
     const storage = new InMemoryStorageService();
     const write = storage.write.bind(storage);
     vi.spyOn(storage, "write").mockImplementation(async (scope, key, data, options) => {
@@ -463,10 +463,10 @@ describe("server-v2 boot — port retry", () => {
   });
 
   it("retries on port+1 and advertises the bound port in the instance registry", async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-port-retry-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-port-retry-"));
     const { port, next } = await allocateAdjacentFreePair();
     // Occupy the requested port with a raw TCP server (a "third-party" process
-    // from the server's point of view — it is not a registered kimi instance).
+    // from the server's point of view — it is not a registered dimi instance).
     const occupant = await listenOnPort("127.0.0.1", port);
     try {
       server = await startServer({

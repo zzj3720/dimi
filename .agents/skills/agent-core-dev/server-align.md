@@ -88,7 +88,7 @@ A LegacyService is a normal v2 Service (service-authoring.md) with one extra con
 packages/agent-core-v2/src/<domain>Legacy/
 ├── <domain>Legacy.ts          ← contract: protocol-typed interface + decorator
 ├── <domain>LegacyService.ts   ← impl: delegates to the native v2 Service(s)
-└── errors.ts                  ← v1-compatible error codes (KimiError codes)
+└── errors.ts                  ← v1-compatible error codes (DimiError codes)
 ```
 
 Skeleton (matches `prompt/`):
@@ -168,14 +168,14 @@ app.post(route.path, route.options, route.handler);
 
 ### 5. Map errors
 
-The route translates domain `KimiError` codes into protocol `ErrorCode` numbers. Two registries must stay in sync:
+The route translates domain `DimiError` codes into protocol `ErrorCode` numbers. Two registries must stay in sync:
 
 - **Domain code** — register in `agent-core-v2/src/errors.ts` (`ErrorCodes`) and throw from the Service (errors.md). Co-located domain errors go in `<domain>Legacy/errors.ts` (e.g. `prompt.not_found`, `session.busy`).
 - **Wire code** — register the matching number in `packages/kap-server/src/protocol/error-codes.ts` and reference it in the route's `errors` map and `sendMappedError`.
 
 ```ts
 function sendMappedError(reply, requestId, err) {
-  if (isKimiError(err)) {
+  if (isDimiError(err)) {
     switch (err.code) {
       case 'session.not_found':
       case 'agent.not_found':

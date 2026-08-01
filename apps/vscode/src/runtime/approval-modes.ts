@@ -1,4 +1,4 @@
-import type { JsonObject, PermissionMode } from "@moonshot-ai/kimi-code-sdk";
+import type { JsonObject, PermissionMode } from "@dimi-agent/dimi-sdk";
 
 const APPROVAL_MODES_METADATA_KEY = "vscode_approval_modes";
 

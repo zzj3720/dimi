@@ -13,8 +13,8 @@ import {
   type PluginManifestKind,
 } from './types';
 
-const DIMI_PLUGIN_ROOT_PATH = 'kimi.plugin.json';
-const DIMI_PLUGIN_DIR_PATH = '.kimi-plugin/plugin.json';
+const DIMI_PLUGIN_ROOT_PATH = 'dimi.plugin.json';
+const DIMI_PLUGIN_DIR_PATH = '.dimi-plugin/plugin.json';
 
 export const PLUGIN_SYSTEM_PROMPT_MAX_BYTES = 32 * 1024;
 
@@ -53,7 +53,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
   }
 
   const manifestPath = rootJsonExists ? rootJsonPath : dirJsonPath;
-  const manifestKind: PluginManifestKind = rootJsonExists ? 'kimi-plugin-root' : 'kimi-plugin-dir';
+  const manifestKind: PluginManifestKind = rootJsonExists ? 'dimi-plugin-root' : 'dimi-plugin-dir';
   const shadowedManifestPath = rootJsonExists && dirJsonExists ? dirJsonPath : undefined;
 
   let raw: unknown;
@@ -150,7 +150,7 @@ function recordUnsupportedRuntimeFields(
     if (raw[field] === undefined) continue;
     diagnostics.push({
       severity: 'info',
-      message: `"${field}" is present but not supported by Kimi plugins`,
+      message: `"${field}" is present but not supported by Dimi plugins`,
     });
   }
 }

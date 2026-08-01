@@ -22,7 +22,7 @@ describe('plugin manifest parser', () => {
     await writeFile(join(dir, 'commands', 'frontend', 'component.md'), '# Component', 'utf8');
     await writeFile(join(dir, 'commands', 'deploy.md'), '# Deploy', 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({
         name: 'demo',
         commands: ['./commands'],
@@ -44,7 +44,7 @@ describe('plugin manifest parser', () => {
 
   it('warns on invalid hooks and command paths', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({
         name: 'demo',
         commands: ['../outside.md'],
@@ -66,7 +66,7 @@ describe('plugin manifest parser', () => {
   it('resolves explicit agents directories', async () => {
     await mkdir(join(dir, 'agents'), { recursive: true });
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', agents: ['./agents'] }),
       'utf8',
     );
@@ -80,7 +80,7 @@ describe('plugin manifest parser', () => {
 
   it('defaults agents to the ./agents directory when the field is absent', async () => {
     await mkdir(join(dir, 'agents'), { recursive: true });
-    await writeFile(join(dir, 'kimi.plugin.json'), JSON.stringify({ name: 'demo' }), 'utf8');
+    await writeFile(join(dir, 'dimi.plugin.json'), JSON.stringify({ name: 'demo' }), 'utf8');
 
     const result = await parseManifest(dir);
 
@@ -89,7 +89,7 @@ describe('plugin manifest parser', () => {
   });
 
   it('keeps agents empty when the field is absent and no ./agents directory exists', async () => {
-    await writeFile(join(dir, 'kimi.plugin.json'), JSON.stringify({ name: 'demo' }), 'utf8');
+    await writeFile(join(dir, 'dimi.plugin.json'), JSON.stringify({ name: 'demo' }), 'utf8');
 
     const result = await parseManifest(dir);
 
@@ -99,7 +99,7 @@ describe('plugin manifest parser', () => {
 
   it('warns on invalid agents paths', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', agents: ['../outside'] }),
       'utf8',
     );
@@ -114,7 +114,7 @@ describe('plugin manifest parser', () => {
 
   it('reads the systemPrompt field, trimming surrounding whitespace', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: '\nAlways cite sources.\n' }),
       'utf8',
     );
@@ -127,7 +127,7 @@ describe('plugin manifest parser', () => {
 
   it('treats a missing, blank, or non-string systemPrompt as absent', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: '   ' }),
       'utf8',
     );
@@ -136,7 +136,7 @@ describe('plugin manifest parser', () => {
     expect(blank.manifest?.systemPrompt).toBeUndefined();
 
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 42 }),
       'utf8',
     );
@@ -151,7 +151,7 @@ describe('plugin manifest parser', () => {
   it('strips a UTF-8 BOM from the systemPromptPath file before trimming', async () => {
     await writeFile(join(dir, 'PROMPT.md'), '﻿Always cite sources.\n', 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
       'utf8',
     );
@@ -165,7 +165,7 @@ describe('plugin manifest parser', () => {
   it('reads the systemPromptPath file, trimming surrounding whitespace', async () => {
     await writeFile(join(dir, 'PROMPT.md'), '\nAlways cite sources.\n', 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
       'utf8',
     );
@@ -179,7 +179,7 @@ describe('plugin manifest parser', () => {
   it('combines systemPrompt and systemPromptPath, inline first', async () => {
     await writeFile(join(dir, 'PROMPT.md'), 'From file.', 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: './PROMPT.md' }),
       'utf8',
     );
@@ -192,7 +192,7 @@ describe('plugin manifest parser', () => {
 
   it('warns on invalid systemPromptPath and keeps the inline systemPrompt', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: 42 }),
       'utf8',
     );
@@ -204,7 +204,7 @@ describe('plugin manifest parser', () => {
     ]);
 
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: 'PROMPT.md' }),
       'utf8',
     );
@@ -217,7 +217,7 @@ describe('plugin manifest parser', () => {
 
     await mkdir(join(dir, 'docs'));
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: './docs' }),
       'utf8',
     );
@@ -231,7 +231,7 @@ describe('plugin manifest parser', () => {
 
   it('warns on a blank systemPromptPath', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: '   ' }),
       'utf8',
     );
@@ -246,7 +246,7 @@ describe('plugin manifest parser', () => {
 
   it('rejects systemPromptPath values that escape the plugin root', async () => {
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: './../outside.md' }),
       'utf8',
     );
@@ -259,7 +259,7 @@ describe('plugin manifest parser', () => {
 
     const absolute = join(tmpdir(), 'outside-absolute.md');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: absolute }),
       'utf8',
     );
@@ -274,7 +274,7 @@ describe('plugin manifest parser', () => {
     await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
     await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
       'utf8',
     );
@@ -290,7 +290,7 @@ describe('plugin manifest parser', () => {
   it('ignores an oversized inline systemPrompt with a warning', async () => {
     const oversized = 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1);
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: oversized }),
       'utf8',
     );
@@ -306,7 +306,7 @@ describe('plugin manifest parser', () => {
   it('ignores an oversized systemPromptPath file with a warning and keeps the inline field', async () => {
     await writeFile(join(dir, 'PROMPT.md'), 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1), 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPrompt: 'Inline.', systemPromptPath: './PROMPT.md' }),
       'utf8',
     );
@@ -322,7 +322,7 @@ describe('plugin manifest parser', () => {
   it('accepts system-prompt content exactly at the byte limit', async () => {
     await writeFile(join(dir, 'PROMPT.md'), 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES), 'utf8');
     await writeFile(
-      join(dir, 'kimi.plugin.json'),
+      join(dir, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', systemPromptPath: './PROMPT.md' }),
       'utf8',
     );

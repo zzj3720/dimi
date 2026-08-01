@@ -331,7 +331,7 @@ async function* streamOpenAIResponses(
       "content-type": "application/json",
       ...(codex
         ? {
-            originator: "kimi-code",
+            originator: "dimi",
             "openai-beta": "responses=experimental",
             ...(accountId === undefined ? {} : { "chatgpt-account-id": accountId }),
           }

@@ -1,11 +1,11 @@
 /**
  * Vendor-name gate probe — `src/**` must never branch on the legacy vendor id
- * `'kimi'`. Provider-specific behavior belongs in a `Provider` definition;
+ * `'dimi'`. Provider-specific behavior belongs in a `Provider` definition;
  * consumers select providers by their public id and capabilities.
  *
  * Full-line comments (`//`, `/* ...`, JSDoc `* ...`) are not code and may
  * quote the legacy v1 gate as parity documentation; they are skipped.
- * Brand/env names (`DIMI_CODE_*`, `DIMI_MODEL_*`) and `'kimi'` as data
+ * Brand/env names (`DIMI_CODE_*`, `DIMI_MODEL_*`) and `'dimi'` as data
  * (config values, telemetry fields, registration ids) do not match the
  * patterns — verified against the whole `src/` tree.
  */
@@ -19,10 +19,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = join(__dirname, "..", "..", "src");
 
 /**
- * Branching on the vendor id: `=== 'kimi'` / `== 'kimi'` / `!== 'kimi'` /
- * `!= 'kimi'` (either operand order) and `case 'kimi':`.
+ * Branching on the vendor id: `=== 'dimi'` / `== 'dimi'` / `!== 'dimi'` /
+ * `!= 'dimi'` (either operand order) and `case 'dimi':`.
  */
-const VENDOR_GATE_RE = /[!=]==?\s*'kimi'|'kimi'\s*[!=]==?|\bcase\s+'kimi'\s*:/;
+const VENDOR_GATE_RE = /[!=]==?\s*'dimi'|'dimi'\s*[!=]==?|\bcase\s+'dimi'\s*:/;
 
 interface GateHit {
   readonly file: string;
@@ -67,27 +67,27 @@ describe("vendor-name gates", () => {
   it("flags vendor compares and switch cases in code", () => {
     const hits = findVendorGates(
       [
-        `if (provider.type === 'kimi') return;`,
-        `if (provider?.type !== 'kimi' || provider.oauth === undefined) return;`,
-        `const managed = 'kimi' === vendor;`,
-        `switch (type) { case 'kimi': break; }`,
-        `if (type == 'kimi') return;`,
+        `if (provider.type === 'dimi') return;`,
+        `if (provider?.type !== 'dimi' || provider.oauth === undefined) return;`,
+        `const managed = 'dimi' === vendor;`,
+        `switch (type) { case 'dimi': break; }`,
+        `if (type == 'dimi') return;`,
       ].join("\n"),
       "fixture.ts",
     );
     expect(hits.map((hit) => hit.line)).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("ignores comments, brand/env names, and kimi as data", () => {
+  it("ignores comments, brand/env names, and dimi as data", () => {
     const hits = findVendorGates(
       [
-        "// v1 `provider.type === 'kimi'` gate restored.",
-        " * `provider.type === 'kimi'` parity): strict validation",
-        "/* legacy: provider.type === 'kimi' */",
+        "// v1 `provider.type === 'dimi'` gate restored.",
+        " * `provider.type === 'dimi'` parity): strict validation",
+        "/* legacy: provider.type === 'dimi' */",
         "const home = process.env.DIMI_CODE_HOME;",
-        `const event = { provider_type: 'kimi' };`,
-        `const provider = { type: 'kimi', oauth };`,
-        `registerProviderDefinition({ id: 'kimi', ...rest });`,
+        `const event = { provider_type: 'dimi' };`,
+        `const provider = { type: 'dimi', oauth };`,
+        `registerProviderDefinition({ id: 'dimi', ...rest });`,
       ].join("\n"),
       "fixture.ts",
     );

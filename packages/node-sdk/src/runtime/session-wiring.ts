@@ -22,7 +22,7 @@
  *   services. The kernel's `respond` no-ops on an id that is no longer
  *   pending, so a late answer after a turn cancellation is safe.
  */
-import type { Event } from "@moonshot-ai/protocol";
+import type { Event } from "@dimi-agent/protocol";
 import {
   ContextSizeModel,
   IAgentContextSizeService,
@@ -40,8 +40,8 @@ import {
   type IDisposable,
   type Interaction,
   type ISessionScopeHandle,
-} from "@moonshot-ai/agent-core-v2";
-import type { ToolInputDisplay } from "@moonshot-ai/agent-core-v2/tool/toolInputDisplay";
+} from "@dimi-agent/agent-core-v2";
+import type { ToolInputDisplay } from "@dimi-agent/agent-core-v2/tool/toolInputDisplay";
 
 import type {
   ApprovalRequest,

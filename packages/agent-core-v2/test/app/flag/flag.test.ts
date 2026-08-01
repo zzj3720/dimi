@@ -64,7 +64,7 @@ describe('FlagService', () => {
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    homeDir = `/tmp/kimi-code-flag-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    homeDir = `/tmp/dimi-flag-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   });
   afterEach(() => disposables.dispose());
 

@@ -236,7 +236,7 @@ This means registration order is never a correctness concern — you do not need
 
 ### `DIMI_MODEL_*` env overlay
 
-When `DIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `kimiModelEnvOverlay` (`src/app/kosongConfig/envOverlay.ts`) injects a reserved model alias (`__kimi_env_model__`) into `effective`, points `defaultModel` at it, and merges the request `modelOverrides`; the reserved provider (`__kimi_env__`) comes from the `providers` section env bindings. The overlay is registered via `IConfigRegistry.registerEffectiveOverlay` and applied **only to `effective`**, never to `rawSnake`, so it is never persisted. Its `strip` (plus the providers section `stripEnv`) is the final guard so a caller that read `effective` (with the overlay) cannot write the reserved entries or the shell API key back to disk. `config` itself only runs registered overlays — it does not know the `DIMI_MODEL_*` semantics.
+When `DIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `dimiModelEnvOverlay` (`src/app/kosongConfig/envOverlay.ts`) injects a reserved model alias (`__kimi_env_model__`) into `effective`, points `defaultModel` at it, and merges the request `modelOverrides`; the reserved provider (`__kimi_env__`) comes from the `providers` section env bindings. The overlay is registered via `IConfigRegistry.registerEffectiveOverlay` and applied **only to `effective`**, never to `rawSnake`, so it is never persisted. Its `strip` (plus the providers section `stripEnv`) is the final guard so a caller that read `effective` (with the overlay) cannot write the reserved entries or the shell API key back to disk. `config` itself only runs registered overlays — it does not know the `DIMI_MODEL_*` semantics.
 
 ## Owner-owned sections
 
@@ -247,7 +247,7 @@ When `DIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `kimiModelEnvOverlay
 The authoritative, always-current list of registered sections — rendered in the on-disk `config.toml` shape, with owner file, scope, defaults, env bindings, and schema fields — is generated from the live registry:
 
 - `packages/agent-core-v2/docs/config-manifest.toml` (checked in; do not edit by hand).
-- Regenerate with `pnpm --filter @moonshot-ai/agent-core-v2 gen:config-manifest` (add `--check` for a freshness check; `test/app/config/configManifest.test.ts` enforces it in CI).
+- Regenerate with `pnpm --filter @dimi-agent/agent-core-v2 gen:config-manifest` (add `--check` for a freshness check; `test/app/config/configManifest.test.ts` enforces it in CI).
 
 `config` must not import from any of these owner domains; that is the whole reason the schemas, TOML normalization, and env overlays live with their owners.
 
@@ -265,7 +265,7 @@ The authoritative, always-current list of registered sections — rendered in th
 - Config is the **preference registry**: register only values that are preferences, persistable, schema'd, and user/operator-facing. Facts → `IBootstrapService`; session state → Session scope; constants → code.
 - Business domains read `config.get(...)` or structured `IBootstrapService` facts; never call `IBootstrapService.getEnv()` directly — only `config` reads the raw env bag to build overlays.
 - Keep `IBootstrapService` domain-agnostic: never add state tied to a specific upper domain (cron, flags, model params, …). Domain-specific config goes through `registerSection` + `envBindings`, read via `config.get(...)`.
-- Do not pass a whole config bag via options; read each section through `IConfigService`. There is no `KimiConfig` object — config is a registry of owner-owned sections.
+- Do not pass a whole config bag via options; read each section through `IConfigService`. There is no `DimiConfig` object — config is a registry of owner-owned sections.
 - `config.toml` is snake_case on disk, camelCase in memory — never write camelCase keys to disk, and never write to `config.toml` except through `IConfigService.set/replace`.
 - Reading config / calling `configure(...)` / switching model at runtime must not rewrite `config.toml`; runtime state lives in memory and the session wireRecord, not the file.
 - Never persist env overlays (`__kimi_env__` / `__kimi_env_model__` / shell API key / experimental env); overlays live only in `effective` / `Memory`.

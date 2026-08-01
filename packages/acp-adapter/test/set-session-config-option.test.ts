@@ -16,10 +16,10 @@ import {
 import type {
   ApprovalHandler,
   Event,
-  KimiHarness,
+  DimiHarness,
   PermissionMode,
   Session,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -92,23 +92,23 @@ function makeFakeSession(sessionId: string, statusEffort?: string): FakeSessionH
   return { session, planModeCalls, setPermissionCalls, setModelCalls, setThinkingCalls };
 }
 
-function makeHarness(handle: FakeSessionHandle): KimiHarness {
+function makeHarness(handle: FakeSessionHandle): DimiHarness {
   return {
     auth: makeAuth(),
     createSession: async () => handle.session,
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
+      defaultModel: 'test/dimir',
       models: makeProviderModels([
-        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-        { id: 'kimi-v2', name: 'Kimi v2', thinkingSupported: false },
+        { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
+        { id: 'dimi-v2', name: 'Dimi v2', thinkingSupported: false },
       ]),
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 async function openSession(
-  harness: KimiHarness,
+  harness: DimiHarness,
 ): Promise<{ client: ClientSideConnection; capturing: CapturingClient; sessionId: string }> {
   const { agentStream, clientStream } = makeInMemoryStreamPair();
   new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -128,10 +128,10 @@ describe('AcpServer session/set_config_option', () => {
     const response = await client.setSessionConfigOption({
       sessionId,
       configId: 'model',
-      value: 'kimi-v2',
+      value: 'dimi-v2',
     });
 
-    expect(handle.setModelCalls).toEqual(['kimi-v2']);
+    expect(handle.setModelCalls).toEqual(['dimi-v2']);
     // The new model is non-thinking-supported, so the toggle is omitted.
     expect(handle.setThinkingCalls).toEqual([]);
 
@@ -144,7 +144,7 @@ describe('AcpServer session/set_config_option', () => {
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('kimi-v2');
+      expect(modelOpt.currentValue).toBe('dimi-v2');
     }
     // Switching to a non-thinking-supported model drops the toggle entirely.
     expect(update.configOptions.map((o) => o.id)).toEqual(['model', 'mode']);
@@ -154,7 +154,7 @@ describe('AcpServer session/set_config_option', () => {
     expect(response.configOptions).toHaveLength(2);
     const respModel = response.configOptions.find((o) => o.id === 'model');
     if (respModel && respModel.type === 'select') {
-      expect(respModel.currentValue).toBe('kimi-v2');
+      expect(respModel.currentValue).toBe('dimi-v2');
     }
   });
 
@@ -167,15 +167,15 @@ describe('AcpServer session/set_config_option', () => {
     const response = await client.setSessionConfigOption({
       sessionId,
       configId: 'model',
-      value: 'test/kimi-coder,thinking',
+      value: 'test/dimir,thinking',
     });
 
-    expect(handle.setModelCalls).toEqual(['test/kimi-coder']);
+    expect(handle.setModelCalls).toEqual(['test/dimir']);
     expect(handle.setThinkingCalls).toEqual(['medium']);
     const respModel = response.configOptions.find((o) => o.id === 'model');
     if (respModel && respModel.type === 'select') {
       // Snapshot now carries the bare model id; thinking lives on a separate axis.
-      expect(respModel.currentValue).toBe('test/kimi-coder');
+      expect(respModel.currentValue).toBe('test/dimir');
     }
     const respThinking = response.configOptions.find((o) => o.id === 'thinking');
     if (!respThinking || respThinking.type !== 'select') {
@@ -236,8 +236,8 @@ describe('AcpServer session/set_config_option', () => {
     const handle = makeFakeSession('sess-thinking-locked');
     const models = makeProviderModels([
       {
-        id: 'test/kimi-deep',
-        name: 'Kimi Deep',
+        id: 'test/dimi-deep',
+        name: 'Dimi Deep',
         alwaysThinking: true,
         efforts: ['on'],
       },
@@ -247,10 +247,10 @@ describe('AcpServer session/set_config_option', () => {
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'test/kimi-deep',
+        defaultModel: 'test/dimi-deep',
         models,
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
@@ -294,7 +294,7 @@ describe('AcpServer session/set_config_option', () => {
         defaultModel: 'test/kimi-k2',
         models,
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
@@ -345,7 +345,7 @@ describe('AcpServer session/set_config_option', () => {
         defaultModel: 'test/kimi-k2',
         models,
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
@@ -379,7 +379,7 @@ describe('AcpServer session/set_config_option', () => {
         defaultModel: 'test/kimi-k2',
         models,
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
@@ -401,8 +401,8 @@ describe('AcpServer session/set_config_option', () => {
     const handle = makeFakeSession('sess-thinking-clamped', 'high');
     const models = makeProviderModels([
       {
-        id: 'test/kimi-deep',
-        name: 'Kimi Deep',
+        id: 'test/dimi-deep',
+        name: 'Dimi Deep',
         alwaysThinking: true,
         efforts: ['low', 'medium', 'high'],
       },
@@ -412,10 +412,10 @@ describe('AcpServer session/set_config_option', () => {
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'test/kimi-deep',
+        defaultModel: 'test/dimi-deep',
         models,
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 

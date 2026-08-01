@@ -8,7 +8,7 @@
  * projection path.
  *
  * Run:
- *   pnpm --filter @moonshot-ai/agent-core-v2 exec vitest bench test/contextProjector/projector.bench.ts
+ *   pnpm --filter @dimi-agent/agent-core-v2 exec vitest bench test/contextProjector/projector.bench.ts
  */
 
 import { bench, describe } from "vitest";

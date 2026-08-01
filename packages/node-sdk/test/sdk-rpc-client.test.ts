@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, ErrorCodes, KimiError, KimiHarness, SDKRpcClient } from '#/index';
+import { createDimiHarness, ErrorCodes, DimiError, DimiHarness, SDKRpcClient } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
@@ -21,10 +21,10 @@ afterEach(async () => {
   }
 });
 
-async function makeHarness(): Promise<{ harness: KimiHarness; homeDir: string }> {
-  const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-'));
+async function makeHarness(): Promise<{ harness: DimiHarness; homeDir: string }> {
+  const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-'));
   tempDirs.push(homeDir);
-  return { harness: createKimiHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
+  return { harness: createDimiHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
 }
 
 describe('SDKRpcClient', () => {
@@ -48,7 +48,7 @@ describe('SDKRpcClient', () => {
 
   it('serves listWorkspaceSkills', async () => {
     const { harness, homeDir } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-work-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-work-'));
     tempDirs.push(workDir);
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
     await writeSkill(join(workDir, '.dimi', 'skills', 'demo-project-skill'), 'demo-project-skill');
@@ -69,17 +69,17 @@ describe('SDKRpcClient', () => {
   });
 
   it('honors skillDirs (explicit dirs) over default user / project discovery', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-'));
     tempDirs.push(homeDir);
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-work-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-work-'));
     tempDirs.push(workDir);
-    const explicitBase = await mkdtemp(join(tmpdir(), 'kimi-sdk-explicit-'));
+    const explicitBase = await mkdtemp(join(tmpdir(), 'dimi-sdk-explicit-'));
     tempDirs.push(explicitBase);
     const explicitDir = join(explicitBase, 'skills');
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
     await writeSkill(join(workDir, '.dimi', 'skills', 'demo-project-skill'), 'demo-project-skill');
     await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       skillDirs: [explicitDir],
@@ -108,7 +108,7 @@ describe('SDKRpcClient', () => {
   });
 
   it('serves the plugin catalog on an empty home', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-'));
     tempDirs.push(homeDir);
     const rpc = new SDKRpcClient({ homeDir, identity: TEST_IDENTITY });
     try {
@@ -123,7 +123,7 @@ describe('SDKRpcClient', () => {
   it('fails loudly for unsupported session deletion', async () => {
     const { harness } = await makeHarness();
     try {
-      await expect(harness.deleteSession('session_missing')).rejects.toThrowError(KimiError);
+      await expect(harness.deleteSession('session_missing')).rejects.toThrowError(DimiError);
       await expect(harness.deleteSession('session_missing')).rejects.toMatchObject({
         code: ErrorCodes.NOT_IMPLEMENTED,
       });
@@ -133,7 +133,7 @@ describe('SDKRpcClient', () => {
   });
 
   it('composes persisted models.json layers over SDK providers', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-provider-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-provider-'));
     tempDirs.push(homeDir);
     await writeFile(
       join(homeDir, 'models.json'),
@@ -149,7 +149,7 @@ describe('SDKRpcClient', () => {
       }),
       'utf8',
     );
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providers: [{
@@ -193,12 +193,12 @@ describe('SDKRpcClient', () => {
 
 describe('SDKRpcClient engine telemetry', () => {
   it('forwards engine-side events to the host-supplied telemetry client', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-tel-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-tel-'));
     tempDirs.push(homeDir);
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-tel-work-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-tel-work-'));
     tempDirs.push(workDir);
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),
@@ -214,13 +214,13 @@ describe('SDKRpcClient engine telemetry', () => {
   });
 
   it('honors telemetry = false for engine-side events', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-tel-off-'));
+    const homeDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-tel-off-'));
     tempDirs.push(homeDir);
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-tel-off-work-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'dimi-sdk-tel-off-work-'));
     tempDirs.push(workDir);
     await writeFile(join(homeDir, 'config.toml'), 'telemetry = false\n', 'utf-8');
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       telemetry: recordingTelemetry(records),

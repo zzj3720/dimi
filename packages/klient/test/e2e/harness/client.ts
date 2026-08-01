@@ -1,5 +1,5 @@
 /**
- * `DaemonClient` — wire-level test client for the kimi-code server.
+ * `DaemonClient` — wire-level test client for the dimi server.
  *
  * Wraps the server's HTTP REST + WS surfaces (`/api/v1/...` + `/api/v1/ws`)
  * into a single, typed object that scenarios can drive. Handles:
@@ -55,7 +55,7 @@ import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
-} from '@moonshot-ai/protocol';
+} from '@dimi-agent/protocol';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 
@@ -101,10 +101,10 @@ const DEFAULT_CONTROL_ACK_TIMEOUT_MS = 5_000;
  * they need.
  *
  * `model` matches what the existing server-e2e scenarios assume (the
- * default provider exposes `kimi-code/kimi-for-coding`).
+ * default provider exposes `dimi/kimi-for-coding`).
  */
 export const DEFAULT_PROMPT_CONTROLS = {
-  model: 'kimi-code/kimi-for-coding',
+  model: 'dimi/kimi-for-coding',
   thinking: 'off' as PromptThinking,
   permission_mode: 'manual' as PromptPermissionMode,
   plan_mode: false,

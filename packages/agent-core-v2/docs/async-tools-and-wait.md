@@ -1,6 +1,6 @@
 # Async tools and WaitFor
 
-This document defines the runtime contract for durable generic tool execution and explicit waiting. The implementation extends Kimi Code's existing wire, task, loop, and TUI projections; it does not add a second agent loop or a second task registry.
+This document defines the runtime contract for durable generic tool execution and explicit waiting. The implementation extends Dimi's existing wire, task, loop, and TUI projections; it does not add a second agent loop or a second task registry.
 
 ## Required behavior
 
@@ -61,4 +61,4 @@ Automated behavior coverage must prove:
 6. task completion, ordinary User input, timeout, and restart reconciliation each terminate waits correctly;
 7. a positive CLI/TUI E2E observes the placeholder, `/tasks` projection, automatic completion turn, and a `WaitFor` wake through the real server/client entry.
 
-The final handtest must run the local TUI against CLIProxyAPI with a Grok model, execute a tool longer than three seconds, observe the task in the TUI, invoke `WaitFor`, and verify automatic continuation with the real tool result. The evidence must record the isolated Kimi home, model identifier, session path, terminal transcript, and exact verification commands without recording credentials.
+The final handtest must run the local TUI against CLIProxyAPI with a Grok model, execute a tool longer than three seconds, observe the task in the TUI, invoke `WaitFor`, and verify automatic continuation with the real tool result. The evidence must record the isolated Dimi home, model identifier, session path, terminal transcript, and exact verification commands without recording credentials.

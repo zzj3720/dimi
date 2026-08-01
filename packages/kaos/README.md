@@ -1,4 +1,4 @@
-# @moonshot-ai/kaos
+# @dimi-agent/kaos
 
 Execution environment abstraction used by Dimi.
 

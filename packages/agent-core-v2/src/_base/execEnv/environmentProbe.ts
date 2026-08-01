@@ -12,7 +12,7 @@
  * in the message; the App-scope host-environment service catches that at first
  * resolution. Set `DIMI_SHELL_PATH` to override.
  *
- * Vendored from `@moonshot-ai/kaos` `environment.ts` — kept as a pure helper
+ * Vendored from `@dimi-agent/kaos` `environment.ts` — kept as a pure helper
  * with no DI dependencies.
  */
 

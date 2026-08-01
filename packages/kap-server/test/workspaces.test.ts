@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { encodeWorkDirKey } from '@dimi-agent/agent-core-v2/_base/utils/workdir-slug';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -36,7 +36,7 @@ describe('server-v2 /api/v1/workspaces', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-workspaces-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-workspaces-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

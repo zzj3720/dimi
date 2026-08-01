@@ -7,7 +7,7 @@
  * discovery are stubbed, while the installed-file store remains real except
  * for controlled read/write failures used for concurrency and rollback.
  *
- * Run: pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/app/plugin/pluginService.test.ts
+ * Run: pnpm --filter @dimi-agent/agent-core-v2 exec vitest run test/app/plugin/pluginService.test.ts
  */
 
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -154,7 +154,7 @@ function deferred<T>(): {
 async function makePluginDir(name: string, manifest: Record<string, unknown>): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
   await writeFile(
-    path.join(root, "kimi.plugin.json"),
+    path.join(root, "dimi.plugin.json"),
     JSON.stringify({ name, ...manifest }),
     "utf8",
   );
@@ -165,7 +165,7 @@ describe("PluginService (plugin boundary)", () => {
   const createdDirs: string[] = [];
 
   async function makeHome(): Promise<string> {
-    const home = await mkdtemp(path.join(tmpdir(), "kimi-home-"));
+    const home = await mkdtemp(path.join(tmpdir(), "dimi-home-"));
     createdDirs.push(home);
     return home;
   }
@@ -399,7 +399,7 @@ describe("PluginService (plugin boundary)", () => {
         expect.objectContaining({ root: previous.root, version: "1.0.0" }),
       );
       await expect(
-        readFile(path.join(previous.root, "kimi.plugin.json"), "utf8"),
+        readFile(path.join(previous.root, "dimi.plugin.json"), "utf8"),
       ).resolves.toContain('"version":"1.0.0"');
       await expect(readdir(path.join(home, "plugins", "managed"))).resolves.toEqual(["demo"]);
     } finally {
@@ -531,7 +531,7 @@ describe("PluginService (plugin boundary)", () => {
     }
   });
 
-  it("injects the managed Kimi endpoint env into stdio plugin MCP servers only", async () => {
+  it("injects the managed Dimi endpoint env into stdio plugin MCP servers only", async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
     const host = makeHost(
@@ -645,7 +645,7 @@ describe("PluginService (plugin boundary)", () => {
     }
   });
 
-  it("does not inject managed env when neither env nor the kimi provider supplies it", async () => {
+  it("does not inject managed env when neither env nor the dimi provider supplies it", async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
     const host = makeHost(home);

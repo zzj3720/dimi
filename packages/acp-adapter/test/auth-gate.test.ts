@@ -14,7 +14,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import type { KimiHarness, Session } from "@moonshot-ai/kimi-code-sdk";
+import type { DimiHarness, Session } from "@dimi-agent/dimi-sdk";
 
 import { AcpServer } from "../src/server";
 import { AUTHED_STATUS, UNAUTHED_STATUS } from "./_helpers/harness-stubs";
@@ -44,23 +44,23 @@ function makeInMemoryStreamPair(): {
 }
 
 function startAcpServer(
-  harness: KimiHarness,
+  harness: DimiHarness,
   agentStream: ReturnType<typeof ndJsonStream>,
 ): AgentSideConnection {
   return new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
 }
 
-function makeHarnessWithToken(hasToken: boolean): KimiHarness {
+function makeHarnessWithToken(hasToken: boolean): DimiHarness {
   return {
     auth: {
       status: async () => (hasToken ? AUTHED_STATUS : UNAUTHED_STATUS),
       models: async () => [],
     },
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 function makeSessionHarness(hasToken = true): {
-  harness: KimiHarness;
+  harness: DimiHarness;
   createCalls: Array<{ id?: string; workDir: string }>;
 } {
   const createCalls: Array<{ id?: string; workDir: string }> = [];
@@ -78,7 +78,7 @@ function makeSessionHarness(hasToken = true): {
         onEvent: () => () => undefined,
       } as unknown as Session;
     },
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
   return { harness, createCalls };
 }
 
@@ -111,7 +111,7 @@ describe("AcpServer auth gate", () => {
         createCalled = true;
         return { id: "should-not-be-reached" };
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     startAcpServer(harness, agentStream);
@@ -156,7 +156,7 @@ describe("AcpServer auth gate", () => {
           onEvent: () => () => undefined,
         } as unknown as Session;
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     startAcpServer(harness, agentStream);

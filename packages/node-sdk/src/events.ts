@@ -1,12 +1,12 @@
-import type { ContentPart } from "@moonshot-ai/agent-core-v2";
+import type { ContentPart } from "@dimi-agent/agent-core-v2";
 import type {
   ApprovalRequest,
   ApprovalResponse,
-} from "@moonshot-ai/agent-core-v2/session/approval/approval";
+} from "@dimi-agent/agent-core-v2/session/approval/approval";
 import type {
   QuestionRequest,
   QuestionResult,
-} from "@moonshot-ai/agent-core-v2/session/question/question";
+} from "@dimi-agent/agent-core-v2/session/question/question";
 
 export type {
   AgentStatusUpdatedEvent,
@@ -52,13 +52,13 @@ export type {
   TurnStepStartedEvent,
   UsageStatus,
   WarningEvent,
-} from "@moonshot-ai/protocol";
+} from "@dimi-agent/protocol";
 
 export type {
   ApprovalDecision,
   ApprovalRequest,
   ApprovalResponse,
-} from "@moonshot-ai/agent-core-v2/session/approval/approval";
+} from "@dimi-agent/agent-core-v2/session/approval/approval";
 export type {
   QuestionAnswerMethod,
   QuestionAnswers,
@@ -67,7 +67,7 @@ export type {
   QuestionRequest,
   QuestionResponse,
   QuestionResult,
-} from "@moonshot-ai/agent-core-v2/session/question/question";
+} from "@dimi-agent/agent-core-v2/session/question/question";
 
 export interface ToolCallRequest {
   readonly turnId?: number;
@@ -80,7 +80,7 @@ export interface ToolCallResponse {
   readonly isError?: boolean;
 }
 
-export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from "@moonshot-ai/protocol";
+export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from "@dimi-agent/protocol";
 
 export type MaybePromise<T> = T | Promise<T>;
 

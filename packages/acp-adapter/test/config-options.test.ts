@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import type { DimiHarness } from '@dimi-agent/dimi-sdk';
 
 import {
   buildModelOption,
@@ -17,10 +17,10 @@ import {
 
 function makeHarnessWithModels(
   entries: readonly TestProviderModel[],
-): { harness: KimiHarness; getModels: ReturnType<typeof vi.fn> } {
+): { harness: DimiHarness; getModels: ReturnType<typeof vi.fn> } {
   const getModels = vi.fn(async () => makeProviderModels(entries));
   return {
-    harness: { auth: { models: getModels } } as unknown as KimiHarness,
+    harness: { auth: { models: getModels } } as unknown as DimiHarness,
     getModels,
   };
 }
@@ -53,15 +53,15 @@ describe('buildModelOption', () => {
 
   it('treats `currentValue` as the bare base model id — Phase 15 keeps the snapshot suffix-free', () => {
     const models: readonly AcpModelEntry[] = [
-      { id: 'kimi-v2', name: 'Kimi v2', thinkingSupported: true, supportEfforts: [], defaultThinkingEffort: 'on' },
+      { id: 'dimi-v2', name: 'Dimi v2', thinkingSupported: true, supportEfforts: [], defaultThinkingEffort: 'on' },
     ];
 
-    const option = buildModelOption(models, 'kimi-v2');
+    const option = buildModelOption(models, 'dimi-v2');
     if (option.type !== 'select') {
       throw new Error('expected a SessionConfigSelect option');
     }
-    expect(option.currentValue).toBe('kimi-v2');
-    expect(option.options.map((o) => ('value' in o ? o.value : ''))).toEqual(['kimi-v2']);
+    expect(option.currentValue).toBe('dimi-v2');
+    expect(option.options.map((o) => ('value' in o ? o.value : ''))).toEqual(['dimi-v2']);
   });
 
   it('handles an empty catalog without emitting any options', () => {
@@ -181,12 +181,12 @@ describe('buildModeOption', () => {
 describe('buildSessionConfigOptions', () => {
   it('composes model, thinking, and mode when the live model supports reasoning', async () => {
     const { harness, getModels } = makeHarnessWithModels([
-      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+      { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
     ]);
 
     const result = await buildSessionConfigOptions(
       harness,
-      modelKey('test/kimi-coder'),
+      modelKey('test/dimir'),
       'off',
       'default',
     );
@@ -196,7 +196,7 @@ describe('buildSessionConfigOptions', () => {
     expect(result.map((o) => o.id)).toEqual(['model', 'thinking', 'mode']);
 
     if (result[0]!.type === 'select') {
-      expect(result[0]!.currentValue).toBe('test/kimi-coder');
+      expect(result[0]!.currentValue).toBe('test/dimir');
     }
     if (result[1]!.type === 'select' && result[1]!.id === 'thinking') {
       expect(result[1]!.currentValue).toBe('off');
@@ -238,13 +238,13 @@ describe('buildSessionConfigOptions', () => {
 
   it('omits the thinking toggle when current model is non-thinking-supported', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-      { id: 'test/kimi-plain', name: 'Kimi Plain' },
+      { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
+      { id: 'test/dimi-plain', name: 'Dimi Plain' },
     ]);
 
     const result = await buildSessionConfigOptions(
       harness,
-      modelKey('test/kimi-plain'),
+      modelKey('test/dimi-plain'),
       'off',
       'default',
     );
@@ -254,12 +254,12 @@ describe('buildSessionConfigOptions', () => {
 
   it('reflects the thinking toggle currentValue from the explicit argument', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+      { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
     ]);
 
     const result = await buildSessionConfigOptions(
       harness,
-      modelKey('test/kimi-coder'),
+      modelKey('test/dimir'),
       'on',
       'default',
     );
@@ -306,8 +306,8 @@ describe('buildSessionConfigOptions', () => {
   it('locks the thinking toggle to on for always-thinking models even when the session state says off', async () => {
     const { harness } = makeHarnessWithModels([
       {
-        id: 'test/kimi-deep',
-        name: 'Kimi Deep',
+        id: 'test/dimi-deep',
+        name: 'Dimi Deep',
         alwaysThinking: true,
         efforts: ['on'],
       },
@@ -315,7 +315,7 @@ describe('buildSessionConfigOptions', () => {
 
     const result = await buildSessionConfigOptions(
       harness,
-      modelKey('test/kimi-deep'),
+      modelKey('test/dimi-deep'),
       'off',
       'default',
     );
@@ -328,7 +328,7 @@ describe('buildSessionConfigOptions', () => {
 
   it('omits the thinking toggle when the current base model id is not in the catalog (defensive)', async () => {
     const { harness } = makeHarnessWithModels([
-      { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
+      { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
     ]);
 
     const result = await buildSessionConfigOptions(harness, 'unknown-model', 'on', 'default');
@@ -336,7 +336,7 @@ describe('buildSessionConfigOptions', () => {
   });
 
   it('ships an empty model picker when the live catalog is empty', async () => {
-    const harness = { auth: { models: async () => [] } } as unknown as KimiHarness;
+    const harness = { auth: { models: async () => [] } } as unknown as DimiHarness;
 
     const result = await buildSessionConfigOptions(harness, '', 'off', 'default');
 

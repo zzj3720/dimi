@@ -1,8 +1,8 @@
 {
-  "name": "@moonshot-ai/kimi-telemetry",
+  "name": "@dimi-agent/dimi-telemetry",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared telemetry infrastructure for Kimi Code",
+  "description": "Shared telemetry infrastructure for Dimi",
   "license": "MIT",
   "author": "Moonshot AI",
   "homepage": "https://github.com/zzj3720/dimi/tree/main/packages/telemetry#readme",
@@ -15,7 +15,7 @@
     "url": "https://github.com/zzj3720/dimi/issues"
   },
   "keywords": [
-    "kimi",
+    "dimi",
     "telemetry",
     "analytics",
     "events",

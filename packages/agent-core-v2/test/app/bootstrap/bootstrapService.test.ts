@@ -26,11 +26,11 @@ describe('BootstrapService (scoped)', () => {
   });
 
   it('resolves homeDir/configPath from the seeded context token', () => {
-    const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/kimi-home' }));
+    const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/dimi-home' }));
     const svc = host.app.accessor.get(IBootstrapService);
-    expect(svc.homeDir).toBe('/tmp/kimi-home');
-    expect(svc.configPath).toBe('/tmp/kimi-home/config.toml');
-    expect(svc.sessionsDir).toBe('/tmp/kimi-home/sessions');
+    expect(svc.homeDir).toBe('/tmp/dimi-home');
+    expect(svc.configPath).toBe('/tmp/dimi-home/config.toml');
+    expect(svc.sessionsDir).toBe('/tmp/dimi-home/sessions');
     host.dispose();
   });
 
@@ -53,7 +53,7 @@ describe('resolveBootstrapOptions', () => {
 
 describe('bootstrap() storage seeding', () => {
   it('seeds IFileSystemStorageService as a FileStorageService instance', () => {
-    const { app } = bootstrap({ homeDir: '/tmp/kimi-home' });
+    const { app } = bootstrap({ homeDir: '/tmp/dimi-home' });
     try {
       const storage = app.accessor.get(IFileSystemStorageService);
       expect(storage).toBeInstanceOf(FileStorageService);

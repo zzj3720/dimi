@@ -1,10 +1,10 @@
 # Plugins
 
-Plugins package reusable Kimi Code CLI capabilities into installable units — they can add [Agent Skills](./skills.md), custom [agents](./agents.md), automatically load a specified Skill at session start, contribute system-prompt instructions, and declare MCP servers to provide real tool capabilities. They are ideal for sharing workflows with a team, connecting to external services, or installing extensions from the official marketplace.
+Plugins package reusable Dimi CLI capabilities into installable units — they can add [Agent Skills](./skills.md), custom [agents](./agents.md), automatically load a specified Skill at session start, contribute system-prompt instructions, and declare MCP servers to provide real tool capabilities. They are ideal for sharing workflows with a team, connecting to external services, or installing extensions from the official marketplace.
 
 ## Installation and Management
 
-Run `/plugins` in the TUI to open the plugin manager. It is a single panel with four tabs — **Installed** (manage what you have), **Official** (Kimi-maintained marketplace plugins), **Third-party** (marketplace plugins from other publishers), and **Custom** (install from a URL) — switched with `Tab` / `Shift-Tab`. Common keys:
+Run `/plugins` in the TUI to open the plugin manager. It is a single panel with four tabs — **Installed** (manage what you have), **Official** (Dimi-maintained marketplace plugins), **Third-party** (marketplace plugins from other publishers), and **Custom** (install from a URL) — switched with `Tab` / `Shift-Tab`. Common keys:
 
 | Key | Action |
 | --- | --- |
@@ -33,7 +33,7 @@ You can also use slash commands directly:
 | `/plugins mcp enable <id> <server>` | Enable an MCP server declared by a plugin |
 | `/plugins mcp disable <id> <server>` | Disable an MCP server declared by a plugin |
 
-The **Installed** tab lists your installed plugins and shows an update badge when a newer version is available in the marketplace. When a turn that used an outdated plugin (its MCP tool or a `/<plugin>:<command>` slash command) ends, a one-time notice also points you to `/plugins` for the update; each new marketplace version is announced once. The **Official** and **Third-party** tabs list marketplace plugins by tier; the **Custom** tab installs from a URL. Marketplace catalogs load automatically when needed. Each install shows a trust badge: `kimi-official` (from an official address), `curated` (from a curated address), or `third-party` (everything else). Installing a third-party plugin (anything not from the official address, including Custom installs) first shows a confirmation prompt that defaults to cancelling, so it is only installed if you choose to trust the source.
+The **Installed** tab lists your installed plugins and shows an update badge when a newer version is available in the marketplace. When a turn that used an outdated plugin (its MCP tool or a `/<plugin>:<command>` slash command) ends, a one-time notice also points you to `/plugins` for the update; each new marketplace version is announced once. The **Official** and **Third-party** tabs list marketplace plugins by tier; the **Custom** tab installs from a URL. Marketplace catalogs load automatically when needed. Each install shows a trust badge: `dimi-official` (from an official address), `curated` (from a curated address), or `third-party` (everything else). Installing a third-party plugin (anything not from the official address, including Custom installs) first shows a confirmation prompt that defaults to cancelling, so it is only installed if you choose to trust the source.
 
 ### Installing from GitHub
 
@@ -70,23 +70,23 @@ Pass a custom marketplace JSON path or URL to `/plugins marketplace <source>`, o
 }
 ```
 
-## Kimi Datasource
+## Dimi Datasource
 
-Kimi Datasource is the official Kimi Code data plugin. It lets you query financial market data, macroeconomic indicators, corporate registration records, academic literature, and Chinese laws and regulations in natural language — with professional finance sources such as Wind, IMF, Gildata, SEC EDGAR, and S&P Capital IQ built in, no manual API calls or data account registration required.
+Dimi Datasource is the official Dimi data plugin. It lets you query financial market data, macroeconomic indicators, corporate registration records, academic literature, and Chinese laws and regulations in natural language — with professional finance sources such as Wind, IMF, Gildata, SEC EDGAR, and S&P Capital IQ built in, no manual API calls or data account registration required.
 
 ### Installation
 
-You must first complete OAuth login with a Kimi Code account via `/login`. The plugin relies on local credentials to access data services.
+You must first complete OAuth login with a Dimi account via `/login`. The plugin relies on local credentials to access data services.
 
 1. Run `/plugins` and select **Official**
-2. Find **Kimi Datasource** and press `Enter` to install
+2. Find **Dimi Datasource** and press `Enter` to install
 3. After installation completes, run `/reload` or `/new` to activate the plugin
 
-Using Kimi Datasource consumes your Kimi Code plan quota; the install result reminds you of this. The current latest version is v3.3.0. The plugin does not update automatically — to upgrade to a newer version, repeat the installation steps above.
+Using Dimi Datasource consumes your Dimi plan quota; the install result reminds you of this. The current latest version is v3.3.0. The plugin does not update automatically — to upgrade to a newer version, repeat the installation steps above.
 
 ### How to use
 
-Once installed, describe your need in natural language and Kimi Code will automatically invoke the data capabilities. You can also explicitly trigger the data query skill with `/skill:kimi-datasource`.
+Once installed, describe your need in natural language and Dimi will automatically invoke the data capabilities. You can also explicitly trigger the data query skill with `/skill:dimi-datasource`.
 
 ### What you can do
 
@@ -119,7 +119,7 @@ Once installed, describe your need in natural language and Kimi Code will automa
 
 ### Billing and limitations
 
-- Data queries are billed per call and consume Kimi Code account credits
+- Data queries are billed per call and consume Dimi account credits
 - The plugin provides read-only queries; no write or trading functionality is available
 - Technical indicators and real-time prices are only available during active trading hours
 - AI-generated output is for reference only and does not constitute investment or business advice
@@ -129,26 +129,26 @@ Once installed, describe your need in natural language and Kimi Code will automa
 A plugin is a directory or zip file containing a manifest. The manifest can be placed at either of the following locations:
 
 ```text
-<plugin_root>/kimi.plugin.json
-<plugin_root>/.kimi-plugin/plugin.json
+<plugin_root>/dimi.plugin.json
+<plugin_root>/.dimi-plugin/plugin.json
 ```
 
-When both files exist, `kimi.plugin.json` takes precedence.
+When both files exist, `dimi.plugin.json` takes precedence.
 
 Example:
 
 ```json
 {
-  "name": "kimi-finance",
+  "name": "dimi-finance",
   "version": "1.0.0",
-  "description": "Finance data and analysis workflows for Kimi Code CLI",
+  "description": "Finance data and analysis workflows for Dimi CLI",
   "skills": "./skills/",
   "systemPromptPath": "./SYSTEM.md",
   "sessionStart": {
     "skill": "using-finance"
   },
   "interface": {
-    "displayName": "Kimi Finance",
+    "displayName": "Dimi Finance",
     "shortDescription": "Market data and financial analysis workflows"
   }
 }
@@ -184,7 +184,7 @@ Use `systemPrompt` for a short inline instruction, or `systemPromptPath` to keep
 }
 ```
 
-System-prompt contributions take effect on both agent engines: the interactive TUI and `kimi -p` (the v1 engine), `kimi web`, and any CLI surface with `DIMI_CODE_EXPERIMENTAL_FLAG=1` (the v2 engine).
+System-prompt contributions take effect on both agent engines: the interactive TUI and `dimi -p` (the v1 engine), `dimi web`, and any CLI surface with `DIMI_CODE_EXPERIMENTAL_FLAG=1` (the v2 engine).
 
 Each field — the inline `systemPrompt` and the `systemPromptPath` file — is limited to 32 KB (UTF-8 bytes): oversized content is ignored and reported in the plugin diagnostics. Across all enabled plugins, one prompt build injects at most 64 KB of instructions; contributions beyond the budget are skipped with a warning, including a single plugin whose inline text and file together exceed that budget.
 
@@ -199,17 +199,17 @@ Slash commands save a prompt you use often as a `/command`, so you can trigger i
 Here is a minimal end-to-end example. The plugin's directory structure:
 
 ```text
-kimi-finance/
-  kimi.plugin.json
+dimi-finance/
+  dimi.plugin.json
   commands/
     report.md
 ```
 
-In the manifest (`kimi.plugin.json`), the `commands` field points to where the command files live:
+In the manifest (`dimi.plugin.json`), the `commands` field points to where the command files live:
 
 ```json
 {
-  "name": "kimi-finance",
+  "name": "dimi-finance",
   "version": "1.0.0",
   "commands": "./commands/"
 }
@@ -228,10 +228,10 @@ Pull the latest financials for $ARGUMENTS and summarize revenue, profit, and key
 After installing and enabling the plugin, type this in the chat:
 
 ```text
-/kimi-finance:report TSLA
+/dimi-finance:report TSLA
 ```
 
-Kimi replaces `$ARGUMENTS` in the body with `TSLA`, then runs the prompt. The three details below cover each step.
+Dimi replaces `$ARGUMENTS` in the body with `TSLA`, then runs the prompt. The three details below cover each step.
 
 ### Declaring Commands (the `commands` field)
 
@@ -250,7 +250,7 @@ A command file has two parts: an optional **frontmatter** (the metadata between 
 
 ### Running Commands and Passing Arguments
 
-Commands are prefixed with the plugin id (their namespace) and registered as `<plugin>:<command>`, so the command above is actually `/kimi-finance:report` — this keeps same-named commands from different plugins from colliding.
+Commands are prefixed with the plugin id (their namespace) and registered as `<plugin>:<command>`, so the command above is actually `/dimi-finance:report` — this keeps same-named commands from different plugins from colliding.
 
 Whatever you type after the command replaces `$ARGUMENTS` in the body (above, `TSLA` replaces `$ARGUMENTS`). If the body has no `$ARGUMENTS` but you pass arguments anyway, they are not dropped — they are appended to the end of the body as `ARGUMENTS: <what you typed>`.
 
@@ -260,7 +260,7 @@ Plugin Skills use the same `SKILL.md` format as ordinary [Agent Skills](./skills
 
 ```text
 my-plugin/
-  kimi.plugin.json
+  dimi.plugin.json
   skills/
     using-my-plugin/
       SKILL.md
@@ -268,7 +268,7 @@ my-plugin/
       SKILL.md
 ```
 
-`sessionStart.skill` loads a plugin Skill into the main Agent at session start, making it suitable for initialization instructions, workflow rules, or mapping terminology from other tools to Kimi Code CLI. It only injects text; it does not execute code.
+`sessionStart.skill` loads a plugin Skill into the main Agent at session start, making it suitable for initialization instructions, workflow rules, or mapping terminology from other tools to Dimi CLI. It only injects text; it does not execute code.
 
 Regardless of how a Skill is loaded (`sessionStart.skill`, `/skill:<name>`, or automatic model invocation), `skillInstructions` appears alongside that plugin's Skill.
 
@@ -278,7 +278,7 @@ A plugin can ship custom agents: declare one or more `./` directories in the man
 
 ```text
 my-plugin/
-  kimi.plugin.json
+  dimi.plugin.json
   agents/
     reviewer.md
 ```
@@ -296,7 +296,7 @@ Stdio server (local command):
   "mcpServers": {
     "finance": {
       "command": "uvx",
-      "args": ["kimi-finance-mcp"]
+      "args": ["dimi-finance-mcp"]
     }
   }
 }
@@ -319,10 +319,10 @@ For stdio servers, `command` can be a command on `PATH` or a path starting with 
 Plugin MCP servers start after `/reload` or in new sessions. To enable or disable a server:
 
 ```sh
-/plugins mcp disable kimi-finance finance
+/plugins mcp disable dimi-finance finance
 /reload
 
-/plugins mcp enable kimi-finance finance
+/plugins mcp enable dimi-finance finance
 /reload
 ```
 

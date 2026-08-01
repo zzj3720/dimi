@@ -57,22 +57,22 @@ terminal surface are v1-only and live in the legacy suites.
 
 ## Command reference
 
-- `pnpm --filter @moonshot-ai/klient test` — all Vitest suites (unit +
+- `pnpm --filter @dimi-agent/klient test` — all Vitest suites (unit +
   conformance + e2e; live cases skip without their env).
-- `DIMI_SERVER_URL=http://127.0.0.1:58627 pnpm --filter @moonshot-ai/klient test`
+- `DIMI_SERVER_URL=http://127.0.0.1:58627 pnpm --filter @dimi-agent/klient test`
   — include the live legacy cases against a running server.
-- `pnpm --filter @moonshot-ai/klient docker:e2e` — docker e2e; the run
+- `pnpm --filter @dimi-agent/klient docker:e2e` — docker e2e; the run
   derives its runner name/namespace from the current workspace to avoid
   cross-workspace conflicts.
-- `pnpm --filter @moonshot-ai/klient typecheck` / `pnpm smoke` (in-process
+- `pnpm --filter @dimi-agent/klient typecheck` / `pnpm smoke` (in-process
   smoke over the memory transport; see `examples/smoke.ts`).
-- `pnpm --filter @moonshot-ai/klient smoke:boundary` — ModelRequester boundary
+- `pnpm --filter @dimi-agent/klient smoke:boundary` — ModelRequester boundary
   probe: pings every model configured in the real `~/.dimi/config.toml`
   through the in-process engine, then drives deterministic failure modes
   against a local stub to show which errors the ChatProvider layer wraps and
   which the requester owns (see `examples/model-requester-boundary.ts`).
-- `pnpm --filter @moonshot-ai/klient smoke:select-tools` — select_tools
-  (progressive tool disclosure) probe for kimi-type providers: stub-verifies
-  the kimi-only wire encoding of dynamic tool declarations, then runs a live
-  two-step select→use flow per real kimi model (see
-  `examples/kimi-select-tools.ts`).
+- `pnpm --filter @dimi-agent/klient smoke:select-tools` — select_tools
+  (progressive tool disclosure) probe for dimi-type providers: stub-verifies
+  the dimi-only wire encoding of dynamic tool declarations, then runs a live
+  two-step select→use flow per real dimi model (see
+  `examples/dimi-select-tools.ts`).

@@ -6,7 +6,7 @@
  *   `IBootstrapService.sessionDir`, and the workspace catalog);
  * the remaining difference is the `custom` ↔ `metadata` field name.
  */
-import type { SessionSummary as RuntimeSessionSummary } from '@moonshot-ai/agent-core-v2';
+import type { SessionSummary as RuntimeSessionSummary } from '@dimi-agent/agent-core-v2';
 
 import { resolve, win32 } from 'node:path';
 

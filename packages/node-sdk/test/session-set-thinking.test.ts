@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, type KimiError } from "#/index";
+import { createDimiHarness, type DimiError } from "#/index";
 
 import {
   createTestProviderRuntime,
@@ -18,9 +18,9 @@ afterEach(async () => {
 
 describe("Session.setThinking", () => {
   it("sends config.update with the new thinking effort", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-work-");
-    const harness = createKimiHarness({
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-work-");
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({
@@ -54,25 +54,25 @@ describe("Session.setThinking", () => {
   });
 
   it("rejects empty thinking efforts", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-work-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-work-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_thinking_empty", workDir });
 
       await expect(session.setThinking("   ")).rejects.toMatchObject({
         code: "request.invalid",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it("rejects after the session is closed", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-thinking-work-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-thinking-work-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_thinking_closed", workDir });
@@ -80,7 +80,7 @@ describe("Session.setThinking", () => {
 
       await expect(session.setThinking("high")).rejects.toMatchObject({
         code: "session.closed",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

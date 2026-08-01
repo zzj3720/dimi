@@ -28,7 +28,7 @@ import { resolvePasswordHash, verifyPassword } from '../src/services/auth/passwo
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'kimi-server-v2-auth-token-'));
+  tmpDir = mkdtempSync(join(tmpdir(), 'dimi-server-v2-auth-token-'));
 });
 
 afterEach(() => {

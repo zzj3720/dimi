@@ -7,10 +7,10 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@moonshot-ai/vis",
-    "@moonshot-ai/vis-server",
-    "@moonshot-ai/vis-web",
-    "@moonshot-ai/kimi-inspect"
+    "@dimi-agent/vis",
+    "@dimi-agent/vis-server",
+    "@dimi-agent/vis-web",
+    "@dimi-agent/dimi-inspect"
   ],
   "snapshot": {
     "useCalculatedVersion": true,

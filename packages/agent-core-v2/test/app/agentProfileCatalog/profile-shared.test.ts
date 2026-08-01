@@ -4,7 +4,7 @@
  * `${base_prompt}` (`renderPromptTemplate`), and the builtin template renderer
  * (`renderSystemPrompt`) including its code-composed conditional sections
  * (Windows notes, additional directories, skills). Pure functions, no IO.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/app/agentProfileCatalog/profile-shared.test.ts`.
  */
 
@@ -207,8 +207,8 @@ describe('renderSystemPrompt', () => {
     const prompt = renderSystemPrompt('', {}, { skillActive: true });
 
     expect(prompt).not.toMatch(/\bYou are\b/);
-    expect(prompt).not.toContain('You are Kimi Code CLI');
-    expect(prompt).not.toContain('Kimi Code CLI');
+    expect(prompt).not.toContain('You are Dimi CLI');
+    expect(prompt).not.toContain('Dimi CLI');
     expect(prompt).not.toContain("render as Markdown in the user's terminal");
   });
 });

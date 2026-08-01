@@ -12,9 +12,9 @@
  * resolved to a `ThinkingEffort` at the call site (via `resolveThinkingEffort` +
  * the `thinking` config section) and carried in the payload, so `apply` stays
  * pure and a resumed agent restores the persisted base value rather than
- * re-resolving against a possibly-drifted config. Runtime-only Kimi env forcing
+ * re-resolving against a possibly-drifted config. Runtime-only Dimi env forcing
  * is projected by `AgentProfileService`; keeping it out of this Model prevents
- * that Kimi-only value from leaking through model switches or agent forks.
+ * that Dimi-only value from leaking through model switches or agent forks.
  * `modelCapabilities` is intentionally NOT in the Model — it is
  * derived live from `IModelCatalog` so resume never pins stale capabilities.
  * Each `apply` returns the same reference when nothing changes so the wire's

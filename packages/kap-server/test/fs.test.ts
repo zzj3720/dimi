@@ -2,7 +2,7 @@ import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IModelCatalog } from '@moonshot-ai/agent-core-v2';
+import { IModelCatalog } from '@dimi-agent/agent-core-v2';
 import { ErrorCode } from '../src/protocol/error-codes';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -36,8 +36,8 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-home-'));
-    work = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-work-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-fs-home-'));
+    work = await mkdtemp(join(tmpdir(), 'dimi-server-v2-fs-work-'));
     const modelCatalog: IModelCatalog = {
       _serviceBrand: undefined,
       get: () => {
@@ -243,7 +243,7 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
   });
 
   it('rejects reads and downloads that escape the workspace through a symlink', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
+    const outside = await mkdtemp(join(tmpdir(), 'dimi-server-v2-fs-outside-'));
     try {
       await writeFile(join(outside, 'secret.txt'), 'top-secret');
       await symlink(outside, join(work!, 'docs'), 'dir');
@@ -263,7 +263,7 @@ describe('server-v2 /api/v1/sessions/{sid}/fs:*', () => {
   });
 
   it('serves fs actions when the session cwd itself goes through a symlink', async () => {
-    const link = join(tmpdir(), `kimi-server-v2-fs-cwd-link-${process.pid}`);
+    const link = join(tmpdir(), `dimi-server-v2-fs-cwd-link-${process.pid}`);
     await symlink(work!, link, 'dir');
     try {
       const res = await fetch(`${base}/api/v1/sessions`, {

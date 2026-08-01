@@ -77,13 +77,13 @@ const providerCorrections = {
     ],
   },
   "kimi-coding": {
-    name: "Kimi Code",
+    name: "Dimi",
     baseUrl: "https://api.kimi.com/coding/v1",
     envNames: ["DIMI_API_KEY"],
     models: [
       {
         id: "kimi-for-coding",
-        name: "Kimi for Coding",
+        name: "Dimi for Coding",
         reasoning: true,
         input: ["text"],
         cost: { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0 },

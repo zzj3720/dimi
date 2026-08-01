@@ -8,7 +8,7 @@ import {
   ISessionLifecycleService,
   IModelCatalog,
   type AgentTask,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -46,7 +46,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-tasks-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-tasks-'));
     // Seed a stub IModelCatalog so the agent scope can instantiate if a
     // transitive service needs it; IAgentTaskService itself does not.
     const modelCatalog: IModelCatalog = {

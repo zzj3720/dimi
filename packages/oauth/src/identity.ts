@@ -1,5 +1,5 @@
 /**
- * Kimi host and device identity header factories.
+ * Dimi host and device identity header factories.
  *
  * The caller owns the host identity (product name + host app version)
  * and the `homeDir` where the stable device id is stored. This module
@@ -17,22 +17,22 @@ import type { DeviceHeaders } from './types';
 
 export const DIMI_CODE_PLATFORM = 'kimi_code_cli';
 
-export interface KimiHostIdentity {
+export interface DimiHostIdentity {
   readonly userAgentProduct: string;
   readonly version: string;
   readonly userAgentSuffix?: string | undefined;
 }
 
-export interface KimiIdentityOptions extends KimiHostIdentity {
+export interface DimiIdentityOptions extends DimiHostIdentity {
   readonly homeDir: string;
 }
 
-export interface CreateKimiDeviceIdOptions {
+export interface CreateDimiDeviceIdOptions {
   /** Invoked synchronously the first time a device id is minted on this machine. */
   readonly onFirstLaunch?: ((id: string) => void) | undefined;
 }
 
-export function readKimiDeviceId(homeDir: string): string | null {
+export function readDimiDeviceId(homeDir: string): string | null {
   const deviceIdPath = join(homeDir, 'device_id');
   if (!existsSync(deviceIdPath)) return null;
   try {
@@ -43,11 +43,11 @@ export function readKimiDeviceId(homeDir: string): string | null {
   }
 }
 
-export function createKimiDeviceId(
+export function createDimiDeviceId(
   homeDir: string,
-  options: CreateKimiDeviceIdOptions = {},
+  options: CreateDimiDeviceIdOptions = {},
 ): string {
-  const existing = readKimiDeviceId(homeDir);
+  const existing = readDimiDeviceId(homeDir);
   if (existing !== null) return existing;
 
   const id = randomUUID();
@@ -67,27 +67,27 @@ export function createKimiDeviceId(
   return id;
 }
 
-export function createKimiDeviceHeaders(options: {
+export function createDimiDeviceHeaders(options: {
   readonly homeDir: string;
   readonly version: string;
 }): DeviceHeaders {
   return {
     'X-Msh-Platform': DIMI_CODE_PLATFORM,
-    'X-Msh-Version': requiredAsciiHeader(options.version, 'Kimi identity version'),
+    'X-Msh-Version': requiredAsciiHeader(options.version, 'Dimi identity version'),
     'X-Msh-Device-Name': asciiHeader(hostname()),
     'X-Msh-Device-Model': asciiHeader(deviceModel()),
     'X-Msh-Os-Version': asciiHeader(release()),
-    'X-Msh-Device-Id': createKimiDeviceId(options.homeDir),
+    'X-Msh-Device-Id': createDimiDeviceId(options.homeDir),
   };
 }
 
-export function createKimiUserAgent(options: {
+export function createDimiUserAgent(options: {
   readonly userAgentProduct: string;
   readonly version: string;
   readonly userAgentSuffix?: string | undefined;
 }): string {
-  const product = requiredAsciiHeader(options.userAgentProduct, 'Kimi identity product');
-  const version = requiredAsciiHeader(options.version, 'Kimi identity version');
+  const product = requiredAsciiHeader(options.userAgentProduct, 'Dimi identity product');
+  const version = requiredAsciiHeader(options.version, 'Dimi identity version');
   const suffix =
     options.userAgentSuffix === undefined ? undefined : asciiHeader(options.userAgentSuffix, '');
   return suffix === undefined || suffix.length === 0
@@ -95,10 +95,10 @@ export function createKimiUserAgent(options: {
     : `${product}/${version} (${suffix})`;
 }
 
-export function createKimiDefaultHeaders(options: KimiIdentityOptions): Record<string, string> {
+export function createDimiDefaultHeaders(options: DimiIdentityOptions): Record<string, string> {
   return {
-    'User-Agent': createKimiUserAgent(options),
-    ...createKimiDeviceHeaders({
+    'User-Agent': createDimiUserAgent(options),
+    ...createDimiDeviceHeaders({
       homeDir: options.homeDir,
       version: options.version,
     }),
@@ -111,7 +111,7 @@ export function createKimiDefaultHeaders(options: KimiIdentityOptions): Record<s
  * newline-separated `Name: Value` lines; lines without a colon are skipped;
  * names and values are trimmed.
  *
- * These headers form the lowest-precedence layer — the Kimi identity headers
+ * These headers form the lowest-precedence layer — the Dimi identity headers
  * (User-Agent, X-Msh-*), per-provider `customHeaders`, and request auth
  * (Authorization) all override them.
  *
@@ -121,7 +121,7 @@ export function createKimiDefaultHeaders(options: KimiIdentityOptions): Record<s
  */
 export const DIMI_CODE_CUSTOM_HEADERS_ENV = 'DIMI_CODE_CUSTOM_HEADERS';
 
-export function parseKimiCodeCustomHeaders(
+export function parseDimiCodeCustomHeaders(
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const raw = env[DIMI_CODE_CUSTOM_HEADERS_ENV]?.trim();
@@ -137,12 +137,12 @@ export function parseKimiCodeCustomHeaders(
   return headers;
 }
 
-export function assertKimiHostIdentity(identity: KimiHostIdentity | undefined): KimiHostIdentity {
+export function assertDimiHostIdentity(identity: DimiHostIdentity | undefined): DimiHostIdentity {
   if (identity === undefined) {
-    throw new Error('Kimi host identity is required. Pass the host product name and version.');
+    throw new Error('Dimi host identity is required. Pass the host product name and version.');
   }
-  requiredAsciiHeader(identity.userAgentProduct, 'Kimi identity product');
-  requiredAsciiHeader(identity.version, 'Kimi identity version');
+  requiredAsciiHeader(identity.userAgentProduct, 'Dimi identity product');
+  requiredAsciiHeader(identity.version, 'Dimi identity version');
   return identity;
 }
 

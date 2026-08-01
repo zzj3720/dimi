@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 async function tmpHome(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-v2-debug-loopback-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-v2-debug-loopback-'));
   createdDirs.push(dir);
   return dir;
 }

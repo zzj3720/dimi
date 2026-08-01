@@ -4,7 +4,7 @@
  * Exercises the real connection manager and resolves the real session MCP
  * service through DI. Stdio MCP processes are the external boundary; timeout
  * forwarding tests stub only the MCP SDK client boundary.
- * Run with `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run with `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/agent/mcp/connection-manager.test.ts`.
  */
 
@@ -163,7 +163,7 @@ describe('McpConnectionManager', () => {
   }, 15000);
 
   it('starts stdio servers in stdioCwd when config.cwd is omitted', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-manager-cwd-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'dimi-mcp-manager-cwd-'));
     const cm = new McpConnectionManager({ stdioCwd: cwd });
     try {
       await cm.connectAll({
@@ -838,8 +838,8 @@ describe('Session MCP initialization', () => {
   let manager: McpConnectionManager | undefined;
 
   beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), 'kimi-session-mcp-cwd-'));
-    homeDir = mkdtempSync(join(tmpdir(), 'kimi-session-mcp-home-'));
+    cwd = mkdtempSync(join(tmpdir(), 'dimi-session-mcp-cwd-'));
+    homeDir = mkdtempSync(join(tmpdir(), 'dimi-session-mcp-home-'));
     disposables = new DisposableStore();
     manager = undefined;
   });

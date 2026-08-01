@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, type Event, type KimiError } from "#/index";
+import { createDimiHarness, type Event, type DimiError } from "#/index";
 
 import {
   createFakeProviderHarness,
@@ -25,8 +25,8 @@ afterEach(async () => {
 
 describe("Session.steer", () => {
   it("starts a new turn when the session is idle", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-steer-work-");
     provider = await createFakeProviderHarness();
     provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
       await reply.sseJson(200, [
@@ -34,7 +34,7 @@ describe("Session.steer", () => {
         completionChunk({}, "stop"),
       ]);
     });
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({
@@ -68,8 +68,8 @@ describe("Session.steer", () => {
   });
 
   it("sends turn.steer to the core session runtime", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-steer-work-");
     provider = await createFakeProviderHarness();
     let markStarted!: () => void;
     let release!: () => void;
@@ -87,7 +87,7 @@ describe("Session.steer", () => {
         completionChunk({}, "stop"),
       ]);
     });
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createTestProviderRuntime({
@@ -125,35 +125,35 @@ describe("Session.steer", () => {
   });
 
   it("rejects empty steer input", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-steer-work-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_steer_empty", workDir });
 
       await expect(session.steer("   ")).rejects.toMatchObject({
-        name: "KimiError",
+        name: "DimiError",
         code: "request.prompt_input_empty",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it("rejects after the session is closed", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-steer-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-steer-work-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_steer_closed", workDir });
       await session.close();
 
       await expect(session.steer("hello")).rejects.toMatchObject({
-        name: "KimiError",
+        name: "DimiError",
         code: "session.closed",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

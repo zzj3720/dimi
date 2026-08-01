@@ -25,7 +25,7 @@ const running: RunningServer[] = [];
 let prevPassword: string | undefined;
 
 async function tmpHome(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-v2-host-exposure-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-v2-host-exposure-'));
   createdDirs.push(dir);
   return dir;
 }

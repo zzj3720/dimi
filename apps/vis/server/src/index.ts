@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const authToken = resolveVisAuthToken(host);
   const { port } = await startVisServer({ host, authToken });
   process.stdout.write(
-    formatStartupBanner({ authToken, host, kimiCodeHome: DIMI_CODE_HOME, port }),
+    formatStartupBanner({ authToken, host, dimiCodeHome: DIMI_CODE_HOME, port }),
   );
 }
 

@@ -8,7 +8,7 @@
 //      honor the first-class field (Zed without `AcpBetaFeatureFlag`,
 //      current JetBrains plugin, etc.) read `{command,args,env,label}`
 //      from `_meta` and spawn `<command> <args>` directly. Mirrors
-//      kimi-cli `acp/server.py:77-96`.
+//      dimi-cli `acp/server.py:77-96`.
 //
 // Most clients will hit path 1; path 2 is required for Zed today
 // because the first-class handler is beta-gated.
@@ -19,7 +19,7 @@ import type { AuthMethod } from '@agentclientprotocol/sdk';
  * Build the `terminal-auth` method advertised to ACP clients.
  *
  * Optional inputs:
- *  - `env`: extra env vars forwarded to the spawned `kimi login`
+ *  - `env`: extra env vars forwarded to the spawned `dimi login`
  *    subprocess (e.g. `{ DIMI_CODE_HOME: '/tmp/sandbox' }` for tests).
  *  - `legacyCommand`: absolute path of the agent binary, used to
  *    populate `_meta['terminal-auth'].command` so legacy clients can
@@ -36,11 +36,11 @@ export function buildTerminalAuthMethod(
   const method: AuthMethod = {
     id: 'login',
     type: 'terminal',
-    name: 'Login with Kimi account',
+    name: 'Login with Dimi account',
     description: 'Open the device-code login flow in a terminal.',
     // Appended to the agent's configured args by spec-compliant clients
     // (e.g. `args:['acp']` + `args:['--login']` → `acp --login`). The
-    // `--login` flag on `kimi acp` pivots into the login flow before
+    // `--login` flag on `dimi acp` pivots into the login flow before
     // touching stdio.
     args: ['--login'],
     env: { ...env },
@@ -49,14 +49,14 @@ export function buildTerminalAuthMethod(
     (method as AuthMethod & { _meta: { 'terminal-auth': unknown } })._meta = {
       'terminal-auth': {
         type: 'terminal',
-        label: 'Login with Kimi account',
+        label: 'Login with Dimi account',
         // Legacy clients use this verbatim as the executable path, NOT
         // combined with the agent server's configured command (per Zed's
         // `meta_terminal_auth_task` in `agent_servers/src/acp.rs`).
         command: opts.legacyCommand,
-        // `<command> login` runs the top-level `kimi login` subcommand,
+        // `<command> login` runs the top-level `dimi login` subcommand,
         // skipping the `acp` subprocess entirely. Same behaviour the
-        // `kimi-cli` Python reference advertises.
+        // `dimi-cli` Python reference advertises.
         args: ['login'],
         env: { ...env },
       },

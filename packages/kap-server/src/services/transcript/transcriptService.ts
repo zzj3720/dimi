@@ -54,7 +54,7 @@ import {
   type IDisposable,
   type Scope,
   type SessionMeta,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import {
   TranscriptStore,
   foldWireRecordFacts,
@@ -68,7 +68,7 @@ import {
   type TranscriptOperation,
   type TranscriptTaskRef,
   type TranscriptTurn,
-} from '@moonshot-ai/transcript';
+} from '@dimi-agent/transcript';
 
 import { readWireRecords } from '../snapshot/snapshotReader';
 import {

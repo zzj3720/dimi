@@ -8,7 +8,7 @@ import {
   envApiKeyAuth,
   githubCopilotOAuth,
   googleVertexAuth,
-  kimiCodingOAuth,
+  dimiCodingOAuth,
   openaiCodexOAuth,
   openRouterOAuth,
   xaiOAuth,
@@ -93,7 +93,7 @@ export function builtinProviders(
 }
 
 function providerOAuth(providerId: string): Provider["auth"]["oauth"] | undefined {
-  if (providerId === "kimi-coding") return kimiCodingOAuth;
+  if (providerId === "kimi-coding") return dimiCodingOAuth;
   if (providerId === "openai-codex") return openaiCodexOAuth;
   if (providerId === "xai") return xaiOAuth;
   if (providerId === "anthropic") return anthropicOAuth;

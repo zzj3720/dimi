@@ -68,7 +68,7 @@ export class WebFetchService implements IWebFetchService {
     return {
       getAccessToken: async (): Promise<string> => {
         const token = (await this.runtime.getAuth("kimi-coding"))?.auth.apiKey;
-        if (token === undefined) throw new Error("Kimi provider is not authenticated.");
+        if (token === undefined) throw new Error("Dimi provider is not authenticated.");
         return token;
       },
     };

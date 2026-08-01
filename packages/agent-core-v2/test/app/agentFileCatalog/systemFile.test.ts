@@ -6,7 +6,7 @@
  * `${base_prompt}`, `${plugin_sections}`, `${additional_dirs_info}`). Pure
  * logic against real temp dirs plus a targeted fake fs for the read-failure
  * path.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/app/agentFileCatalog/systemFile.test.ts`.
  */
 

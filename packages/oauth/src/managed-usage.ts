@@ -1,7 +1,7 @@
 /**
  * Managed-platform usage fetch / parse.
  *
- * The Kimi Coding platform exposes a `/usages` endpoint that returns a payload
+ * The Dimi Coding platform exposes a `/usages` endpoint that returns a payload
  * of the shape:
  *
  *   {
@@ -26,7 +26,7 @@ import { isRecord } from "./utils";
 
 export const DEFAULT_DIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1";
 
-export function kimiCodeBaseUrl(): string {
+export function dimiCodeBaseUrl(): string {
   // Single source of truth for the canonical base-url shape: normalize the
   // env override here instead of letting a trailing slash leak into the
   // persisted provider entry, where a later normalized rewrite would diff
@@ -34,8 +34,8 @@ export function kimiCodeBaseUrl(): string {
   return (process.env["DIMI_CODE_BASE_URL"] ?? DEFAULT_DIMI_CODE_BASE_URL).replace(/\/+$/, "");
 }
 
-export function kimiCodeUsageUrl(): string {
-  return `${kimiCodeBaseUrl()}/usages`;
+export function dimiCodeUsageUrl(): string {
+  return `${dimiCodeBaseUrl()}/usages`;
 }
 
 export interface UsageWindow {
@@ -273,7 +273,7 @@ export async function fetchManagedUsage(
         status === 401
           ? "Authorization failed. Please check your API key (try /login)."
           : status === 404
-            ? "Usage endpoint not available. Try Kimi For Coding."
+            ? "Usage endpoint not available. Try Dimi For Coding."
             : `Failed to fetch usage: HTTP ${String(status)}`;
       return { kind: "error", status, message: await readApiErrorMessage(res, hint) };
     }

@@ -2,7 +2,7 @@
  * Scenario: VSCode-owned file baselines for current and forked sessions.
  * Responsibilities: capture originals, show changes, keep/undo, fork, and reject unsafe paths.
  * Wiring: real temporary workspace/global-storage files; no stubbed collaborators.
- * Run: pnpm --filter kimi-code test -- baseline.manager.test.ts
+ * Run: pnpm --filter dimi test -- baseline.manager.test.ts
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
@@ -60,7 +60,7 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
     );
   });
 
-  it('isolates the same session id between different Kimi homes', async () => {
+  it('isolates the same session id between different Dimi homes', async () => {
     const session = createSession();
     const filePath = join(workDir, 'app.ts');
     const firstHome = new BaselineManager(storageRoot, join(root, 'home-a'));

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Readable, type Writable } from "node:stream";
 
 import { LifecycleScope, type IAgentScopeHandle } from "#/_base/di/scope";
-import { Event, type Event as KimiEvent } from "#/_base/event";
+import { Event, type Event as DimiEvent } from "#/_base/event";
 import { ILogService } from "#/_base/log/log";
 import { IFlagService } from "#/app/flag/flag";
 import { MASTER_ENV } from "#/app/flag/flagService";
@@ -337,9 +337,9 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     hooks: {
       onWillStartAgentTask: hookSlot(),
     },
-    onDidStopAgentTask: Event.None as KimiEvent<AgentTaskStopHookContext>,
-    onDidCreate: Event.None as KimiEvent<IAgentScopeHandle>,
-    onDidDispose: Event.None as KimiEvent<string>,
+    onDidStopAgentTask: Event.None as DimiEvent<AgentTaskStopHookContext>,
+    onDidCreate: Event.None as DimiEvent<IAgentScopeHandle>,
+    onDidDispose: Event.None as DimiEvent<string>,
     create: vi.fn(async (input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =

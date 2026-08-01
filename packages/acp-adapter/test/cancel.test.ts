@@ -13,7 +13,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import { log, type KimiHarness, type Session } from '@moonshot-ai/kimi-code-sdk';
+import { log, type DimiHarness, type Session } from '@dimi-agent/dimi-sdk';
 import { Jimp } from 'jimp';
 
 import { AcpServer } from '../src/server';
@@ -69,7 +69,7 @@ describe('AcpServer cancel', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => fakeSession,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -93,7 +93,7 @@ describe('AcpServer cancel', () => {
       createSession: async () => {
         throw new Error('createSession should not be called when no session is created');
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -124,7 +124,7 @@ describe('AcpServer cancel', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => fakeSession,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -155,7 +155,7 @@ describe('AcpServer cancel', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => fakeSession,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -195,7 +195,7 @@ describe('AcpServer cancel', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => fakeSession,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

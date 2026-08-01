@@ -10,7 +10,7 @@ let dir: string;
 let fs: HostFileSystem;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'kimi-hostfs-'));
+  dir = await mkdtemp(join(tmpdir(), 'dimi-hostfs-'));
   fs = new HostFileSystem();
 });
 

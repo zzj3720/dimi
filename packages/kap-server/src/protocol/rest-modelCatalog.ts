@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   modelCatalogItemSchema,
   providerCatalogItemSchema,
-} from "@moonshot-ai/agent-core-v2/app/modelCatalog/catalog";
+} from "@dimi-agent/agent-core-v2/app/modelCatalog/catalog";
 
 export const listModelsResponseSchema = z.object({
   items: z.array(modelCatalogItemSchema),

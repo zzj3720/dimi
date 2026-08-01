@@ -2,7 +2,7 @@
  * Scenario: session agent-profile catalog — file-source discovery, priority
  * merge, explicit fatal semantics, and config-driven reload. Exercises the
  * real scoped catalog and source services against real temp directories.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog.test.ts`.
  */
 
@@ -168,7 +168,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
       return realpath(p);
     };
     const [homeDir, osHomeDir, workDir, extraDir] = await Promise.all([
-      make('kimi-home'),
+      make('dimi-home'),
       make('os-home'),
       make('work'),
       make('extra-agents'),

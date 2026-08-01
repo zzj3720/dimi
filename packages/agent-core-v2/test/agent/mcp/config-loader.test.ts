@@ -2,7 +2,7 @@
  * Scenario: MCP config discovery, precedence, normalization, and validation.
  *
  * Exercises the real loader against temporary JSON files. Run with `pnpm
- * --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/agent/mcp/config-loader.test.ts`.
  */
 
@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-loader-'));
+  const dir = mkdtempSync(join(tmpdir(), 'dimi-mcp-loader-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -299,7 +299,7 @@ describe('loadMcpServers', () => {
         legacy: {
           transport: 'sse',
           url: 'https://mcp.example.com/sse',
-          headers: { 'X-Tenant': 'kimi' },
+          headers: { 'X-Tenant': 'dimi' },
           bearerTokenEnvVar: 'LEGACY_MCP_TOKEN',
         },
       },
@@ -308,7 +308,7 @@ describe('loadMcpServers', () => {
     expect(servers['legacy']).toEqual({
       transport: 'sse',
       url: 'https://mcp.example.com/sse',
-      headers: { 'X-Tenant': 'kimi' },
+      headers: { 'X-Tenant': 'dimi' },
       bearerTokenEnvVar: 'LEGACY_MCP_TOKEN',
     });
   });

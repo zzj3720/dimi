@@ -17,7 +17,7 @@ export interface TempDirHandle {
 }
 
 export async function createTempWorkDir(): Promise<TempDirHandle> {
-  const path = await mkdtemp(join(tmpdir(), 'kimi-oauth-test-work-'));
+  const path = await mkdtemp(join(tmpdir(), 'dimi-oauth-test-work-'));
   let disposed = false;
   return {
     path,

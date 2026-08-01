@@ -1,136 +1,44 @@
 /**
- * Kap server telemetry composition tests — boot the real App scope and storage,
- * then verify config gating, host-appender preservation, cloud delivery wiring,
- * and owned shutdown. The outbound cloud fetch is stubbed at the network
- * boundary.
+ * Kap server telemetry contract — Dimi does not collect or upload telemetry,
+ * so `initializeServerTelemetry` is a no-op: no appender is attached, no
+ * device id is minted, and no network request is ever made.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  bootstrap,
-  type ITelemetryAppender,
-  ITelemetryService,
-  IProviderRuntime,
-  logSeed,
-  resolveConfigPath,
-  resolveLoggingConfig,
-  type Scope,
-  type ScopeSeed,
-  TelemetryService,
-} from "@moonshot-ai/agent-core-v2";
-import { readKimiDeviceId } from "@moonshot-ai/kimi-code-oauth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { initializeServerTelemetry, shutdownServerTelemetry } from "../src/services/telemetry";
 
-describe("server telemetry", () => {
+describe("server telemetry no-op contract", () => {
   let home: string | undefined;
-  let core: Scope | undefined;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-telemetry-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-telemetry-"));
   });
 
   afterEach(async () => {
     vi.unstubAllGlobals();
-    core?.dispose();
-    core = undefined;
     if (home !== undefined) {
       await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
 
-  async function bootCore(
-    toml?: string,
-    env?: NodeJS.ProcessEnv,
-    seeds: ScopeSeed = [],
-  ): Promise<Scope> {
-    const resolvedEnv = env ?? {
-      ...process.env,
-      DIMI_DISABLE_TELEMETRY: undefined,
-    };
-    if (toml !== undefined) {
-      await writeFile(join(home as string, "config.toml"), toml, "utf-8");
-    }
-    const { app } = bootstrap(
-      {
-        homeDir: home as string,
-        configPath: resolveConfigPath({ homeDir: home as string }),
-        env: resolvedEnv,
-      },
-      [...logSeed(resolveLoggingConfig({ homeDir: home as string, env: resolvedEnv })), ...seeds],
-    );
-    core = app;
-    return app;
-  }
-
-  it("attaches the cloud appender by default and persists the device id", async () => {
-    const app = await bootCore();
-    const telemetry = await initializeServerTelemetry(app, home as string);
-    expect(telemetry.appender).toBeDefined();
-    expect(readKimiDeviceId(home as string)).not.toBeNull();
-    await shutdownServerTelemetry(telemetry);
-  });
-
-  it("keeps host delivery independent of the server-owned cloud appender lifecycle", async () => {
-    const cloudFetch = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", cloudFetch);
-    const hostEvents: string[] = [];
-    const hostAppender: ITelemetryAppender = {
-      track: (event) => hostEvents.push(event),
-    };
-    const hostTelemetry = new TelemetryService();
-    hostTelemetry.addAppender(hostAppender);
-    const app = await bootCore(undefined, undefined, [[ITelemetryService, hostTelemetry]]);
-    const telemetry = await initializeServerTelemetry(app, home as string);
-    const service = app.accessor.get(ITelemetryService);
-
-    service.track("server_probe");
-
-    expect(hostEvents).toEqual(["server_probe"]);
-
-    await shutdownServerTelemetry(telemetry);
-    service.track("host_after_server_shutdown");
-    await service.flush();
-
-    expect(cloudFetch).toHaveBeenCalledOnce();
-    expect(hostEvents).toEqual(["server_probe", "host_after_server_shutdown"]);
-  });
-
-  it("returns at the deadline when cloud delivery never settles", async () => {
-    const auth = {
-      _serviceBrand: undefined,
-      getAuth: () => new Promise<undefined>(() => {}),
-    } as unknown as IProviderRuntime;
-    const app = await bootCore(undefined, undefined, [[IProviderRuntime, auth]]);
-    const telemetry = await initializeServerTelemetry(app, home as string);
-    app.accessor.get(ITelemetryService).track("server_probe");
-
-    await expect(shutdownServerTelemetry(telemetry, Date.now())).resolves.toBeUndefined();
-  });
-
-  it("keeps the null appender when config sets telemetry = false", async () => {
-    const app = await bootCore("telemetry = false\n");
-    const telemetry = await initializeServerTelemetry(app, home as string);
+  it("returns an empty handle and never attaches an appender", async () => {
+    const telemetry = await initializeServerTelemetry({} as never, home as string);
     expect(telemetry.appender).toBeUndefined();
-    await shutdownServerTelemetry(telemetry);
+    expect(telemetry.registration).toBeUndefined();
+    await expect(shutdownServerTelemetry(telemetry)).resolves.toBeUndefined();
   });
 
-  it.each(["1", "true", "t", "yes", "y", " TRUE "])(
-    "keeps the null appender when DIMI_DISABLE_TELEMETRY=%s",
-    async (value) => {
-      const app = await bootCore(undefined, {
-        ...process.env,
-        DIMI_DISABLE_TELEMETRY: value,
-      });
-      const telemetry = await initializeServerTelemetry(app, home as string);
-      expect(telemetry.appender).toBeUndefined();
-      expect(readKimiDeviceId(home as string)).toBeNull();
-      await shutdownServerTelemetry(telemetry);
-    },
-  );
+  it("does not perform network calls", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not fetch"));
+    const telemetry = await initializeServerTelemetry({} as never, home as string);
+    await shutdownServerTelemetry(telemetry);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
 });

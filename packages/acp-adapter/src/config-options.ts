@@ -32,7 +32,7 @@
  */
 
 import type { SessionConfigOption, SessionConfigSelectOption } from '@agentclientprotocol/sdk';
-import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import type { DimiHarness } from '@dimi-agent/dimi-sdk';
 
 import { ACP_MODES, type AcpModeId } from './modes';
 import { listModelsFromHarness, type AcpModelEntry } from './model-catalog';
@@ -45,7 +45,7 @@ import { listModelsFromHarness, type AcpModelEntry } from './model-catalog';
  * {@link buildThinkingOption} picker (a `select` for Zed compatibility,
  * but the model picker shape is unaffected), so the model dropdown stays at most
  * N rows even when many catalog entries support thinking. The Python
- * reference's `_expand_llm_models` (`kimi-cli/src/kimi_cli/acp/server.py:441-468`)
+ * reference's `_expand_llm_models` (`dimi-cli/src/kimi_cli/acp/server.py:441-468`)
  * still emits twin rows, but it has no `select`-based effort
  * equivalent; we diverge intentionally for UX clarity.
  *
@@ -182,8 +182,8 @@ export function buildModeOption(currentModeId: AcpModeId): SessionConfigOption {
  * The thinking picker only appears when the currently-selected base
  * model is `thinkingSupported`; otherwise the snapshot is just
  * `[modelOption, modeOption]`. This means switching from a thinking-
- * capable model (e.g. `kimi-coder`) to a non-thinking one (e.g.
- * `kimi-plain`) causes the next `config_option_update` to omit the
+ * capable model (e.g. `dimir`) to a non-thinking one (e.g.
+ * `dimi-plain`) causes the next `config_option_update` to omit the
  * picker entirely — Zed's UI is expected to handle "option set changes
  * across updates", which is the standard configOptions contract.
  *
@@ -207,7 +207,7 @@ export function buildModeOption(currentModeId: AcpModeId): SessionConfigOption {
  * mutate it.
  */
 export async function buildSessionConfigOptions(
-  harness: KimiHarness,
+  harness: DimiHarness,
   currentBaseModelId: string,
   currentThinkingEffort: string,
   currentModeId: AcpModeId,

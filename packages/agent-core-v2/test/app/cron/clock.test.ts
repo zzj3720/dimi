@@ -53,7 +53,7 @@ describe('cron clock sources', () => {
 
   describe('resolveClockSources file specs', () => {
     it('reads the file first line on every wallNow call', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
 
       writeFileSync(filePath, '1000\n', 'utf8');
@@ -68,7 +68,7 @@ describe('cron clock sources', () => {
     });
 
     it('falls back to Date.now() when the file is missing', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'missing.txt');
       const clocks = resolveClockSources(`file:${filePath}`);
 
@@ -81,7 +81,7 @@ describe('cron clock sources', () => {
     });
 
     it('falls back to Date.now() for unparseable content', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
       writeFileSync(filePath, 'not-a-number\n', 'utf8');
       const clocks = resolveClockSources(`file:${filePath}`);
@@ -95,7 +95,7 @@ describe('cron clock sources', () => {
     });
 
     it('falls back to Date.now() for an empty file', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
       writeFileSync(filePath, '', 'utf8');
       const clocks = resolveClockSources(`file:${filePath}`);
@@ -109,7 +109,7 @@ describe('cron clock sources', () => {
     });
 
     it('does not use the file source for monoNowMs', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
       writeFileSync(filePath, '1000', 'utf8');
       const clocks = resolveClockSources(`file:${filePath}`);
@@ -126,7 +126,7 @@ describe('cron clock sources', () => {
     });
 
     it('caps file reads at 64 bytes and parses the prefix', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
       writeFileSync(filePath, `${'1234567890\n'}${'x'.repeat(10_000)}`, 'utf8');
 
@@ -136,7 +136,7 @@ describe('cron clock sources', () => {
     });
 
     it('rejects garbage past the 64 byte cap and falls back to Date.now()', () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), 'kimi-cron-clock-'));
+      const tmpDir = mkdtempSync(join(tmpdir(), 'dimi-cron-clock-'));
       const filePath = join(tmpDir, 'now.txt');
       writeFileSync(filePath, 'x'.repeat(100), 'utf8');
       const clocks = resolveClockSources(`file:${filePath}`);

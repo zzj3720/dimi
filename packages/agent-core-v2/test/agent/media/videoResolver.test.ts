@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildKimiFileUrl, parseKimiFileUrl } from "#/agent/media/kimiFileUrl";
+import { buildDimiFileUrl, parseDimiFileUrl } from "#/agent/media/dimiFileUrl";
 import { AgentVideoResolverService } from "#/agent/media/videoResolverService";
 import type { Message } from "#/llmProtocol/message";
 import type { ModelRequester } from "#/app/modelCatalog/modelRequester";
@@ -15,18 +15,18 @@ function videoMessage(url: string): Message {
   };
 }
 
-describe("kimiFileUrl", () => {
+describe("dimiFileUrl", () => {
   it("round-trips a file id and an escaped materialization path", () => {
-    const url = buildKimiFileUrl("file_1", "/a b/clip.mp4");
-    expect(url).toBe(`kimi-file://file_1?path=${encodeURIComponent("/a b/clip.mp4")}`);
-    expect(parseKimiFileUrl(url)).toEqual({
+    const url = buildDimiFileUrl("file_1", "/a b/clip.mp4");
+    expect(url).toBe(`dimi-file://file_1?path=${encodeURIComponent("/a b/clip.mp4")}`);
+    expect(parseDimiFileUrl(url)).toEqual({
       fileId: "file_1",
       path: "/a b/clip.mp4",
     });
   });
 
-  it("returns undefined for non-kimi-file URLs", () => {
-    expect(parseKimiFileUrl("https://example.com/clip.mp4")).toBeUndefined();
+  it("returns undefined for non-dimi-file URLs", () => {
+    expect(parseDimiFileUrl("https://example.com/clip.mp4")).toBeUndefined();
   });
 });
 
@@ -34,7 +34,7 @@ describe("AgentVideoResolverService", () => {
   it("projects a legacy uploaded-video reference to a textual file reference", async () => {
     const resolver = new AgentVideoResolverService();
     const [message] = await resolver.resolve(
-      [videoMessage(buildKimiFileUrl("file_1", "/tmp/clip.mp4"))],
+      [videoMessage(buildDimiFileUrl("file_1", "/tmp/clip.mp4"))],
       requester,
     );
 
@@ -45,7 +45,7 @@ describe("AgentVideoResolverService", () => {
 
   it("uses an unavailable placeholder when the file path is absent", async () => {
     const resolver = new AgentVideoResolverService();
-    const [message] = await resolver.resolve([videoMessage(buildKimiFileUrl("file_1"))], requester);
+    const [message] = await resolver.resolve([videoMessage(buildDimiFileUrl("file_1"))], requester);
 
     expect(message?.content).toEqual([
       {

@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import {
-  type KimiConfig as SdkKimiConfig,
+  type DimiConfig as SdkDimiConfig,
   type ProviderModel,
   type ThinkingEffort,
-} from "@moonshot-ai/kimi-code-sdk";
+} from "@dimi-agent/dimi-sdk";
 
 import { Methods } from "../../shared/bridge";
 import type {
-  KimiConfig as WebviewKimiConfig,
+  DimiConfig as WebviewDimiConfig,
   ModelConfig,
   SlashCommandInfo,
 } from "../../shared/legacy-sdk";
@@ -76,11 +76,11 @@ const getExtensionConfig: Handler<void, ExtensionConfig> = async () => {
 };
 
 const openSettings: Handler<void, { ok: boolean }> = async () => {
-  await vscode.commands.executeCommand("workbench.action.openSettings", "kimi");
+  await vscode.commands.executeCommand("workbench.action.openSettings", "dimi");
   return { ok: true };
 };
 
-const getModels: Handler<void, WebviewKimiConfig> = async (_, ctx) => {
+const getModels: Handler<void, WebviewDimiConfig> = async (_, ctx) => {
   const config = await ctx.harness.getConfig({ reload: true });
   return toWebviewConfig(config, await ctx.harness.auth.models());
 };
@@ -127,9 +127,9 @@ export const configHandlers = {
 } as Record<string, Handler<any, any>>;
 
 export function toWebviewConfig(
-  config: SdkKimiConfig,
+  config: SdkDimiConfig,
   runtimeModels: readonly ProviderModel[] = [],
-): WebviewKimiConfig {
+): WebviewDimiConfig {
   const models: ModelConfig[] = runtimeModels
     .map((model) => toWebviewModel(model))
     .toSorted((left, right) => left.name.localeCompare(right.name));

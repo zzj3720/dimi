@@ -18,7 +18,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { resolveDimiHome } from '@moonshot-ai/agent-core-v2';
+import { resolveDimiHome } from '@dimi-agent/agent-core-v2';
 import { ulid } from 'ulid';
 
 /** Default cadence for refreshing `heartbeat_at`. */
@@ -315,7 +315,7 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
   };
 }
 
-/** Resolve the instances directory for a given home (or the default kimi home). */
+/** Resolve the instances directory for a given home (or the default dimi home). */
 export function resolveServerInstancesDir(homeDir?: string): string {
   return homeDir === undefined
     ? DEFAULT_SERVER_INSTANCES_DIR
@@ -332,7 +332,7 @@ export async function listLiveServerInstances(
 /**
  * Convenience one-shot read: return the longest-running live instance, or
  * `undefined` when none exist. For callers that only need a single daemon to
- * talk to (e.g. the CLI's `server ps/kill` and the `kimi web` spawner).
+ * talk to (e.g. the CLI's `server ps/kill` and the `dimi web` spawner).
  */
 export async function getLiveServerInstance(
   homeDir?: string,

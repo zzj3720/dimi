@@ -24,7 +24,7 @@ describe('StdioMcpClient', () => {
           executor: 'kaos',
         }),
     ).toThrow(
-      expect.objectContaining({ name: 'KimiError', code: 'not_implemented' }) as unknown as Error,
+      expect.objectContaining({ name: 'DimiError', code: 'not_implemented' }) as unknown as Error,
     );
 
     let thrown: unknown;
@@ -38,7 +38,7 @@ describe('StdioMcpClient', () => {
   });
 
   it('uses defaultCwd when config.cwd is omitted', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-default-cwd-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'dimi-mcp-default-cwd-'));
     const client = new StdioMcpClient(
       {
         transport: 'stdio',
@@ -59,8 +59,8 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('prefers explicit config.cwd over defaultCwd', async () => {
-    const defaultCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-default-cwd-'));
-    const configuredCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-configured-cwd-'));
+    const defaultCwd = mkdtempSync(join(tmpdir(), 'dimi-mcp-default-cwd-'));
+    const configuredCwd = mkdtempSync(join(tmpdir(), 'dimi-mcp-configured-cwd-'));
     const client = new StdioMcpClient(
       {
         transport: 'stdio',
@@ -83,7 +83,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('resolves relative config.cwd from defaultCwd', async () => {
-    const defaultCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-relative-cwd-'));
+    const defaultCwd = mkdtempSync(join(tmpdir(), 'dimi-mcp-relative-cwd-'));
     const configuredCwd = join(defaultCwd, 'tools', 'mcp');
     mkdirSync(configuredCwd, { recursive: true });
     const client = new StdioMcpClient(
@@ -185,7 +185,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('captures recent stderr into a snapshot the manager can attach to errors', async () => {
-    const banner = `kimi-test-stderr-${Date.now()}`;
+    const banner = `dimi-test-stderr-${Date.now()}`;
     const client = new StdioMcpClient({
       transport: 'stdio',
       command: process.execPath,
@@ -216,7 +216,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('notifies an unexpected-close listener when the child exits after connect', async () => {
-    const banner = `kimi-test-crash-${Date.now()}`;
+    const banner = `dimi-test-crash-${Date.now()}`;
     const client = new StdioMcpClient({
       transport: 'stdio',
       command: process.execPath,
@@ -241,7 +241,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('buffers an early close and replays it on listener registration', async () => {
-    const banner = `kimi-test-early-${Date.now()}`;
+    const banner = `dimi-test-early-${Date.now()}`;
     const client = new StdioMcpClient({
       transport: 'stdio',
       command: process.execPath,
@@ -320,7 +320,7 @@ describe('mergeStdioEnv', () => {
   });
 
   it('does not depend on a filesystem cwd fixture for env merging', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-env-'));
+    const dir = mkdtempSync(join(tmpdir(), 'dimi-mcp-env-'));
     await rm(dir, { recursive: true, force: true });
     expect(mergeStdioEnv(undefined, { PATH: dir })['PATH']).toBe(dir);
   });

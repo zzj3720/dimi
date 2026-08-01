@@ -3,7 +3,7 @@
  *
  * Owns the built-in `FetchURL` tool and the `IWebFetchService` seam that yields
  * its `UrlFetcher`. The default `WebFetchService` routes fetches through the
- * Moonshot fetch service when the managed Kimi OAuth provider is configured
+ * Moonshot fetch service when the managed Dimi OAuth provider is configured
  * (falling back to the built-in `LocalFetchURLProvider` on failure or when no
  * OAuth provider is present), so `FetchURL` works both with and without OAuth.
  * The `MoonshotFetchURLProvider` is also exported as a building block for hosts

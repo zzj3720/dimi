@@ -4,7 +4,7 @@
  * dev state, manifest/resource hygiene, unresolved imports, and entry loading.
  * Wiring: real Node packaging/verifier CLIs and filesystem; VSIX directory
  * fixtures replace only the external Marketplace archive producer.
- * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/vsix-package.test.ts
+ * Run: pnpm --filter dimi exec vitest run --config vitest.config.ts test/vsix-package.test.ts
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -25,22 +25,22 @@ afterEach(async () => {
 
 describe('VSIX package CLI (target planning and validation)', () => {
   it('plans all six supported targets when no target is supplied', async () => {
-    const outputDir = await makeTempDir('kimi-package-plan-');
+    const outputDir = await makeTempDir('dimi-package-plan-');
 
     const result = runNode(packageScript, ['--dry-run', '--out-dir', outputDir]);
 
     expect(result.status).toBe(0);
     expect(result.stdout.match(/Would package /g)).toHaveLength(6);
-    expect(result.stdout).toContain('kimi-code-darwin-x64.vsix');
-    expect(result.stdout).toContain('kimi-code-darwin-arm64.vsix');
-    expect(result.stdout).toContain('kimi-code-linux-x64.vsix');
-    expect(result.stdout).toContain('kimi-code-linux-arm64.vsix');
-    expect(result.stdout).toContain('kimi-code-win32-x64.vsix');
-    expect(result.stdout).toContain('kimi-code-win32-arm64.vsix');
+    expect(result.stdout).toContain('dimi-darwin-x64.vsix');
+    expect(result.stdout).toContain('dimi-darwin-arm64.vsix');
+    expect(result.stdout).toContain('dimi-linux-x64.vsix');
+    expect(result.stdout).toContain('dimi-linux-arm64.vsix');
+    expect(result.stdout).toContain('dimi-win32-x64.vsix');
+    expect(result.stdout).toContain('dimi-win32-arm64.vsix');
   });
 
   it('accepts a Windows ARM target when the output path contains spaces', async () => {
-    const root = await makeTempDir('kimi-package-windows-');
+    const root = await makeTempDir('dimi-package-windows-');
     const outputDir = join(root, 'output with spaces');
 
     const result = runNode(packageScript, [
@@ -54,7 +54,7 @@ describe('VSIX package CLI (target planning and validation)', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout.match(/Would package /g)).toHaveLength(1);
-    expect(result.stdout).toContain('kimi-code-win32-arm64.vsix');
+    expect(result.stdout).toContain('dimi-win32-arm64.vsix');
   });
 
   it('rejects an unknown target before a build starts', () => {
@@ -165,22 +165,22 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
 
 describe('Extension Development Host setup (isolated local state)', () => {
   it('creates the complete isolated directory layout for a debug launch', async () => {
-    const parent = await makeTempDir('kimi-dev-profile-');
+    const parent = await makeTempDir('dimi-dev-profile-');
     const baseDir = join(parent, 'vscode-extension-dev');
 
     const result = runNode(prepareDevScript, ['--base-dir', baseDir]);
 
     expect(result.status).toBe(0);
     await expect(readFile(join(baseDir, 'workspace', 'README.md'), 'utf8')).resolves.toContain(
-      'Isolated Kimi Code extension development workspace',
+      'Isolated Dimi extension development workspace',
     );
     await expect(directoryExists(join(baseDir, 'user-data'))).resolves.toBe(true);
     await expect(directoryExists(join(baseDir, 'extensions'))).resolves.toBe(true);
-    await expect(directoryExists(join(baseDir, 'kimi-home'))).resolves.toBe(true);
+    await expect(directoryExists(join(baseDir, 'dimi-home'))).resolves.toBe(true);
   });
 
   it('refuses to clear a directory without the dedicated safety suffix', async () => {
-    const unsafeDir = await makeTempDir('kimi-dev-unsafe-');
+    const unsafeDir = await makeTempDir('dimi-dev-unsafe-');
     await writeFile(join(unsafeDir, 'keep.txt'), 'keep');
 
     const result = runNode(prepareDevScript, ['--base-dir', unsafeDir]);
@@ -198,7 +198,7 @@ async function makeTempDir(prefix: string): Promise<string> {
 }
 
 async function makeVsixFixture(target: string): Promise<string> {
-  const root = await makeTempDir('kimi-vsix-fixture-');
+  const root = await makeTempDir('dimi-vsix-fixture-');
   const extensionDir = join(root, 'extension');
   const distDir = join(extensionDir, 'dist');
   const resourcesDir = join(extensionDir, 'resources');
@@ -221,12 +221,12 @@ async function makeVsixFixture(target: string): Promise<string> {
       join(distDir, 'extension.js'),
       "/** @type {import('../types/index').Extension} */\nimport * as vscode from 'vscode';\nexport function activate() { return vscode; }\n",
     ),
-    writeFile(join(distDir, 'webview.js'), 'globalThis.__kimiWebview = true;\n'),
-    writeFile(join(distDir, 'kimi-banner-dark.svg'), '<svg />'),
-    writeFile(join(distDir, 'kimi-banner-light.svg'), '<svg />'),
-    writeFile(join(distDir, 'kimi-logo.png'), 'fixture'),
-    writeFile(join(resourcesDir, 'kimi-icon-storefront.png'), 'fixture'),
-    writeFile(join(resourcesDir, 'kimi-icon.svg'), '<svg />'),
+    writeFile(join(distDir, 'webview.js'), 'globalThis.__dimiWebview = true;\n'),
+    writeFile(join(distDir, 'dimi-banner-dark.svg'), '<svg />'),
+    writeFile(join(distDir, 'dimi-banner-light.svg'), '<svg />'),
+    writeFile(join(distDir, 'dimi-logo.png'), 'fixture'),
+    writeFile(join(resourcesDir, 'dimi-icon-storefront.png'), 'fixture'),
+    writeFile(join(resourcesDir, 'dimi-icon.svg'), '<svg />'),
   ]);
   return root;
 }

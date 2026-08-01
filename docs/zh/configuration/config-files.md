@@ -1,6 +1,6 @@
 # 配置文件
 
-Kimi Code CLI 把长期运行时偏好写进 TOML（一种结构清晰的纯文本配置格式）文件，例如使用哪个已连接的供应商与模型、请求多少推理，以及 Agent 每轮最多运行几步。供应商凭据由 provider runtime 单独保存。Agent 与运行时设置放在 `config.toml`，终端界面与客户端偏好（主题、编辑器、通知、自动更新）放在配套的 `tui.toml`；用户拥有的供应商定义和覆盖层使用 `models.json`。
+Dimi CLI 把长期运行时偏好写进 TOML（一种结构清晰的纯文本配置格式）文件，例如使用哪个已连接的供应商与模型、请求多少推理，以及 Agent 每轮最多运行几步。供应商凭据由 provider runtime 单独保存。Agent 与运行时设置放在 `config.toml`，终端界面与客户端偏好（主题、编辑器、通知、自动更新）放在配套的 `tui.toml`；用户拥有的供应商定义和覆盖层使用 `models.json`。
 
 默认位置：`~/.dimi/config.toml`，首次运行时自动创建。
 
@@ -9,7 +9,7 @@ Kimi Code CLI 把长期运行时偏好写进 TOML（一种结构清晰的纯文�
 CLI 从 `~/.dimi/config.toml` 读取配置。如需把数据目录迁移到别处，可用 `DIMI_CODE_HOME` 环境变量覆盖：
 
 ```sh
-export DIMI_CODE_HOME=/path/to/kimi-home
+export DIMI_CODE_HOME=/path/to/dimi-home
 ```
 
 此时配置文件路径变为 `$DIMI_CODE_HOME/config.toml`。无论目录在哪里，文件名固定是 `config.toml`。
@@ -133,7 +133,7 @@ timeout = 5
 | ---------------- | -------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `provider`       | `string` | —      | 次主力模型的供应商 ID                                                                                                                                                                                                                                                                        |
 | `model`          | `string` | —      | `provider` 中的模型 ID                                                                                                                                                                                                                                                                       |
-| `default_effort` | `string` | —      | 子代理绑定次主力模型时使用的 thinking effort。未设置时按"全局 `[thinking]` 配置 → 模型默认 effort"的链路解析，不再继承主 Agent 的 effort。与主模型的 thinking effort 语义一致：严格校验 effort 的模型（如 kimi 模型）在不支持该取值时回退到模型默认 effort，其他供应商的模型按原样发送给后端 |
+| `default_effort` | `string` | —      | 子代理绑定次主力模型时使用的 thinking effort。未设置时按"全局 `[thinking]` 配置 → 模型默认 effort"的链路解析，不再继承主 Agent 的 effort。与主模型的 thinking effort 语义一致：严格校验 effort 的模型（如 dimi 模型）在不支持该取值时回退到模型默认 effort，其他供应商的模型按原样发送给后端 |
 
 ```toml
 [secondary_model]
@@ -154,7 +154,7 @@ default_effort = "low"
 | --------- | --------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled` | `boolean` | `true`  | 新会话是否默认开启 Thinking，设为 `false` 会在所选模型支持时请求关闭。没有 `reasoning` 能力的模型会忽略该偏好；始终 Thinking 且 `thinkingLevelMap.off` 为 `null` 的模型会保留其声明的默认档位。 |
 | `effort`  | `string`  | —       | 首选 Thinking 档位（如 `low`、`medium`、`high`、`xhigh`、`max`）。所选模型的 `thinkingLevelMap` 是权威来源：已映射档位会转换为供应商 wire 值；映射为 `null` 代表不可用；推理模型没有映射时只有开/关。配置档位不可用时，运行时优先使用模型声明的默认档位，否则采用其正常支持模式。 |
-| `keep`    | `string`  | `"all"` | 保留思考透传。在 `kimi` 上以 `thinking.keep` 发送；在 `anthropic`（Claude 以及 Kimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API；关值可禁用 keep 并回到标准端点）。`"all"` 会保留历史轮次的思考内容（`reasoning_content` / Anthropic thinking blocks）；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用。可被 `DIMI_MODEL_THINKING_KEEP` 覆盖；仅在 Thinking 开启时注入 |
+| `keep`    | `string`  | `"all"` | 保留思考透传。在 `dimi` 上以 `thinking.keep` 发送；在 `anthropic`（Claude 以及 Dimi 的 Anthropic 兼容模式）上以 `context_management` 的 `clear_thinking_20251015` 编辑发送（开启 keep 会让 Anthropic 请求走 beta Messages API；关值可禁用 keep 并回到标准端点）。`"all"` 会保留历史轮次的思考内容（`reasoning_content` / Anthropic thinking blocks）；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用。可被 `DIMI_MODEL_THINKING_KEEP` 覆盖；仅在 Thinking 开启时注入 |
 
 ### 已废弃字段
 
@@ -184,22 +184,22 @@ default_effort = "low"
 | 字段                              | 类型                           | 默认值      | 说明                                                                                                                                                                                                                                                                                                                |
 | --------------------------------- | ------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `max_running_tasks`               | `integer`                      | —           | 同时运行的最大后台任务数                                                                                                                                                                                                                                                                                            |
-| `kill_grace_period_ms`            | `integer`                      | `5000`      | 会话关闭、手动停止或任务超时请求正常终止后，等待任务自行结束的宽限时间（毫秒）。超过该时间仍在运行时，Kimi Code 会尝试强制停止该任务                                                                                                                                                                                |
+| `kill_grace_period_ms`            | `integer`                      | `5000`      | 会话关闭、手动停止或任务超时请求正常终止后，等待任务自行结束的宽限时间（毫秒）。超过该时间仍在运行时，Dimi 会尝试强制停止该任务                                                                                                                                                                                |
 | `bash_auto_background_on_timeout` | `boolean`                      | `true`      | 前台 `Bash` 命令触及超时时间时，将其转为后台任务而不是直接终止：命令完成时 agent 会收到通知，转入后台的命令受 `bash_task_timeout_s` 默认后台超时约束。设为 `false` 则恢复超时即终止的行为                                                                                                                           |
-| `bash_task_timeout_s`             | `integer`                      | `600`       | 后台 `Bash` 任务在调用未传 `timeout` 时的默认超时（秒）；前台命令超时转后台后也按此值重新计时。`0` 表示无超时——任务一直运行到自行结束或被模型手动停止。显式传入的 `timeout` 不受影响。在 print 模式（`kimi -p`）下未显式设置时默认为 `0`                                                                            |
-| `print_background_mode`           | `"exit" \| "drain" \| "steer"` | `"steer"`   | 仅 print 模式（`kimi -p`）生效，决定主 agent 的 turn 结束后如何处理未返回的后台任务：`"exit"` 立即退出；`"drain"` 退出前等待所有后台任务进入终态（结果不回馈给主 agent）；`"steer"` 不退出，让后台任务完成时像后台子代理一样以合成 user 消息 steer 主 agent 进入新 turn，直到某 turn 结束时无未决后台任务或触及上限 |
-| `print_wait_ceiling_s`            | `integer`                      | `315360000` | print 模式（`kimi -p`）下，`print_background_mode` 为 `"drain"` 或 `"steer"` 时，等待/steer 循环的墙钟上限（秒；默认 10 年，近似不设限）。在非 print 模式或 `"exit"` 时无效                                                                                                                                         |
-| `print_max_turns`                 | `integer`                      | `100000`    | print 模式（`kimi -p`）且 `print_background_mode = "steer"` 时，允许由后台任务完成触发的新 turn 的最大数量，防止 steer 循环失控（默认值近似不设限）                                                                                                                                                                 |
+| `bash_task_timeout_s`             | `integer`                      | `600`       | 后台 `Bash` 任务在调用未传 `timeout` 时的默认超时（秒）；前台命令超时转后台后也按此值重新计时。`0` 表示无超时——任务一直运行到自行结束或被模型手动停止。显式传入的 `timeout` 不受影响。在 print 模式（`dimi -p`）下未显式设置时默认为 `0`                                                                            |
+| `print_background_mode`           | `"exit" \| "drain" \| "steer"` | `"steer"`   | 仅 print 模式（`dimi -p`）生效，决定主 agent 的 turn 结束后如何处理未返回的后台任务：`"exit"` 立即退出；`"drain"` 退出前等待所有后台任务进入终态（结果不回馈给主 agent）；`"steer"` 不退出，让后台任务完成时像后台子代理一样以合成 user 消息 steer 主 agent 进入新 turn，直到某 turn 结束时无未决后台任务或触及上限 |
+| `print_wait_ceiling_s`            | `integer`                      | `315360000` | print 模式（`dimi -p`）下，`print_background_mode` 为 `"drain"` 或 `"steer"` 时，等待/steer 循环的墙钟上限（秒；默认 10 年，近似不设限）。在非 print 模式或 `"exit"` 时无效                                                                                                                                         |
+| `print_max_turns`                 | `integer`                      | `100000`    | print 模式（`dimi -p`）且 `print_background_mode = "steer"` 时，允许由后台任务完成触发的新 turn 的最大数量，防止 steer 循环失控（默认值近似不设限）                                                                                                                                                                 |
 
 `max_running_tasks` 可被环境变量 `DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` 覆盖，优先级高于配置文件。
 
-在 print 模式（`kimi -p "<prompt>"`）下，只要还有未决的后台任务，Kimi Code 在主 agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给主 agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），子代理默认无超时（`[subagent] timeout_ms = 0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在主 agent 结束后立即退出。
+在 print 模式（`dimi -p "<prompt>"`）下，只要还有未决的后台任务，Dimi 在主 agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给主 agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），子代理默认无超时（`[subagent] timeout_ms = 0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在主 agent 结束后立即退出。
 
 ## `subagent`
 
 | 字段         | 类型      | 默认值              | 说明                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------ | --------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `timeout_ms` | `integer` | `7200000`（2 小时） | 单个子代理（`Agent` / `AgentSwarm`）允许运行的最长时间（毫秒）。超时后子代理以 `timed_out` 收尾。`0` 表示无超时——子代理一直运行到自行结束或被模型手动停止。该值是后台任务管理器对每个子代理任务的 per-task timeout，因此对前台与后台子代理同时生效。在 print 模式（`kimi -p`）下未显式设置时默认为 `0`。注意：超过 `2147483647`（约 24.8 天）的值会被运行时钳到约 24.8 天 |
+| `timeout_ms` | `integer` | `7200000`（2 小时） | 单个子代理（`Agent` / `AgentSwarm`）允许运行的最长时间（毫秒）。超时后子代理以 `timed_out` 收尾。`0` 表示无超时——子代理一直运行到自行结束或被模型手动停止。该值是后台任务管理器对每个子代理任务的 per-task timeout，因此对前台与后台子代理同时生效。在 print 模式（`dimi -p`）下未显式设置时默认为 `0`。注意：超过 `2147483647`（约 24.8 天）的值会被运行时钳到约 24.8 天 |
 
 `timeout_ms` 可被环境变量 `DIMI_SUBAGENT_TIMEOUT_MS` 覆盖，优先级高于配置文件。
 
@@ -352,7 +352,7 @@ auto_install = true
 
 ## 项目级本地配置
 
-除了 `~/.dimi` 下的用户级文件，Kimi Code 还会读取位于 `<项目根目录>/.dimi/local.toml` 的项目级本地配置文件。它保存的是与某一个项目检出相关、通常不应与队友共享的设置。
+除了 `~/.dimi` 下的用户级文件，Dimi 还会读取位于 `<项目根目录>/.dimi/local.toml` 的项目级本地配置文件。它保存的是与某一个项目检出相关、通常不应与队友共享的设置。
 
 该文件会在你通过 [`/add-dir`](../reference/slash-commands.md) 添加额外工作目录并选择记入项目时自动创建，通常无需手动编辑。
 

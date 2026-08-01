@@ -3,7 +3,7 @@
  *
  * Exercises the public profile/config surfaces and resolves the real
  * `ConfigService` with TOML document storage while stubbing host and model
- * boundaries. Run with `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * boundaries. Run with `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/app/config/config.test.ts`.
  */
 
@@ -157,10 +157,10 @@ describe("Agent config", () => {
     };
     ctx.configureRuntimeModel(
       {
-        type: "kimi",
+        type: "dimi",
         apiKey: "sk-next",
         baseUrl: "https://next.example/v1",
-        model: "kimi-next",
+        model: "dimi-next",
       },
       nextCapability,
     );
@@ -317,7 +317,7 @@ describe("Agent config", () => {
     `);
 
     ctx.configureRuntimeModel({
-      type: "kimi",
+      type: "dimi",
       apiKey: "test-key",
       baseUrl: "https://changed.example.test/v1",
       model: "changed-model",
@@ -407,7 +407,7 @@ describe("ConfigService env overlay (live)", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -424,12 +424,12 @@ describe("ConfigService env overlay (live)", () => {
     disposables.dispose();
   });
 
-  it("keeps the Kimi effort force separate from the configured effort", async () => {
+  it("keeps the Dimi effort force separate from the configured effort", async () => {
     const env: Record<string, string> = { DIMI_MODEL_THINKING_EFFORT: "max" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -446,11 +446,11 @@ describe("ConfigService env overlay (live)", () => {
     disposables.dispose();
   });
 
-  it("strips the Kimi effort force before persisting thinking config", async () => {
+  it("strips the Dimi effort force before persisting thinking config", async () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg"));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg"));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -474,7 +474,7 @@ describe("ConfigService env overlay (live)", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg"));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg"));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -482,11 +482,11 @@ describe("ConfigService env overlay (live)", () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    await config.replace("defaultModel", "kimi-code/kimi-k2");
-    expect(config.get<string>("defaultModel")).toBe("kimi-code/kimi-k2");
+    await config.replace("defaultModel", "dimi/kimi-k2");
+    expect(config.get<string>("defaultModel")).toBe("dimi/kimi-k2");
 
     await config.set("defaultModel", undefined);
-    expect(config.get<string>("defaultModel")).toBe("kimi-code/kimi-k2");
+    expect(config.get<string>("defaultModel")).toBe("dimi/kimi-k2");
 
     await config.replace("defaultModel", undefined);
     expect(config.get<string>("defaultModel")).toBeUndefined();
@@ -503,7 +503,7 @@ describe("services config section env bindings", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -693,7 +693,7 @@ describe("image config section", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -731,7 +731,7 @@ describe("image config section", () => {
       new TextEncoder().encode("[image]\nread_byte_budget = 131072\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -776,7 +776,7 @@ describe("loopControl config section", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -817,7 +817,7 @@ describe("loopControl config section", () => {
       new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -856,7 +856,7 @@ describe("loopControl config section", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -878,7 +878,7 @@ describe("loopControl config section", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -908,7 +908,7 @@ describe("loopControl config section", () => {
       new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -949,7 +949,7 @@ describe("loopControl config section", () => {
       new TextEncoder().encode("[loop_control]\nmax_steps_per_run = 100\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -979,7 +979,7 @@ describe("loopControl config section", () => {
       new TextEncoder().encode("[loop_control]\nfuture_field = 1\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1011,7 +1011,7 @@ describe("loopControl config section", () => {
       new TextEncoder().encode("[loop_control]\nmax_steps_per_turn = -1\n"),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1097,7 +1097,7 @@ describe("task config section", () => {
       await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1151,7 +1151,7 @@ describe("applyPrintModeConfigDefaults", () => {
       await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1237,7 +1237,7 @@ describe("subagent config section", () => {
       await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1436,7 +1436,7 @@ describe("secondaryModel config section", () => {
       await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1499,7 +1499,7 @@ describe("mcp config section", () => {
       await storage.write("", "config.toml", new TextEncoder().encode(toml));
     }
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1610,7 +1610,7 @@ describe("get() freshness for overlay-written domains", () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1648,7 +1648,7 @@ describe("nested env bindings", () => {
       new TextEncoder().encode('[nested_demo.inner]\nvalue = "file"\n'),
     );
     ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap("/tmp/kimi-cfg", env));
+    ix.stub(IBootstrapService, stubBootstrap("/tmp/dimi-cfg", env));
     ix.stub(IFileSystemStorageService, storage);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));

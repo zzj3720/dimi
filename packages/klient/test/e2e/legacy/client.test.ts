@@ -23,7 +23,7 @@ import {
   type ProviderCatalogItem,
   type Session,
   type SessionStatusResponse,
-} from "@moonshot-ai/protocol";
+} from "@dimi-agent/protocol";
 
 import { DaemonClient, EnvelopeError } from "../harness/index.js";
 import { fetchWithReport } from "../harness/report.js";
@@ -431,8 +431,8 @@ describe("DaemonClient session action helpers", () => {
   it("model catalog helpers call the catalog and action-suffix routes", async () => {
     const log = createCaseLogger("client helper: model catalog");
     const calls: FetchCall[] = [];
-    const model = testModel({ model: "kimi-code/kimi-for-coding" });
-    const provider = testProvider({ id: "kimi", models: [model.model] });
+    const model = testModel({ model: "dimi/kimi-for-coding" });
+    const provider = testProvider({ id: "dimi", models: [model.model] });
     const client = new DaemonClient({
       baseUrl: "http://server.example.test",
       fetchImpl: recordingFetchSequence(
@@ -441,7 +441,7 @@ describe("DaemonClient session action helpers", () => {
             ready: true,
             providers_count: 1,
             default_model: model.model,
-            authenticated_providers: [{ id: "kimi", type: "api_key", source: "Stored" }],
+            authenticated_providers: [{ id: "dimi", type: "api_key", source: "Stored" }],
           }),
           okEnvelope({ items: [model] }),
           okEnvelope({ default_model: model.model, model }),
@@ -459,15 +459,15 @@ describe("DaemonClient session action helpers", () => {
       model,
     });
     await expect(client.listProviders()).resolves.toEqual({ items: [provider] });
-    await expect(client.getProvider("kimi")).resolves.toEqual(provider);
+    await expect(client.getProvider("dimi")).resolves.toEqual(provider);
 
     log("fetch calls", calls);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ["GET", "http://server.example.test/api/v1/auth"],
       ["GET", "http://server.example.test/api/v1/models"],
-      ["POST", "http://server.example.test/api/v1/models/kimi-code%2Fkimi-for-coding:set_default"],
+      ["POST", "http://server.example.test/api/v1/models/dimi%2Fkimi-for-coding:set_default"],
       ["GET", "http://server.example.test/api/v1/providers"],
-      ["GET", "http://server.example.test/api/v1/providers/kimi"],
+      ["GET", "http://server.example.test/api/v1/providers/dimi"],
     ]);
     expect(parseRecordedJsonBody(calls[2])).toEqual({});
   });
@@ -662,7 +662,7 @@ function testSession(overrides: Partial<Session> = {}): Session {
 
 function testModel(overrides: Partial<ModelCatalogItem> = {}): ModelCatalogItem {
   return {
-    provider: "kimi",
+    provider: "dimi",
     model: "k2",
     display_name: "Kimi K2",
     max_context_size: 131_072,
@@ -672,8 +672,8 @@ function testModel(overrides: Partial<ModelCatalogItem> = {}): ModelCatalogItem 
 
 function testProvider(overrides: Partial<ProviderCatalogItem> = {}): ProviderCatalogItem {
   return {
-    id: "kimi",
-    name: "Kimi",
+    id: "dimi",
+    name: "Dimi",
     base_url: "https://api.example.test/v1",
     default_model: "k2",
     auth_methods: ["oauth", "api_key"],
@@ -709,7 +709,7 @@ function testMessage(overrides: Partial<Message> = {}): Message {
 function testSessionStatus(): SessionStatusResponse {
   return {
     busy: false,
-    model: "kimi-code/kimi-for-coding",
+    model: "dimi/kimi-for-coding",
     thinking_level: "off",
     permission: "manual",
     plan_mode: false,

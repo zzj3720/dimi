@@ -47,7 +47,7 @@ function persistedProcess(
 beforeEach(async () => {
   sessionDir = join(
     tmpdir(),
-    `kimi-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `dimi-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
   persistence = createAgentTaskPersistence(sessionDir);

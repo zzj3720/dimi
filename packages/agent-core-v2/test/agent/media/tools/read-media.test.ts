@@ -950,7 +950,7 @@ describe("createVideoUploader", () => {
     const records: TelemetryRecord[] = [];
     const uploader = createVideoUploader(modelWith(vi.fn().mockResolvedValue(uploadResult)), {
       client: recordingTelemetry(records),
-      props: { model: "example-model", protocol: "kimi" },
+      props: { model: "example-model", protocol: "dimi" },
     });
     await expect(uploader!(input)).resolves.toEqual(uploadResult);
     expect(records).toHaveLength(1);
@@ -960,7 +960,7 @@ describe("createVideoUploader", () => {
       mime_type: "video/mp4",
       size_bytes: 2048,
       model: "example-model",
-      protocol: "kimi",
+      protocol: "dimi",
     });
     expect(records[0]!.properties?.["duration_ms"]).toEqual(expect.any(Number));
   });

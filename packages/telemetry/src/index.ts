@@ -1,42 +1,75 @@
-import {
-  flushSync,
-  setContext,
-  shutdown,
-  track as trackEvent,
-  withContext,
-} from './client';
-import type { TelemetryProperties as TelemetryPropertiesType } from './types';
-import type { TelemetryContextIds, TelemetryClient } from './client';
+/**
+ * Dimi telemetry — deliberately a no-op.
+ *
+ * Dimi does not collect or upload usage telemetry. These functions exist only
+ * so existing call sites (CLI bootstrap, harness wiring, crash handlers) keep
+ * their shape; every call is a no-op.
+ */
 
-export function track(event: string, properties: TelemetryPropertiesType = {}): void {
-  trackEvent(event, properties);
+import type {
+  TelemetryPrimitive as TelemetryPrimitiveType,
+  TelemetryProperties as TelemetryPropertiesType,
+} from './types';
+
+export type {
+  TelemetryPrimitive as TelemetryPrimitive,
+  TelemetryProperties as TelemetryProperties,
+} from './types';
+
+export function track(_event: string, _properties: TelemetryPropertiesType = {}): void {}
+
+export interface TelemetryContextIds {
+  readonly deviceId?: string | null;
+  readonly sessionId?: string | null;
 }
 
-export function setTelemetryContext(patch: TelemetryContextIds): void {
-  setContext(patch);
+export interface TelemetryClient {
+  track(event: string, properties?: TelemetryPropertiesType): void;
+  withContext(patch: TelemetryContextIds): TelemetryClient;
+  setContext(patch: TelemetryContextIds): void;
 }
 
-export function withTelemetryContext(patch: TelemetryContextIds): TelemetryClient {
-  return withContext(patch);
+const noopClient: TelemetryClient = {
+  track: () => {},
+  withContext: () => noopClient,
+  setContext: () => {},
+};
+
+export function setTelemetryContext(_patch: TelemetryContextIds): void {}
+
+export function withTelemetryContext(_patch: TelemetryContextIds): TelemetryClient {
+  return noopClient;
 }
 
-export function flushTelemetrySync(): void {
-  flushSync();
-}
+export function flushTelemetrySync(): void {}
 
 export async function shutdownTelemetry(
-  options: { readonly timeoutMs?: number } = {},
-): Promise<void> {
-  await shutdown(options);
+  _options: { readonly timeoutMs?: number } = {},
+): Promise<void> {}
+
+export interface TelemetryBootstrapOptions {
+  readonly enabled?: boolean;
+  readonly homeDir: string;
+  readonly deviceId: string;
+  readonly sessionId?: string;
+  readonly appName: string;
+  readonly version: string;
+  readonly uiMode?: string;
+  readonly model?: string;
+  readonly buildSha?: string;
+  readonly terminal?: string;
+  readonly locale?: string;
+  readonly getAccessToken?: () => string | null | Promise<string | null>;
 }
 
-export { initializeTelemetry } from './bootstrap';
-export type { TelemetryBootstrapOptions } from './bootstrap';
+export function initializeTelemetry(_options: TelemetryBootstrapOptions): void {}
 
-export { installCrashHandlers, setCrashPhase } from './crash';
-export type { CrashPhase } from './crash';
+export type CrashPhase = 'startup' | 'runtime' | 'shutdown';
+
+export function setCrashPhase(_nextPhase: CrashPhase): void {}
+
+export function installCrashHandlers(): () => void {
+  return () => {};
+}
 
 export { normalizeRemote } from './remote';
-
-export type { TelemetryPrimitive, TelemetryProperties } from './types';
-export type { TelemetryClient, TelemetryContextIds } from './client';

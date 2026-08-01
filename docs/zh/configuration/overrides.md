@@ -1,6 +1,6 @@
 # 配置覆盖
 
-Kimi Code CLI 把长期偏好、供应商凭证和一次性运行参数放在不同通道：
+Dimi CLI 把长期偏好、供应商凭证和一次性运行参数放在不同通道：
 
 - **`config.toml`** 保存默认供应商/模型、thinking 设置、循环限制等偏好，不保存供应商凭证。
 - **`auth.json`** 保存通过 `vp run dev:cli -- login` 写入的凭证。
@@ -36,7 +36,7 @@ CLI 当前只读取一个用户级配置文件，没有项目级配置机制。�
 ANTHROPIC_API_KEY="YOUR_API_KEY" vp run dev:cli -- -m anthropic/claude-sonnet-4-6
 ```
 
-OpenAI Codex 使用 OAuth；Kimi Code、xAI、Anthropic、OpenRouter、GitHub Copilot 和 Radius 可以提供 OAuth；云供应商可使用各自的凭据链。内置供应商及登录方式见[供应商与模型](./providers.md)。
+OpenAI Codex 使用 OAuth；Dimi、xAI、Anthropic、OpenRouter、GitHub Copilot 和 Radius 可以提供 OAuth；云供应商可使用各自的凭据链。内置供应商及登录方式见[供应商与模型](./providers.md)。
 
 ## 其他运行参数
 
@@ -59,7 +59,7 @@ OpenAI Codex 使用 OAuth；Kimi Code、xAI、Anthropic、OpenRouter、GitHub Co
 隔离所有本机状态：
 
 ```sh
-DIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
+DIMI_CODE_HOME="$PWD/.dimi-sandbox" dimi
 ```
 
 不修改 `config.toml`，临时选择 OpenAI：
@@ -68,13 +68,13 @@ DIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
 OPENAI_API_KEY="YOUR_API_KEY" \
   DIMI_MODEL_PROVIDER="openai" \
   DIMI_MODEL_NAME="gpt-5.4" \
-  kimi
+  dimi
 ```
 
 本次启动进入 Plan 模式：
 
 ```sh
-kimi --plan
+dimi --plan
 ```
 
 ## 下一步

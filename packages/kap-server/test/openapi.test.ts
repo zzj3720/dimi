@@ -32,7 +32,7 @@ describe('server-v2 OpenAPI', () => {
   });
 
   async function fetchOpenApi(): Promise<Record<string, unknown>> {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-openapi-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-openapi-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,
@@ -52,7 +52,7 @@ describe('server-v2 OpenAPI', () => {
 
     expect(doc['openapi']).toMatch(/^3\.\d+\.\d+$/);
     const info = asRecord(doc['info']);
-    expect(info['title']).toBe('Kimi Code Server API');
+    expect(info['title']).toBe('Dimi Server API');
     expect(typeof info['version']).toBe('string');
   });
 

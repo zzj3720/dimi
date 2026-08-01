@@ -224,7 +224,7 @@ describe("AgentMcpService", () => {
       ensureMcpReady: () => Promise.resolve(),
       connectionManager: () => manager as unknown as McpConnectionManager,
     });
-    ix.stub(ISessionContext, { sessionDir: "/tmp/kimi-code-mcp-test" });
+    ix.stub(ISessionContext, { sessionDir: "/tmp/dimi-mcp-test" });
     const svc = ix.createInstance(AgentMcpService);
     disposables.add(svc);
     return svc;

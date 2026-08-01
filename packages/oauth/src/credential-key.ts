@@ -3,15 +3,15 @@ import { createHash } from "node:crypto";
 import { DEFAULT_DIMI_CODE_OAUTH_HOST } from "./constants";
 import { DEFAULT_DIMI_CODE_BASE_URL } from "./managed-usage";
 
-export const DIMI_CODE_OAUTH_KEY = "oauth/kimi-code";
+export const DIMI_CODE_OAUTH_KEY = "oauth/dimi";
 
-const DIMI_CODE_SCOPED_OAUTH_KEY_PREFIX = "oauth/kimi-code-env-";
+const DIMI_CODE_SCOPED_OAUTH_KEY_PREFIX = "oauth/dimi-env-";
 
 function normalizeEndpoint(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
-export function resolveKimiCodeOAuthKey(options: {
+export function resolveDimiCodeOAuthKey(options: {
   readonly oauthHost?: string;
   readonly baseUrl?: string;
 }): string {

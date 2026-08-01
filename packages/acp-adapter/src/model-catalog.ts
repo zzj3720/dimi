@@ -1,4 +1,4 @@
-import type { KimiHarness, ProviderModel } from "@moonshot-ai/kimi-code-sdk";
+import type { DimiHarness, ProviderModel } from "@dimi-agent/dimi-sdk";
 
 /** One runtime model projected to ACP's model picker. */
 export interface AcpModelEntry {
@@ -33,7 +33,7 @@ export function deriveDefaultThinkingEffort(model: ProviderModel): string {
 
 /** Read the live, authenticated runtime catalog. Config stores only selections. */
 export async function listModelsFromHarness(
-  harness: KimiHarness,
+  harness: DimiHarness,
 ): Promise<readonly AcpModelEntry[]> {
   const models = await harness.auth.models();
   return models.map((model) => ({

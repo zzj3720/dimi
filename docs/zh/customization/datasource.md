@@ -2,9 +2,9 @@
 head:
   - - meta
     - http-equiv: refresh
-      content: 0; url=./plugins.html#kimi-datasource
+      content: 0; url=./plugins.html#dimi-datasource
 ---
 
-# Kimi Datasource
+# Dimi Datasource
 
-本页已迁移到 [Plugins：Kimi Datasource](./plugins.md#kimi-datasource)。
+本页已迁移到 [Plugins：Dimi Datasource](./plugins.md#dimi-datasource)。

@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 /** Resolve DIMI_CODE_HOME (env > ~/.dimi). */
-export function resolveKimiCodeHome(): string {
+export function resolveDimiCodeHome(): string {
   const envHome = process.env['DIMI_CODE_HOME'];
   if (envHome !== undefined && envHome.length > 0) {
     return envHome;
@@ -60,4 +60,4 @@ export function resolveVisAuthToken(host: string = resolveHost()): string | unde
   return undefined;
 }
 
-export const DIMI_CODE_HOME: string = resolveKimiCodeHome();
+export const DIMI_CODE_HOME: string = resolveDimiCodeHome();

@@ -1,8 +1,8 @@
 {
-  "name": "kimi-code",
+  "name": "dimi",
   "publisher": "moonshot-ai",
-  "displayName": "Kimi Code",
-  "description": "Official Kimi Code plugin for VS Code",
+  "displayName": "Dimi",
+  "description": "Official Dimi plugin for VS Code",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -40,48 +40,48 @@
     "json",
     "autocomplete",
     "moonshot",
-    "kimi",
+    "dimi",
     "moonshot-ai"
   ],
   "pricing": "Free",
   "activationEvents": [],
   "main": "./dist/extension.js",
-  "icon": "resources/kimi-icon-storefront.png",
+  "icon": "resources/dimi-icon-storefront.png",
   "contributes": {
     "configuration": {
-      "title": "Kimi Code",
+      "title": "Dimi",
       "properties": {
-        "kimi.yoloMode": {
+        "dimi.yoloMode": {
           "type": "boolean",
           "default": false,
           "description": "Auto-approve regular tool calls; the agent may still ask questions"
         },
-        "kimi.autosave": {
+        "dimi.autosave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically save files before Kimi reads or writes them"
+          "description": "Automatically save files before Dimi reads or writes them"
         },
-        "kimi.enableNewConversationShortcut": {
+        "dimi.enableNewConversationShortcut": {
           "type": "boolean",
           "default": false,
-          "description": "Use Cmd/Ctrl+N to start a new conversation when Kimi is focused"
+          "description": "Use Cmd/Ctrl+N to start a new conversation when Dimi is focused"
         },
-        "kimi.useCtrlEnterToSend": {
+        "dimi.useCtrlEnterToSend": {
           "type": "boolean",
           "default": false,
           "description": "Use Ctrl/Cmd+Enter to send prompts instead of Enter"
         },
-        "kimi.showThinkingContent": {
+        "dimi.showThinkingContent": {
           "type": "boolean",
           "default": true,
           "description": "Show thinking/reasoning content in the chat UI"
         },
-        "kimi.showThinkingExpanded": {
+        "dimi.showThinkingExpanded": {
           "type": "boolean",
           "default": false,
           "description": "Auto-expand thinking/reasoning sections when shown (requires 'Show Thinking Content' to be enabled)"
         },
-        "kimi.editorContext": {
+        "dimi.editorContext": {
           "type": "string",
           "default": "never",
           "enum": [
@@ -94,64 +94,64 @@
             "Share once when conversation starts",
             "Share when active file changes"
           ],
-          "description": "Control when to share the active editor's file and cursor position with Kimi"
+          "description": "Control when to share the active editor's file and cursor position with Dimi"
         }
       }
     },
     "commands": [
       {
-        "command": "kimi.clearAllState",
-        "title": "Kimi Code: [DEBUG] Clear All State"
+        "command": "dimi.clearAllState",
+        "title": "Dimi: [DEBUG] Clear All State"
       },
       {
-        "command": "kimi.openInTab",
-        "title": "Kimi Code: Open in New Tab",
+        "command": "dimi.openInTab",
+        "title": "Dimi: Open in New Tab",
         "icon": "$(link-external)"
       },
       {
-        "command": "kimi.openInSideBar",
-        "title": "Kimi Code: Open in Side Panel",
+        "command": "dimi.openInSideBar",
+        "title": "Dimi: Open in Side Panel",
         "icon": "$(layout-sidebar-left)"
       },
       {
-        "command": "kimi.focusInput",
-        "title": "Kimi Code: Focus Input",
+        "command": "dimi.focusInput",
+        "title": "Dimi: Focus Input",
         "icon": "$(edit)"
       },
       {
-        "command": "kimi.insertMention",
-        "title": "Kimi Code: Insert Current File",
+        "command": "dimi.insertMention",
+        "title": "Dimi: Insert Current File",
         "icon": "$(mention)"
       },
       {
-        "command": "kimi.newConversation",
-        "title": "Kimi Code: New Conversation",
+        "command": "dimi.newConversation",
+        "title": "Dimi: New Conversation",
         "icon": "$(add)"
       },
       {
-        "command": "kimi.showLogs",
-        "title": "Kimi Code: Show Logs",
+        "command": "dimi.showLogs",
+        "title": "Dimi: Show Logs",
         "icon": "$(output)"
       },
       {
-        "command": "kimi.resetKimi",
-        "title": "Kimi Code: Reset Kimi (in case of any issues/no response)",
+        "command": "dimi.resetKimi",
+        "title": "Dimi: Reset Dimi (in case of any issues/no response)",
         "icon": "$(refresh)"
       },
       {
-        "command": "kimi.logout",
-        "title": "Kimi Code: Logout",
+        "command": "dimi.logout",
+        "title": "Dimi: Logout",
         "icon": "$(sign-out)"
       }
     ],
     "keybindings": [
       {
-        "command": "kimi.focusInput",
+        "command": "dimi.focusInput",
         "key": "ctrl+shift+k",
         "mac": "cmd+shift+k"
       },
       {
-        "command": "kimi.insertMention",
+        "command": "dimi.insertMention",
         "key": "alt+k",
         "mac": "alt+k",
         "when": "editorTextFocus"
@@ -160,75 +160,75 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "kimi-sidebar",
-          "title": "Kimi Code",
-          "icon": "resources/kimi-icon.svg"
+          "id": "dimi-sidebar",
+          "title": "Dimi",
+          "icon": "resources/dimi-icon.svg"
         }
       ]
     },
     "views": {
-      "kimi-sidebar": [
+      "dimi-sidebar": [
         {
           "type": "webview",
-          "id": "kimi.webview",
-          "name": "Kimi Code"
+          "id": "dimi.webview",
+          "name": "Dimi"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
-          "command": "kimi.openInTab",
-          "when": "view == kimi.webview",
+          "command": "dimi.openInTab",
+          "when": "view == dimi.webview",
           "group": "navigation"
         },
         {
-          "command": "kimi.newConversation",
-          "when": "view == kimi.webview",
+          "command": "dimi.newConversation",
+          "when": "view == dimi.webview",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "kimi.clearAllState",
+          "command": "dimi.clearAllState",
           "when": "isDevelopment"
         },
         {
-          "command": "kimi.openInTab",
+          "command": "dimi.openInTab",
           "when": "true"
         },
         {
-          "command": "kimi.openInSideBar",
+          "command": "dimi.openInSideBar",
           "when": "true"
         },
         {
-          "command": "kimi.focusInput",
+          "command": "dimi.focusInput",
           "when": "true"
         },
         {
-          "command": "kimi.insertMention",
+          "command": "dimi.insertMention",
           "when": "true"
         },
         {
-          "command": "kimi.newConversation",
+          "command": "dimi.newConversation",
           "when": "true"
         },
         {
-          "command": "kimi.showLogs",
+          "command": "dimi.showLogs",
           "when": "true"
         },
         {
-          "command": "kimi.resetKimi",
+          "command": "dimi.resetKimi",
           "when": "true"
         },
         {
-          "command": "kimi.logout",
-          "when": "kimi.isLoggedIn"
+          "command": "dimi.logout",
+          "when": "dimi.isLoggedIn"
         }
       ],
       "editor/context": [
         {
-          "command": "kimi.insertMention",
+          "command": "dimi.insertMention",
           "group": "moonshot-ai",
           "when": "editorTextFocus"
         }
@@ -276,7 +276,7 @@
   "dependencies": {
     "@base-ui/react": "^1.0.0",
     "@fontsource-variable/inter": "5.2.8",
-    "@moonshot-ai/kimi-code-sdk": "workspace:^",
+    "@dimi-agent/dimi-sdk": "workspace:^",
     "@radix-ui/react-accordion": "^1.2.12",
     "@tabler/icons-react": "^3.36.0",
     "ahooks": "^3.9.6",

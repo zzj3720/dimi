@@ -1,10 +1,10 @@
-# Contributing to kimi-code
+# Contributing to dimi
 
 Thanks for taking the time to contribute! This project moves quickly, and thoughtful contributions from the community are what keep it sharp. The guide below walks you through how we work so your PR has the best chance of landing smoothly.
 
 ## Before You Start
 
-Kimi Code already has opinions on CLI/TUI behavior, agent workflows, and public APIs. If your change shifts that direction, open an issue first so we can align before you invest time in a PR.
+Dimi already has opinions on CLI/TUI behavior, agent workflows, and public APIs. If your change shifts that direction, open an issue first so we can align before you invest time in a PR.
 
 We hold AI-assisted contributions to the same standard as hand-written ones. **You should understand what you submit** — what changed, how it behaves at the edges, and why it fits this codebase. If you cannot explain that, the PR is not ready for review.
 
@@ -27,9 +27,9 @@ We only merge PRs aligned with the roadmap. Drive-by refactors without context a
 
 This is a pnpm monorepo. The most relevant entry points are:
 
-- `apps/kimi-code` — CLI / TUI
+- `apps/dimi` — CLI / TUI
 - `apps/vis` — session replay & debugging visualizer
-- `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
+- `packages/node-sdk` — public TypeScript SDK (`@dimi-agent/dimi-sdk`)
 - `packages/agent-core-v2`, `kaos`, `oauth`, `telemetry` — internal runtime packages
 - `docs/` — VitePress bilingual docs site
 
@@ -41,7 +41,7 @@ Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
 
 ```sh
 git clone https://github.com/zzj3720/dimi.git
-cd kimi-code
+cd dimi
 pnpm install
 ```
 

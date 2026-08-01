@@ -1,0 +1,25 @@
+{
+  "name": "dimi-datasource",
+  "version": "3.3.0",
+  "description": "Finance, macro, enterprise, academic, and legal data tools for Dimi.",
+  "keywords": [
+    "finance",
+    "data-source",
+    "mcp",
+    "legal"
+  ],
+  "mcpServers": {
+    "data": {
+      "command": "node",
+      "args": [
+        "./bin/dimi-datasource.mjs"
+      ],
+      "cwd": "./"
+    }
+  },
+  "interface": {
+    "displayName": "Dimi Datasource",
+    "shortDescription": "Finance, macro, enterprise, academic, and legal data tools",
+    "developerName": "Dimi"
+  }
+}

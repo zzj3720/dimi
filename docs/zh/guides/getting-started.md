@@ -14,7 +14,7 @@ Dimi 是一个运行在终端中的 AI Agent，帮助你完成软件开发任务
 
 ## 安装
 
-请克隆本仓库并运行开发版 CLI。不要使用旧安装脚本或 `@moonshot-ai/kimi-code@latest`，它们指向的是另一份产品发布。
+请克隆本仓库并运行开发版 CLI。不要使用旧安装脚本或 `@dimi-agent/cli@latest`，它们指向的是另一份产品发布。
 
 ::: tip 安装之前
 Dimi 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
@@ -39,7 +39,7 @@ vp install
 vp run dev:cli
 ```
 
-`kimi upgrade` / `kimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的发布版。
+`dimi upgrade` / `dimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的发布版。
 
 **卸载**：删除 clone 出来的目录即可。`~/.dimi/` 下的本地数据独立保存；只有同时希望删除会话和凭据时才删除它。
 
@@ -70,9 +70,9 @@ vp run dev:cli -- -c
 /login
 ```
 
-`/login` 会先询问支持的认证方式，再列出匹配的内置供应商。生成的目录包括 Kimi Code、OpenAI Codex、xAI/Grok、OpenAI、Anthropic、Gemini、云供应商和其他 API 服务：
+`/login` 会先询问支持的认证方式，再列出匹配的内置供应商。生成的目录包括 Dimi、OpenAI Codex、xAI/Grok、OpenAI、Anthropic、Gemini、云供应商和其他 API 服务：
 
-- **OAuth** — 选择账号流程时，Kimi Code、OpenAI Codex、xAI、Anthropic、GitHub Copilot、OpenRouter 和 Radius 支持
+- **OAuth** — 选择账号流程时，Dimi、OpenAI Codex、xAI、Anthropic、GitHub Copilot、OpenRouter 和 Radius 支持
 - **API 密钥** — 输入并安全保存所选供应商的密钥
 - **云身份** — Amazon Bedrock 可使用 AWS 凭据链；Vertex 可使用 Google Cloud ADC 或 service account
 

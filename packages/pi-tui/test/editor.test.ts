@@ -4397,7 +4397,7 @@ describe("Editor narrow width rendering", () => {
 		}
 	});
 
-	it("renders CJK text without crashing at widths 1-8 (paddingX 4, matches kimi-code)", () => {
+	it("renders CJK text without crashing at widths 1-8 (paddingX 4, matches dimi)", () => {
 		for (let width = 1; width <= 8; width++) {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme, { paddingX: 4 });
 			editor.setText("你好，世界！");

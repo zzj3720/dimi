@@ -18,15 +18,15 @@ fi
 workspace_hash="$(printf '%s' "${REPO_ROOT}" | cksum | awk '{print $1}')"
 RUN_ID="${DIMI_SERVER_E2E_RUN_ID:-${workspace_slug}-${workspace_hash}}"
 
-BASE_IMAGE="${DIMI_SERVER_E2E_BASE_IMAGE:-kimi-server-e2e-base:${RUN_ID}}"
-IMAGE="${DIMI_SERVER_E2E_IMAGE:-kimi-server-e2e:${RUN_ID}}"
-CONTAINER="${DIMI_SERVER_E2E_CONTAINER:-kimi-server-e2e-${RUN_ID}}"
+BASE_IMAGE="${DIMI_SERVER_E2E_BASE_IMAGE:-dimi-server-e2e-base:${RUN_ID}}"
+IMAGE="${DIMI_SERVER_E2E_IMAGE:-dimi-server-e2e:${RUN_ID}}"
+CONTAINER="${DIMI_SERVER_E2E_CONTAINER:-dimi-server-e2e-${RUN_ID}}"
 STATE_ROOT="${DIMI_SERVER_E2E_STATE_ROOT:-${HOME}/.dimi-server-dev}"
 PORT="${DIMI_SERVER_E2E_PORT:-58627}"
 
-DIMI_HOME_HOST="${DIMI_SERVER_E2E_KIMI_HOME_HOST:-${STATE_ROOT}/docker-e2e/${RUN_ID}/kimi-code-home}"
-DIMI_HOME_CONTAINER="/data/docker-e2e/kimi-code-home"
-SEED_HOME_HOST="${DIMI_SERVER_E2E_SEED_KIMI_HOME_HOST:-${STATE_ROOT}/kimi-home/kimi-code-home}"
+DIMI_HOME_HOST="${DIMI_SERVER_E2E_KIMI_HOME_HOST:-${STATE_ROOT}/docker-e2e/${RUN_ID}/dimi-home}"
+DIMI_HOME_CONTAINER="/data/docker-e2e/dimi-home"
+SEED_HOME_HOST="${DIMI_SERVER_E2E_SEED_KIMI_HOME_HOST:-${STATE_ROOT}/dimi-home/dimi-home}"
 
 if [[ -n "${DIMI_SERVER_E2E_REPORT_DIR_HOST:-}" ]]; then
   REPORT_DIR_HOST="${DIMI_SERVER_E2E_REPORT_DIR_HOST}"
@@ -44,22 +44,22 @@ TMPDIR_CONTAINER="/data/docker-e2e/tmp"
 NM_ROOT="${STATE_ROOT}/docker-e2e/${RUN_ID}/nm"
 
 workspace_node_modules=(
-  "root:/workspace/kimi-code/node_modules"
-  "apps_kimi-code:/workspace/kimi-code/apps/kimi-code/node_modules"
-  "apps_kimi-web:/workspace/kimi-code/apps/kimi-web/node_modules"
-  "apps_vis:/workspace/kimi-code/apps/vis/node_modules"
-  "apps_vis_server:/workspace/kimi-code/apps/vis/server/node_modules"
-  "apps_vis_web:/workspace/kimi-code/apps/vis/web/node_modules"
-  "docs:/workspace/kimi-code/docs/node_modules"
-  "pkg_acp-adapter:/workspace/kimi-code/packages/acp-adapter/node_modules"
-  "pkg_kap-server:/workspace/kimi-code/packages/kap-server/node_modules"
-  "pkg_server-e2e:/workspace/kimi-code/packages/klient/node_modules"
-  "pkg_kaos:/workspace/kimi-code/packages/kaos/node_modules"
-  "pkg_node-sdk:/workspace/kimi-code/packages/node-sdk/node_modules"
-  "pkg_oauth:/workspace/kimi-code/packages/oauth/node_modules"
-  "pkg_protocol:/workspace/kimi-code/packages/protocol/node_modules"
-  "pkg_services:/workspace/kimi-code/packages/services/node_modules"
-  "pkg_telemetry:/workspace/kimi-code/packages/telemetry/node_modules"
+  "root:/workspace/dimi/node_modules"
+  "apps_dimi:/workspace/dimi/apps/dimi/node_modules"
+  "apps_kimi-web:/workspace/dimi/apps/dimi-web/node_modules"
+  "apps_vis:/workspace/dimi/apps/vis/node_modules"
+  "apps_vis_server:/workspace/dimi/apps/vis/server/node_modules"
+  "apps_vis_web:/workspace/dimi/apps/vis/web/node_modules"
+  "docs:/workspace/dimi/docs/node_modules"
+  "pkg_acp-adapter:/workspace/dimi/packages/acp-adapter/node_modules"
+  "pkg_kap-server:/workspace/dimi/packages/kap-server/node_modules"
+  "pkg_server-e2e:/workspace/dimi/packages/klient/node_modules"
+  "pkg_kaos:/workspace/dimi/packages/kaos/node_modules"
+  "pkg_node-sdk:/workspace/dimi/packages/node-sdk/node_modules"
+  "pkg_oauth:/workspace/dimi/packages/oauth/node_modules"
+  "pkg_protocol:/workspace/dimi/packages/protocol/node_modules"
+  "pkg_services:/workspace/dimi/packages/services/node_modules"
+  "pkg_telemetry:/workspace/dimi/packages/telemetry/node_modules"
 )
 
 mkdir -p "${STATE_ROOT}" "${DIMI_HOME_HOST}" "${REPORT_DIR_HOST}" "${NM_ROOT}"
@@ -90,11 +90,11 @@ docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 read -r -d '' container_script <<'EOS' || true
 set -euo pipefail
 
-cd /workspace/kimi-code
+cd /workspace/dimi
 mkdir -p "${DIMI_CODE_HOME}/server" "${DIMI_SERVER_E2E_REPORT_DIR}" "${TMPDIR}" /data/server-e2e-reports/docker
 rm -f "${DIMI_CODE_HOME}/server/lock"
 
-if [[ ! -e /workspace/kimi-code/node_modules/.modules.yaml || ! -e /workspace/kimi-code/packages/klient/node_modules/ws ]]; then
+if [[ ! -e /workspace/dimi/node_modules/.modules.yaml || ! -e /workspace/dimi/packages/klient/node_modules/ws ]]; then
   echo "[server-e2e:docker] installing pnpm deps"
   pnpm install --frozen-lockfile
 else
@@ -145,7 +145,7 @@ if [[ "${ready}" != "1" ]]; then
   exit 1
 fi
 
-cd /workspace/kimi-code/packages/klient
+cd /workspace/dimi/packages/klient
 pnpm test
 EOS
 
@@ -154,7 +154,7 @@ docker_args=(
   --rm
   --init
   --name "${CONTAINER}"
-  --workdir /workspace/kimi-code/packages/klient
+  --workdir /workspace/dimi/packages/klient
   --env "DIMI_CODE_HOME=${DIMI_HOME_CONTAINER}"
   --env "DIMI_SERVER_E2E_PORT=${PORT}"
   --env "DIMI_SERVER_URL=http://127.0.0.1:${PORT}"
@@ -162,9 +162,9 @@ docker_args=(
   --env "TMPDIR=${TMPDIR_CONTAINER}"
   --env "TERM=xterm-256color"
   --env "TZ=Asia/Shanghai"
-  --env "npm_config_store_dir=/workspace/kimi-code/node_modules/.pnpm-store"
+  --env "npm_config_store_dir=/workspace/dimi/node_modules/.pnpm-store"
   --env "npm_config_package_import_method=copy"
-  --volume "${REPO_ROOT}:/workspace/kimi-code:ro"
+  --volume "${REPO_ROOT}:/workspace/dimi:ro"
   --volume "${DIMI_HOME_HOST}:${DIMI_HOME_CONTAINER}"
   --volume "${REPORT_ROOT_HOST}:${REPORT_ROOT_CONTAINER}"
 )

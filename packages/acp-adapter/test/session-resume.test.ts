@@ -13,7 +13,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import { KimiError, ErrorCodes, type Event, type KimiHarness, type Session } from '@moonshot-ai/kimi-code-sdk';
+import { DimiError, ErrorCodes, type Event, type DimiHarness, type Session } from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -101,11 +101,11 @@ function makeHarness(opts: {
   hasUsableToken?: boolean;
   session?: Session;
   resumeError?: Error;
-}): KimiHarness {
+}): DimiHarness {
   const authed = opts.hasUsableToken ?? true;
   const models = makeProviderModels([
-    { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-    { id: 'test/kimi-plain', name: 'Kimi Plain' },
+    { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
+    { id: 'test/dimi-plain', name: 'Dimi Plain' },
   ]);
   return {
     auth: makeAuth({ authenticated: authed, models }),
@@ -115,13 +115,13 @@ function makeHarness(opts: {
       return opts.session;
     },
     // Phase 14: server.resumeSession (via setupSessionFromExisting) reads
-    // these to assemble configOptions. `kimi-coder` opts in to thinking
-    // via `capabilities: ['thinking']`; `kimi-plain` stays off.
+    // these to assemble configOptions. `dimir` opts in to thinking
+    // via `capabilities: ['thinking']`; `dimi-plain` stays off.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
+      defaultModel: 'test/dimir',
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 describe('AcpServer.resumeSession', () => {
@@ -139,16 +139,16 @@ describe('AcpServer.resumeSession', () => {
 
   it('returns configOptions matching the resumed session model + mode + thinking', async () => {
     const sessionId = 'sess-resume-model';
-    // Resume state reports kimi-plain (thinking unsupported) so we can
+    // Resume state reports dimi-plain (thinking unsupported) so we can
     // assert the projection picks the alias from main-agent config and
     // that thinking flips to `on` because `thinkingLevel='high'` is
     // non-`off` per the server's boolean projection. The mode currentValue
     // is always `default` because mode is session-scoped (PLAN D9).
     //
-    // We use kimi-coder so the thinking option is rendered (kimi-plain
+    // We use dimir so the thinking option is rendered (dimi-plain
     // would suppress it via `thinkingSupported: false`).
     const session = makeSessionWithMainConfig(sessionId, {
-      modelAlias: 'test/kimi-coder',
+      modelAlias: 'test/dimir',
       thinkingLevel: 'high',
     });
     const harness = makeHarness({ hasUsableToken: true, session });
@@ -174,7 +174,7 @@ describe('AcpServer.resumeSession', () => {
     expect(modeOpt).toBeDefined();
 
     if (modelOpt!.type !== 'select') throw new Error('model option must be a select');
-    expect(modelOpt!.currentValue).toBe('test/kimi-coder');
+    expect(modelOpt!.currentValue).toBe('test/dimir');
 
     if (thinkingOpt!.type !== 'select') throw new Error('thinking option must be a select');
     // `thinkingLevel='high'` → boolean projection picks the `on` slot.
@@ -236,7 +236,7 @@ describe('AcpServer.resumeSession', () => {
   it('maps SDK session.not_found error to invalidParams (-32602)', async () => {
     const harness = makeHarness({
       hasUsableToken: true,
-      resumeError: new KimiError(ErrorCodes.SESSION_NOT_FOUND, 'Session "ghost" was not found'),
+      resumeError: new DimiError(ErrorCodes.SESSION_NOT_FOUND, 'Session "ghost" was not found'),
     });
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

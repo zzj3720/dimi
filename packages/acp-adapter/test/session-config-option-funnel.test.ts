@@ -16,10 +16,10 @@ import {
 import type {
   ApprovalHandler,
   Event,
-  KimiHarness,
+  DimiHarness,
   PermissionMode,
   Session,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -78,23 +78,23 @@ function makeFakeSession(sessionId: string): Session {
   } as unknown as Session;
 }
 
-function makeHarness(session: Session): KimiHarness {
+function makeHarness(session: Session): DimiHarness {
   return {
     auth: makeAuth(),
     createSession: async () => session,
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
+      defaultModel: 'test/dimir',
       models: makeProviderModels([
-        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: false },
-        { id: 'kimi-v2', name: 'Kimi v2', thinkingSupported: false },
+        { id: 'test/dimir', name: 'Dimir', thinkingSupported: false },
+        { id: 'dimi-v2', name: 'Dimi v2', thinkingSupported: false },
       ]),
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 async function openSession(
-  harness: KimiHarness,
+  harness: DimiHarness,
 ): Promise<{ client: ClientSideConnection; capturing: CapturingClient; sessionId: string }> {
   const { agentStream, clientStream } = makeInMemoryStreamPair();
   new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -128,14 +128,14 @@ describe('config_option_update wire-shape funnel', () => {
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
-    await client.unstable_setSessionModel({ sessionId, modelId: 'kimi-v2' });
+    await client.unstable_setSessionModel({ sessionId, modelId: 'dimi-v2' });
 
     const update = extractSingleConfigOptionUpdate(capturing, sessionId);
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     expect(update.configOptions).toHaveLength(2);
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('kimi-v2');
+      expect(modelOpt.currentValue).toBe('dimi-v2');
     }
     const modeOpt = update.configOptions.find((o) => o.id === 'mode');
     if (modeOpt && modeOpt.type === 'select') {
@@ -178,7 +178,7 @@ describe('config_option_update wire-shape funnel', () => {
 
   it('setSessionConfigOption(thinking="on") emits one config_option_update with thinking toggle on', async () => {
     // Catalog needs at least one thinkingSupported entry so the toggle
-    // is visible in the snapshot; default model resolves to kimi-coder
+    // is visible in the snapshot; default model resolves to dimir
     // (the harness's configured default).
     const session = makeFakeSession('sess-funnel-thinking');
     const harness = {
@@ -186,10 +186,10 @@ describe('config_option_update wire-shape funnel', () => {
       createSession: async () => session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'test/kimi-coder',
-        models: makeProviderModels([{ id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true }]),
+        defaultModel: 'test/dimir',
+        models: makeProviderModels([{ id: 'test/dimir', name: 'Dimir', thinkingSupported: true }]),
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
     capturing.notifications.length = 0;
 
@@ -237,7 +237,7 @@ describe('config_option_update wire-shape funnel', () => {
     }
 
     const viaModel = await envelopeFromPath((c, sid) =>
-      c.unstable_setSessionModel({ sessionId: sid, modelId: 'test/kimi-coder' }),
+      c.unstable_setSessionModel({ sessionId: sid, modelId: 'test/dimir' }),
     );
     const viaMode = await envelopeFromPath((c, sid) =>
       c.setSessionMode({ sessionId: sid, modeId: 'plan' }),

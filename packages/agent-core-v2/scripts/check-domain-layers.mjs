@@ -6,13 +6,13 @@
  * runtime import ban over `test/**` too):
  *
  *  1. **No removed runtime imports** — the current runtime must never import
- *     the deleted `@moonshot-ai/agent-core` package or any subpath.
+ *     the deleted `@dimi-agent/agent-core` package or any subpath.
  *  2. **Domain layering** — a domain at layer L may only import domains at
  *     layer `<= L`. Lower layers must not reach upward. See
  *     `plan/PLAN.md` §3 / §5 for the layer table.
  * Intra-package relative imports and `#/`-alias imports are resolved to a
  * domain by the first path segment under `src/`. Sibling packages
- * (`@moonshot-ai/*` other than the removed runtime) and third-party imports are out of scope
+ * (`@dimi-agent/*` other than the removed runtime) and third-party imports are out of scope
  * third-party imports are out of scope.
  *
  * Run: `node scripts/check-domain-layers.mjs`. Exits non-zero on violation.
@@ -90,7 +90,7 @@ const DOMAIN_LAYER = new Map([
   // domain may hold its plain-data state through it; sits in L1 beside `event`.
   ["state", 1],
   // `bashParser` is the App-scope adapter over the pure
-  // `@moonshot-ai/tree-sitter-bash` package (bash source → syntax tree DTO).
+  // `@dimi-agent/tree-sitter-bash` package (bash source → syntax tree DTO).
   // It injects no services, so it sits in L1 beside the other pure
   // capabilities.
   ["bashParser", 1],
@@ -253,7 +253,7 @@ const DOMAIN_LAYER = new Map([
   ["messageLegacy", 7],
 ]);
 
-const REMOVED_RUNTIME_PACKAGE = "@moonshot-ai/agent-core";
+const REMOVED_RUNTIME_PACKAGE = "@dimi-agent/agent-core";
 
 /**
  * Scope directories introduced by the `src/{scope}/{domain}` layout. A path's
@@ -345,7 +345,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   // `swarm` (L4) drives sub-agent runs through the `subagent` domain (L6) —
   // same shape as the `swarm>agentLifecycle` spawn exception above.
   "swarm>subagent",
-  // `agentTask` (L5) owns the print-mode (`kimi -p`) policy; filling its
+  // `agentTask` (L5) owns the print-mode (`dimi -p`) policy; filling its
   // config defaults reaches the `subagent` section (L6) for the subagent
   // timeout — same cross-scope config-fill shape as `swarm>subagent`.
   "agentTask>subagent",

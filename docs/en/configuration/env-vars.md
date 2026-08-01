@@ -1,6 +1,6 @@
 # Environment variables
 
-Kimi Code CLI uses environment variables for provider API keys, model selection, runtime switches, and relocating its data directory. Provider credentials are never written to `config.toml`: use `vp run dev:cli -- login <provider>` from the checkout to store a key securely, or export the provider's standard API-key variable for the current process.
+Dimi CLI uses environment variables for provider API keys, model selection, runtime switches, and relocating its data directory. Provider credentials are never written to `config.toml`: use `vp run dev:cli -- login <provider>` from the checkout to store a key securely, or export the provider's standard API-key variable for the current process.
 
 ## Core paths
 
@@ -9,10 +9,10 @@ Kimi Code CLI uses environment variables for provider API keys, model selection,
 Overrides the data root directory; the default is `~/.dimi`. Once set, the config file, sessions, logs, OAuth credentials, and all other data land under the new path:
 
 ```sh
-export DIMI_CODE_HOME="/path/to/custom/kimi-code"
+export DIMI_CODE_HOME="/path/to/custom/dimi"
 ```
 
-> Make sure the directory is writable. Multiple `kimi` instances sharing the same `DIMI_CODE_HOME` will share config and credential files.
+> Make sure the directory is writable. Multiple `dimi` instances sharing the same `DIMI_CODE_HOME` will share config and credential files.
 
 For the complete data directory structure, see [Data locations](./data-locations.md).
 
@@ -84,7 +84,7 @@ This group of variables redirects OAuth authentication and managed service endpo
 | ---------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
 | `DIMI_CODE_OAUTH_HOST` | OAuth auth host; highest priority                             | Falls back to `DIMI_OAUTH_HOST` when unset       |
 | `DIMI_OAUTH_HOST`      | OAuth auth host; fallback for `DIMI_CODE_OAUTH_HOST`          | Falls back to `https://auth.kimi.com` when unset |
-| `DIMI_CODE_BASE_URL`   | Base URL for managed Kimi services and provider-aware plugins | `https://api.kimi.com/coding/v1`                 |
+| `DIMI_CODE_BASE_URL`   | Base URL for managed Dimi services and provider-aware plugins | `https://api.kimi.com/coding/v1`                 |
 
 ## Select a model from environment variables
 
@@ -94,7 +94,7 @@ Set the provider and model IDs together to select an entry from the runtime cata
 export DIMI_MODEL_PROVIDER="anthropic"
 export DIMI_MODEL_NAME="claude-sonnet-4-6"
 export ANTHROPIC_API_KEY="YOUR_API_KEY"
-kimi
+dimi
 ```
 
 | Variable              | Purpose                                       |
@@ -114,7 +114,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[task] max_running_tasks` in `config.toml` (unset means no cap)                                                                                                                                                                                        | Positive integer; invalid values are ignored                                                                        |
 | `DIMI_IMAGE_MAX_EDGE_PX`                 | Longest-edge ceiling (px) for image compression; takes higher priority than `[image] max_edge_px` in `config.toml` (default `2000`)                                                                                                                                                                                              | Positive integer; invalid values are ignored                                                                        |
 | `DIMI_IMAGE_READ_BYTE_BUDGET`            | Per-image byte budget for model-initiated image reads (`ReadMediaFile` default reads); takes higher priority than `[image] read_byte_budget` in `config.toml` (default `262144`, i.e. 256 KB)                                                                                                                                    | Positive integer; invalid values are ignored                                                                        |
-| `DIMI_CODE_PLUGIN_MARKETPLACE_URL`       | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories                                                                                                                                                                              | `https://code.kimi.com/kimi-code/plugins/marketplace.json`; also accepts `http://`, `file://` URLs, and local paths |
+| `DIMI_CODE_PLUGIN_MARKETPLACE_URL`       | Override the plugin marketplace JSON loaded by `/plugins`; useful for dev loopback servers, staging CDN files, or alternate marketplace directories                                                                                                                                                                              | `https://github.com/zzj3720/dimi/releases/latest/download/plugins/marketplace.json`; also accepts `http://`, `file://` URLs, and local paths |
 | `DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY`  | Cap how many AgentSwarm subagents run concurrently during the initial ramp; leave unset for no cap                                                                                                                                                                                                                               | Positive integer; invalid values fail fast                                                                          |
 | `DIMI_SUBAGENT_TIMEOUT_MS`               | Maximum wall-clock time (ms) a single subagent (`Agent` / `AgentSwarm`) may run; takes higher priority than `[subagent] timeout_ms` in `config.toml` (default `7200000`, i.e. 2 hours)                                                                                                                                           | Positive integer; invalid values fall back to the config or default                                                 |
 | `DIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL` | Enable the experimental secondary-model feature in every launch mode, including the interactive TUI; the master `DIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it                                                                                                                                                                  | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`                                                        |
@@ -127,7 +127,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `DIMI_LOOP_MAX_RETRIES_PER_STEP`         | Maximum retries after a step failure; takes higher priority than `[loop_control] max_retries_per_step` in `config.toml` (default `10`)                                                                                                                                                                                           | Non-negative integer; invalid values are ignored                                                                    |
 | `DIMI_WEB_SEARCH_BASE_URL`               | API URL of the web search (`WebSearch`) service; takes higher priority than `[services.moonshot_search] base_url` in `config.toml`, and enables the service without that config section. Persisted credentials and custom headers are not forwarded to an env-selected endpoint                                                  | Non-blank string; blank values are ignored                                                                          |
 | `DIMI_WEB_SEARCH_API_KEY`                | API key of the web search (`WebSearch`) service; replaces both the configured API key and OAuth credential when set                                                                                                                                                                                                              | Non-blank string; blank values are ignored                                                                          |
-| `DIMI_WEB_FETCH_BASE_URL`                | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.moonshot_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint. Without an env or config endpoint, signed-in users try the managed Kimi OAuth fetch service before direct local requests | Non-blank string; blank values are ignored                                                                          |
+| `DIMI_WEB_FETCH_BASE_URL`                | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.moonshot_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint. Without an env or config endpoint, signed-in users try the managed Dimi OAuth fetch service before direct local requests | Non-blank string; blank values are ignored                                                                          |
 | `DIMI_WEB_FETCH_API_KEY`                 | API key of the web fetch (`FetchURL`) service; replaces both the configured API key and OAuth credential when set                                                                                                                                                                                                                | Non-blank string; blank values are ignored                                                                          |
 | `DIMI_CODE_EXPERIMENTAL_FLAG`            | Enable all registered experimental features for this process                                                                                                                                                                                                                                                                     | `1`, `true`, `yes`, `on`                                                                                            |
 | `DIMI_SHELL_PATH`                        | Override the Git Bash path on Windows (used when auto-detection fails)                                                                                                                                                                                                                                                           | Absolute path                                                                                                       |
@@ -167,7 +167,7 @@ The CLI also reads several standard system variables to detect the runtime envir
 
 ## HTTP proxy
 
-Kimi Code honors the standard proxy environment variables for all outbound traffic — model API calls, MCP servers, web tools, telemetry, sign-in, and update checks:
+Dimi honors the standard proxy environment variables for all outbound traffic — model API calls, MCP servers, web tools, telemetry, sign-in, and update checks:
 
 - `HTTP_PROXY` / `http_proxy`: proxy for `http://` requests
 - `HTTPS_PROXY` / `https_proxy`: proxy for `https://` requests
@@ -178,7 +178,7 @@ Both HTTP(S) and SOCKS proxies are supported. A SOCKS proxy is recognized by its
 
 The proxy is applied only when one of these variables is set; otherwise connections are made directly. Loopback hosts (`localhost`, `127.0.0.1`, `::1`) always bypass the proxy, so a local server such as a localhost MCP server keeps working when a proxy is configured — add your own internal hosts to `NO_PROXY` to exempt them too.
 
-Stdio MCP servers that run as Node child processes honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` automatically when the child's Node version supports `NODE_USE_ENV_PROXY` (Node ≥ 22.21 or ≥ 24.5); SOCKS proxying applies to Kimi Code's own traffic only.
+Stdio MCP servers that run as Node child processes honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` automatically when the child's Node version supports `NODE_USE_ENV_PROXY` (Node ≥ 22.21 or ≥ 24.5); SOCKS proxying applies to Dimi's own traffic only.
 
 ## Next steps
 

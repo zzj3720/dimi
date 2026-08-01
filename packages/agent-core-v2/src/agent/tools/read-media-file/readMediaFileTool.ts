@@ -222,7 +222,7 @@ function buildFullResolutionLimitError(path: string, finalBytes: number): string
 function shouldSurfaceVideoUploadError(error: unknown, inlineVideoSupported: boolean): boolean {
   // No upload hook by design: surfacing the honest error only pays when the
   // wire would drop an inline payload anyway (the OpenAI family). Protocols
-  // that convert video_url (kimi, anthropic, google-genai, …) take the
+  // that convert video_url (dimi, anthropic, google-genai, …) take the
   // inline fallback instead.
   if (error instanceof VideoUploadUnsupportedError) return !inlineVideoSupported;
   return isVideoUploadAuthError(error);

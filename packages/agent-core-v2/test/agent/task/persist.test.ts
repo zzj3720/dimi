@@ -3,7 +3,7 @@
  *
  * Constructs the plain `AgentTaskPersistence` helper over real node-fs storage
  * resolved by interface, covering per-agent writes, reads, and exact output paths. Run with
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/agent/task/persist.test.ts`.
+ * `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run test/agent/task/persist.test.ts`.
  */
 
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -52,7 +52,7 @@ function sample(overrides: Partial<Extract<AgentTaskInfo, { kind: 'process' }>> 
 beforeEach(async () => {
   sessionDir = join(
     tmpdir(),
-    `kimi-bg-persist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `dimi-bg-persist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
 

@@ -4,12 +4,12 @@ import { SRC_ROOT, checkSource } from '../../scripts/check-domain-layers.mjs';
 
 const at = (domain: string, file: string): string => `${SRC_ROOT}/${domain}/${file}`;
 
-const REMOVED_RUNTIME = ['@moonshot-ai', 'agent-core'].join('/');
+const REMOVED_RUNTIME = ['@dimi-agent', 'agent-core'].join('/');
 
 describe('check-domain-layers', () => {
   it('flags a direct import of the removed runtime package', () => {
     const violations = checkSource(
-      `import { KimiCore } from '${REMOVED_RUNTIME}';`,
+      `import { DimiCore } from '${REMOVED_RUNTIME}';`,
       at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
@@ -53,7 +53,7 @@ describe('check-domain-layers', () => {
 
   it('allows sibling-package imports (out of scope for layering)', () => {
     const violations = checkSource(
-      `import { something } from '@moonshot-ai/kaos';`,
+      `import { something } from '@dimi-agent/kaos';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(0);

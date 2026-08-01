@@ -197,7 +197,7 @@ export interface GoalChange {
   readonly actor?: GoalActor;
 }
 
-export type KimiErrorCode =
+export type DimiErrorCode =
   | 'config.invalid'
   | 'session.not_found'
   | 'session.already_exists'
@@ -310,13 +310,13 @@ export type KimiErrorCode =
   | 'not_implemented'
   | 'internal';
 
-export interface KimiErrorPayload {
-  readonly code: KimiErrorCode;
+export interface DimiErrorPayload {
+  readonly code: DimiErrorCode;
   readonly message: string;
   readonly name?: string;
   readonly details?: Record<string, unknown>;
   readonly retryable: boolean;
-  readonly cause?: KimiErrorPayload;
+  readonly cause?: DimiErrorPayload;
 }
 
 export interface TaskInfoBase {
@@ -583,7 +583,7 @@ export interface PluginCommandActivatedEvent {
   readonly trigger: 'user-slash';
 }
 
-export interface ErrorEvent extends KimiErrorPayload {
+export interface ErrorEvent extends DimiErrorPayload {
   readonly type: 'error';
 }
 
@@ -604,7 +604,7 @@ export interface TurnEndedEvent {
   readonly type: 'turn.ended';
   readonly turnId: number;
   readonly reason: TurnEndReason;
-  readonly error?: KimiErrorPayload;
+  readonly error?: DimiErrorPayload;
   readonly durationMs?: number;
 }
 
@@ -1113,7 +1113,7 @@ export const goalChangeSchema = z.object({
   actor: goalActorSchema.optional(),
 }) satisfies z.ZodType<GoalChange>;
 
-export const kimiErrorCodeSchema = z.enum([
+export const dimiErrorCodeSchema = z.enum([
   'config.invalid',
   'session.not_found',
   'session.already_exists',
@@ -1207,20 +1207,20 @@ export const kimiErrorCodeSchema = z.enum([
   'validation.failed',
   'not_implemented',
   'internal',
-]) satisfies z.ZodType<KimiErrorCode>;
+]) satisfies z.ZodType<DimiErrorCode>;
 
-export const kimiErrorPayloadSchema: z.ZodType<KimiErrorPayload> = z.lazy(
-  () => kimiErrorPayloadObjectSchema,
+export const dimiErrorPayloadSchema: z.ZodType<DimiErrorPayload> = z.lazy(
+  () => dimiErrorPayloadObjectSchema,
 );
 
-const kimiErrorPayloadObjectSchema = z.object({
-  code: kimiErrorCodeSchema,
+const dimiErrorPayloadObjectSchema = z.object({
+  code: dimiErrorCodeSchema,
   message: z.string(),
   name: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
   retryable: z.boolean(),
-  cause: kimiErrorPayloadSchema.optional(),
-}) satisfies z.ZodType<KimiErrorPayload>;
+  cause: dimiErrorPayloadSchema.optional(),
+}) satisfies z.ZodType<DimiErrorPayload>;
 
 export const taskInfoBaseSchema = z.object({
   taskId: z.string(),
@@ -1452,7 +1452,7 @@ export const pluginCommandActivatedEventSchema = z.object({
   trigger: z.literal('user-slash'),
 }) satisfies z.ZodType<PluginCommandActivatedEvent>;
 
-export const errorEventSchema = kimiErrorPayloadObjectSchema.extend({
+export const errorEventSchema = dimiErrorPayloadObjectSchema.extend({
   type: z.literal('error'),
 }) satisfies z.ZodType<ErrorEvent>;
 
@@ -1473,7 +1473,7 @@ export const turnEndedEventSchema = z.object({
   type: z.literal('turn.ended'),
   turnId: z.number(),
   reason: turnEndReasonSchema,
-  error: kimiErrorPayloadSchema.optional(),
+  error: dimiErrorPayloadSchema.optional(),
   durationMs: z.number().optional(),
 }) satisfies z.ZodType<TurnEndedEvent>;
 

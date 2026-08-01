@@ -86,7 +86,7 @@ export class ModelRequesterImpl implements ModelRequester {
 
     for await (const event of stream) {
       firstPartAt ??= isContentEvent(event) ? Date.now() : undefined;
-      const part = toKimiPart(event);
+      const part = toDimiPart(event);
       if (part !== undefined) {
         if (part.type === "function") emittedToolCalls += 1;
         queue.push({ type: "part", part });
@@ -99,7 +99,7 @@ export class ModelRequesterImpl implements ModelRequester {
         });
         queue.push({
           type: "finish",
-          message: toKimiAssistantMessage(event.message),
+          message: toDimiAssistantMessage(event.message),
           providerFinishReason: toFinishReason(event.message.finishReason ?? event.reason),
           rawFinishReason: event.message.rawStopReason ?? event.reason,
           id: event.message.responseId,
@@ -280,7 +280,7 @@ function parseDataUrl(url: string): ImageContent | undefined {
   return { type: "image", mimeType: match[1]!, data: match[2]! };
 }
 
-function toKimiPart(event: AssistantMessageEvent): StreamedMessagePart | undefined {
+function toDimiPart(event: AssistantMessageEvent): StreamedMessagePart | undefined {
   switch (event.type) {
     case "text_delta":
       return { type: "text", text: event.delta };
@@ -316,7 +316,7 @@ function isContentEvent(event: AssistantMessageEvent): boolean {
   );
 }
 
-function toKimiAssistantMessage(message: AssistantMessage): Message {
+function toDimiAssistantMessage(message: AssistantMessage): Message {
   return {
     role: "assistant",
     content: message.content.flatMap((part): ContentPart[] => {

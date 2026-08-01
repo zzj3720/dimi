@@ -59,7 +59,7 @@ describe('findExistingRg', () => {
   let fakeShare: string;
   let savedPath: string | undefined;
   beforeEach(() => {
-    fakeShare = join(tmpdir(), `kimi-rg-${String(Date.now())}-${String(Math.random()).slice(2)}`);
+    fakeShare = join(tmpdir(), `dimi-rg-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedPath = process.env['PATH'];
     process.env['PATH'] = '';
@@ -167,7 +167,7 @@ describe('rgUnavailableMessage', () => {
 describe('verifyArchiveChecksum', () => {
   let fakeDir: string;
   beforeEach(() => {
-    fakeDir = join(tmpdir(), `kimi-rg-sha-${String(Date.now())}-${String(Math.random()).slice(2)}`);
+    fakeDir = join(tmpdir(), `dimi-rg-sha-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(fakeDir, { recursive: true });
   });
   afterEach(() => {
@@ -202,7 +202,7 @@ describe('ensureRgPath download branch', () => {
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
-      `kimi-rg-dl-${String(Date.now())}-${String(Math.random()).slice(2)}`,
+      `dimi-rg-dl-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedFetch = globalThis.fetch;
@@ -384,7 +384,7 @@ describe('ensureRgPath Windows download branch', () => {
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
-      `kimi-rg-win-${String(Date.now())}-${String(Math.random()).slice(2)}`,
+      `dimi-rg-win-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedFetch = globalThis.fetch;

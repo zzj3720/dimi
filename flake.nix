@@ -1,10 +1,10 @@
 {
-  description = "Kimi Code CLI";
+  description = "Dimi CLI";
 
   inputs = {
     # Pinned to the 25.11 release channel because nixpkgs-unstable currently
     # ships nodejs_24 = 24.14.1, which trips the >= 24.15.0 floor that the
-    # native SEA build enforces (see apps/kimi-code/scripts/native/build.mjs).
+    # native SEA build enforces (see apps/dimi/scripts/native/build.mjs).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   };
 
@@ -42,7 +42,7 @@
           node
         else
           throw ''
-            Kimi Code requires Node.js >= ${minNodeVersion},
+            Dimi requires Node.js >= ${minNodeVersion},
             but nixpkgs only offers ${node.version}.
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
@@ -75,10 +75,10 @@
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
-        ./apps/kimi-code
+        ./apps/dimi
         ./apps/vscode
-        ./apps/kimi-inspect
-        ./apps/kimi-web
+        ./apps/dimi-inspect
+        ./apps/dimi-web
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -86,27 +86,27 @@
       ];
 
       workspaceNames = [
-        "@moonshot-ai/acp-adapter"
-        "@moonshot-ai/agent-core-v2"
-        "@moonshot-ai/kap-server"
-        "@moonshot-ai/kaos"
-        "@moonshot-ai/minidb"
-        "@moonshot-ai/kimi-code-sdk"
-        "@moonshot-ai/kimi-code-oauth"
-        "@moonshot-ai/klient"
-        "@moonshot-ai/pi-tui"
-        "@moonshot-ai/protocol"
-        "@moonshot-ai/kimi-telemetry"
-        "@moonshot-ai/transcript"
-        "@moonshot-ai/tree-sitter-bash"
-        "@moonshot-ai/kimi-code"
-        "kimi-code"
-        "@moonshot-ai/kimi-inspect"
-        "@moonshot-ai/kimi-web"
-        "@moonshot-ai/vis"
-        "@moonshot-ai/vis-server"
-        "@moonshot-ai/vis-web"
-        "kimi-code-docs"
+        "@dimi-agent/acp-adapter"
+        "@dimi-agent/agent-core-v2"
+        "@dimi-agent/kap-server"
+        "@dimi-agent/kaos"
+        "@dimi-agent/minidb"
+        "@dimi-agent/dimi-sdk"
+        "@dimi-agent/dimi-oauth"
+        "@dimi-agent/klient"
+        "@dimi-agent/pi-tui"
+        "@dimi-agent/protocol"
+        "@dimi-agent/dimi-telemetry"
+        "@dimi-agent/transcript"
+        "@dimi-agent/tree-sitter-bash"
+        "@dimi-agent/cli"
+        "dimi"
+        "@dimi-agent/dimi-inspect"
+        "@dimi-agent/dimi-web"
+        "@dimi-agent/vis"
+        "@dimi-agent/vis-server"
+        "@dimi-agent/vis-web"
+        "dimi-docs"
       ];
     in
     {
@@ -115,7 +115,7 @@
         let
           nodejs = nodejsFor pkgs;
           pnpm = pnpmFor pkgs;
-          appPackageJson = builtins.fromJSON (builtins.readFile ./apps/kimi-code/package.json);
+          appPackageJson = builtins.fromJSON (builtins.readFile ./apps/dimi/package.json);
           nativeTarget =
             if pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isAarch64 then
               "linux-arm64"
@@ -126,10 +126,10 @@
             else if pkgs.stdenv.hostPlatform.isDarwin then
               "darwin-x64"
             else
-              throw "Unsupported Kimi Code native target for ${pkgs.stdenv.hostPlatform.system}";
+              throw "Unsupported Dimi native target for ${pkgs.stdenv.hostPlatform.system}";
 
-          kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
-            pname = "kimi-code";
+          dimi = pkgs.stdenv.mkDerivation (finalAttrs: {
+            pname = "dimi";
             version = appPackageJson.version;
 
             src = lib.fileset.toSource {
@@ -188,18 +188,18 @@
                 # but not the inspection mode (`-dv`) that 05-verify.mjs runs
                 # afterwards. Disable the verify step for the Nix build; the
                 # release CI keeps it via the unmodified script.
-                substituteInPlace apps/kimi-code/scripts/native/build.mjs \
+                substituteInPlace apps/dimi/scripts/native/build.mjs \
                   --replace-fail \
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
               # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
-              # Kimi web assets from apps/kimi-code/dist-web and fails if that
+              # Dimi web assets from apps/dimi/dist-web and fails if that
               # directory is missing. Build the web app and stage its assets
               # before producing the native executable.
-              pnpm --filter=@moonshot-ai/kimi-web run build
-              node apps/kimi-code/scripts/copy-web-assets.mjs
-              pnpm --filter=@moonshot-ai/kimi-code run build:native:sea
+              pnpm --filter=@dimi-agent/dimi-web run build
+              node apps/dimi/scripts/copy-web-assets.mjs
+              pnpm --filter=@dimi-agent/cli run build:native:sea
               runHook postBuild
             '';
 
@@ -207,35 +207,35 @@
               runHook preInstall
 
               install -Dm755 \
-                "apps/kimi-code/dist-native/bin/${nativeTarget}/kimi" \
-                "$out/bin/kimi"
+                "apps/dimi/dist-native/bin/${nativeTarget}/dimi" \
+                "$out/bin/dimi"
 
               runHook postInstall
             '';
 
             postInstall = ''
-              wrapProgram $out/bin/kimi --prefix PATH : ${lib.makeBinPath [ pkgs.ripgrep pkgs.fd ]}
+              wrapProgram $out/bin/dimi --prefix PATH : ${lib.makeBinPath [ pkgs.ripgrep pkgs.fd ]}
             '';
 
             meta = {
-              description = "Kimi Code CLI";
+              description = "Dimi CLI";
               homepage = "https://github.com/zzj3720/dimi";
               license = lib.licenses.mit;
-              mainProgram = "kimi";
+              mainProgram = "dimi";
               platforms = systems;
             };
           });
         in
         {
-          inherit kimi-code;
-          default = kimi-code;
+          inherit dimi;
+          default = dimi;
         }
       );
 
       apps = forAllSystems (pkgs: {
-        kimi-code = {
+        dimi = {
           type = "app";
-          program = "${self.packages.${pkgs.system}.dimi}/bin/kimi";
+          program = "${self.packages.${pkgs.system}.dimi}/bin/dimi";
         };
         default = self.apps.${pkgs.system}.dimi;
       });

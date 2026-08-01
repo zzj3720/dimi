@@ -665,7 +665,7 @@ describe("isRecoverableRequestStructureError", () => {
     ).toBe(true);
   });
 
-  it("matches the Moonshot/Kimi vacuous-message rejection", () => {
+  it("matches the Moonshot/Dimi vacuous-message rejection", () => {
     expect(
       isRecoverableRequestStructureError(
         new APIStatusError(

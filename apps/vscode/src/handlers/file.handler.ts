@@ -81,7 +81,7 @@ const openFileDiff: Handler<FilePathParams, { ok: boolean }> = async ({ filePath
   if (!sessionId || resolved === undefined) return { ok: false };
 
   const baselineUri = vscode.Uri.from({
-    scheme: "kimi-baseline",
+    scheme: "dimi-baseline",
     path: `/${resolved.relativePath}`,
     query: new URLSearchParams({ sessionId }).toString(),
   });
@@ -89,7 +89,7 @@ const openFileDiff: Handler<FilePathParams, { ok: boolean }> = async ({ filePath
     "vscode.diff",
     baselineUri,
     resolved.uri,
-    `${path.basename(resolved.relativePath)} (changes from Kimi)`,
+    `${path.basename(resolved.relativePath)} (changes from Dimi)`,
   );
   return { ok: true };
 };

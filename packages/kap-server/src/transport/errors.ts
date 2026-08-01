@@ -3,7 +3,7 @@
  * envelope, guard serialization, time-box calls, and gate access.
  */
 
-import { ErrorCodes, Error2 } from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes, Error2 } from '@dimi-agent/agent-core-v2';
 
 import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';

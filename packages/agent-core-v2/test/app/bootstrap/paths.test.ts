@@ -9,14 +9,14 @@ import { ensureDimiHome, resolveConfigPath, resolveDimiHome } from '#/app/bootst
 describe('bootstrap path helpers', () => {
   describe('resolveDimiHome', () => {
     it('uses explicit homeDir when provided', () => {
-      expect(resolveDimiHome('/tmp/kimi')).toBe('/tmp/kimi');
+      expect(resolveDimiHome('/tmp/dimi')).toBe('/tmp/dimi');
     });
 
     it('falls back to DIMI_CODE_HOME env', () => {
       const prev = process.env['DIMI_CODE_HOME'];
-      process.env['DIMI_CODE_HOME'] = '/env/kimi';
+      process.env['DIMI_CODE_HOME'] = '/env/dimi';
       try {
-        expect(resolveDimiHome()).toBe('/env/kimi');
+        expect(resolveDimiHome()).toBe('/env/dimi');
       } finally {
         if (prev === undefined) delete process.env['DIMI_CODE_HOME'];
         else process.env['DIMI_CODE_HOME'] = prev;
@@ -30,7 +30,7 @@ describe('bootstrap path helpers', () => {
     });
 
     it('joins homeDir with config.toml', () => {
-      expect(resolveConfigPath({ homeDir: '/tmp/kimi' })).toBe('/tmp/kimi/config.toml');
+      expect(resolveConfigPath({ homeDir: '/tmp/dimi' })).toBe('/tmp/dimi/config.toml');
     });
   });
 
@@ -41,7 +41,7 @@ describe('bootstrap path helpers', () => {
     });
 
     it('creates the directory with 0700 permissions', () => {
-      dir = join(mkdtempSync(join(tmpdir(), 'kimi-home-')), 'nested');
+      dir = join(mkdtempSync(join(tmpdir(), 'dimi-home-')), 'nested');
       ensureDimiHome(dir);
       expect(existsSync(dir)).toBe(true);
     });

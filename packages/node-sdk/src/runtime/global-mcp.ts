@@ -10,11 +10,11 @@ import {
   McpServerConfigSchema,
   type McpRemoteServerConfig,
   type McpServerConfig,
-} from '@moonshot-ai/agent-core-v2';
-import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/agent/mcp/connection-manager';
-import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
+} from '@dimi-agent/agent-core-v2';
+import type { McpConnectionManager } from '@dimi-agent/agent-core-v2/agent/mcp/connection-manager';
+import { atomicWrite } from '@dimi-agent/agent-core-v2/_base/utils/fs';
 
-import { ErrorCodes, KimiError } from '#/errors';
+import { ErrorCodes, DimiError } from '#/errors';
 import type { McpTestResult } from '#/types';
 
 type GlobalMcpServerConfig = McpServerConfig & { readonly name: string };
@@ -47,7 +47,7 @@ export class GlobalMcpConfigStore {
     const normalized = parseServerInput(server);
     const file = await this.read();
     if (Object.hasOwn(file.rawServers, normalized.name)) {
-      throw new KimiError(
+      throw new DimiError(
         ErrorCodes.REQUEST_INVALID,
         `MCP server "${normalized.name}" already exists`,
       );
@@ -131,7 +131,7 @@ export class GlobalMcpConfigStore {
 export function requireRemoteMcpServer(server: GlobalMcpServerConfig): McpRemoteServerConfig {
   const config = mcpConfigWithoutName(server);
   if (config.transport !== 'stdio') return config;
-  throw new KimiError(
+  throw new DimiError(
     ErrorCodes.REQUEST_INVALID,
     `MCP server "${server.name}" does not use a remote transport`,
   );
@@ -140,7 +140,7 @@ export function requireRemoteMcpServer(server: GlobalMcpServerConfig): McpRemote
 export function requireOAuthMcpServer(server: GlobalMcpServerConfig): McpRemoteServerConfig {
   const config = requireRemoteMcpServer(server);
   if (config.bearerTokenEnvVar !== undefined) {
-    throw new KimiError(
+    throw new DimiError(
       ErrorCodes.REQUEST_INVALID,
       `MCP server "${server.name}" uses a static bearer token`,
     );
@@ -197,15 +197,15 @@ function persistedEntry(server: GlobalMcpServerConfig): McpServerConfig {
 function normalizeServerName(name: string): string {
   const normalized = name.trim();
   if (normalized.length > 0) return normalized;
-  throw new KimiError(ErrorCodes.REQUEST_INVALID, 'MCP server name cannot be empty');
+  throw new DimiError(ErrorCodes.REQUEST_INVALID, 'MCP server name cannot be empty');
 }
 
-function serverNotFound(name: string): KimiError {
-  return new KimiError(ErrorCodes.MCP_SERVER_NOT_FOUND, `MCP server "${name}" was not found`);
+function serverNotFound(name: string): DimiError {
+  return new DimiError(ErrorCodes.MCP_SERVER_NOT_FOUND, `MCP server "${name}" was not found`);
 }
 
-function configError(message: string, cause?: unknown): KimiError {
-  return new KimiError(ErrorCodes.CONFIG_INVALID, message, { cause });
+function configError(message: string, cause?: unknown): DimiError {
+  return new DimiError(ErrorCodes.CONFIG_INVALID, message, { cause });
 }
 
 function errorCode(error: unknown): unknown {

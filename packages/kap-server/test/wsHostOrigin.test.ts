@@ -26,7 +26,7 @@ interface ConnectOptions {
 
 function openConn(url: string, opts?: ConnectOptions): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, [`kimi-code.bearer.${TOKEN}`], { headers: opts?.headers });
+    const ws = new WebSocket(url, [`dimi.bearer.${TOKEN}`], { headers: opts?.headers });
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
   });
@@ -34,7 +34,7 @@ function openConn(url: string, opts?: ConnectOptions): Promise<WebSocket> {
 
 function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, [`kimi-code.bearer.${TOKEN}`], { headers: opts?.headers });
+    const ws = new WebSocket(url, [`dimi.bearer.${TOKEN}`], { headers: opts?.headers });
     const done = (err?: Error): void => {
       clearTimeout(t);
       ws.removeAllListeners();
@@ -63,7 +63,7 @@ describe('WS upgrade Host/Origin checks', () => {
   const sockets: WebSocket[] = [];
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-ws-host-origin-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-ws-host-origin-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

@@ -196,7 +196,7 @@ import {
 const TEST_HOME_DIR = "/home/test";
 
 const MOCK_PROVIDER = {
-  type: "kimi",
+  type: "dimi",
   apiKey: "test-key",
   baseUrl: "https://api.example.test/v1",
   model: "mock-model",
@@ -204,10 +204,10 @@ const MOCK_PROVIDER = {
 
 interface TestModelProviderOptions {
   readonly promptCacheKey?: string;
-  readonly kimiRequestHeaders?: Record<string, string>;
+  readonly dimiRequestHeaders?: Record<string, string>;
 }
 
-interface KimiConfig {
+interface DimiConfig {
   readonly providers: Record<string, ProviderConfigForConfig>;
   readonly models?: Record<string, ModelConfigForConfig>;
   readonly defaultProvider?: string;
@@ -386,7 +386,7 @@ export interface TestAgentOptions {
   readonly hookEngine?:
     | Pick<IExternalHooksRunnerService, "trigger" | "triggerBlock" | "fireAndForgetTrigger">
     | undefined;
-  readonly initialConfig?: Partial<KimiConfig> | undefined;
+  readonly initialConfig?: Partial<DimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
   readonly cwd?: string | undefined;
   readonly [key: string]: unknown;
@@ -589,7 +589,7 @@ export function modelProviderOptionServices(
   return appService(IModelCatalog, new SyncDescriptor(ConfigBackedModelCatalog, [options]));
 }
 
-export function configServices(readConfig: () => KimiConfig): TestAgentServiceOverride {
+export function configServices(readConfig: () => DimiConfig): TestAgentServiceOverride {
   return appService(IConfigService, configService(readConfig));
 }
 
@@ -977,7 +977,7 @@ export class AgentTestContext {
   private readonly disposables: IDisposable[] = [];
   private suppressWireSnapshot = false;
   private pluginSessionStartRegistered = false;
-  kimiConfig: KimiConfig;
+  dimiConfig: DimiConfig;
   private cwd = process.cwd();
   private closed = false;
 
@@ -996,7 +996,7 @@ export class AgentTestContext {
     if (options.cwd !== undefined) this.cwd = options.cwd;
     this.serviceOverrides = flattenServiceOverrides(overrides);
     this.emitter.on("error", () => {});
-    this.kimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
+    this.dimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
 
     const sessionId = "test-session";
     const agentId = "main";
@@ -1006,7 +1006,7 @@ export class AgentTestContext {
       [
         (reg) => {
           for (const [id, value] of bootstrapSeed({
-            homeDir: "/tmp/kimi-code-agent-app-v2-test",
+            homeDir: "/tmp/dimi-agent-app-v2-test",
             cwd: this.cwd,
             osHomeDir: TEST_HOME_DIR,
             env: process.env,
@@ -1019,7 +1019,7 @@ export class AgentTestContext {
           reg.define(IBlobStore, BlobStoreService);
           reg.defineInstance(
             IConfigService,
-            configService(() => this.kimiConfig),
+            configService(() => this.dimiConfig),
           );
           reg.defineInstance(
             IAppendLogStore,
@@ -1032,7 +1032,7 @@ export class AgentTestContext {
           reg.defineInstance(ILogService, createLogService(undefined));
           reg.defineInstance(ILogOptions, {
             level: "off",
-            globalLogPath: "/tmp/kimi-code-agent-app-v2-test/logs/kimi-code.log",
+            globalLogPath: "/tmp/dimi-agent-app-v2-test/logs/dimi.log",
             globalMaxBytes: 6 * 1024 * 1024,
             globalFiles: 1,
             sessionMaxBytes: 5 * 1024 * 1024,
@@ -1338,7 +1338,7 @@ export class AgentTestContext {
     provider: TestProviderConfig,
     modelCapabilities?: ModelCapability | undefined,
   ): void {
-    this.kimiConfig = configWithProvider(this.kimiConfig, provider, modelCapabilities);
+    this.dimiConfig = configWithProvider(this.dimiConfig, provider, modelCapabilities);
     // The harness swaps config BEHIND the config services' backs, so no
     // change events fire — drop the assembled-Model cache by hand (the
     // load-bearing ModelCatalog contract), or the next `get` keeps serving
@@ -1349,7 +1349,7 @@ export class AgentTestContext {
   }
 
   /**
-   * The manual cache-drop for tests that mutate `kimiConfig` behind the
+   * The manual cache-drop for tests that mutate `dimiConfig` behind the
    * config services' backs (no change events fire): the ModelCatalog keeps
    * serving the previously assembled Model until this is called.
    */
@@ -1643,7 +1643,7 @@ export class AgentTestContext {
     await this.waitForSessionMetadata();
     await this.drainWirePersistence();
     const profile = this.get(IAgentProfileService);
-    const configSnapshot = structuredClone(this.get(IConfigService).getAll() as KimiConfig);
+    const configSnapshot = structuredClone(this.get(IConfigService).getAll() as DimiConfig);
     let wireHistory = await this.wireHistory();
     let resumedThroughRecord = wireHistory.length;
     const resumed = createTestAgent(
@@ -2254,7 +2254,7 @@ function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot["config
   const providerConfig =
     model === undefined
       ? undefined
-      : ctx.get(IConfigService).get<KimiConfig["providers"]>("providers")?.[model.provider];
+      : ctx.get(IConfigService).get<DimiConfig["providers"]>("providers")?.[model.provider];
   return {
     cwd: data.cwd,
     activeToolNames: data.activeToolNames,
@@ -2265,11 +2265,11 @@ function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot["config
   };
 }
 
-function emptyConfig(): KimiConfig {
+function emptyConfig(): DimiConfig {
   return configWithProvider({ providers: {} }, MOCK_PROVIDER, undefined);
 }
 
-function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOptions): KimiConfig {
+function applyTestAgentOptionsToConfig(config: DimiConfig, options: TestAgentOptions): DimiConfig {
   const initialConfig = options.initialConfig ?? {};
   return {
     ...config,
@@ -2285,7 +2285,7 @@ function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOpt
   };
 }
 
-function configService(readConfig: () => KimiConfig): IConfigService {
+function configService(readConfig: () => DimiConfig): IConfigService {
   const effectiveConfig = () => configWithEnvOverrides(readConfig());
   const memory = new Map<string, unknown>();
   const sectionEmitter = new Emitter<{
@@ -2337,7 +2337,7 @@ function configService(readConfig: () => KimiConfig): IConfigService {
   } as unknown as IConfigService;
 }
 
-function configWithEnvOverrides(config: KimiConfig): KimiConfig {
+function configWithEnvOverrides(config: DimiConfig): DimiConfig {
   const maxCompletionTokens =
     parseEnvCompletionTokens(process.env["DIMI_MODEL_MAX_COMPLETION_TOKENS"]) ??
     parseEnvCompletionTokens(process.env["DIMI_MODEL_MAX_TOKENS"]);
@@ -2439,10 +2439,10 @@ function asMutableRecord(value: unknown): Record<string, unknown> {
 }
 
 function configWithProvider(
-  config: KimiConfig,
+  config: DimiConfig,
   provider: TestProviderConfig,
   modelCapabilities: ModelCapability | undefined,
-): KimiConfig {
+): DimiConfig {
   const providerName = "test-provider";
   const maxContextSize = modelCapabilities?.max_context_tokens;
   return {
@@ -2466,7 +2466,7 @@ function configWithProvider(
   };
 }
 
-function providerConfigForAlias(provider: TestProviderConfig): KimiConfig["providers"][string] {
+function providerConfigForAlias(provider: TestProviderConfig): DimiConfig["providers"][string] {
   return {
     type: provider.type,
     apiKey: provider.apiKey,
@@ -2810,12 +2810,12 @@ class ScriptedProviderRuntime implements IProviderRuntime {
     return result;
   }
 
-  private providersConfig(): KimiConfig["providers"] {
-    return this.config.get<KimiConfig["providers"]>("providers") ?? {};
+  private providersConfig(): DimiConfig["providers"] {
+    return this.config.get<DimiConfig["providers"]>("providers") ?? {};
   }
 
-  private modelsConfig(): NonNullable<KimiConfig["models"]> {
-    return this.config.get<NonNullable<KimiConfig["models"]>>("models") ?? {};
+  private modelsConfig(): NonNullable<DimiConfig["models"]> {
+    return this.config.get<NonNullable<DimiConfig["models"]>>("models") ?? {};
   }
 
   private toProvider(id: string, config: ProviderConfigForConfig): Provider {

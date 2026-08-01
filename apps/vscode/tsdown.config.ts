@@ -19,9 +19,9 @@ export default defineConfig({
   sourcemap: false,
   plugins: [rawTextPlugin()],
   alias: {
-    "@moonshot-ai/kimi-code-sdk": resolve(root, "../../packages/node-sdk/src/index.ts"),
-    "@moonshot-ai/kaos": resolve(root, "../../packages/kaos/src/index.ts"),
-    "@moonshot-ai/kimi-code-oauth": resolve(root, "../../packages/oauth/src/index.ts"),
+    "@dimi-agent/dimi-sdk": resolve(root, "../../packages/node-sdk/src/index.ts"),
+    "@dimi-agent/kaos": resolve(root, "../../packages/kaos/src/index.ts"),
+    "@dimi-agent/dimi-oauth": resolve(root, "../../packages/oauth/src/index.ts"),
   },
   define: {
     __EXTENSION_VERSION__: JSON.stringify(pkg.version),
@@ -36,7 +36,7 @@ export default defineConfig({
   },
   deps: {
     onlyBundle: false,
-    alwaysBundle: [/^@moonshot-ai\//, "zod"],
+    alwaysBundle: [/^@dimi-agent\//, "zod"],
     neverBundle: ["vscode"],
   },
   outputOptions: {

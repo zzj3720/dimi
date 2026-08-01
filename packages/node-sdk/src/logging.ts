@@ -7,7 +7,7 @@ import {
   type LogContext,
   type LogLevel,
   type LogPayload,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 
 const config = resolveLoggingConfig({ homeDir: resolveDimiHome(), env: process.env });
 const writer = createFileLogWriter({

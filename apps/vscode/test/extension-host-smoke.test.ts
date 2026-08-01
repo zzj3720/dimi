@@ -1,10 +1,10 @@
 /**
  * Scenario: maintainers run the installed-VSIX smoke from a developer machine or CI.
  * Responsibilities: stable downloads cannot reuse stale caches, and the Extension
- * Host cannot discover the developer's real legacy Kimi home.
+ * Host cannot discover the developer's real legacy Dimi home.
  * Wiring: real smoke orchestration and filesystem; @vscode/test-electron is the
  * external process/download boundary.
- * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/extension-host-smoke.test.ts
+ * Run: pnpm --filter dimi exec vitest run --config vitest.config.ts test/extension-host-smoke.test.ts
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -61,7 +61,7 @@ describe('installed VSIX Extension Host smoke', () => {
     expect(second.vscodeVersion).toBe('1.127.0');
   });
 
-  it('gives the harness separate Kimi and operating-system homes before activation', async () => {
+  it('gives the harness separate Dimi and operating-system homes before activation', async () => {
     const fixture = await makeFixture();
 
     await runExtensionHostSmoke({
@@ -95,10 +95,10 @@ describe('installed VSIX Extension Host smoke', () => {
 });
 
 async function makeFixture(): Promise<{ vsixPath: string; cachePath: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'kimi-extension-host-smoke-'));
+  const root = await mkdtemp(join(tmpdir(), 'dimi-extension-host-smoke-'));
   tempDirs.push(root);
   const cachePath = join(root, 'cache');
-  const vsixPath = join(root, 'kimi-code-test.vsix');
+  const vsixPath = join(root, 'dimi-test.vsix');
   await mkdir(cachePath, { recursive: true });
   await writeFile(vsixPath, 'fixture', 'utf8');
   return { vsixPath, cachePath };

@@ -1,5 +1,5 @@
 /**
- * Provider runtime OAuth contracts — Kimi, xAI, and OpenAI Codex device-code
+ * Provider runtime OAuth contracts — Dimi, xAI, and OpenAI Codex device-code
  * login, refresh, cancellation and request-auth projection. HTTP and time are
  * local fixtures; run with `vp test -- auth.test.ts`.
  */
@@ -14,7 +14,7 @@ import {
   createRadiusOAuth,
   githubCopilotOAuth,
   googleVertexAuth,
-  kimiCodingOAuth,
+  dimiCodingOAuth,
   openRouterOAuth,
   openaiCodexOAuth,
   xaiOAuth,
@@ -60,9 +60,9 @@ function interaction(events: AuthEvent[], signal?: AbortSignal): AuthInteraction
   };
 }
 
-function kimiToken(
-  access = "kimi-access",
-  refresh = "kimi-refresh",
+function dimiToken(
+  access = "dimi-access",
+  refresh = "dimi-refresh",
   expiresIn = 3_600,
 ): Record<string, unknown> {
   return { access_token: access, refresh_token: refresh, expires_in: expiresIn };
@@ -96,7 +96,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Kimi Coding OAuth", () => {
+describe("Dimi Coding OAuth", () => {
   it("notifies a device code, tolerates pending polling, and projects the token as a bearer header", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
@@ -117,21 +117,21 @@ describe("Kimi Coding OAuth", () => {
       if (url.endsWith("/token")) {
         pollCount += 1;
         expect(form(init).get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:device_code");
-        return pollCount === 1 ? json({ error: "authorization_pending" }, 400) : json(kimiToken());
+        return pollCount === 1 ? json({ error: "authorization_pending" }, 400) : json(dimiToken());
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetch);
     const events: AuthEvent[] = [];
 
-    const login = kimiCodingOAuth.login(interaction(events));
+    const login = dimiCodingOAuth.login(interaction(events));
     await advance(1_000);
     await advance(1_000);
 
     await expect(login).resolves.toMatchObject({
       type: "oauth",
-      access: "kimi-access",
-      refresh: "kimi-refresh",
+      access: "dimi-access",
+      refresh: "dimi-refresh",
       expires: Date.parse("2026-01-01T00:00:00Z") + 3_602_000,
     });
     expect(events).toEqual([
@@ -144,13 +144,13 @@ describe("Kimi Coding OAuth", () => {
       },
     ]);
     await expect(
-      kimiCodingOAuth.toAuth({
+      dimiCodingOAuth.toAuth({
         type: "oauth",
-        access: "kimi-access",
-        refresh: "kimi-refresh",
+        access: "dimi-access",
+        refresh: "dimi-refresh",
         expires: 1,
       }),
-    ).resolves.toEqual({ headers: { Authorization: "Bearer kimi-access" } });
+    ).resolves.toEqual({ headers: { Authorization: "Bearer dimi-access" } });
   });
 
   it("fails when device authorization is denied", async () => {
@@ -170,7 +170,7 @@ describe("Kimi Coding OAuth", () => {
       ),
     );
 
-    const login = kimiCodingOAuth.login(interaction([]));
+    const login = dimiCodingOAuth.login(interaction([]));
     const rejection = expect(login).rejects.toThrow("User rejected sign-in");
     await advance(1_000);
 
@@ -195,8 +195,8 @@ describe("Kimi Coding OAuth", () => {
       ),
     );
 
-    const login = kimiCodingOAuth.login(interaction([]));
-    const rejection = expect(login).rejects.toThrow("Kimi device login timed out");
+    const login = dimiCodingOAuth.login(interaction([]));
+    const rejection = expect(login).rejects.toThrow("Dimi device login timed out");
     await advance(1_000);
 
     await rejection;
@@ -212,11 +212,11 @@ describe("Kimi Coding OAuth", () => {
         attempts += 1;
         return attempts === 1
           ? json({ error: "rate_limited" }, 429)
-          : json(kimiToken("fresh-access", "fresh-refresh"));
+          : json(dimiToken("fresh-access", "fresh-refresh"));
       }),
     );
 
-    const refresh = kimiCodingOAuth.refresh({
+    const refresh = dimiCodingOAuth.refresh({
       type: "oauth",
       access: "old-access",
       refresh: "old-refresh",
@@ -236,7 +236,7 @@ describe("Kimi Coding OAuth", () => {
       ),
     );
     await expect(
-      kimiCodingOAuth.refresh({
+      dimiCodingOAuth.refresh({
         type: "oauth",
         access: "old-access",
         refresh: "old-refresh",
@@ -256,7 +256,7 @@ describe("xAI OAuth", () => {
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = requestUrl(input);
         if (url.endsWith("/device/code")) {
-          expect(form(init).get("referrer")).toBe("kimi-code");
+          expect(form(init).get("referrer")).toBe("dimi");
           return json({
             device_code: "device-code",
             user_code: "XAI-CODE",
@@ -699,7 +699,7 @@ describe("provider-native authentication", () => {
       headers: {
         Authorization: "Bearer oauth-access",
         "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
-        "user-agent": "kimi-code",
+        "user-agent": "dimi",
         "x-app": "cli",
       },
     });
@@ -730,7 +730,7 @@ describe("provider-native authentication", () => {
     expect(headers?.get("authorization")).toBe("Bearer oauth-access");
     expect(headers?.get("x-api-key")).toBeNull();
     expect(headers?.get("anthropic-beta")).toContain("oauth-2025-04-20");
-    expect(headers?.get("user-agent")).toBe("kimi-code");
+    expect(headers?.get("user-agent")).toBe("dimi");
     expect(headers?.get("x-app")).toBe("cli");
   });
 

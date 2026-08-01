@@ -7,7 +7,7 @@ description: Use when developing in packages/agent-core-v2 (the DI × Scope agen
 
 > Develop `packages/agent-core-v2` by lifecycle stage. This skill is **self-contained**: every rule, recipe, and red line lives in the stage files below — it does not delegate to `packages/agent-core-v2/docs/`.
 
-`agent-core-v2` is Kimi Code's sole agent engine, built on the **DI × Scope** architecture. Everything resolves through the container: a service declares an **identity**, its **dependencies**, and a **lifetime**; the container decides construction, singleton-per-scope, ordering, and disposal. The stage files restate the rules in imperative form so you can work without reading the source docs.
+`agent-core-v2` is Dimi's sole agent engine, built on the **DI × Scope** architecture. Everything resolves through the container: a service declares an **identity**, its **dependencies**, and a **lifetime**; the container decides construction, singleton-per-scope, ordering, and disposal. The stage files restate the rules in imperative form so you can work without reading the source docs.
 
 ## Lifecycle at a glance
 
@@ -27,7 +27,7 @@ Stages are ordered but not strictly linear: a test failure (stage 4) that reveal
 
 End-to-end procedures that span the stages. Reach for these before reading the stage files individually.
 
-- [Server exposure](server-align.md): expose a runtime domain through `packages/kap-server`, sharing `@moonshot-ai/protocol` schemas with the released `/api/v1` wire contract and keeping protocol translation at the edge.
+- [Server exposure](server-align.md): expose a runtime domain through `packages/kap-server`, sharing `@dimi-agent/protocol` schemas with the released `/api/v1` wire contract and keeping protocol translation at the edge.
 
 ## Stages
 

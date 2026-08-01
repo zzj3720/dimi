@@ -134,7 +134,7 @@ function expectNoDeviceHeaders(headers: Record<string, string>): void {
 
 function flowConfig(): OAuthFlowConfig {
   return {
-    name: 'kimi-code',
+    name: 'dimi',
     oauthHost: server.host,
     clientId: 'test-client-id',
   };
@@ -231,7 +231,7 @@ describe('requestDeviceAuthorization', () => {
     expect(recorded.headers['x-msh-platform']).toBe(DIMI_CODE_PLATFORM);
     expect(recorded.headers['x-msh-device-id']).toBe('test-device-id');
     expect(recorded.headers['x-msh-version']).toBe('0.0.0-test');
-    expect(recorded.headers['user-agent'] ?? '').not.toContain('kimi-code-cli');
+    expect(recorded.headers['user-agent'] ?? '').not.toContain('dimi-cli');
   });
 
   it('omits X-Msh-* device headers when deviceHeaders are absent', async () => {

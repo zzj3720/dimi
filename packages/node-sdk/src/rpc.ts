@@ -4,9 +4,9 @@ import type {
   AgentContextData,
   ExperimentalFeatureState,
   SwarmModeTrigger,
-} from "@moonshot-ai/agent-core-v2";
-import type { Kaos } from "@moonshot-ai/kaos";
-import type { Event } from "@moonshot-ai/protocol";
+} from "@dimi-agent/agent-core-v2";
+import type { Kaos } from "@dimi-agent/kaos";
+import type { Event } from "@dimi-agent/protocol";
 
 import type {
   ApprovalHandler,
@@ -34,8 +34,8 @@ import type {
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
-  KimiConfig,
-  KimiConfigPatch,
+  DimiConfig,
+  DimiConfigPatch,
   ListSessionsOptions,
   McpServerConfig,
   McpServerInfo,
@@ -57,7 +57,7 @@ import type {
   SkillSummary,
   Unsubscribe,
 } from "#/types";
-import { ErrorCodes, KimiError } from "#/errors";
+import { ErrorCodes, DimiError } from "#/errors";
 
 const MAIN_AGENT_ID = "main";
 
@@ -146,10 +146,10 @@ export interface SDKRpcClientBase {
   listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]>;
   renameSession(input: RenameSessionInput): Promise<void>;
   exportSession(input: ExportSessionInput): Promise<ExportSessionResult>;
-  getConfig(input?: GetConfigOptions): Promise<KimiConfig>;
+  getConfig(input?: GetConfigOptions): Promise<DimiConfig>;
   getConfigDiagnostics(): Promise<ConfigDiagnostics>;
   getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]>;
-  setConfig(input: KimiConfigPatch): Promise<KimiConfig>;
+  setConfig(input: DimiConfigPatch): Promise<DimiConfig>;
   listGlobalMcpServers(): Promise<readonly McpServerConfig[]>;
   addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]>;
   updateGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]>;
@@ -269,7 +269,7 @@ export class SDKRpcClientBase {
 
   deleteSession(_input: SessionIdRpcInput): Promise<void> {
     return Promise.reject(
-      new KimiError(ErrorCodes.NOT_IMPLEMENTED, "Session deletion is not supported."),
+      new DimiError(ErrorCodes.NOT_IMPLEMENTED, "Session deletion is not supported."),
     );
   }
 

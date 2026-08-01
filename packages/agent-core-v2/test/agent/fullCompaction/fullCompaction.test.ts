@@ -63,10 +63,10 @@ import { HostFileSystem } from "#/os/backends/node-local/hostFsService";
 type GenerateFn = NonNullable<TestAgentOptions["generate"]>;
 
 const CATALOGUED_PROVIDER = {
-  type: "kimi",
+  type: "dimi",
   apiKey: "test-key",
   baseUrl: "https://api.example/v1",
-  model: "kimi-code",
+  model: "dimi",
 } as const;
 const CATALOGUED_MODEL_CAPABILITIES = {
   image_in: true,
@@ -319,8 +319,8 @@ describe("FullCompaction", () => {
   });
 
   it("refreshes the active profile system prompt after compaction without resetting active tools", async () => {
-    const homeDir = mkdtempSync(join(tmpdir(), "kimi-compact-refresh-home-"));
-    const workDir = mkdtempSync(join(tmpdir(), "kimi-compact-refresh-work-"));
+    const homeDir = mkdtempSync(join(tmpdir(), "dimi-compact-refresh-home-"));
+    const workDir = mkdtempSync(join(tmpdir(), "dimi-compact-refresh-work-"));
     try {
       writeFileSync(join(workDir, "AGENTS.md"), "old project instructions", "utf-8");
       const ctx = testAgent(
@@ -432,7 +432,7 @@ describe("FullCompaction", () => {
   });
 
   it("fires PreCompact and PostCompact hooks from the compaction module", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "kimi-compact-hooks-"));
+    const dir = mkdtempSync(join(tmpdir(), "dimi-compact-hooks-"));
     const hookLog = join(dir, "hooks.jsonl");
     const hookCommand = hookPayloadLoggerCommand(hookLog);
     const ctx = testAgent({
@@ -1135,7 +1135,7 @@ describe("FullCompaction", () => {
           code: "compaction.failed",
           message:
             "CompactionTruncatedError: Compaction response was truncated before producing a complete summary.",
-          name: "KimiError",
+          name: "DimiError",
         }),
       }),
     );
@@ -2625,7 +2625,7 @@ describe("FullCompaction", () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
     });
-    const models = (ctx as unknown as MutableKimiConfig).kimiConfig.models;
+    const models = (ctx as unknown as MutableDimiConfig).dimiConfig.models;
     models![CATALOGUED_PROVIDER.model] = {
       ...models![CATALOGUED_PROVIDER.model]!,
       maxOutputSize: 64_000,
@@ -2883,8 +2883,8 @@ function exactCompactionRefreshPrompt(workDir: string, agentsMd: string): string
   ].join("\n");
 }
 
-type MutableKimiConfig = {
-  kimiConfig: {
+type MutableDimiConfig = {
+  dimiConfig: {
     models?: Record<string, { maxOutputSize?: number }>;
   };
 };

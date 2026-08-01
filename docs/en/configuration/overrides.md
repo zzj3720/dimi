@@ -1,6 +1,6 @@
 # Config overrides
 
-Kimi Code CLI keeps persistent preferences, provider credentials, and one-off runtime changes in separate channels:
+Dimi CLI keeps persistent preferences, provider credentials, and one-off runtime changes in separate channels:
 
 - **`config.toml`** stores preferences such as the default provider/model, thinking settings, and loop limits. It does not store provider credentials.
 - **`auth.json`** stores credentials saved through `vp run dev:cli -- login`.
@@ -36,7 +36,7 @@ For example, this uses a one-off Anthropic key without modifying local files:
 ANTHROPIC_API_KEY="YOUR_API_KEY" vp run dev:cli -- -m anthropic/claude-sonnet-4-6
 ```
 
-OpenAI Codex uses OAuth. Kimi Code, xAI, Anthropic, OpenRouter, GitHub Copilot, and Radius can offer OAuth; cloud providers can use their credential chains. See [Providers and models](./providers.md) for the built-in provider list and login methods.
+OpenAI Codex uses OAuth. Dimi, xAI, Anthropic, OpenRouter, GitHub Copilot, and Radius can offer OAuth; cloud providers can use their credential chains. See [Providers and models](./providers.md) for the built-in provider list and login methods.
 
 ## Other runtime parameters
 
@@ -59,7 +59,7 @@ For ordinary parameters such as Plan mode, permission mode, and Skills directori
 Isolate all local state:
 
 ```sh
-DIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
+DIMI_CODE_HOME="$PWD/.dimi-sandbox" dimi
 ```
 
 Temporarily select OpenAI without changing `config.toml`:
@@ -68,13 +68,13 @@ Temporarily select OpenAI without changing `config.toml`:
 OPENAI_API_KEY="YOUR_API_KEY" \
   DIMI_MODEL_PROVIDER="openai" \
   DIMI_MODEL_NAME="gpt-5.4" \
-  kimi
+  dimi
 ```
 
 Enter Plan mode for one launch:
 
 ```sh
-kimi --plan
+dimi --plan
 ```
 
 ## Next steps

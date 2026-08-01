@@ -12,7 +12,7 @@
  * 50001; everything else falls through to the global error handler (→ 50001).
  */
 
-import { ILogService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { ILogService, type Scope } from '@dimi-agent/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import { sessionSnapshotResponseSchema, type SessionSnapshotResponse } from '../protocol/rest-snapshot';
 import { z } from 'zod';

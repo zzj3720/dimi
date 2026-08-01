@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, type KimiError, type Event } from "#/index";
+import { createDimiHarness, type DimiError, type Event } from "#/index";
 
 import {
   createTestProviderRuntime,
@@ -18,9 +18,9 @@ afterEach(async () => {
 
 describe("Session.cancel", () => {
   it("cancels an active streaming turn and emits turn_ended(cancelled)", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-work-");
-    const harness = createKimiHarness({
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-work-");
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createCancelRuntime(),
@@ -63,9 +63,9 @@ describe("Session.cancel", () => {
   });
 
   it("rejects manual compaction on an empty session with compaction.unable", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-compact-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-compact-work-");
-    const harness = createKimiHarness({
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-compact-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-compact-work-");
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createCancelRuntime(),
@@ -81,42 +81,42 @@ describe("Session.cancel", () => {
       await expect(
         session.compact({ instruction: "Keep the compact test pending." }),
       ).rejects.toMatchObject({
-        name: "KimiError",
+        name: "DimiError",
         code: "compaction.unable",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it("rejects after the session is closed", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-cancel-work-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-cancel-work-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_cancel_closed", workDir });
       await session.close();
 
       await expect(session.cancel()).rejects.toMatchObject({
-        name: "KimiError",
+        name: "DimiError",
         code: "session.closed",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
       await expect(session.cancelCompaction()).rejects.toMatchObject({
-        name: "KimiError",
+        name: "DimiError",
         code: "session.closed",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 });
 
-describe("KimiHarness.forkSession", () => {
+describe("DimiHarness.forkSession", () => {
   it("forks a crash-consistent prefix while the source session has an active turn", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-fork-active-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-fork-active-work-");
-    const harness = createKimiHarness({
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-fork-active-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-fork-active-work-");
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createCancelRuntime(),

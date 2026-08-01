@@ -16,10 +16,10 @@ import {
 import type {
   ApprovalHandler,
   Event,
-  KimiHarness,
+  DimiHarness,
   PermissionMode,
   Session,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -111,21 +111,21 @@ function makeFakeSession(
   return { session, planModeCalls, setPermissionCalls, setModelCalls, setThinkingCalls };
 }
 
-function makeHarness(handle: FakeSessionHandle): KimiHarness {
+function makeHarness(handle: FakeSessionHandle): DimiHarness {
   return {
     auth: makeAuth(),
     createSession: async (_options: unknown) => handle.session,
     // Phase 14: server.newSession reads these for configOptions assembly.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
-      models: makeProviderModels([{ id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: false }]),
+      defaultModel: 'test/dimir',
+      models: makeProviderModels([{ id: 'test/dimir', name: 'Dimir', thinkingSupported: false }]),
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 async function openSession(
-  harness: KimiHarness,
+  harness: DimiHarness,
 ): Promise<{ client: ClientSideConnection; capturing: CapturingClient; sessionId: string }> {
   const { agentStream, clientStream } = makeInMemoryStreamPair();
   new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -245,9 +245,9 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const harness = makeHarness(handle);
     const { client, capturing, sessionId } = await openSession(harness);
 
-    await client.unstable_setSessionModel({ sessionId, modelId: 'test/kimi-v2-something' });
+    await client.unstable_setSessionModel({ sessionId, modelId: 'test/dimi-v2-something' });
 
-    expect(handle.setModelCalls).toEqual(['test/kimi-v2-something']);
+    expect(handle.setModelCalls).toEqual(['test/dimi-v2-something']);
     const updates = capturing.notifications.filter(
       (n) => n.sessionId === sessionId && n.update.sessionUpdate === 'config_option_update',
     );
@@ -259,7 +259,7 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     expect(modelOpt).toBeDefined();
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('test/kimi-v2-something');
+      expect(modelOpt.currentValue).toBe('test/dimi-v2-something');
     }
   });
 
@@ -271,8 +271,8 @@ describe('AcpServer session/unstable_setSessionModel', () => {
       auth: makeAuth({
         models: makeProviderModels([
           {
-            id: 'test/kimi-v2-something',
-            name: 'Kimi v2 something',
+            id: 'test/dimi-v2-something',
+            name: 'Dimi v2 something',
             thinkingSupported: true,
           },
         ]),
@@ -280,24 +280,24 @@ describe('AcpServer session/unstable_setSessionModel', () => {
       createSession: async () => handle.session,
       getConfig: async () => ({
         providers: {},
-        defaultModel: 'test/kimi-v2-something',
+        defaultModel: 'test/dimi-v2-something',
         models: makeProviderModels([
-          { id: 'test/kimi-v2-something', name: 'Kimi v2 something', thinkingSupported: true },
+          { id: 'test/dimi-v2-something', name: 'Dimi v2 something', thinkingSupported: true },
         ]),
       }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
     const { client, capturing, sessionId } = await openSession(harness);
 
     await client.unstable_setSessionModel({
       sessionId,
-      modelId: 'test/kimi-v2-something,thinking',
+      modelId: 'test/dimi-v2-something,thinking',
     });
 
     // SDK receives the bare model key for setModel and the model's default
     // thinking effort for setThinking — Phase 15 routes thinking through the
     // dedicated SDK channel instead of dropping the suffix on the floor. This
     // A reasoning model without an explicit map uses the middle standard effort.
-    expect(handle.setModelCalls).toEqual(['test/kimi-v2-something']);
+    expect(handle.setModelCalls).toEqual(['test/dimi-v2-something']);
     expect(handle.setThinkingCalls).toEqual(['medium']);
 
     // The model picker's currentValue is the bare id — thinking lives
@@ -310,7 +310,7 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     if (update.sessionUpdate !== 'config_option_update') throw new Error('unreachable');
     const modelOpt = update.configOptions.find((o) => o.id === 'model');
     if (modelOpt && modelOpt.type === 'select') {
-      expect(modelOpt.currentValue).toBe('test/kimi-v2-something');
+      expect(modelOpt.currentValue).toBe('test/dimi-v2-something');
     }
     const toggle = update.configOptions.find((o) => o.id === 'thinking');
     if (!toggle || toggle.type !== 'select') throw new Error('expected thinking toggle');
@@ -323,7 +323,7 @@ describe('AcpServer session/unstable_setSessionModel', () => {
     const { client, capturing } = await openSession(harness);
 
     await expect(
-      client.unstable_setSessionModel({ sessionId: 'sess-unknown', modelId: 'kimi-v2' }),
+      client.unstable_setSessionModel({ sessionId: 'sess-unknown', modelId: 'dimi-v2' }),
     ).rejects.toMatchObject({ code: -32602 });
 
     expect(handle.setModelCalls).toEqual([]);

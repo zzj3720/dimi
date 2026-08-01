@@ -19,7 +19,7 @@
 import type { ContentPart, ToolCall } from "#/llmProtocol/message";
 import type { Tool } from "#/llmProtocol/tool";
 import type { LLMRequestTrace } from "#/llmProtocol/requestTrace";
-import type { ToolInputDisplay } from "@moonshot-ai/protocol";
+import type { ToolInputDisplay } from "@dimi-agent/protocol";
 
 export type ExecutableToolOutput = string | ContentPart[];
 

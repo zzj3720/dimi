@@ -36,7 +36,7 @@ describe('stripPort', () => {
 describe('formatHostErrorMessage', () => {
   it('includes the rejected host and allow guidance', () => {
     expect(formatHostErrorMessage('APP.Example.com:443')).toBe(
-      "Invalid Host header: app.example.com; allow this host with DIMI_CODE_ALLOWED_HOSTS=app.example.com or 'kimi web --allowed-host app.example.com'.",
+      "Invalid Host header: app.example.com; allow this host with DIMI_CODE_ALLOWED_HOSTS=app.example.com or 'dimi web --allowed-host app.example.com'.",
     );
   });
 });
@@ -145,7 +145,7 @@ describe('createHostCheck (onRequest hook)', () => {
     const body = res.json() as Record<string, unknown>;
     expect(body['code']).toBe(40301);
     expect(body['msg']).toBe(
-      "Invalid Host header: evil.com; allow this host with DIMI_CODE_ALLOWED_HOSTS=evil.com or 'kimi web --allowed-host evil.com'.",
+      "Invalid Host header: evil.com; allow this host with DIMI_CODE_ALLOWED_HOSTS=evil.com or 'dimi web --allowed-host evil.com'.",
     );
     expect(body['data']).toBeNull();
     expect(typeof body['request_id']).toBe('string');
@@ -185,7 +185,7 @@ describe('startServer allowedHosts — env + option merge', () => {
 
   it('appends opts.allowedHosts to DIMI_CODE_ALLOWED_HOSTS instead of replacing it', async () => {
     process.env[ENV_KEY] = 'env-only.example.com';
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-host-merge-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-host-merge-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

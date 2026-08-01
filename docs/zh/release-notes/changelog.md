@@ -4,7 +4,7 @@ outline: 2
 
 # 变更记录
 
-本页记录 Kimi Code CLI 每个版本的变更内容。
+本页记录 Dimi CLI 每个版本的变更内容。
 
 ## 0.30.0（2026-07-29）
 
@@ -14,7 +14,7 @@ outline: 2
 
 ### 优化
 
-- 安装会计入套餐额度的官方插件（如 Kimi Datasource）后，显示额度说明。
+- 安装会计入套餐额度的官方插件（如 Dimi Datasource）后，显示额度说明。
 - 会话中使用的官方插件有可用更新时显示提示，可运行 /plugins 更新。
 - 移除内置服务器文件上传的 50 MB 大小限制。
 
@@ -49,9 +49,9 @@ outline: 2
 
 ### 新功能
 
-- web: 支持 Markdown 文件定义 agent，声明 system prompt、名称、描述和工具权限。[查看文档](https://moonshotai.github.io/kimi-code/en/customization/agents.html#agent-file-format)
-- web: 可通过 SYSTEM.md 永久覆盖主 agent 的系统提示。[查看文档](https://moonshotai.github.io/kimi-code/en/customization/agents.html#overriding-the-main-agent-s-system-prompt-with-system-md)
-- web: 可通过 config.toml 在所有会话中统一启用/禁用工具。[查看文档](https://moonshotai.github.io/kimi-code/en/configuration/config-files.html#tools)
+- web: 支持 Markdown 文件定义 agent，声明 system prompt、名称、描述和工具权限。[查看文档](https://moonshotai.github.io/dimi/en/customization/agents.html#agent-file-format)
+- web: 可通过 SYSTEM.md 永久覆盖主 agent 的系统提示。[查看文档](https://moonshotai.github.io/dimi/en/customization/agents.html#overriding-the-main-agent-s-system-prompt-with-system-md)
+- web: 可通过 config.toml 在所有会话中统一启用/禁用工具。[查看文档](https://moonshotai.github.io/dimi/en/configuration/config-files.html#tools)
 - 附加到提示词的视频现在会随提示词一起送达模型，无需额外的工具轮次。
 - ACP 客户端现支持选择思考强度。
 - 新增 Agent 循环与后台任务限制的环境变量覆盖：`DIMI_LOOP_MAX_STEPS_PER_TURN`、`DIMI_LOOP_MAX_RETRIES_PER_STEP` 和 `DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS`。
@@ -74,7 +74,7 @@ outline: 2
 - 修复当供应商没有文件上传通道时 `ReadMediaFile` 处理视频失败的问题。
 - 修复恢复会话时目标模式续行提示词泄漏到对话记录中的问题。
 - web: 在透明图片下方显示棋盘格画布。
-- 移除定时任务工具描述中对不存在的 `kimi resume` 命令的引用。
+- 移除定时任务工具描述中对不存在的 `dimi resume` 命令的引用。
 
 ## 0.28.1（2026-07-20）
 
@@ -84,7 +84,7 @@ outline: 2
 
 ### 优化
 
-- `kimi web` 服务器改为全程前台运行：`/web` 斜杠命令现在总是启动新服务器，`kimi web kill` 与 `kimi web ps` 子命令已移除，前台服务器按 Ctrl+C 即可停止。`kimi server kill` 保留为废弃回退，仅能停止 0.28.0 之前版本启动的服务器。
+- `dimi web` 服务器改为全程前台运行：`/web` 斜杠命令现在总是启动新服务器，`dimi web kill` 与 `dimi web ps` 子命令已移除，前台服务器按 Ctrl+C 即可停止。`dimi server kill` 保留为废弃回退，仅能停止 0.28.0 之前版本启动的服务器。
 
 ### 修复
 
@@ -95,8 +95,8 @@ outline: 2
 ### 新功能
 
 - **破坏性变更：** 
-  - `kimi server` 命令树已被废弃，请使用 `kimi web` 代替。
-  - `kimi web` 现在在当前终端前台运行并打开浏览器，按 Ctrl+C 停止。
+  - `dimi server` 命令树已被废弃，请使用 `dimi web` 代替。
+  - `dimi web` 现在在当前终端前台运行并打开浏览器，按 Ctrl+C 停止。
 
 ### 优化
 
@@ -113,7 +113,7 @@ outline: 2
 ### 新功能
 
 - 新增 `/copy` 斜杠命令，可将上一条助手消息复制到剪贴板。
-- 使用 API key 调用 Kimi 编程模型时，现在会自动拉取最新模型列表。
+- 使用 API key 调用 Dimi 编程模型时，现在会自动拉取最新模型列表。
 
 ### 优化
 
@@ -130,7 +130,7 @@ outline: 2
 - 修复 web 后端忽略以符号链接形式安装的 AGENTS.md 文件的问题。
 - 修复 /btw 面板打开时，按 Esc 或 Ctrl+C 会取消 compaction 而不是关闭面板的问题。
 - 修复纯空白思考内容在对话记录中渲染成空行的问题。
-- 修复对同一会话重复执行 /export-debug-zip 或 kimi export 会覆盖上一份压缩包的问题；文件名现包含时间戳。
+- 修复对同一会话重复执行 /export-debug-zip 或 dimi export 会覆盖上一份压缩包的问题；文件名现包含时间戳。
 
 ## 0.26.0（2026-07-16）Say hi to the BIIIG DAY!
 
@@ -145,12 +145,12 @@ outline: 2
 
 - 修复恢复的会话没有新活动却被标记为刚更新、跳到会话列表顶部的问题。
 - 修复上下文大小指示器低估模型实际上下文用量的问题。
-- 修复经 Anthropic 协议接入的 Kimi 供应商模型错误显示思考强度选项的问题。
+- 修复经 Anthropic 协议接入的 Dimi 供应商模型错误显示思考强度选项的问题。
 - 修复 OpenAI 兼容（chat completions）供应商上显式关闭思考不生效的问题。
 - 用户停止任务时现在会向模型报告，其他停止原因也会保留在模型上下文中。
 - 修复后台子 Agent 被手动停止后立即恢复时可能因竞争报 `"already running"` 错误的问题。
-- Anthropic 兼容与 Kimi 的 preserved-thinking 端点现在原样回放空思考内容，不再替换为占位空格。
-- 旧版迁移在多个 Kimi 主目录之间保持幂等，损坏或无法映射的会话现在会明确报告，不再静默跳过。
+- Anthropic 兼容与 Dimi 的 preserved-thinking 端点现在原样回放空思考内容，不再替换为占位空格。
+- 旧版迁移在多个 Dimi 主目录之间保持幂等，损坏或无法映射的会话现在会明确报告，不再静默跳过。
 - web: 修复侧边栏调整宽度的拖拽手柄被聊天输入框背景遮挡的问题。
 
 ## 0.25.0（2026-07-16）
@@ -183,17 +183,17 @@ outline: 2
 
 ### 新功能
 
-- 新增内置 `/check-kimi-code-docs` Skill，自动基于官方文档回答 Kimi Code 产品问题并附来源链接。
+- 新增内置 `/check-dimi-docs` Skill，自动基于官方文档回答 Dimi 产品问题并附来源链接。
 
 ### 优化
 
-- 对齐 `kimi -p` 在各引擎的行为：`print_background_mode` 与 `print_max_turns` 生效，`/goal` 会运行到目标结束。
-- `kimi -p` 默认在后台任务未完成时保持运行，等待与轮次实际上不设上限，并把完成结果反馈给主 Agent。如需恢复旧的一轮后退出，可设置 `print_background_mode = "exit"` 或 `"drain"`。
-- `kimi -p` 后台任务和子 Agent 默认不再超时（交互模式不变）；如需恢复限制，可设置 `[background] bash_task_timeout_s` 或 `[subagent] timeout_ms`。
+- 对齐 `dimi -p` 在各引擎的行为：`print_background_mode` 与 `print_max_turns` 生效，`/goal` 会运行到目标结束。
+- `dimi -p` 默认在后台任务未完成时保持运行，等待与轮次实际上不设上限，并把完成结果反馈给主 Agent。如需恢复旧的一轮后退出，可设置 `print_background_mode = "exit"` 或 `"drain"`。
+- `dimi -p` 后台任务和子 Agent 默认不再超时（交互模式不变）；如需恢复限制，可设置 `[background] bash_task_timeout_s` 或 `[subagent] timeout_ms`。
 - 子 Agent 超时统一默认为 2 小时，可通过 `[subagent] timeout_ms` 或 `DIMI_SUBAGENT_TIMEOUT_MS` 覆盖。
 - 每步 LLM 重试上限从 3 次提高到 10 次，供应商临时失败（429 / 过载）会在轮次失败前自动重试；可通过 `loop_control.max_retries_per_step` 调整。
 - 工作区现在自动保持同步：新会话自动注册，缺失工作区启动时补全，已移除的不再重现。
-- `kimi web` 现在会记录失败请求和关键操作，便于诊断服务问题。
+- `dimi web` 现在会记录失败请求和关键操作，便于诊断服务问题。
 - web: AgentSwarm 卡片在子 Agent 运行时保持展开。
 - web: 最小化的计划审阅与问题卡片改用向上的 chevron 作为展开图标。
 
@@ -223,9 +223,9 @@ outline: 2
 
 ### 修复
 
-- 修复 preserved-thinking 历史包含空推理步骤时，Kimi 会话卡住的问题。
+- 修复 preserved-thinking 历史包含空推理步骤时，Dimi 会话卡住的问题。
 - 修复模型供应商在会话启动后才就绪时，内置工具不可用的问题。
-- 修复思考强度（thinking effort）路由问题：非 Kimi 供应商现在保留配置值，Kimi 模型会校验运行时选择，并在模型解析时安全回退。
+- 修复思考强度（thinking effort）路由问题：非 Dimi 供应商现在保留配置值，Dimi 模型会校验运行时选择，并在模型解析时安全回退。
 - web: 对齐 Web 端与 CLI 的思考级别处理：所选级别原样提交，不再被静默降级；未选择或切换模型时回退到模型自身的默认级别；显式选择会保存为默认值并被新会话继承。
 - 修复目标完成摘要丢失的问题；步骤中断事件中的无类型 LLM 错误不再显示内部错误码前缀。
 
@@ -246,7 +246,7 @@ outline: 2
 - 优化会话关闭流程：先请求后台任务停止并留出宽限时间，再强制停止仍未退出的任务。
 - 重写重复工具调用提醒，引导 Agent 采取其他动作，而不是禁止调用。
 - 优化 `TaskOutput` 的工具提示词，避免 Agent 阻塞等待后台任务。
-- 请求供应商 registry（api.json）和模型目录时携带 kimi-code-cli 的 User-Agent，便于 registry 识别客户端版本。
+- 请求供应商 registry（api.json）和模型目录时携带 dimi-cli 的 User-Agent，便于 registry 识别客户端版本。
 - Skill 解析失败时输出警告，不再静默丢弃；并修复 Skill 扫描结果的报告遗漏。
 
 ### 修复
@@ -273,7 +273,7 @@ outline: 2
 
 ### 重构
 
-- `kimi web` 默认切换到重构后的 Agent 引擎。
+- `dimi web` 默认切换到重构后的 Agent 引擎。
 
 ## 0.23.6（2026-07-12）
 
@@ -286,13 +286,13 @@ outline: 2
 - 导入自定义 registry 时识别 `support_efforts` 和 `default_effort` 字段，这些模型可设置思考强度（thinking effort）级别。
 - 更新 `/plugins` 面板中打开的 WebBridge 安装页链接。
 - 新增 `subagent.timeout_ms` 配置项（或 `DIMI_SUBAGENT_TIMEOUT_MS` 环境变量），控制单个子代理的超时时间，默认从 30 分钟提高到 2 小时。
-- 新增 print 模式后台策略：设置 `[background].print_background_mode = "steer"` 后，`kimi -p` 在后台任务完成后保持运行，继续引导主 Agent 进入后续轮次。
+- 新增 print 模式后台策略：设置 `[background].print_background_mode = "steer"` 后，`dimi -p` 在后台任务完成后保持运行，继续引导主 Agent 进入后续轮次。
 
 ### 修复
 
 - web: 修复断线重连后会话卡在发送状态的问题，断线期间完成的轮次现在能正常结束加载状态并发送下一条消息。
 - web: 修复启动或更新 web UI 后首次访问时，初始鉴权检查失败跳转到登录页的问题；现在停留在连接界面，显示连接错误并持续重试。
-- 修复 `kimi -p` 在目标仍活跃或有定时任务待触发时主轮次结束即退出的问题，目标续跑与定时任务触发现在能正常执行对应轮次。
+- 修复 `dimi -p` 在目标仍活跃或有定时任务待触发时主轮次结束即退出的问题，目标续跑与定时任务触发现在能正常执行对应轮次。
 - 修复关闭问题提示时默认选中推荐选项的问题，现在视为用户选择不回答。
 - web: 修复恢复或重新加载会话后，ReadMediaFile 结果显示为普通工具卡片而非图片的问题。
 - web: 修复滚动浏览对话历史时聊天视图向下跳动的问题。
@@ -326,7 +326,7 @@ outline: 2
 - web: 优化聊天界面，采用 Inter 字体、本地化标签与更紧凑的输入框和菜单样式。
 - web: 优化会话侧边栏的布局、配色、图标与字体。
 - `/usage` 和 `/status` 命令现显示 Extra Usage（加油包）余额。
-- `/plugins` 面板的 Official 标签页新增 Kimi WebBridge 入口，可在浏览器中打开 WebBridge 安装页。
+- `/plugins` 面板的 Official 标签页新增 Dimi WebBridge 入口，可在浏览器中打开 WebBridge 安装页。
 
 ### 修复
 
@@ -349,7 +349,7 @@ outline: 2
 
 ### 修复
 
-- 修复 `kimi -p` 在轮次失败时仍以退出码 0 退出的问题。
+- 修复 `dimi -p` 在轮次失败时仍以退出码 0 退出的问题。
 - 修复自主目标会被模型上报的状态更新暂停的问题。
 - 修复启动自主目标的轮次未计入其轮次预算的问题。
 - 将图片降采样上限从 2000px 提高到 3000px，并修复 EXIF 旋转（竖拍）照片在压缩说明与媒体读取备注中宽高互换的问题，使区域回读坐标正确对应。
@@ -373,7 +373,7 @@ outline: 2
 
 ### 修复
 
-- 修复 `kimi -p` 会丢弃启动较晚或运行时间较长的后台子 Agent、导致结果无法返回主 Agent 的问题。
+- 修复 `dimi -p` 会丢弃启动较晚或运行时间较长的后台子 Agent、导致结果无法返回主 Agent 的问题。
 - web: 修复后台标签页 WebSocket 失效后聊天流中断、必须刷新页面的问题，现在会自动恢复。
 - 修复一些第三方模型如 Opus 4.8 错误回退到系列默认最大输出 token 数的问题，未收录的次要版本现在会沿用最近的已知较早版本的限制。
 - 修复显式设置的 Anthropic `max_output_size` 被裁剪到内置上限的问题，现在会尊重用户配置。
@@ -387,7 +387,7 @@ outline: 2
 
 ### 优化
 
-- Anthropic 供应商（Claude 与 Kimi 的 Anthropic 兼容模式）现在默认保留历史轮次的思考内容，与 Kimi 默认行为一致；可通过 `[thinking] keep = "off"` 或 `DIMI_MODEL_THINKING_KEEP=off` 关闭。
+- Anthropic 供应商（Claude 与 Dimi 的 Anthropic 兼容模式）现在默认保留历史轮次的思考内容，与 Dimi 默认行为一致；可通过 `[thinking] keep = "off"` 或 `DIMI_MODEL_THINKING_KEEP=off` 关闭。
 - 优化 `/permission`、`/auto`、`/yolo` 显示的权限模式描述，并在命令列表中调整 `/auto` 与 `/yolo` 的顺序。
 - 长时间运行目标的运行时长预算提醒现在以小时为单位显示。
 - 优化目标模式指引，使 Agent 在合理范围内跨轮次继续工作，避免过早结束目标。
@@ -427,24 +427,24 @@ outline: 2
 - web: 将 AskUserQuestion 的回答渲染为可读的选项列表并高亮已选项，替代原始 JSON。
 - web: 在会话创建前，于输入框中显示可用的 skills。
 - web: 在移动端设置面板新增「已归档会话」入口，并在归档确认提示中说明可从设置中恢复。
-- web: 在桌面通知中显示 Kimi 图标与更清晰的标题。
+- web: 在桌面通知中显示 Dimi 图标与更清晰的标题。
 - web: 让 markdown diff 代码块与设计系统对齐：代码文本保持正常文本颜色，由符号与柔和的行背景标识变更，与 `~/diff` 面板一致。
 - web: 避免聊天文本在换行处断字，并渲染代码时不使用字体连字。
 - web: 移除工具调用卡片正文多余的左缩进，使展开内容与标题对齐。
 - AskUserQuestion 的回答现在以问题文本与选项标签的形式回传给模型，而非位置 id，模型无需再将其映射回原选项；每次调用的问题文本须唯一，每个问题的选项标签须唯一，现有客户端仍以选项 id 作答，无需修改。
-- Kimi 模型开启 Thinking 时默认跨轮次保留推理，可设置 `[thinking] keep = "off"` 关闭。
+- Dimi 模型开启 Thinking 时默认跨轮次保留推理，可设置 `[thinking] keep = "off"` 关闭。
 
 ## 0.22.3（2026-07-04）
 
 ### 修复
 
-- `kimi -p` 会在后台子 Agent 完成并返回结果后再退出，避免提前结束本轮。
+- `dimi -p` 会在后台子 Agent 完成并返回结果后再退出，避免提前结束本轮。
 - web: 修复 web 聊天中已上传视频无法播放的问题。
 - 回退近期 TUI 对话渲染改动，恢复上游原始行为，修复相关渲染问题。
 
 ### 优化
 
-- `kimi server run` 新增 `--dangerous-bypass-auth` 与 `--keep-alive` 选项，可在可信网络中跳过 token 校验运行服务器，并突破空闲超时保持存活。
+- `dimi server run` 新增 `--dangerous-bypass-auth` 与 `--keep-alive` 选项，可在可信网络中跳过 token 校验运行服务器，并突破空闲超时保持存活。
 - web: web 聊天中已上传的图片支持点击放大，点击消息中的图片即可在预览面板打开。
 
 ## 0.22.2（2026-07-03）
@@ -453,7 +453,7 @@ outline: 2
 
 - 修复在一轮对话于工具调用与其结果之间被打断后，后续用户消息被静默丢弃的问题。
 - 修复模型输出重复的工具调用 id 时，请求被严格供应商拒绝的问题。
-- 修复 Windows 上 `kimi upgrade` 在安装新版本时因 spawn 错误而失败的问题。
+- 修复 Windows 上 `dimi upgrade` 在安装新版本时因 spawn 错误而失败的问题。
 - 修复流式输出期间滚动历史中对话内容重复出现的问题。
 - 修复压缩图片的提示词会把内部 `<system>` 压缩说明泄露到可见消息和会话标题中的问题。
 - 修复 Windows 上自动后台更新会弹出控制台窗口的问题。
@@ -461,11 +461,11 @@ outline: 2
 ### 优化
 
 - 优化 compaction 笔记：现在会记录剩余工作的后续计划（后续步骤、已确定的决策、可预见的障碍），而不仅是下一步，让 Agent 在自动压缩后更连贯地继续。
-- 启动时从用户登录 shell 补充 PATH，使 shell 命令能找到用户自行安装的工具（如 Homebrew 的 `gh`），即使 kimi-code 启动时未继承完整的 profile PATH。
+- 启动时从用户登录 shell 补充 PATH，使 shell 命令能找到用户自行安装的工具（如 Homebrew 的 `gh`），即使 dimi 启动时未继承完整的 profile PATH。
 - 将语言匹配规则提升为系统提示词中的独立小节，使回复与推理在面对长篇英文工具输出时仍一致使用用户的语言，同时仓库产物仍遵循项目约定。
 - TUI 新增一项偏好设置：当 bracketed paste 不可用时，避免快速多行粘贴被逐行提交。可在 `tui.toml` 中设置 `disable_paste_burst = true` 关闭该行为。
 - 优化子 Agent 卡片，使其保持固定高度，并在紧凑的双行活动窗口内显示实时状态 spinner。
-- `kimi -p` 运行时，若启用了 `background.keep_alive_on_exit`，退出前会等待后台子 Agent 完成。设置 `keep_alive_on_exit = true` 可让并发的后台子 Agent 执行完毕。
+- `dimi -p` 运行时，若启用了 `background.keep_alive_on_exit`，退出前会等待后台子 Agent 完成。设置 `keep_alive_on_exit = true` 可让并发的后台子 Agent 执行完毕。
 
 ### 重构
 
@@ -549,7 +549,7 @@ outline: 2
 ### 修复
 
 - 修复格式异常的消息历史会在严格供应商（Anthropic）上永久卡死会话的问题。发送前会修复请求：关闭孤立的工具调用、丢弃空白或纯空白文本块；若供应商仍拒绝其结构，则按 wire 协议合规格式重建并重发一次。
-- 强制退出无头运行（`kimi -p`），以免运行残留的引用句柄让已完成的运行一直存活到外部超时；同时为 prompt 清理加上时限，避免某个卡住的关闭步骤拖挂整个关闭流程。
+- 强制退出无头运行（`dimi -p`），以免运行残留的引用句柄让已完成的运行一直存活到外部超时；同时为 prompt 清理加上时限，避免某个卡住的关闭步骤拖挂整个关闭流程。
 - 修复在斜杠命令参数中输入 `@` 文件提及时无法打开的问题。
 - 修复 web UI 中通过路径添加工作区时，daemon 拒绝路径会静默失败的问题；现在会显示错误，而不是生成一个无法使用的工作区。
 - 修复同一文件夹被重复注册时，web 侧边栏显示重复工作区的问题。
@@ -591,9 +591,9 @@ outline: 2
 
 ### 新功能
 
-- Kimi Code 现支持 Anthropic 兼容协议，并支持视频输入。
+- Dimi 现支持 Anthropic 兼容协议，并支持视频输入。
 - web UI 新增完成提示音与问题通知，并在设置中分别提供完成通知、问题通知和提示音的开关。问题通知默认关闭，仅在用户主动开启后才会将问题文本发送到桌面。
-- 新增 `DIMI_CODE_CUSTOM_HEADERS` 环境变量，用于自定义出站 LLM 请求头，并向非 Kimi 供应商发送 `User-Agent` 请求头。将 `DIMI_CODE_CUSTOM_HEADERS` 设为由换行分隔的 `Name: Value` 行。
+- 新增 `DIMI_CODE_CUSTOM_HEADERS` 环境变量，用于自定义出站 LLM 请求头，并向非 Dimi 供应商发送 `User-Agent` 请求头。将 `DIMI_CODE_CUSTOM_HEADERS` 设为由换行分隔的 `Name: Value` 行。
 - 会话列表 API 新增可选的 `exclude_empty` 参数，用于省略没有任何消息的会话。
 
 ### 修复
@@ -622,7 +622,7 @@ outline: 2
 
 ### 重构
 
-- 将 Anthropic 兼容协议上的 Kimi Code 模型改走 beta Messages API。
+- 将 Anthropic 兼容协议上的 Dimi 模型改走 beta Messages API。
 - 升级 web Markdown 渲染器依赖（katex、markstream-vue、shiki），以修复问题并改进性能。
 - 在轮次和 API 错误遥测中新增供应商类型与协议属性。
 
@@ -630,14 +630,14 @@ outline: 2
 
 ### 新功能
 
-- 插件现支持在 `kimi.plugin.json` 中声明生命周期 hooks，在指定阶段运行脚本。详见[插件 Hooks](../customization/plugins.md#插件中的-hooks)。
+- 插件现支持在 `dimi.plugin.json` 中声明生命周期 hooks，在指定阶段运行脚本。详见[插件 Hooks](../customization/plugins.md#插件中的-hooks)。
 - `/feedback` 现支持附加诊断日志与代码库上下文。
-- 新增 `kimi update` 命令，等价于 `kimi upgrade`，可用于升级到最新版本。
-- `kimi web` 新增 `--allowed-host <host>` 选项，可将指定 Host 加入 DNS 重绑定白名单；403 错误会提示如何通过 `--allowed-host` 或 `DIMI_CODE_ALLOWED_HOSTS` 放行，例如 `kimi web --allowed-host example.com`。
+- 新增 `dimi update` 命令，等价于 `dimi upgrade`，可用于升级到最新版本。
+- `dimi web` 新增 `--allowed-host <host>` 选项，可将指定 Host 加入 DNS 重绑定白名单；403 错误会提示如何通过 `--allowed-host` 或 `DIMI_CODE_ALLOWED_HOSTS` 放行，例如 `dimi web --allowed-host example.com`。
 
 ### 修复
 
-- 修复 Windows 上 kimi server 首次运行后无法启动的问题。
+- 修复 Windows 上 dimi server 首次运行后无法启动的问题。
 - 修复 `/web` 命令打开的 Web UI 不会自动登录的问题，现在终端会打印访问 token。
 - chat-completions 供应商的 `max_tokens` 现在不超过剩余上下文窗口，避免上下文溢出与无效参数错误。
 
@@ -654,13 +654,13 @@ outline: 2
 ### 新功能
 
 - TUI 新增 shell 模式。在输入框中键入 `!` 即可启用。对于长时间运行的命令，按 `Ctrl+B` 可将其移至后台。例如，你可以运行 `!gh auth login` 登录 GitHub CLI，无需打开新的终端。
-- CLI 新增 `--host` 选项，可通过 `kimi web --host` 将服务器暴露到互联网，并加固 token 鉴权、限流等安全措施。
+- CLI 新增 `--host` 选项，可通过 `dimi web --host` 将服务器暴露到互联网，并加固 token 鉴权、限流等安全措施。
 - Web UI 支持渲染 LaTeX 行间公式（`$$…$$`）。
 
 ### 修复
 
 - 修复 Linux 上由未处理的原生剪贴板错误导致的启动崩溃。
-- 修复当 CLI 通过 npm/pnpm 安装或从源码运行时，`kimi web` 和 `/web` 在 Windows 上因 `spawn EFTYPE` 无法启动后台服务器守护进程的问题。官方单二进制安装脚本不受影响。
+- 修复当 CLI 通过 npm/pnpm 安装或从源码运行时，`dimi web` 和 `/web` 在 Windows 上因 `spawn EFTYPE` 无法启动后台服务器守护进程的问题。官方单二进制安装脚本不受影响。
 - 修复终端窗口在 Linux Wayland 上反复失去焦点、导致输入法（IME）输入失效的问题。
 - 不再在 60 秒后自动关闭 web UI 中的问题，使其等待用户的回答。
 - 修复 explore 子 Agent 在 git 命令超时或目录不是仓库时静默丢失 git 上下文的问题。
@@ -671,7 +671,7 @@ outline: 2
 
 ### 优化
 
-- 将 `/plugins` 重新设计为单个标签页面板：**Installed**（管理已安装插件——切换、移除、MCP、详情、重新加载）、**Official**（Kimi 维护的 marketplace 插件）、**Third-party**（来自其他发布者的 marketplace 插件）以及 **Custom**（直接从 GitHub URL、zip URL 或本地路径安装）。使用 `Tab` / `Shift-Tab` 切换标签页。
+- 将 `/plugins` 重新设计为单个标签页面板：**Installed**（管理已安装插件——切换、移除、MCP、详情、重新加载）、**Official**（Dimi 维护的 marketplace 插件）、**Third-party**（来自其他发布者的 marketplace 插件）以及 **Custom**（直接从 GitHub URL、zip URL 或本地路径安装）。使用 `Tab` / `Shift-Tab` 切换标签页。
 - 当 Agent 在 web 聊天中编辑或写入文件时，显示逐行 diff。
 - 在 web UI 中退出 Plan 模式时，在计划审查卡片中显示计划正文和方案选项。
 - 在子 Agent 的详情面板中显示其完整的累积进度，并以简洁的工具调用摘要替代原始 JSON。
@@ -749,7 +749,7 @@ outline: 2
 
 - 新增添加额外工作区目录的能力：
   - 使用 `/add-dir <path>` 命令将额外工作目录添加到当前会话，或将其记住到项目中。
-  - 使用 `kimi --add-dir <path>` 在启动时添加它们。
+  - 使用 `dimi --add-dir <path>` 在启动时添加它们。
   - 项目级本地配置现在由 `.dimi/local.toml` 管理；我们建议将其添加到你的 `.gitignore` 中。
 - 允许使用 `Ctrl+B` 将长时间运行的前台命令和子 Agent 移动到后台任务，并通过 `/tasks` 面板查看它们。
 
@@ -800,7 +800,7 @@ outline: 2
 
 ### 修复
 
-- 修复 `kimi web` 命令无法在后台启动的问题。
+- 修复 `dimi web` 命令无法在后台启动的问题。
 - 阻止后台本地服务器锁定启动时所在的目录。
 - 防止点击背景时关闭 web 登录对话框。
 
@@ -812,7 +812,7 @@ outline: 2
 
 ### 新功能
 
-- 新增 Kimi Code Web 模式，可通过 `kimi web` 或 CLI 内的 `/web` 启动，在浏览器中的聊天界面继续会话。
+- 新增 Dimi Web 模式，可通过 `dimi web` 或 CLI 内的 `/web` 启动，在浏览器中的聊天界面继续会话。
 
 ### 修复
 
@@ -827,7 +827,7 @@ outline: 2
 
 ### 新功能
 
-- 新增内置的 `kimi vis` 命令，可在浏览器中启动会话可视化工具，并指向本地会话。支持 `--port`/`--host`、`--no-open` 以及 `kimi vis <sessionId>` 深度链接。
+- 新增内置的 `dimi vis` 命令，可在浏览器中启动会话可视化工具，并指向本地会话。支持 `--port`/`--host`、`--no-open` 以及 `dimi vis <sessionId>` 深度链接。
 
 ### 修复
 
@@ -939,7 +939,7 @@ outline: 2
 ### 修复
 
 - 阻止在活跃 turn 期间 fork 会话，并将 wire protocol 定义整合到共享的内部包中。
-- 修复 Kimi Datasource，使其在当前 Kimi Code 环境中使用匹配的 OAuth 凭证和服务端点。
+- 修复 Dimi Datasource，使其在当前 Dimi 环境中使用匹配的 OAuth 凭证和服务端点。
 - 修复 goal 标记文本超出终端宽度的问题。
 
 ### 优化
@@ -1003,7 +1003,7 @@ outline: 2
 - 直接展示完整 plan 卡片，并移除 Plan 卡片键盘快捷键。
 - 在审批提示中换行显示过长的单行 shell 命令，以便完整命令始终可见。
 - 重构 TUI 中的文件引用补全。
-- 当设置了 `DIMI_CODE_HOME` 时，从该路径加载 Kimi 特定的用户 Skills 和全局 Agent 指令。
+- 当设置了 `DIMI_CODE_HOME` 时，从该路径加载 Dimi 特定的用户 Skills 和全局 Agent 指令。
 
 ## 0.11.0（2026-06-05）
 
@@ -1011,7 +1011,7 @@ outline: 2
 
 - 新增由环境变量 `DIMI_CODE_EXPERIMENTAL_SUB_SKILL` 控制的实验性子 Skill 发现能力。随附 `sub-skill` 内置包（`sub-skill.review`、`sub-skill.consolidate`），用于盘点 Skill 并将其整理为分层分组。
 - 新增以下环境变量：
-  - `DIMI_MODEL_TEMPERATURE`、`DIMI_MODEL_TOP_P` —— 全局应用于任意 `kimi` 供应商的采样参数（不绑定到 `DIMI_MODEL_NAME`）。
+  - `DIMI_MODEL_TEMPERATURE`、`DIMI_MODEL_TOP_P` —— 全局应用于任意 `dimi` 供应商的采样参数（不绑定到 `DIMI_MODEL_NAME`）。
   - `DIMI_MODEL_THINKING_KEEP` —— Moonshot 的 preserved-thinking 透传（`thinking.keep`），仅在开启 Thinking 时注入。
   - `DIMI_CODE_NO_AUTO_UPDATE`（旧别名 `DIMI_CLI_NO_AUTO_UPDATE`）—— 完全禁用更新预检（不检查、不后台安装、不提示）。
 - 将内置 Skill 显示为直接斜杠命令，并将其分组排在外部 Skill 命令之前。
@@ -1047,10 +1047,10 @@ outline: 2
 ### 新功能
 
 - 用户现在可以为 Agent 准备多个目标，让它按顺序逐一处理。当前目标完成后，Agent 会自动从队列中取出下一个目标。使用 `/goal next <objective>` 将目标加入队列，使用 `/goal next manage` 交互式查看和修改队列。
-- 新增内置的 `update-config` Skill —— 你现在可以让 Kimi 编辑它自己的配置文件。
+- 新增内置的 `update-config` Skill —— 你现在可以让 Dimi 编辑它自己的配置文件。
 - 新增持久化的实验性功能开关，以及一个 TUI 面板，确认后会通过重载当前会话来应用变更。
 - 新增 `/reload` 以重载当前会话并应用更新后的配置文件，以及 `/reload-tui` 以仅重载 TUI 偏好设置。
-- 新增 doctor 命令，用于校验 Kimi Code 的配置文件。
+- 新增 doctor 命令，用于校验 Dimi 的配置文件。
 
 ### 修复
 
@@ -1065,7 +1065,7 @@ outline: 2
 ### 优化
 
 - 启动时的更新检查一旦发现新版本，立即开始自动后台更新。
-- 在启动期间将 CLI 进程标题设置为 `kimi-code`。
+- 在启动期间将 CLI 进程标题设置为 `dimi`。
 - 将编辑工具错误中的过期文件内容提示改为小写。
 
 ### 重构
@@ -1080,7 +1080,7 @@ outline: 2
 
 ### 新功能
 
-- 支持 `kimi acp` 子命令：kimi-code 现在可通过 stdio 使用 [Agent Client Protocol 0.23](https://agentclientprotocol.com/)，因此 IDE（Zed、JetBrains AI Chat、自定义客户端）可以直接驱动会话；覆盖矩阵、Zed 配置和破坏性预发布说明见 [kimi acp 子命令页面](https://moonshotai.github.io/kimi-code/zh/reference/kimi-acp.html)。
+- 支持 `dimi acp` 子命令：dimi 现在可通过 stdio 使用 [Agent Client Protocol 0.23](https://agentclientprotocol.com/)，因此 IDE（Zed、JetBrains AI Chat、自定义客户端）可以直接驱动会话；覆盖矩阵、Zed 配置和破坏性预发布说明见 [dimi acp 子命令页面](https://moonshotai.github.io/dimi/zh/reference/dimi-acp.html)。
 - 新增 `/btw`，用于进行不会引导当前主轮次的侧通道对话，并允许 `/btw` 在输入问题前打开侧通道面板。
 
 ### 修复
@@ -1104,17 +1104,17 @@ outline: 2
 
 ### 新功能
 
-- 新增实验性 goal 模式，用于需要多轮处理的较长任务。在启动 Kimi 前设置 `DIMI_CODE_EXPERIMENTAL_GOAL_COMMAND=1` 即可开启。
-  在终端界面中使用 `/goal <objective>` 让 Kimi 跨轮次持续专注于同一任务。例如：
+- 新增实验性 goal 模式，用于需要多轮处理的较长任务。在启动 Dimi 前设置 `DIMI_CODE_EXPERIMENTAL_GOAL_COMMAND=1` 即可开启。
+  在终端界面中使用 `/goal <objective>` 让 Dimi 跨轮次持续专注于同一任务。例如：
   ```text
   /goal Fix the failing checkout test
   ```
-  Kimi 会在终端界面中显示目标，并在工作过程中保持进度可见。使用 `/goal status`、`/goal pause`、`/goal resume`、`/goal cancel` 和 `/goal replace <objective>` 来管理该目标。该功能仍处于实验阶段，欢迎试用并反馈改进建议。
-- 新增 `kimi provider` CLI 子命令，支持 `add`、`remove`、`list` 以及 `catalog list` / `catalog add` 操作，可在不启动终端界面的情况下导入和管理来自自定义 registry（api.json）或公开 models.dev 目录的供应商。
+  Dimi 会在终端界面中显示目标，并在工作过程中保持进度可见。使用 `/goal status`、`/goal pause`、`/goal resume`、`/goal cancel` 和 `/goal replace <objective>` 来管理该目标。该功能仍处于实验阶段，欢迎试用并反馈改进建议。
+- 新增 `dimi provider` CLI 子命令，支持 `add`、`remove`、`list` 以及 `catalog list` / `catalog add` 操作，可在不启动终端界面的情况下导入和管理来自自定义 registry（api.json）或公开 models.dev 目录的供应商。
 - 新增后台结构化提问，让 Agent 在等待用户回答时也能继续工作。
 - 新增后台自动更新，可在 tui.toml 中关闭。
 - 新增 `/undo` 斜杠命令，用于从对话历史中撤回上一条提示词，并在撤回时保持回放记录同步。
-- 新增 `kimi upgrade` 命令，用于手动检查并升级 Kimi Code CLI。
+- 新增 `dimi upgrade` 命令，用于手动检查并升级 Dimi CLI。
 - 新增审批生命周期 hook 事件，用于观察待处理和已完成的权限提示。
 - 允许子 Agent 使用在其父 Agent 上注册的自定义工具。
 - 支持用 glob 搜索显式的绝对路径（工作空间之外）。
@@ -1158,15 +1158,15 @@ outline: 2
 
 ### 优化
 
-- 明确 Kimi Platform API 密钥登录的标签和提示细节。
+- 明确 Dimi Platform API 密钥登录的标签和提示细节。
 - 优化终端界面中的一处细微视觉交互。
 
 ## 0.6.0（2026-05-29）
 
 ### 新功能
 
-- 新增 `DIMI_MODEL_*` 环境变量通道，让你无需编辑 `config.toml` 即可让 Kimi Code 使用指定模型（供应商类型、base URL、API 密钥、上下文大小、能力以及 thinking 设置）。
-- 支持直接从 GitHub 仓库 URL 安装 plugin，并在 plugin 管理器中展示每次安装的来源和信任级别（kimi-official、curated、third-party）。
+- 新增 `DIMI_MODEL_*` 环境变量通道，让你无需编辑 `config.toml` 即可让 Dimi 使用指定模型（供应商类型、base URL、API 密钥、上下文大小、能力以及 thinking 设置）。
+- 支持直接从 GitHub 仓库 URL 安装 plugin，并在 plugin 管理器中展示每次安装的来源和信任级别（dimi-official、curated、third-party）。
 
 ### 修复
 
@@ -1187,7 +1187,7 @@ outline: 2
 - 支持在 listSessions 中通过 sessionId 或 workDir 查询会话，并在从其他工作目录恢复会话时显示一条便捷的 cd 命令。
 - 扩充页脚轮换提示，展示更多命令和快捷键，并更突出地呈现较新和重要的内容。
 - 改进终端界面中的用量信息展示。
-- 将 plugin 信任徽章限制为仅匹配 Kimi 托管的 plugin CDN URL 模式。
+- 将 plugin 信任徽章限制为仅匹配 Dimi 托管的 plugin CDN URL 模式。
 - 明确子 Agent 和后台任务的停止消息为用户主动发起。
 - 将数据源 plugin 对齐到通用的双工具工作流。
 
@@ -1254,7 +1254,7 @@ outline: 2
 
 ### 其他
 
-- 增强 `kimi export`，在 manifest 中记录更多诊断信息。
+- 增强 `dimi export`，在 manifest 中记录更多诊断信息。
 
 ## 0.3.0（2026-05-26）
 
@@ -1273,7 +1273,7 @@ outline: 2
 - 在会话恢复时，若所有待办均已完成则隐藏待办面板。
 - 在工具返回结果格式错误或缺失时，始终发出配对的工具结果，避免下一次请求因缺少 `tool_call_id` 而失败。
 - 修复 Plan 模式下的会话重置：新会话在 Plan 评审被拒后不再失败，并能在初始化错误后继续接收事件。
-- 在控制终端消失时及时退出。终端界面现在会处理 `SIGHUP` / `SIGTERM` 信号以及 stdout/stderr 的 `EIO` / `EPIPE` / `ENOTCONN` 错误，避免父 shell 或终端复用器异常退出后残留占用 CPU 核心的 `kimi` 进程。
+- 在控制终端消失时及时退出。终端界面现在会处理 `SIGHUP` / `SIGTERM` 信号以及 stdout/stderr 的 `EIO` / `EPIPE` / `ENOTCONN` 错误，避免父 shell 或终端复用器异常退出后残留占用 CPU 核心的 `dimi` 进程。
 - 避免本地补全上限过小，导致摘要生成前推理被截断。
 
 ### 重构
@@ -1292,7 +1292,7 @@ outline: 2
 - `/connect` 的供应商和模型选择器现支持键入即搜索过滤，长列表会自动分页；配置了较多模型时，`/model` 选择器同样支持分页。
 - 在终端界面输入框中新增 `Ctrl-J` 作为插入换行的额外快捷键。
 - 在会话回放过程中新增 wire 记录迁移处理。
-- 在首次启动迁移期间，将用户 Skill 从 `~/.kimi/skills/` 迁移到 `~/.dimi/skills/`；已存在的目标 Skill 会被保留。
+- 在首次启动迁移期间，将用户 Skill 从 `~/.dimi/skills/` 迁移到 `~/.dimi/skills/`；已存在的目标 Skill 会被保留。
 - 在 stream-json 输出格式中以结构化 meta 消息形式发出会话恢复提示。
 
 ### 修复
@@ -1308,7 +1308,7 @@ outline: 2
 - 避免大体量流式工具参数导致的 CPU 峰值，并合并高频的流式 UI 更新。
 - 在 wire 协议版本较新时改为继续恢复会话而不是失败。终端界面会显示一条警告，并在不进行迁移的情况下回放记录。
 - 当 tmux 的扩展按键设置可能导致带修饰键的 Enter 快捷键无法工作时，向 tmux 用户发出提示。
-- 默认让 Kimi 请求使用剩余的上下文窗口作为补全 token 的额度，同时将显式设置的环境变量上限作为硬上限保留。
+- 默认让 Dimi 请求使用剩余的上下文窗口作为补全 token 的额度，同时将显式设置的环境变量上限作为硬上限保留。
 
 ### 重构
 
@@ -1317,4 +1317,4 @@ outline: 2
 
 ### 其他
 
-- 当未配置模型时，`/model` 和欢迎面板现在会引导用户使用 `/login`（针对 Kimi）和 `/connect`（针对其他供应商）。
+- 当未配置模型时，`/model` 和欢迎面板现在会引导用户使用 `/login`（针对 Dimi）和 `/connect`（针对其他供应商）。

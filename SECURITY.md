@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Currently, Kimi Code only provides security support for the latest released version.
+Currently, Dimi only provides security support for the latest released version.
 
 ## Reporting a Vulnerability
 
@@ -19,7 +19,7 @@ Alternative channel:
 
 ## What to Include
 
-- Affected version (output of `kimi --version`)
+- Affected version (output of `dimi --version`)
 - Reproduction steps
 - Impact assessment
 - Any suggested mitigation

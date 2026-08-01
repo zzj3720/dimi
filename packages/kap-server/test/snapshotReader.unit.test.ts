@@ -22,7 +22,7 @@ import {
   ISessionLifecycleService,
   type ContextMessage,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -60,7 +60,7 @@ interface Fixture {
 const tmpDirs: string[] = [];
 
 async function makeFixtureAsync(opts?: { cacheLimit?: number }): Promise<Fixture> {
-  const homeDir = await mkdtemp(join(tmpdir(), 'kimi-snapshot-reader-'));
+  const homeDir = await mkdtemp(join(tmpdir(), 'dimi-snapshot-reader-'));
   tmpDirs.push(homeDir);
   const workspaceId = 'wd_unittest_012345abcdef';
   const index = new Map<string, SessionSummary>();
@@ -472,7 +472,7 @@ describe('SnapshotReader.read', () => {
 
 describe('readWireRecords', () => {
   it('drops a torn final line but throws on mid-file corruption', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kimi-wire-'));
+    const dir = await mkdtemp(join(tmpdir(), 'dimi-wire-'));
     tmpDirs.push(dir);
     const p = join(dir, 'wire.jsonl');
     await writeFile(

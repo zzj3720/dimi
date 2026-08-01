@@ -7,7 +7,7 @@
  * (applied live by the config env overlay; while a field's env var is set,
  * `stripEnvBoundFields` restores its env-free raw value before persistence, so
  * env values never leak into `config.toml`). Also owns the
- * `kimi -p` print-mode background policy (`printBackgroundMode` /
+ * `dimi -p` print-mode background policy (`printBackgroundMode` /
  * `printWaitCeilingS` / `printMaxTurns`), resolved by
  * `resolvePrintBackgroundMode`. Self-registered
  * at module load via `registerConfigSection`, so the `config` domain never

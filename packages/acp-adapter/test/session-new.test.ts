@@ -14,7 +14,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
+import type { DimiHarness, Session } from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -55,7 +55,7 @@ function makeHarness(
   statusThinkingEffort?: string | Error,
   fallbackThinking?: { enabled?: boolean; effort?: string },
 ): {
-  harness: KimiHarness;
+  harness: DimiHarness;
   fakeSession: Session;
 } {
   const fakeSession = {
@@ -80,14 +80,14 @@ function makeHarness(
     // Phase 14: server.newSession reads these to assemble configOptions.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
+      defaultModel: 'test/dimir',
       models: makeProviderModels([
-        { id: 'test/kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-        { id: 'test/kimi-plain', name: 'Kimi Plain', thinkingSupported: false },
+        { id: 'test/dimir', name: 'Dimir', thinkingSupported: true },
+        { id: 'test/dimi-plain', name: 'Dimi Plain', thinkingSupported: false },
       ]),
       thinking: fallbackThinking,
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
   return { harness, fakeSession };
 }
 
@@ -138,7 +138,7 @@ describe('AcpServer session/new', () => {
       },
       // Phase 14: server.newSession reads these to assemble configOptions.
       getConfig: async () => ({ providers: {}, models: {} }),
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -174,7 +174,7 @@ describe('AcpServer session/new', () => {
     expect(response.modes).toBeUndefined();
 
     expect(response.configOptions).toBeDefined();
-    // Default model is `kimi-coder` (thinkingSupported), so the toggle is
+    // Default model is `dimir` (thinkingSupported), so the toggle is
     // visible between model and mode → 3 options total.
     expect(response.configOptions).toHaveLength(3);
     const [modelOpt, thinkingOpt, modeOpt] = response.configOptions!;
@@ -215,10 +215,10 @@ describe('AcpServer session/new', () => {
     if (modelOpt!.type !== 'select') {
       throw new Error('model option must be a select');
     }
-    expect(modelOpt!.currentValue).toBe('test/kimi-coder');
+    expect(modelOpt!.currentValue).toBe('test/dimir');
     expect(modelOpt!.options).toHaveLength(2);
     const modelValues = modelOpt!.options.map((o) => 'value' in o ? o.value : '');
-    expect(modelValues).toEqual(['test/kimi-coder', 'test/kimi-plain']);
+    expect(modelValues).toEqual(['test/dimir', 'test/dimi-plain']);
   });
 
   it('advertises thinking on when the created session status has a high effort', async () => {

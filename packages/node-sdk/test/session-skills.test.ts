@@ -1,6 +1,6 @@
 /**
  * Scenario: public SDK skill discovery and activation.
- * Responsibilities: list workspace/session skills and activate a session skill through KimiHarness.
+ * Responsibilities: list workspace/session skills and activate a session skill through DimiHarness.
  * Wiring: the in-process core and filesystem are real; only the remote model provider is stubbed.
  * Run: pnpm exec vitest run packages/node-sdk/test/session-skills.test.ts
  */
@@ -10,9 +10,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
-  createKimiHarness,
+  createDimiHarness,
   type Event,
-  type KimiError,
+  type DimiError,
   type SkillActivatedEvent,
   type SkillSummary,
 } from "#/index";
@@ -47,8 +47,8 @@ afterEach(async () => {
 
 describe("Session skills", () => {
   it("lists session skills without exposing content", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-skills-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-skills-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-skills-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-skills-work-");
     await writeSkill(workDir, "review", [
       "---",
       "name: review",
@@ -58,7 +58,7 @@ describe("Session skills", () => {
       "",
       "Review the requested file.",
     ]);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_sdk_skill_list", workDir });
@@ -80,8 +80,8 @@ describe("Session skills", () => {
   });
 
   it("activates a skill through core and emits the public skill event", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-skills-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-skills-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-skills-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-skills-work-");
     await writeSkill(workDir, "review", [
       "---",
       "name: review",
@@ -90,7 +90,7 @@ describe("Session skills", () => {
       "",
       "Review the requested file.",
     ]);
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       homeDir,
       identity: TEST_IDENTITY,
       providerRuntime: createSkillRuntime(),
@@ -191,14 +191,14 @@ describe("Session skills", () => {
   });
 
   it("resolves user brand skills from DIMI_CODE_HOME, not the OS home", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-skills-home-");
-    const processHome = await makeTempDir(tempDirs, "kimi-sdk-skills-process-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-skills-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-skills-home-");
+    const processHome = await makeTempDir(tempDirs, "dimi-sdk-skills-process-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-skills-work-");
     vi.stubEnv("HOME", processHome);
     vi.stubEnv("DIMI_CODE_HOME", homeDir);
     await writeLegacyUserSkill(processHome, "sdk-real-home-only", "SDK real home skill");
     await writeBrandUserSkill(homeDir, "sdk-sandbox-only", "SDK sandbox skill");
-    const harness = createKimiHarness({ identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: "ses_sdk_skill_env_home", workDir });
@@ -229,7 +229,7 @@ describe("Session skills", () => {
 
     await expect(session.activateSkill("   ")).rejects.toMatchObject({
       code: "skill.name_empty",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
     expect(activateSkill).not.toHaveBeenCalled();
 
     await session.close();
@@ -237,10 +237,10 @@ describe("Session skills", () => {
     expect(clearSessionHandlers).toHaveBeenCalledWith(session.id);
     await expect(session.listSkills()).rejects.toMatchObject({
       code: "session.closed",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
     await expect(session.activateSkill("review")).rejects.toMatchObject({
       code: "session.closed",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
   });
 
   it("finalizes local close state when the core close RPC fails", async () => {
@@ -267,7 +267,7 @@ describe("Session skills", () => {
     expect(clearSessionHandlers).toHaveBeenCalledWith(session.id);
     await expect(session.listSkills()).rejects.toMatchObject({
       code: "session.closed",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
   });
 
   it("exposes public skill event and summary types", () => {
@@ -276,10 +276,10 @@ describe("Session skills", () => {
   });
 });
 
-describe("KimiHarness workspace skills", () => {
+describe("DimiHarness workspace skills", () => {
   it("returns project skills when no session exists", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-workspace-skills-home-");
-    const workDir = await makeTempDir(tempDirs, "kimi-sdk-workspace-skills-work-");
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-workspace-skills-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-workspace-skills-work-");
     await writeSkill(workDir, "workspace-review", [
       "---",
       "name: workspace-review",
@@ -288,7 +288,7 @@ describe("KimiHarness workspace skills", () => {
       "",
       "Inspect every changed file.",
     ]);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const skills = await harness.listWorkspaceSkills(workDir);
@@ -305,28 +305,28 @@ describe("KimiHarness workspace skills", () => {
   });
 
   it("preserves the core error when workDir is empty", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-workspace-skills-home-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-workspace-skills-home-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       await expect(harness.listWorkspaceSkills("   ")).rejects.toMatchObject({
         code: "request.work_dir_required",
         message: "listWorkspaceSkills requires workDir",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it("preserves the core error when workDir is not a string", async () => {
-    const homeDir = await makeTempDir(tempDirs, "kimi-sdk-workspace-skills-home-");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-workspace-skills-home-");
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       await expect(harness.listWorkspaceSkills(null as never)).rejects.toMatchObject({
         code: "request.work_dir_required",
         message: "listWorkspaceSkills requires workDir",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

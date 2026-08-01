@@ -4,7 +4,7 @@ import type {
   ToolCallContent,
   ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
-import type { ApprovalRequest, ApprovalResponse } from '@moonshot-ai/kimi-code-sdk';
+import type { ApprovalRequest, ApprovalResponse } from '@dimi-agent/dimi-sdk';
 
 import { displayBlockToAcpContent } from './convert';
 import { acpToolCallId } from './events-map';
@@ -34,7 +34,7 @@ export const REJECT_OPTION_ID = 'reject';
  *    or has fewer than two entries (covers the "plan with no explicit
  *    selectable variants" branch).
  *  - `plan_revise` / `plan_reject_and_exit` — the two reject-side
- *    options surfaced in the TUI by `apps/kimi-code/src/tui/reverse-rpc/approval/adapter.ts:13`'s
+ *    options surfaced in the TUI by `apps/dimi/src/tui/reverse-rpc/approval/adapter.ts:13`'s
  *    `PLAN_REJECT_CHOICES`. Order is preserved so Zed renders the same
  *    bottom-of-list ordering as the TUI.
  */
@@ -118,7 +118,7 @@ export function approvalRequestToPermissionOptions(
 }
 
 /**
- * Translate an ACP {@link RequestPermissionResponse} into Kimi's
+ * Translate an ACP {@link RequestPermissionResponse} into Dimi's
  * {@link ApprovalResponse}.
  *
  * Decision mapping (canonical / non-plan_review path — Phase 5):
@@ -157,13 +157,13 @@ export function permissionResponseToApprovalResponse(
   }
   switch (optionId) {
     case APPROVE_ONCE_OPTION_ID:
-    // Legacy Python kimi-cli (< v0.9.0) used 'approve' as the
+    // Legacy Python dimi-cli (< v0.9.0) used 'approve' as the
     // allow-once optionId. Keep accepting it so custom ACP clients
     // built against the old SDK are not silently rejected.
     case 'approve':
       return { decision: 'approved' };
     case APPROVE_ALWAYS_OPTION_ID:
-    // Legacy Python kimi-cli (< v0.9.0) used 'approve_for_session' as
+    // Legacy Python dimi-cli (< v0.9.0) used 'approve_for_session' as
     // the allow-always optionId. Same backward-compatibility rationale
     // as the 'approve' branch above.
     case 'approve_for_session':

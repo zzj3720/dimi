@@ -19,7 +19,7 @@ import {
   type IProviderRuntime,
   type ModelCatalogConfig,
   MODEL_CATALOG_SECTION,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 
 import type { ServerLogger } from "../pinoLoggerService";
 

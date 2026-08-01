@@ -488,7 +488,7 @@ describe('SessionLifecycleService', () => {
   }
 
   async function makeTmpRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'kimi-fork-test-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimi-fork-test-'));
     tmpRoots.push(root);
     return root;
   }
@@ -1146,7 +1146,7 @@ describe('SessionLifecycleService', () => {
       await writeFile(join(srcDir, 'state.json'), '{"source":true}');
       await writeFile(join(srcDir, 'agents', 'main', 'wire.jsonl'), '{"type":"metadata"}\n');
       await mkdir(join(srcDir, 'logs'), { recursive: true });
-      await writeFile(join(srcDir, 'logs', 'kimi-code.log'), 'log');
+      await writeFile(join(srcDir, 'logs', 'dimi.log'), 'log');
 
       await svc.fork({ sourceSessionId: 'src', newSessionId: 'dst' });
 

@@ -5,13 +5,13 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@moonshot-ai/kimi-code-oauth': fileURLToPath(
+      '@dimi-agent/dimi-oauth': fileURLToPath(
         new URL('../oauth/src/index.ts', import.meta.url),
       ),
     },
   },
   test: {
-    name: 'kimi-sdk',
+    name: 'dimi-sdk',
     env: {
       DIMI_LOG_LEVEL: 'off',
     },

@@ -3,8 +3,8 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   fetchManagedUsage,
   formatDuration,
-  kimiCodeBaseUrl,
-  kimiCodeUsageUrl,
+  dimiCodeBaseUrl,
+  dimiCodeUsageUrl,
   parseManagedUsagePayload,
 } from "../src/managed-usage";
 
@@ -13,15 +13,15 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("kimiCodeBaseUrl", () => {
+describe("dimiCodeBaseUrl", () => {
   it("strips trailing slashes from the DIMI_CODE_BASE_URL override", () => {
     // The env value must be normalized at the source: provision persists it
     // verbatim while the model refresh rewrites it normalized, and the
     // deep-equal diff between the two shapes would fire a spurious
     // providers-changed event mid-login.
     vi.stubEnv("DIMI_CODE_BASE_URL", "https://gw.example.com/");
-    expect(kimiCodeBaseUrl()).toBe("https://gw.example.com");
-    expect(kimiCodeUsageUrl()).toBe("https://gw.example.com/usages");
+    expect(dimiCodeBaseUrl()).toBe("https://gw.example.com");
+    expect(dimiCodeUsageUrl()).toBe("https://gw.example.com/usages");
   });
 });
 
@@ -269,7 +269,7 @@ describe("fetchManagedUsage", () => {
     expect(result.kind).toBe("error");
     if (result.kind !== "error") return;
     expect(result.status).toBe(404);
-    expect(result.message).toBe("Usage endpoint not available. Try Kimi For Coding.");
+    expect(result.message).toBe("Usage endpoint not available. Try Dimi For Coding.");
   });
 });
 

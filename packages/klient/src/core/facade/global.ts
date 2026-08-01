@@ -9,31 +9,31 @@
 import type {
   SessionListQuery,
   SessionSummary,
-} from "@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex";
-import type { SessionMeta } from "@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata";
-import type { Page } from "@moonshot-ai/agent-core-v2/persistence/interface/queryStore";
+} from "@dimi-agent/agent-core-v2/app/sessionIndex/sessionIndex";
+import type { SessionMeta } from "@dimi-agent/agent-core-v2/session/sessionMetadata/sessionMetadata";
+import type { Page } from "@dimi-agent/agent-core-v2/persistence/interface/queryStore";
 import type {
   Workspace,
   WorkspaceUpdate,
-} from "@moonshot-ai/agent-core-v2/app/workspace/workspace";
+} from "@dimi-agent/agent-core-v2/app/workspace/workspace";
 import type {
   ConfigDiagnostic,
   ConfigInspectValue,
   ConfigTarget,
-} from "@moonshot-ai/agent-core-v2/app/config/config";
-import type { ExperimentalFeatureState } from "@moonshot-ai/agent-core-v2/app/flag/flag";
+} from "@dimi-agent/agent-core-v2/app/config/config";
+import type { ExperimentalFeatureState } from "@dimi-agent/agent-core-v2/app/flag/flag";
 import type {
   FsBrowseResponse,
   FsHomeResponse,
-} from "@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser";
-import type { IModelCatalog } from "@moonshot-ai/agent-core-v2/app/modelCatalog/catalog";
+} from "@dimi-agent/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser";
+import type { IModelCatalog } from "@dimi-agent/agent-core-v2/app/modelCatalog/catalog";
 import type {
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
-} from "@moonshot-ai/agent-core-v2/app/plugin/types";
+} from "@dimi-agent/agent-core-v2/app/plugin/types";
 
 /** Low-level caller the klient factory builds: routes + validates one service call. */
 export type Caller = (service: string, method: string, args: unknown[]) => Promise<unknown>;
@@ -55,7 +55,7 @@ export type ScopedStreamCaller = (
 ) => AsyncIterable<unknown>;
 
 // ---------------------------------------------------------------------------
-// Wire-type aliases for shapes the engine sources from `@moonshot-ai/protocol`
+// Wire-type aliases for shapes the engine sources from `@dimi-agent/protocol`
 // (not a direct klient dependency) — derived through the service interfaces.
 // ---------------------------------------------------------------------------
 

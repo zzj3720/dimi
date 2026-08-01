@@ -40,15 +40,15 @@ import type {
   TelemetryProperties,
   ThinkingConfig,
   ToolInfo,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import type {
   ConfigDiagnostics,
   McpServerInfo,
   McpStartupMetrics,
-} from "@moonshot-ai/agent-core-v2/agent/rpc/core-api";
-import type { Kaos } from "@moonshot-ai/kaos";
-import type { KimiHostIdentity } from "@moonshot-ai/kimi-code-oauth";
-import type { ContentPart } from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2/agent/rpc/core-api";
+import type { Kaos } from "@dimi-agent/kaos";
+import type { DimiHostIdentity } from "@dimi-agent/dimi-oauth";
+import type { ContentPart } from "@dimi-agent/agent-core-v2";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -113,7 +113,7 @@ export interface ModelAlias {
   readonly defaultEffort?: string;
 }
 
-export interface KimiConfig {
+export interface DimiConfig {
   defaultProvider?: string;
   defaultModel?: string;
   secondaryModel?: SecondaryModelConfig;
@@ -123,7 +123,7 @@ export interface KimiConfig {
   readonly [domain: string]: unknown;
 }
 
-export type KimiConfigPatch = Partial<KimiConfig>;
+export type DimiConfigPatch = Partial<DimiConfig>;
 
 export type SessionMcpServerConfig = RuntimeMcpServerConfig;
 export type McpServerConfig = SessionMcpServerConfig & { readonly name: string };
@@ -146,9 +146,9 @@ export interface GetCronTasksResult {
   readonly tasks: readonly CronTaskSnapshot[];
 }
 
-export type { KimiHostIdentity };
+export type { DimiHostIdentity };
 export type { TelemetryContextPatch, TelemetryProperties };
-export type { ContentPart, Role, ThinkingEffort, ToolCall } from "@moonshot-ai/agent-core-v2";
+export type { ContentPart, Role, ThinkingEffort, ToolCall } from "@dimi-agent/agent-core-v2";
 
 export type PermissionMode = "yolo" | "manual" | "auto";
 
@@ -162,8 +162,8 @@ export type PromptPart = Extract<ContentPart, { type: "text" | "image_url" | "vi
 
 export type PromptInput = readonly PromptPart[];
 
-export interface KimiHarnessOptions {
-  readonly identity?: KimiHostIdentity | undefined;
+export interface DimiHarnessOptions {
+  readonly identity?: DimiHostIdentity | undefined;
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
   readonly autoLoadConfig?: boolean | undefined;
@@ -205,7 +205,7 @@ export interface CreateSessionOptions {
   readonly agentFiles?: readonly string[];
   readonly sessionStartedProperties?: TelemetryProperties;
   /**
-   * Print-mode (`kimi -p`) only: when the main agent ends a turn while
+   * Print-mode (`dimi -p`) only: when the main agent ends a turn while
    * background subagents (`kind === 'agent'`) are still running, hold the turn
    * open and idle-wait until they all finish, flushing their completions into
    * the turn so the model can react before the run exits. Ignored by

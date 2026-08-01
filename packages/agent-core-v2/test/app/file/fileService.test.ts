@@ -163,7 +163,7 @@ describe('FileServiceImpl', () => {
   });
 
   it('opens ranged streams when the storage backend is file-backed', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kimi-file-service-'));
+    const dir = await mkdtemp(join(tmpdir(), 'dimi-file-service-'));
     try {
       const ix2 = createServices(disposables, {
         additionalServices: (reg) => {

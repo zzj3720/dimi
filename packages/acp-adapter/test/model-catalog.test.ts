@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { KimiHarness, ProviderModel } from "@moonshot-ai/kimi-code-sdk";
+import type { DimiHarness, ProviderModel } from "@dimi-agent/dimi-sdk";
 
 import {
   deriveAlwaysThinking,
@@ -73,7 +73,7 @@ describe("ACP runtime model projection", () => {
           }),
         ],
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     await expect(listModelsFromHarness(harness)).resolves.toEqual([
       {

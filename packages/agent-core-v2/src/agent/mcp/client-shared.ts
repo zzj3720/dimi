@@ -3,7 +3,7 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
-export const DIMI_MCP_CLIENT_NAME = 'kimi-code';
+export const DIMI_MCP_CLIENT_NAME = 'dimi';
 export const DIMI_MCP_CLIENT_VERSION = getCoreVersion();
 
 export interface UnexpectedCloseReason {

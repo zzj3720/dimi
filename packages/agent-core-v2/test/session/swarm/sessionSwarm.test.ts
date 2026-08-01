@@ -875,7 +875,7 @@ describe("SessionSwarmService metadata compatibility", () => {
       makeSessionContext({
         sessionId: "s1",
         workspaceId: "w1",
-        sessionDir: "/tmp/kimi/s1",
+        sessionDir: "/tmp/dimi/s1",
         sessionScope: "sessions/w1/s1",
         cwd: "/repo",
       }),
@@ -1013,7 +1013,7 @@ describe("SessionSwarmService metadata compatibility", () => {
       expect.objectContaining({
         binding: {
           profile: "coder",
-          model: "kimi-test",
+          model: "dimi-test",
           thinking: "medium",
           cwd: "/repo",
         },
@@ -1043,7 +1043,7 @@ describe("SessionSwarmService metadata compatibility", () => {
         eventBus,
         {
           profileName: opts.binding?.profile ?? "coder",
-          modelAlias: opts.binding?.model ?? "kimi-test",
+          modelAlias: opts.binding?.model ?? "dimi-test",
           thinkingLevel: opts.binding?.thinking ?? "medium",
           cwd: opts.binding?.cwd ?? "/repo",
         },
@@ -1313,7 +1313,7 @@ function lifecycleStub(
       const id = opts.agentId ?? "agent-new";
       const handle = agentHandle(id, lifecycle as IAgentLifecycleService, eventBus, {
         profileName: opts.binding?.profile ?? "coder",
-        modelAlias: opts.binding?.model ?? "kimi-test",
+        modelAlias: opts.binding?.model ?? "dimi-test",
         thinkingLevel: opts.binding?.thinking ?? "medium",
         cwd: opts.binding?.cwd ?? "/repo",
       });
@@ -1354,7 +1354,7 @@ function agentHandle(
 ): IAgentScopeHandle {
   const profile = profileService({
     cwd: "/repo",
-    modelAlias: "kimi-test",
+    modelAlias: "dimi-test",
     modelCapabilities: {} as never,
     profileName: "agent",
     thinkingLevel: "medium",

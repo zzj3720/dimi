@@ -16,30 +16,30 @@ describe("WebFetchService", () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let servicesConfig: ServicesConfig | undefined;
-  let kimiModel: Model | undefined;
-  let kimiToken: string | undefined;
+  let dimiModel: Model | undefined;
+  let dimiToken: string | undefined;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     servicesConfig = undefined;
-    kimiModel = undefined;
-    kimiToken = undefined;
+    dimiModel = undefined;
+    dimiToken = undefined;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderRuntime, {
           ready: Promise.resolve(),
           getModels: ((provider?: string) =>
-            provider === "kimi-coding" && kimiModel !== undefined
-              ? [kimiModel]
+            provider === "kimi-coding" && dimiModel !== undefined
+              ? [dimiModel]
               : []) as IProviderRuntime["getModels"],
           getAuth: (() =>
             Promise.resolve(
-              kimiToken === undefined ? undefined : { auth: { apiKey: kimiToken }, source: "test" },
+              dimiToken === undefined ? undefined : { auth: { apiKey: dimiToken }, source: "test" },
             )) as IProviderRuntime["getAuth"],
         });
         reg.definePartialInstance(IHostRequestHeaders, {
           headers: {
-            "User-Agent": "kimi-code-cli/test",
+            "User-Agent": "dimi-cli/test",
             "X-Msh-Device-Id": "device-test",
           },
         });
@@ -61,13 +61,13 @@ describe("WebFetchService", () => {
     return ix.get(IWebFetchService).getUrlFetcher();
   }
 
-  it("uses the local fetcher when neither config nor the Kimi provider is available", () => {
+  it("uses the local fetcher when neither config nor the Dimi provider is available", () => {
     expect(fetcher()).toBeInstanceOf(LocalFetchURLProvider);
   });
 
-  it("builds a Moonshot fetcher from the authenticated Kimi runtime model", async () => {
-    kimiModel = model("https://api.example.com/v1");
-    kimiToken = "access-token";
+  it("builds a Moonshot fetcher from the authenticated Dimi runtime model", async () => {
+    dimiModel = model("https://api.example.com/v1");
+    dimiToken = "access-token";
     const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
       text: async () => "page body",
@@ -81,7 +81,7 @@ describe("WebFetchService", () => {
     expect(url).toBe("https://api.example.com/v1/fetch");
     expect(init.headers).toMatchObject({
       Authorization: "Bearer access-token",
-      "User-Agent": "kimi-code-cli/test",
+      "User-Agent": "dimi-cli/test",
       "X-Msh-Device-Id": "device-test",
     });
   });
@@ -111,8 +111,8 @@ describe("WebFetchService", () => {
     });
   });
 
-  it("prefers services.moonshot_fetch over the Kimi runtime model", () => {
-    kimiModel = model("https://managed.example.com/v1");
+  it("prefers services.moonshot_fetch over the Dimi runtime model", () => {
+    dimiModel = model("https://managed.example.com/v1");
     servicesConfig = {
       moonshotFetch: {
         baseUrl: "https://config.example.com/fetch",
@@ -132,7 +132,7 @@ describe("WebFetchService", () => {
 function model(baseUrl: string): Model {
   return {
     id: "kimi-for-coding",
-    name: "Kimi for Coding",
+    name: "Dimi for Coding",
     api: "openai-completions",
     provider: "kimi-coding",
     baseUrl,

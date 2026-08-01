@@ -7,20 +7,20 @@ import type {
   IProviderRuntime,
   Api,
   ProviderModel,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import {
   fetchCompleteFeedbackUpload,
   fetchCreateFeedbackUploadUrl,
   fetchManagedUsage,
   fetchSubmitFeedback,
-  kimiCodeFeedbackUrl,
-  kimiCodeUsageUrl,
+  dimiCodeFeedbackUrl,
+  dimiCodeUsageUrl,
   type FetchCompleteFeedbackUploadResult,
   type FetchFeedbackUploadError,
   type FetchManagedUsageError,
   type FetchSubmitFeedbackResult,
   type ParsedManagedUsage,
-} from '@moonshot-ai/kimi-code-oauth';
+} from '@dimi-agent/dimi-oauth';
 
 const DIMI_PROVIDER = 'kimi-coding';
 
@@ -264,7 +264,7 @@ export class ProviderAuthFacade {
   async getManagedUsage(providerId: string = DIMI_PROVIDER): Promise<ProviderManagedUsageResult> {
     try {
       const token = await this.requireToken(providerId);
-      const result = await fetchManagedUsage(kimiCodeUsageUrl(), token);
+      const result = await fetchManagedUsage(dimiCodeUsageUrl(), token);
       return result.kind === 'error'
         ? result
         : {
@@ -283,7 +283,7 @@ export class ProviderAuthFacade {
     providerId: string = DIMI_PROVIDER,
   ): Promise<FetchSubmitFeedbackResult> {
     try {
-      return await fetchSubmitFeedback(kimiCodeFeedbackUrl(), await this.requireToken(providerId), {
+      return await fetchSubmitFeedback(dimiCodeFeedbackUrl(), await this.requireToken(providerId), {
         session_id: input.sessionId,
         content: input.content,
         version: input.version,

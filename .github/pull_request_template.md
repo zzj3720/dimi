@@ -1,5 +1,5 @@
 <!--
-Thank you for your contribution to Kimi Code!
+Thank you for your contribution to Dimi!
 Please open an issue before sending a feature PR — PRs without prior discussion may be closed without review.
 
 See https://github.com/zzj3720/dimi/blob/main/CONTRIBUTING.md for more.
@@ -17,7 +17,7 @@ Resolve #(issue_number)
 
 ## What changed
 
-<!-- What did you implement, and why does this approach fit Kimi Code? -->
+<!-- What did you implement, and why does this approach fit Dimi? -->
 
 ## Checklist
 

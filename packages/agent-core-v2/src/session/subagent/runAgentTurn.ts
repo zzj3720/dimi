@@ -23,7 +23,7 @@ import { linkAbortSignal, userCancellationReason } from "#/_base/utils/abort";
 import type { IAgentScopeHandle } from "#/_base/di/scope";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
 import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
-import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
+import { ErrorCodes, toDimiErrorPayload, type DimiErrorPayload } from "#/errors";
 import { IAgentPromptService } from "#/agent/prompt/prompt";
 import { IAgentLoopService, type Turn, type TurnResult } from "#/agent/loop/loop";
 import { IAgentUsageService } from "#/agent/usage/usage";
@@ -195,7 +195,7 @@ function classifyTurnResult(result: TurnResult): void {
     case "failed": {
       const error = result.error;
       if (isProviderRateLimitError(error)) throw error;
-      const payload = toKimiErrorPayload(error);
+      const payload = toDimiErrorPayload(error);
       if (payload.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
         throw providerRateLimitErrorFromPayload(payload);
       }
@@ -217,7 +217,7 @@ function stringifyRunError(value: unknown): string {
   return String(value);
 }
 
-function providerRateLimitErrorFromPayload(error: KimiErrorPayload): APIProviderRateLimitError {
+function providerRateLimitErrorFromPayload(error: DimiErrorPayload): APIProviderRateLimitError {
   const requestId =
     typeof error.details?.["requestId"] === "string" ? error.details["requestId"] : null;
   return new APIProviderRateLimitError(error.message, requestId);

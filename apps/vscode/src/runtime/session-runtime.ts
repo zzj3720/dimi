@@ -1,11 +1,11 @@
 import {
-  isKimiError,
+  isDimiError,
   type ContentPart as SdkContentPart,
   type Event,
   type PromptInput,
   type Session,
   type SessionSummary,
-} from "@moonshot-ai/kimi-code-sdk";
+} from "@dimi-agent/dimi-sdk";
 
 import type { ContentPart as LegacyContentPart, ApprovalResponse } from "../../shared/legacy-sdk";
 import { Events } from "../../shared/bridge";
@@ -564,7 +564,7 @@ export class SessionRuntime {
   }
 
   private emitError(error: unknown, phase: ErrorPhase, options?: { readonly terminal?: boolean }): void {
-    const code = isKimiError(error) ? error.code : "internal";
+    const code = isDimiError(error) ? error.code : "internal";
     const detail = error instanceof Error ? error.message : String(error);
     this.log(`Session ${phase} error`, error);
     this.emitStreamEvent({

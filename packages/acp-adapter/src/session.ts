@@ -17,7 +17,7 @@ import {
   type BackgroundTaskInfo,
   type ContextMessage,
   type Event,
-  type KimiHarness,
+  type DimiHarness,
   type McpServerInfo,
   type PromptPart,
   type QuestionAnswers,
@@ -25,7 +25,7 @@ import {
   type Session,
   type SessionStatus,
   type SessionUsage,
-} from "@moonshot-ai/kimi-code-sdk";
+} from "@dimi-agent/dimi-sdk";
 
 import {
   approvalRequestToPermissionOptions,
@@ -66,7 +66,7 @@ import { detectSlashIntent } from "./slash";
 export type TelemetryTrackFn = (event: string, properties?: Record<string, unknown>) => void;
 
 /**
- * Adapter-side wrapper around a {@link Session} from the Kimi node SDK.
+ * Adapter-side wrapper around a {@link Session} from the Dimi node SDK.
  *
  * Stored in `AcpServer.sessions` so subsequent `session/prompt` and
  * `session/cancel` calls can locate the underlying SDK session by its
@@ -197,7 +197,7 @@ export class AcpSession {
      * introduces this so the model + mode picker funnel can refresh
      * the full SessionConfigOption[] snapshot on every change.
      */
-    private readonly harness?: KimiHarness,
+    private readonly harness?: DimiHarness,
     /**
      * Initial value of the adapter-side thinking effort, supplied
      * by the server when creating / loading the session from the
@@ -309,7 +309,7 @@ export class AcpSession {
    * ACP allows model identifiers like `"kimi-k2,thinking"` where the
    * `,thinking` suffix signals "always-thinking" mode (mirrors the
    * Python ref's `_ModelIDConv.from_acp_model_id` at
-   * `kimi-cli/src/kimi_cli/acp/server.py:425-433`). Phase 15 decoupled
+   * `dimi-cli/src/kimi_cli/acp/server.py:425-433`). Phase 15 decoupled
    * thinking from the model id at the ACP surface — it's now its own
    * `thought_level` config option (a `select` of effort levels) — but
    * this legacy compat path is kept: when the caller sends a merged
@@ -318,10 +318,10 @@ export class AcpSession {
    * to `Session.setThinking`).
    *
    * Wire semantics:
-   *  - `'kimi-v2'`           → setModel('kimi-v2'); requested thinking
+   *  - `'dimi-v2'`           → setModel('dimi-v2'); requested thinking
    *    effort unchanged (the engine re-resolves it against the new
    *    model; see below).
-   *  - `'kimi-v2,thinking'`  → setModel('kimi-v2') + setThinking(<default
+   *  - `'dimi-v2,thinking'`  → setModel('dimi-v2') + setThinking(<default
    *    effort for that model>); thinking flips on at the default level.
    *
    * Note the asymmetry: a bare model id does NOT turn thinking OFF.
@@ -1428,7 +1428,7 @@ export class AcpSession {
 }
 
 /**
- * Map a Kimi SDK error (raw `Error`, `KimiError`, or `KimiErrorPayload`)
+ * Map a Dimi SDK error (raw `Error`, `DimiError`, or `DimiErrorPayload`)
  * into the ACP {@link RequestError} shape used by the JSON-RPC layer.
  *
  * Auth-coded inputs (`auth.login_required`, `provider.auth_error`)
@@ -1439,8 +1439,8 @@ export class AcpSession {
  * "session prompt failed" message, preventing accidental leakage of
  * stack frames or PII through the wire.
  *
- * The kimi-cli Python reference performs the same mapping at
- * `kimi-cli/src/kimi_cli/acp/session.py:218-247`; this is the TS port.
+ * The dimi-cli Python reference performs the same mapping at
+ * `dimi-cli/src/kimi_cli/acp/session.py:218-247`; this is the TS port.
  */
 type CompactionCompletedResult = Extract<Event, { type: "compaction.completed" }>["result"];
 
@@ -1558,7 +1558,7 @@ function formatContextUsage(contextUsage: number): string {
  *
  * The parsing/resolution itself is delegated to `./slash` —
  * deliberately duplicated from the TUI's
- * `apps/kimi-code/src/tui/commands/parse.ts` and `resolve.ts` to
+ * `apps/dimi/src/tui/commands/parse.ts` and `resolve.ts` to
  * avoid an app→package import inversion. See `./slash`'s top-of-file
  * comment for the sync target.
  */
@@ -1588,7 +1588,7 @@ function mapPromptError(err: unknown, sessionId: string): RequestError {
 }
 
 /**
- * Inspect a {@link KimiErrorPayload} (as carried on `turn.ended`
+ * Inspect a {@link DimiErrorPayload} (as carried on `turn.ended`
  * failed events) and return a `RequestError.authRequired()` if its
  * `code` is one of the auth-required codes; otherwise `undefined`.
  *
@@ -1609,10 +1609,10 @@ function authRequiredFromPayload(
 /**
  * Type-narrowing predicate for the codes the adapter treats as
  * "the client must re-authenticate before retrying". Currently:
- *  - `auth.login_required` — Kimi Platform / OAuth login flow needed.
+ *  - `auth.login_required` — Dimi Platform / OAuth login flow needed.
  *  - `provider.auth_error` — the downstream provider rejected the
- *    request with a 401 (the node SDK lifts these into `KimiError`
- *    at `kimi-code-model-provider.ts:99-103`).
+ *    request with a 401 (the node SDK lifts these into `DimiError`
+ *    at `dimi-model-provider.ts:99-103`).
  */
 function isAuthErrorCode(code: unknown): boolean {
   return code === ErrorCodes.AUTH_LOGIN_REQUIRED || code === ErrorCodes.PROVIDER_AUTH_ERROR;
@@ -1621,7 +1621,7 @@ function isAuthErrorCode(code: unknown): boolean {
 /**
  * Best-effort detection of "auth required" for the `session.prompt(...)`
  * rejection path. The thrown value MAY be:
- *  - A `KimiError` instance with a recognized `code` field.
+ *  - A `DimiError` instance with a recognized `code` field.
  *  - A plain object that happens to expose a `code` (covers RPC-layer
  *    deserialized payloads that lost class identity).
  *  - Anything else — returns `undefined`.

@@ -101,7 +101,7 @@ describe('ws-control — AsyncAPI document', () => {
     expect(doc['asyncapi']).toBe('3.1.0');
     expect(doc['defaultContentType']).toBe('application/json');
     expect(doc['info']).toMatchObject({
-      title: 'Kimi Code WebSocket API',
+      title: 'Dimi WebSocket API',
       version: '1.2.3',
     });
 
@@ -113,7 +113,7 @@ describe('ws-control — AsyncAPI document', () => {
     });
 
     const channels = doc['channels'] as Record<string, unknown>;
-    const wsChannel = channels['kimiCodeWebSocket'] as {
+    const wsChannel = channels['dimiCodeWebSocket'] as {
       address: string;
       messages: Record<string, { $ref: string }>;
     };
@@ -131,11 +131,11 @@ describe('ws-control — AsyncAPI document', () => {
     const operations = doc['operations'] as Record<string, unknown>;
     expect(operations['receiveClientMessages']).toMatchObject({
       action: 'receive',
-      channel: { $ref: '#/channels/kimiCodeWebSocket' },
+      channel: { $ref: '#/channels/dimiCodeWebSocket' },
     });
     expect(operations['sendServerMessages']).toMatchObject({
       action: 'send',
-      channel: { $ref: '#/channels/kimiCodeWebSocket' },
+      channel: { $ref: '#/channels/dimiCodeWebSocket' },
     });
 
     const components = doc['components'] as { messages: Record<string, unknown> };

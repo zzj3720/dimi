@@ -84,7 +84,7 @@ describe("AgentProfileService.bind", () => {
   });
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-bind-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-bind-home-"));
   });
 
   afterEach(async () => {
@@ -111,7 +111,7 @@ describe("AgentProfileService.bind", () => {
     expect(svc.data().modelAlias).toBe(MOCK_MODEL);
     expect(svc.isRunnable()).toBe(true);
     expect(svc.getActiveToolNames()?.length).toBeGreaterThan(0);
-    expect(svc.getSystemPrompt()).not.toContain("Kimi Code CLI");
+    expect(svc.getSystemPrompt()).not.toContain("Dimi CLI");
   });
 
   it("persists the complete binding in one journal record", async () => {
@@ -157,7 +157,7 @@ describe("AgentProfileService.bind", () => {
       profileName: DEFAULT_AGENT_PROFILE_NAME,
       modelAlias: MOCK_MODEL,
       thinkingEffort: "low",
-      systemPrompt: expect.not.stringContaining("Kimi Code CLI"),
+      systemPrompt: expect.not.stringContaining("Dimi CLI"),
       activeToolNames: expect.arrayContaining(["Read", "Write", "Bash"]),
       disallowedTools: [],
     });
@@ -243,11 +243,11 @@ describe("AgentProfileService.bind", () => {
       {
         initialConfig: {
           providers: {
-            kimi: { type: "kimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
+            dimi: { type: "dimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
           },
           models: {
-            "kimi-code/kimi-for-coding": {
-              provider: "kimi",
+            "dimi/kimi-for-coding": {
+              provider: "dimi",
               model: "kimi-for-coding",
               maxContextSize: 1_000_000,
               capabilities: ["thinking"],
@@ -263,7 +263,7 @@ describe("AgentProfileService.bind", () => {
     await expect(
       svc.bind({
         profile: DEFAULT_AGENT_PROFILE_NAME,
-        model: "kimi-code/kimi-for-coding",
+        model: "dimi/kimi-for-coding",
         thinking: "ultra",
         strictThinking: true,
       }),
@@ -271,7 +271,7 @@ describe("AgentProfileService.bind", () => {
 
     // The failed bind must leave the agent unbound — a retry can still bind.
     expect(svc.data().profileName).toBeUndefined();
-    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: "kimi-code/kimi-for-coding" });
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: "dimi/kimi-for-coding" });
     expect(svc.data().profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
   });
 
@@ -280,11 +280,11 @@ describe("AgentProfileService.bind", () => {
       {
         initialConfig: {
           providers: {
-            kimi: { type: "kimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
+            dimi: { type: "dimi", apiKey: "test-key", baseUrl: "https://api.example.test/v1" },
           },
           models: {
-            "kimi-code/kimi-for-coding": {
-              provider: "kimi",
+            "dimi/kimi-for-coding": {
+              provider: "dimi",
               model: "kimi-for-coding",
               maxContextSize: 1_000_000,
               capabilities: ["thinking"],
@@ -301,7 +301,7 @@ describe("AgentProfileService.bind", () => {
     // strictThinking: the bind must succeed and clamp to a supported effort.
     await svc.bind({
       profile: DEFAULT_AGENT_PROFILE_NAME,
-      model: "kimi-code/kimi-for-coding",
+      model: "dimi/kimi-for-coding",
       thinking: "ultra",
     });
 
@@ -359,7 +359,7 @@ describe("AgentToolPolicyService tool denylist", () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-deny-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-deny-home-"));
   });
 
   afterEach(async () => {
@@ -477,7 +477,7 @@ describe("AgentToolPolicyService global [tools] config", () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-tools-config-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-tools-config-home-"));
   });
 
   afterEach(async () => {
@@ -543,7 +543,7 @@ describe("AgentToolPolicyService.setSessionDisabledTools", () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-session-deny-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-session-deny-home-"));
   });
 
   afterEach(async () => {
@@ -750,7 +750,7 @@ describe("AgentToolPolicyService executor enforcement", () => {
   });
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-executor-policy-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-executor-policy-home-"));
   });
 
   afterEach(async () => {
@@ -872,7 +872,7 @@ describe("AgentProfileService tool-pattern warnings", () => {
   let homeDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), "kimi-tool-pattern-home-"));
+    homeDir = await mkdtemp(join(tmpdir(), "dimi-tool-pattern-home-"));
   });
 
   afterEach(async () => {

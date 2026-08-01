@@ -63,7 +63,7 @@ export interface StreamedMessage {
   readonly finishReason: FinishReason | null;
   readonly rawFinishReason: string | null;
   /**
-   * Trace id from the provider's `x-trace-id` response header (Kimi only;
+   * Trace id from the provider's `x-trace-id` response header (Dimi only;
    * `null` for every other protocol and for headerless responses).
    */
   readonly traceId?: string | null;

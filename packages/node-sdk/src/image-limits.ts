@@ -1,4 +1,4 @@
-import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '@moonshot-ai/agent-core-v2';
+import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '@dimi-agent/agent-core-v2';
 
 export interface ImageLimitsConfig {
   readonly maxEdgePx?: number;

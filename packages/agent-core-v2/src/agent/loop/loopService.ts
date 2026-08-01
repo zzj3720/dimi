@@ -63,7 +63,7 @@ import { IEventBus } from "#/app/event/eventBus";
 import { type FinishReason } from "#/llmProtocol/provider";
 import { type StreamedMessagePart } from "#/llmProtocol/message";
 import { type TokenUsage } from "#/llmProtocol/usage";
-import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from "#/errors";
+import { BugIndicatingError, ErrorCodes, Error2, isError2, toDimiErrorPayload } from "#/errors";
 import { OrderedHookSlot } from "#/hooks";
 
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
@@ -522,7 +522,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       const traceId =
         result?.type === "completed" ? this.lastRequestTraceId : this.activeRequestTrace?.traceId;
       if (result !== undefined) {
-        const error = result.type === "failed" ? toKimiErrorPayload(result.error) : undefined;
+        const error = result.type === "failed" ? toDimiErrorPayload(result.error) : undefined;
         this.eventBus.publish({
           type: "turn.ended",
           turnId: turn.id,

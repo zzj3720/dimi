@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError, type PermissionMode } from '#/index';
+import { createDimiHarness, type DimiError, type PermissionMode } from '#/index';
 import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
@@ -14,9 +14,9 @@ describe('Session.setPermission', () => {
   it.each(['yolo', 'manual', 'auto'] as const)(
     'sends permission.set_mode with mode %s',
     async (mode: PermissionMode) => {
-      const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
-      const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const homeDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-home-');
+      const workDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-work-');
+      const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
       try {
         const session = await harness.createSession({
@@ -44,25 +44,25 @@ describe('Session.setPermission', () => {
   );
 
   it('rejects invalid permission modes', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-home-');
+    const workDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-work-');
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_permission_invalid', workDir });
 
       await expect(session.setPermission('invalid' as never)).rejects.toMatchObject({
         code: 'request.invalid',
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
-    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const homeDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-home-');
+    const workDir = await makeTempDir(tempDirs, 'dimi-sdk-permission-work-');
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
       const session = await harness.createSession({ id: 'ses_permission_closed', workDir });
@@ -70,7 +70,7 @@ describe('Session.setPermission', () => {
 
       await expect(session.setPermission('yolo')).rejects.toMatchObject({
         code: 'session.closed',
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

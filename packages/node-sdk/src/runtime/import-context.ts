@@ -7,10 +7,10 @@
  * primitives — `context.append_message`, the token estimator, and model
  * capabilities — are available, so the SDK composes the operation directly.
  */
-import type { ContextMessage } from "@moonshot-ai/agent-core-v2";
-import { estimateTokensForMessages } from "@moonshot-ai/agent-core-v2/llmProtocol/tokens";
+import type { ContextMessage } from "@dimi-agent/agent-core-v2";
+import { estimateTokensForMessages } from "@dimi-agent/agent-core-v2/llmProtocol/tokens";
 
-import { ErrorCodes, KimiError } from "#/errors";
+import { ErrorCodes, DimiError } from "#/errors";
 
 /** Guidance embedded in imported-context messages. */
 const IMPORT_CONTEXT_GUIDANCE =
@@ -39,13 +39,13 @@ function escapeXmlAttr(input: string): string {
  */
 export function buildImportContextMessage(content: string, source: string): ContextMessage {
   if (content.trim().length === 0) {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, "Imported context cannot be empty", {
+    throw new DimiError(ErrorCodes.REQUEST_INVALID, "Imported context cannot be empty", {
       details: { reason: "import_content_empty" },
     });
   }
   const normalizedSource = source.trim();
   if (normalizedSource.length === 0) {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, "Imported context source cannot be empty", {
+    throw new DimiError(ErrorCodes.REQUEST_INVALID, "Imported context source cannot be empty", {
       details: { reason: "import_source_empty" },
     });
   }
@@ -84,7 +84,7 @@ export function assertImportFits(
   const importTokenCount = estimateTokensForMessages([message]);
   const totalTokenCount = currentTokenCount + importTokenCount;
   if (maxContextTokens > 0 && totalTokenCount > maxContextTokens) {
-    throw new KimiError(
+    throw new DimiError(
       ErrorCodes.CONTEXT_OVERFLOW,
       "Imported content is too large for the current model context " +
         `(~${String(importTokenCount)} import tokens + ~${String(currentTokenCount)} existing ` +

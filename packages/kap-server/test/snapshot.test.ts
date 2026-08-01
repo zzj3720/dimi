@@ -14,7 +14,7 @@ import {
   ILogService,
   ISessionContext,
   ISessionLifecycleService,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -118,7 +118,7 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-snapshot-test-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-snapshot-test-'));
     server = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
   });

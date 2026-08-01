@@ -1,6 +1,6 @@
 # Agent Skills
 
-Agent Skills 是 Kimi Code CLI 扩展模型能力的轻量机制。一个 Skill 就是一份带 YAML frontmatter 的 Markdown 文档，描述某项专业知识或工作流程——例如项目的代码风格规范、PR review 流程、提交消息格式。
+Agent Skills 是 Dimi CLI 扩展模型能力的轻量机制。一个 Skill 就是一份带 YAML frontmatter 的 Markdown 文档，描述某项专业知识或工作流程——例如项目的代码风格规范、PR review 流程、提交消息格式。
 
 相比每次把同样的指引粘到提示词里，Skill 的优势在于：内容沉淀在文件里、可以跨项目和团队复用、可以通过斜杠命令一键加载，也可以让模型在需要时自动调用。
 
@@ -63,13 +63,13 @@ arguments:
 
 ## Skill 存放位置
 
-Kimi Code CLI 按作用域分四档扫描，越具体的作用域优先级越高：**Project > User > Extra > Built-in**
+Dimi CLI 按作用域分四档扫描，越具体的作用域优先级越高：**Project > User > Extra > Built-in**
 
 **用户级**（对所有项目生效）：
 - `$DIMI_CODE_HOME/skills/`（默认：`~/.dimi/skills/`）
 - `~/.agents/skills/`
 
-Kimi 专属用户级 Skill 目录会随 `DIMI_CODE_HOME` 移动，因此隔离数据根时也会隔离 Kimi 专属 Skills。通用 `~/.agents/skills/` 目录仍放在真实 OS home 下，以便跨工具共享。
+Dimi 专属用户级 Skill 目录会随 `DIMI_CODE_HOME` 移动，因此隔离数据根时也会隔离 Dimi 专属 Skills。通用 `~/.agents/skills/` 目录仍放在真实 OS home 下，以便跨工具共享。
 
 **项目级**（项目根 = 工作目录向上最近的含 `.git` 的目录）：
 - `.dimi/skills/`

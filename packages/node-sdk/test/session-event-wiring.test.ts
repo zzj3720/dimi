@@ -21,7 +21,7 @@ import {
   IWireService,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 
 import { SessionEventWiring, type SessionEventSink } from "#/runtime/session-wiring";
 

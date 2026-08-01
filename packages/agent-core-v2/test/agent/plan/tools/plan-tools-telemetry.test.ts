@@ -27,7 +27,7 @@ import {
 const ACTIVE_PLAN: NonNullable<PlanData> = {
   id: "test-plan",
   content: "# Plan\n\n- Inspect\n- Change\n- Verify",
-  path: "/tmp/kimi-plan.md",
+  path: "/tmp/dimi-plan.md",
 };
 
 const options = [

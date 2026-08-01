@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { MiniDb } from '../src/index.js';
-import { listKimiSessions } from './kimi-sessions.js';
+import { listDimiSessions } from './dimi-sessions.js';
 
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const LIMIT = 50;
@@ -39,7 +39,7 @@ interface Msg {
 function loadAllMessages(): Msg[] {
   const DATA = path.join(os.homedir(), '.dimi');
   const out: Msg[] = [];
-  for (const meta of listKimiSessions(DATA)) {
+  for (const meta of listDimiSessions(DATA)) {
     const wire = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');
     if (!existsSync(wire)) continue;
     let raw: string;

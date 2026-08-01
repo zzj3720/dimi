@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, log } from '#/index';
+import { createDimiHarness, log } from '#/index';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 async function makeHome(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-logging-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-sdk-logging-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -37,8 +37,8 @@ describe('SDK diagnostic logging', () => {
   });
 
   it('allows multiple harnesses in one process and closes both cleanly', async () => {
-    const first = createKimiHarness({ homeDir: await makeHome(), identity: TEST_IDENTITY });
-    const second = createKimiHarness({ homeDir: await makeHome(), identity: TEST_IDENTITY });
+    const first = createDimiHarness({ homeDir: await makeHome(), identity: TEST_IDENTITY });
+    const second = createDimiHarness({ homeDir: await makeHome(), identity: TEST_IDENTITY });
 
     await expect(first.close()).resolves.toBeUndefined();
     await expect(second.close()).resolves.toBeUndefined();

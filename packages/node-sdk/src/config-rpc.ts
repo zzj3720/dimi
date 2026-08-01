@@ -1,38 +1,38 @@
-import { ConfigRegistry, resolveConfigPath } from '@moonshot-ai/agent-core-v2';
-import { transformTomlData } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { ConfigRegistry, resolveConfigPath } from '@dimi-agent/agent-core-v2';
+import { transformTomlData } from '@dimi-agent/agent-core-v2/app/config/toml';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-import { ErrorCodes, KimiError } from '#/errors';
+import { ErrorCodes, DimiError } from '#/errors';
 
-export type KimiConfigValidationPathSegment = string | number;
+export type DimiConfigValidationPathSegment = string | number;
 
-export interface KimiConfigValidationIssue {
-  readonly path: readonly KimiConfigValidationPathSegment[];
+export interface DimiConfigValidationIssue {
+  readonly path: readonly DimiConfigValidationPathSegment[];
   readonly message: string;
 }
 
-export interface ResolveKimiConfigPathInput {
+export interface ResolveDimiConfigPathInput {
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
 }
 
-export interface ValidateKimiConfigTomlInput {
+export interface ValidateDimiConfigTomlInput {
   readonly text: string;
   readonly filePath?: string | undefined;
 }
 
-export interface KimiConfigRpc {
-  resolveConfigPath(input?: ResolveKimiConfigPathInput): Promise<string>;
-  validateConfigToml(input: ValidateKimiConfigTomlInput): Promise<void>;
+export interface DimiConfigRpc {
+  resolveConfigPath(input?: ResolveDimiConfigPathInput): Promise<string>;
+  validateConfigToml(input: ValidateDimiConfigTomlInput): Promise<void>;
 }
 
-export class KimiConfigRpcClient implements KimiConfigRpc {
-  async resolveConfigPath(input: ResolveKimiConfigPathInput = {}): Promise<string> {
+export class DimiConfigRpcClient implements DimiConfigRpc {
+  async resolveConfigPath(input: ResolveDimiConfigPathInput = {}): Promise<string> {
     return resolveConfigPath(input);
   }
 
-  async validateConfigToml(input: ValidateKimiConfigTomlInput): Promise<void> {
+  async validateConfigToml(input: ValidateDimiConfigTomlInput): Promise<void> {
     try {
       const registry = new ConfigRegistry();
       const config = transformTomlData(parseToml(input.text), registry);
@@ -47,28 +47,28 @@ export class KimiConfigRpcClient implements KimiConfigRpc {
   }
 }
 
-export function createKimiConfigRpc(): KimiConfigRpc {
-  return new KimiConfigRpcClient();
+export function createDimiConfigRpc(): DimiConfigRpc {
+  return new DimiConfigRpcClient();
 }
 
 function toConfigValidationError(
   error: unknown,
-  validationIssues: readonly KimiConfigValidationIssue[],
-): KimiError {
+  validationIssues: readonly DimiConfigValidationIssue[],
+): DimiError {
   const details =
-    error instanceof KimiError && error.details !== undefined
+    error instanceof DimiError && error.details !== undefined
       ? { ...error.details, validationIssues }
       : { validationIssues };
 
-  if (error instanceof KimiError) {
-    return new KimiError(error.code, error.message, { details });
+  if (error instanceof DimiError) {
+    return new DimiError(error.code, error.message, { details });
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  return new KimiError(ErrorCodes.CONFIG_INVALID, message, { details });
+  return new DimiError(ErrorCodes.CONFIG_INVALID, message, { details });
 }
 
-function extractValidationIssues(error: unknown): readonly KimiConfigValidationIssue[] | undefined {
+function extractValidationIssues(error: unknown): readonly DimiConfigValidationIssue[] | undefined {
   const zodError = findZodError(error);
   if (zodError === undefined) return undefined;
   return zodError.issues.map((issue) => ({

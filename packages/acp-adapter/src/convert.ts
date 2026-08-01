@@ -10,7 +10,7 @@ import {
   type TelemetryClient,
   type ToolInputDisplay,
   type ToolResultEvent,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 
 import { isHideOutputMarker } from './marker';
 

@@ -6,16 +6,16 @@ const vscode = require("vscode");
 
 const EXTENSION_ID = "moonshot-ai.dimi";
 const EXPECTED_COMMANDS = [
-  "kimi.clearAllState",
-  "kimi.focusInput",
-  "kimi.insertMention",
-  "kimi.logout",
-  "kimi.migrateLegacyData",
-  "kimi.newConversation",
-  "kimi.openInSideBar",
-  "kimi.openInTab",
-  "kimi.resetKimi",
-  "kimi.showLogs",
+  "dimi.clearAllState",
+  "dimi.focusInput",
+  "dimi.insertMention",
+  "dimi.logout",
+  "dimi.migrateLegacyData",
+  "dimi.newConversation",
+  "dimi.openInSideBar",
+  "dimi.openInTab",
+  "dimi.resetKimi",
+  "dimi.showLogs",
 ];
 
 exports.run = async function run() {
@@ -49,20 +49,20 @@ exports.run = async function run() {
     assert.ok(commands.has(command), `missing registered command: ${command}`);
   }
 
-  const config = vscode.workspace.getConfiguration("kimi");
+  const config = vscode.workspace.getConfiguration("dimi");
   assert.equal(config.get("autosave"), true);
   assert.equal(config.get("executablePath"), undefined, "removed Python CLI setting is still contributed");
   assert.equal(config.get("environmentVariables"), undefined, "removed global CLI env setting is still contributed");
 
-  await vscode.commands.executeCommand("kimi.openInTab");
+  await vscode.commands.executeCommand("dimi.openInTab");
   await waitFor(() => {
     return vscode.window.tabGroups.all.some((group) =>
       group.tabs.some((tab) =>
-        tab.input instanceof vscode.TabInputWebview && isKimiPanelViewType(tab.input.viewType)));
-  }, 5_000, () => `Kimi Webview tab did not open; tabs=${describeTabs()}`);
+        tab.input instanceof vscode.TabInputWebview && isDimiPanelViewType(tab.input.viewType)));
+  }, 5_000, () => `Dimi Webview tab did not open; tabs=${describeTabs()}`);
 
-  await vscode.commands.executeCommand("kimi.showLogs");
-  await vscode.commands.executeCommand("kimi.resetKimi");
+  await vscode.commands.executeCommand("dimi.showLogs");
+  await vscode.commands.executeCommand("dimi.resetKimi");
   await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
 
   console.log(
@@ -102,8 +102,8 @@ function describeTabs() {
     }))));
 }
 
-function isKimiPanelViewType(viewType) {
+function isDimiPanelViewType(viewType) {
   // VS Code 1.100 exposes the internal `mainThreadWebview-` prefix here;
   // newer hosts expose the extension's original view type.
-  return viewType === "kimiPanel" || viewType.endsWith("-kimiPanel");
+  return viewType === "dimiPanel" || viewType.endsWith("-dimiPanel");
 }

@@ -10,7 +10,7 @@ import {
   IAgentToolPolicyService,
   IProviderRuntime,
   ISessionLifecycleService,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type RunningServer, startServer } from "../src/start";
@@ -121,7 +121,7 @@ describe("server-v2 /api/v1 prompts", () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-prompts-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-prompts-"));
     await writeFile(join(home, "config.toml"), PROMPT_TOML, "utf-8");
     server = await startServer({
       host: "127.0.0.1",
@@ -269,7 +269,7 @@ describe("server-v2 /api/v1 prompts", () => {
     expect(session!.accessor.get(IAgentLifecycleService).get("main")).toBeUndefined();
   });
 
-  it("carries an uploaded video into the prompt as an internal kimi-file reference", async () => {
+  it("carries an uploaded video into the prompt as an internal dimi-file reference", async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
     const videoBytes = Buffer.from("tiny fake mp4 bytes");
@@ -293,7 +293,7 @@ describe("server-v2 /api/v1 prompts", () => {
 
     // The edge no longer uploads to the provider. The queued prompt reprojects
     // the video as the file reference it came from — a `{ kind: 'file' }` source
-    // is only ever produced from an internal `kimi-file://` url, so this proves
+    // is only ever produced from an internal `dimi-file://` url, so this proves
     // the enqueued message carries the reference (its materialization path is
     // never leaked back to the client).
     const content = submitted.body.data.content as Array<Record<string, unknown>>;

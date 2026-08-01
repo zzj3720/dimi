@@ -2,7 +2,7 @@
  * Scenario: untrusted Webview RPC messages cross into the VS Code extension host.
  * Responsibilities: validate requests, preserve public model metadata, omit private paths, and recover visibly from persisted state errors.
  * Wiring: the real BridgeHandler and handlers; VS Code and the public Node SDK harness boundary are replaced.
- * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/bridge-handler.test.ts
+ * Run: pnpm --filter dimi exec vitest run --config vitest.config.ts test/bridge-handler.test.ts
  */
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,7 +22,7 @@ const host = vi.hoisted(() => {
     dispose: vi.fn(),
   };
   const harness = {
-    homeDir: "/tmp/kimi-code-test-home",
+    homeDir: "/tmp/dimi-test-home",
     auth: {
       models: vi.fn(async (): Promise<unknown[]> => []),
     },
@@ -76,9 +76,9 @@ vi.mock("vscode", () => ({
   window: { showWarningMessage: host.showWarningMessage },
 }));
 
-vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
-  return { ...original, createKimiHarness: () => host.harness };
+vi.mock("@dimi-agent/dimi-sdk", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@dimi-agent/dimi-sdk")>();
+  return { ...original, createDimiHarness: () => host.harness };
 });
 
 let bridge: BridgeHandler;
@@ -88,7 +88,7 @@ let writeLog: Mock<(message: string) => void>;
 let workspaceState: { get: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "kimi-vscode-bridge-"));
+  root = await mkdtemp(join(tmpdir(), "dimi-vscode-bridge-"));
   host.workspaceFolders.splice(0, host.workspaceFolders.length, { uri: new host.Uri(root) });
   showLogs = vi.fn();
   writeLog = vi.fn();
@@ -254,32 +254,32 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       {
         id: "session-1",
         workDir: root,
-        sessionDir: "/private/kimi/sessions/session-1",
+        sessionDir: "/private/dimi/sessions/session-1",
         updatedAt: 123,
         title: "Visible title",
       },
     ] as never);
 
-    const result = await bridge.handle({ id: "rpc-1", method: Methods.GetKimiSessions }, "view-1");
+    const result = await bridge.handle({ id: "rpc-1", method: Methods.GetDimiSessions }, "view-1");
 
     expect(result).toEqual({
       id: "rpc-1",
       result: [{ id: "session-1", workDir: root, updatedAt: 123, brief: "Visible title" }],
     });
-    expect(JSON.stringify(result)).not.toContain("/private/kimi/sessions");
+    expect(JSON.stringify(result)).not.toContain("/private/dimi/sessions");
   });
 
   it("does not expose the session storage path when forking a session", async () => {
     const source = {
       id: "session-1",
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-1",
+      sessionDir: "/private/dimi/sessions/session-1",
       updatedAt: 123,
     };
     const target = {
       id: "session-2",
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-2",
+      sessionDir: "/private/dimi/sessions/session-2",
       updatedAt: 124,
     };
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
@@ -288,27 +288,27 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkKimiSession,
+        method: Methods.ForkDimiSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
     );
 
     expect(result).toEqual({ id: "rpc-1", result: { sessionId: "session-2" } });
-    expect(JSON.stringify(result)).not.toContain("/private/kimi/sessions");
+    expect(JSON.stringify(result)).not.toContain("/private/dimi/sessions");
   });
 
   it("runs a fork through the active session cancellation boundary", async () => {
     const source = {
       id: "session-1",
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-1",
+      sessionDir: "/private/dimi/sessions/session-1",
       updatedAt: 123,
     };
     const target = {
       id: "session-2",
       workDir: root,
-      sessionDir: "/private/kimi/sessions/session-2",
+      sessionDir: "/private/dimi/sessions/session-2",
       updatedAt: 124,
     };
     const runExclusiveAfterCancelling = vi.fn(async <T>(action: () => Promise<T>) => action());
@@ -321,7 +321,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkKimiSession,
+        method: Methods.ForkDimiSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
@@ -346,7 +346,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.ForkKimiSession,
+        method: Methods.ForkDimiSession,
         params: { sessionId: "session-1", turnIndex: 0 },
       },
       "view-1",
@@ -375,8 +375,8 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.LoadKimiSessionHistory,
-        params: { kimiSessionId: "session-1" },
+        method: Methods.LoadDimiSessionHistory,
+        params: { dimiSessionId: "session-1" },
       },
       "view-1",
     );
@@ -403,8 +403,8 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const failed = await bridge.handle(
       {
         id: "rpc-1",
-        method: Methods.LoadKimiSessionHistory,
-        params: { kimiSessionId: "session-1" },
+        method: Methods.LoadDimiSessionHistory,
+        params: { dimiSessionId: "session-1" },
       },
       "view-1",
     );
@@ -561,7 +561,7 @@ function createResumedSession(id: string, workDir: string) {
   const summary = {
     id,
     workDir,
-    sessionDir: join("/private/kimi/sessions", id),
+    sessionDir: join("/private/dimi/sessions", id),
     createdAt: 1,
     updatedAt: 2,
     metadata: { vscode_approval_modes: { yolo: false, afk: false } },
