@@ -28,11 +28,16 @@ describe("Session.steer", () => {
     const homeDir = await makeTempDir(tempDirs, "kimi-sdk-steer-home-");
     const workDir = await makeTempDir(tempDirs, "kimi-sdk-steer-work-");
     provider = await createFakeProviderHarness();
-    provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
-      await reply.sseJson(200, [
-        completionChunk({ content: "idle steer response" }),
-        completionChunk({}, "stop"),
-      ]);
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      await reply.sseJson(
+        200,
+        request.index === 0
+          ? [
+              completionChunk({ content: "idle steer response" }),
+              completionChunk({}, "stop"),
+            ]
+          : allDoneChunks(),
+      );
     });
     const harness = createKimiHarness({
       homeDir,
@@ -79,7 +84,11 @@ describe("Session.steer", () => {
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
     });
-    provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (request.index > 0) {
+        await reply.sseJson(200, allDoneChunks());
+        return;
+      }
       markStarted();
       await blocked;
       await reply.sseJson(200, [
@@ -171,6 +180,22 @@ function completionChunk(
     model: "fake-model",
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   };
+}
+
+function allDoneChunks(): Record<string, unknown>[] {
+  return [
+    completionChunk({
+      tool_calls: [
+        {
+          index: 0,
+          id: "call-node-sdk-all-done",
+          type: "function",
+          function: { name: "AllDone", arguments: "{}" },
+        },
+      ],
+    }),
+    completionChunk({}, "tool_calls"),
+  ];
 }
 
 function waitForEvent(

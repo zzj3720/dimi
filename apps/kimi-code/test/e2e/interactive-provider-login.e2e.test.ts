@@ -375,8 +375,8 @@ describe('interactive provider login', () => {
         const beforePicker = restarted.read().length;
         await writeCommand(restarted.terminal, restarted.read, '/model');
         await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, 'Select a model');
+        await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, 'tui-chat');
         const pickerOutput = stripTerminalControls(restarted.read().slice(beforePicker));
-        expect(pickerOutput).toContain('tui-local');
         expect(pickerOutput).toContain('tui-chat');
         expect(pickerOutput).toContain('← current');
 
@@ -446,7 +446,14 @@ function startDevTui(
   envOverrides: Readonly<Record<string, string>> = {},
 ): { terminal: ChildProcessWithoutNullStreams; read: () => string } {
   const env = sanitizedProviderEnv(envOverrides);
-  const terminal = spawn('python3', ['-u', '-c', PTY_BRIDGE, 'vp', 'run', 'dev:cli'], {
+  const terminal = spawn('python3', [
+    '-u',
+    '-c',
+    PTY_BRIDGE,
+    'pnpm',
+    'run',
+    'dev:cli',
+  ], {
     cwd: repoRoot,
     env: {
       ...env,

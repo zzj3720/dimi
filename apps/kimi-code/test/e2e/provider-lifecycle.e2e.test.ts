@@ -80,12 +80,25 @@ describe("provider CLI lifecycle", () => {
         for await (const chunk of request) chunks.push(Buffer.from(chunk));
         seen.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
         response.writeHead(200, { "content-type": "text/event-stream" });
-        response.end([
-          "data: {\"type\":\"response.output_text.delta\",\"delta\":\"local grok reply\"}",
-          "",
-          "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-local\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}",
-          "",
-        ].join("\n"));
+        response.end(
+          seen.length === 1
+            ? [
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"local grok reply\"}",
+                "",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-local\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}",
+                "",
+              ].join("\n")
+            : [
+                "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"item-done\",\"call_id\":\"call-done\",\"name\":\"AllDone\",\"arguments\":\"\"}}",
+                "",
+                "data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"item-done\",\"arguments\":\"{}\"}",
+                "",
+                "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item-done\",\"call_id\":\"call-done\",\"name\":\"AllDone\",\"arguments\":\"{}\"}}",
+                "",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-done\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}",
+                "",
+              ].join("\n"),
+        );
       })().catch((error: unknown) => response.destroy(error instanceof Error ? error : new Error(String(error))));
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -117,13 +130,19 @@ describe("provider CLI lifecycle", () => {
       const run = await runCli(home, ["-p", "hello from e2e"], undefined, environment);
       expect(run).toMatchObject({ code: 0 });
       expect(run.stdout).toContain("local grok reply");
-      expect(seen).toHaveLength(1);
+      expect(seen).toHaveLength(2);
       expect(seen[0]).toMatchObject({
         model: "grok-4.5",
         reasoning: { effort: "high", summary: "auto" },
       });
+      expect(JSON.stringify(seen[1])).toContain("Review all of the user's requirements");
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) resolve();
+          else reject(error);
+        });
+      });
     }
   }, 120_000);
 
@@ -179,7 +198,12 @@ describe("provider CLI lifecycle", () => {
         xai: { models: [expect.objectContaining({ id: "grok-dynamic", contextWindow: 333_000, maxTokens: 12_345, thinkingLevelMap: { high: "high" }, defaultThinkingLevel: "high" })] },
       });
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) resolve();
+          else reject(error);
+        });
+      });
     }
   }, 120_000);
 

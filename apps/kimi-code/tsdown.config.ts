@@ -28,6 +28,11 @@ export default defineConfig({
   deps: {
     onlyBundle: false,
   },
+  inputOptions: {
+    resolve: {
+      mainFields: ["module", "main"],
+    },
+  },
   outputOptions: {
     codeSplitting: false,
     entryFileNames: "main.mjs",
