@@ -18,7 +18,6 @@ jobs:
       dimi_release_tag: ${{ steps.dimi-release.outputs.tag }}
     permissions:
       contents: write
-      pull-requests: write
       id-token: write # Required for NPM Trusted Publishing (OIDC)
     steps:
       - name: Checkout
@@ -45,17 +44,41 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Create Release Pull Request or Publish to npm
+      - name: Version packages
+        id: version
+        run: |
+          pnpm run version:release
+          if git diff --quiet HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push version bump
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: release packages"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm
         id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: pnpm changeset publish
-          version: pnpm run version:release
-          commit: "ci: release packages"
-          title: "ci: release packages"
+        if: steps.version.outputs.changed == 'true'
+        run: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
+
+      - name: Report publish outputs
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          VERSION="$(node -e 'console.log(require("./apps/dimi/package.json").version)')"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          printf 'CHANGESETS_PUBLISHED_PACKAGES=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_ENV"
 
       - name: Resolve Dimi native release
         if: steps.changesets.outputs.published == 'true'
@@ -121,6 +144,15 @@ jobs:
           # Published marketplace: rewrite relative plugin sources to flat
           # release-asset URLs, then attach official plugin zips.
           node apps/dimi/scripts/native/produce-marketplace.mjs dist-native-release "$RELEASE_TAG"
+
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.dimi_release_tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Dimi $RELEASE_TAG" --notes "Dimi release $RELEASE_TAG"
+          fi
 
       - name: Upload assets to GitHub Release
         env:
