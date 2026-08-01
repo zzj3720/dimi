@@ -4,6 +4,10 @@ Reply in the same language as the user.
 
 This is a TypeScript monorepo built for agent-assisted development. Keep the root `AGENTS.md` limited to hot-path rules: the project map, hard constraints, and workflow requirements — things every task needs to know.
 
+## Fork Policy
+
+This repository is a fork of `MoonshotAI/kimi-code` (first commit `Kimi For Coding`). We no longer merge upstream commits: `main` evolves only through our own changes, and features we need are built here, never pulled from upstream. The `upstream` remote is kept read-only for reference while we replace kimi's original designs; never merge or cherry-pick from it.
+
 ## Working Principles
 
 - Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
