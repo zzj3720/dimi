@@ -7,11 +7,11 @@
   "author": "Moonshot AI",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "url": "git+https://github.com/zzj3720/dimi.git",
     "directory": "packages/transcript"
   },
   "bugs": {
-    "url": "https://github.com/zzj3720/k-3720/issues"
+    "url": "https://github.com/zzj3720/dimi/issues"
   },
   "type": "module",
   "imports": {

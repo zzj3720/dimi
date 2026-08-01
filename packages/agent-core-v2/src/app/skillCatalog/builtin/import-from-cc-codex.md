@@ -1,20 +1,20 @@
 ---
 name: import-from-cc-codex
-description: Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code.
+description: Import Claude Code and Codex instructions, skills, and MCP settings into this CLI.
 disable-model-invocation: true
 ---
 
 # Import from Claude Code and Codex
 
 The user invoked `/import-from-cc-codex` (or `/skill:import-from-cc-codex`).
-Help them migrate selected local Claude Code and Codex assets into Kimi Code.
+Help them migrate selected local Claude Code and Codex assets into this CLI.
 This skill is intentionally conservative: it imports only instructions, skills,
 and MCP server declarations from `.claude` / `.codex` surfaces, with a user
 preview before any write.
 
 ## Non-negotiable rules
 
-- Do **not** migrate `.agents` content. Kimi Code already supports `.agents`
+- Do **not** migrate `.agents` content. This CLI already supports `.agents`
   skills and AGENTS files by default.
 - Do **not** migrate Claude custom commands (`.claude/commands/**`). They are
   out of scope for this importer.
@@ -23,15 +23,15 @@ preview before any write.
 - Do **not** run or install anything from the source directories.
 - Do **not** write anything until the user has chosen what to migrate, reviewed
   the final preview, and explicitly confirmed applying it.
-- Only write under Kimi Code targets:
+- Only write under this CLI's targets:
   - User-global: `$KIMI_CODE_HOME` if set, otherwise `~/.kimi-code`.
   - Project instructions/skills: `<project root>/.kimi-code`, where the project
     root is the nearest parent directory containing `.git`; if no `.git` exists,
     use the current working directory.
-  - Project-local MCP: `<cwd>/.kimi-code/mcp.json`, because Kimi reads the
-    current working directory's Kimi-specific MCP file, not every project-root
+  - Project-local MCP: `<cwd>/.kimi-code/mcp.json`, because the CLI reads the
+    current working directory's CLI-specific MCP file, not every project-root
     `.kimi-code/mcp.json` from subdirectories.
-- Preserve existing Kimi files. Never overwrite existing skills or replace an
+- Preserve existing CLI-owned files. Never overwrite existing skills or replace an
   existing AGENTS.md / mcp.json wholesale.
 
 ## Conversation flow
@@ -53,7 +53,7 @@ If the user dismisses or refuses the question, stop.
 
 ### 2. Scan only the chosen categories
 
-Resolve paths explicitly; `~` is the real OS home, and Kimi home follows
+Resolve paths explicitly; `~` is the real OS home, and the CLI home follows
 `$KIMI_CODE_HOME` before `~/.kimi-code`.
 
 User-level sources:
@@ -91,7 +91,7 @@ Project-level sources, rooted at the project root:
 
 Do not scan project-root `AGENTS.md`, project-root `CLAUDE.md`, `.agents/**`, or
 project-root `.mcp.json` in this skill. `AGENTS.md` and `.agents/**` are already
-Kimi-readable, and project-root `.mcp.json` is already read by Kimi as a
+readable by the CLI, and project-root `.mcp.json` is already read by the CLI as a
 Claude-compatible MCP file.
 
 ### 3. Build an import plan
@@ -150,7 +150,7 @@ plugin-managed folders.
 Before planning a copy:
 
 - Read a bundle's `SKILL.md` enough to verify that directory skills have
-  frontmatter with non-empty `name` and `description`, because Kimi requires
+  frontmatter with non-empty `name` and `description`, because the CLI requires
   those fields for directory skills.
 - If the target top-level entry already exists, skip it; do not overwrite.
 - If two source entries would write the same target path, keep the first one in
@@ -159,7 +159,7 @@ Before planning a copy:
   2. project Codex
   3. user Claude
   4. user Codex
-- Warn when a source skill uses Claude/Codex-specific fields or syntax that Kimi
+- Warn when a source skill uses Claude/Codex-specific fields or syntax the CLI
   may not interpret the same way, such as `allowed-tools`, `disallowed-tools`,
   `context: fork`, `agent`, `hooks`, `paths`, dynamic shell injection with
   ``!`command` ``, or `agents/openai.yaml`. Preserve the file; do not rewrite it
@@ -173,7 +173,7 @@ Do not edit `mcp.json` directly in this import skill. Prepare MCP entries for
 manual follow-up with `/mcp-config`; that built-in skill is user-invocable only,
 so you must not try to call it through the `Skill` tool.
 
-For the preview, collect MCP candidates and normalize them into Kimi's MCP shape
+For the preview, collect MCP candidates and normalize them into the CLI's MCP shape
 when possible:
 
 ```json
@@ -202,7 +202,7 @@ Codex MCP:
 
 - Read selected `config.toml` files only if MCP was selected.
 - Look for `[mcp_servers.<name>]` tables.
-- Map Codex fields to Kimi fields:
+- Map Codex fields to the CLI's fields:
   - `command` -> `command`
   - `args` -> `args`
   - `env` -> `env`
@@ -218,13 +218,13 @@ Codex MCP:
 - Drop unsupported Codex-only fields and report them, especially `required`,
   `default_tools_approval_mode`, `tools.<tool>.approval_mode`,
   `env_vars`, `env_http_headers`, and `experimental_environment`.
-- Do not import project-root `.mcp.json`; Kimi already reads it.
+- Do not import project-root `.mcp.json`; the CLI already reads it.
 
 For each MCP candidate, choose the target scope in the preview:
 
 - User-level source -> user-global MCP target (`$KIMI_CODE_HOME/mcp.json` or
   `~/.kimi-code/mcp.json`).
-- Project-level source -> project-local Kimi MCP target (`<cwd>/.kimi-code/mcp.json`). If `<cwd>` is not the project root, call this out in the preview so the user understands when Kimi will load it.
+- Project-level source -> project-local CLI MCP target (`<cwd>/.kimi-code/mcp.json`). If `<cwd>` is not the project root, call this out in the preview so the user understands when the CLI will load it.
 
 Warn that stdio MCP entries spawn commands at session start, and the user should
 only import MCP servers they trust. Warn if an MCP entry contains apparent
@@ -238,7 +238,7 @@ and show a copy-pasteable manual follow-up for the user, including:
 - the `/mcp-config` command they should run,
 - target scope and target path,
 - the normalized JSON entry or entries to add,
-- collision policy: keep existing Kimi entries on name conflict,
+- collision policy: keep existing CLI entries on name conflict,
 - the reminder that unrelated entries must be preserved.
 
 Make it clear that MCP import is pending until the user manually runs
@@ -271,7 +271,7 @@ When the user confirms:
 - Do not write MCP entries. Show the prepared `/mcp-config` follow-up command
   and mark MCP import as pending user action.
 - Report exactly what changed and what was skipped.
-- Tell the user to start a new session (for example `/new`) or restart Kimi Code
+- Tell the user to start a new session (for example `/new`) or restart the CLI
   for newly imported skills, instructions, and MCP servers to be picked up.
 
 ## Output style

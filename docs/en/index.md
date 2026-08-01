@@ -9,5 +9,5 @@ hero:
       link: guides/getting-started
     - theme: alt
       text: GitHub
-      link: https://github.com/zzj3720/k-3720
+      link: https://github.com/zzj3720/dimi
 ---

@@ -5,14 +5,14 @@
   "description": "Execution environment abstraction for AI agent applications",
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/zzj3720/k-3720/tree/main/packages/kaos#readme",
+  "homepage": "https://github.com/zzj3720/dimi/tree/main/packages/kaos#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "url": "git+https://github.com/zzj3720/dimi.git",
     "directory": "packages/kaos"
   },
   "bugs": {
-    "url": "https://github.com/zzj3720/k-3720/issues"
+    "url": "https://github.com/zzj3720/dimi/issues"
   },
   "keywords": [
     "kimi",

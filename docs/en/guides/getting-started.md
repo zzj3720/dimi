@@ -1,8 +1,8 @@
 # Getting started
 
-## What is Kimi Code CLI
+## What is Dimi
 
-Kimi Code CLI is an AI agent that runs in the terminal, helping you carry out software development tasks and day-to-day terminal operations — reading and modifying code, running shell commands, searching files, fetching web pages, and autonomously planning and adjusting its next steps based on feedback as it works.
+Dimi is an AI agent that runs in the terminal, helping you carry out software development tasks and day-to-day terminal operations — reading and modifying code, running shell commands, searching files, fetching web pages, and autonomously planning and adjusting its next steps based on feedback as it works.
 
 It fits scenarios such as:
 
@@ -14,17 +14,17 @@ The CLI is written in TypeScript and runs on Node.js. This repository is a sourc
 
 ## Installation
 
-Clone this repository and run the development CLI. Do not use an old Kimi Code install script or `@moonshot-ai/kimi-code@latest`: those point to a different product release.
+Clone this repository and run the development CLI. Do not use an old install script or `@moonshot-ai/kimi-code@latest`: those point to a different product release.
 
 ::: tip Before you install
-Kimi Code CLI is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
+Dimi is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
 :::
 
 Requires Node.js 24.15.0 or later and pnpm 10.33.0:
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
+git clone https://github.com/zzj3720/dimi.git
+cd dimi
 vp install
 vp run dev:cli
 ```
@@ -39,7 +39,7 @@ vp install
 vp run dev:cli
 ```
 
-`kimi upgrade` / `kimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Kimi Code release.
+`kimi upgrade` / `kimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Dimi release.
 
 **Uninstall**: remove the cloned checkout. Your local data under `~/.kimi-code/` is separate; remove it only if you also intend to delete sessions and credentials.
 
@@ -48,7 +48,7 @@ vp run dev:cli
 From the cloned checkout, start the source CLI:
 
 ```sh
-cd k-3720
+cd dimi
 vp run dev:cli
 ```
 
@@ -84,13 +84,13 @@ You can also connect from the checkout with `vp run dev:cli -- login <provider>`
 
 ## Your first conversation
 
-Once logged in, describe a task in natural language. A good starting point is to let Kimi Code CLI familiarize itself with the project:
+Once logged in, describe a task in natural language. A good starting point is to let Dimi familiarize itself with the project:
 
 ```
 Take a look at this project's directory structure and briefly describe what each directory is for.
 ```
 
-Kimi Code CLI automatically calls file-reading, search, and other tools to browse the relevant content before responding. Read-only operations are executed automatically by default without requiring confirmation. For operations that modify files or run shell commands, it asks for your confirmation before proceeding.
+Dimi automatically calls file-reading, search, and other tools to browse the relevant content before responding. Read-only operations are executed automatically by default without requiring confirmation. For operations that modify files or run shell commands, it asks for your confirmation before proceeding.
 
 You can also describe a more concrete task directly:
 
@@ -98,7 +98,7 @@ You can also describe a more concrete task directly:
 Add a function in src/utils that converts any string to kebab-case, and add a unit test for it.
 ```
 
-Kimi Code CLI plans the steps, modifies the code, runs the tests, and tells you what it did at each step.
+Dimi plans the steps, modifies the code, runs the tests, and tells you what it did at each step.
 
 ::: tip Not sure what to do? Type `/help`
 Type `/help` at any time to open the built-in command and keyboard shortcut panel. Use `↑`/`↓` to browse and `Esc` to close. To exit, type `/exit`, press `Ctrl-C` twice, or press `Ctrl-D` with the input box empty.
@@ -132,7 +132,7 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 ## Where data is stored
 
-Kimi Code CLI stores its local data under `~/.kimi-code/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+Dimi stores its local data under `~/.kimi-code/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
 ## Next steps
 

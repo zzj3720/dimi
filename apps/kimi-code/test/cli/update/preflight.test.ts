@@ -815,7 +815,7 @@ describe('runUpdatePreflight', () => {
 
     const rendered = stdout.join('');
     expect(rendered).toContain('Kimi Code updated to v0.5.0');
-    expect(rendered).toContain('https://github.com/zzj3720/k-3720/releases');
+    expect(rendered).toContain('https://github.com/zzj3720/dimi/releases');
     expect(track).toHaveBeenCalledWith('update_success_notice_shown', expect.objectContaining({
       version: '0.5.0',
       inferred_from_active: false,

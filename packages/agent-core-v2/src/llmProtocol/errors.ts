@@ -318,7 +318,7 @@ const REQUEST_TOO_LARGE_MESSAGE_PATTERNS = [
 ] as const;
 
 const THINKING_EFFORT_CONFIG_DOCS_URL =
-  "https://github.com/zzj3720/k-3720/blob/main/docs/en/configuration/config-files.md#thinking";
+  "https://github.com/zzj3720/dimi/blob/main/docs/en/configuration/config-files.md#thinking";
 
 const THINKING_EFFORT_STATUS_MESSAGE_PATTERNS = [
   /reasoning[_ .-]?effort/,

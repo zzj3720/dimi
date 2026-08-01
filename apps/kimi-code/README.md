@@ -2,19 +2,19 @@
 
 > The Starting Point for Next-Gen Agents
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [Repository](https://github.com/zzj3720/k-3720)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [Repository](https://github.com/zzj3720/dimi)
 
-## What is Kimi Code CLI
+## What is Dimi
 
-Kimi Code CLI is an AI coding agent that runs in your terminal. It can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI's Kimi models and can connect to other supported providers.
+Dimi is an AI coding agent that runs in your terminal. It can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI's Kimi models and can connect to other supported providers.
 
 ## Install
 
 This is a source build with no independent package or release channel. Clone the repository instead of using an old install script or npm `latest` package:
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
+git clone https://github.com/zzj3720/dimi.git
+cd dimi
 vp install
 vp run dev:cli
 ```
@@ -26,11 +26,11 @@ For updates, use `git pull --ff-only && vp install`; `kimi upgrade` deliberately
 From the cloned checkout, start the interactive UI:
 
 ```sh
-cd k-3720
+cd dimi
 vp run dev:cli
 ```
 
-On first launch, run `/login` inside Kimi Code CLI and choose a supported authentication method for the provider: OAuth, an API key, or a cloud identity where available. After login, try a first task:
+On first launch, run `/login` inside Dimi and choose a supported authentication method for the provider: OAuth, an API key, or a cloud identity where available. After login, try a first task:
 
 ```
 Take a look at this project and explain the main directories.
@@ -54,8 +54,8 @@ Take a look at this project and explain the main directories.
 
 ## Repository & Issues
 
-- Source: https://github.com/zzj3720/k-3720
-- Issues: https://github.com/zzj3720/k-3720/issues
+- Source: https://github.com/zzj3720/dimi
+- Issues: https://github.com/zzj3720/dimi/issues
 - Security: see SECURITY.md in the main repository
 
 ## License

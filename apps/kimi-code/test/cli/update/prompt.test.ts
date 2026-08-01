@@ -34,7 +34,7 @@ describe('install prompt helpers', () => {
 
 describe('promptForInstallChoice', () => {
   it('renders changelog hyperlink in the prompt output', async () => {
-    const CHANGELOG_URL = 'https://github.com/zzj3720/k-3720/releases';
+    const CHANGELOG_URL = 'https://github.com/zzj3720/dimi/releases';
 
     const input = Object.assign(new EventEmitter(), {
       isRaw: false,

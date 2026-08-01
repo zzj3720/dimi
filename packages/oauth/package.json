@@ -10,15 +10,15 @@
     "kimi",
     "oauth"
   ],
-  "homepage": "https://github.com/zzj3720/k-3720/tree/main/packages/oauth#readme",
+  "homepage": "https://github.com/zzj3720/dimi/tree/main/packages/oauth#readme",
   "bugs": {
-    "url": "https://github.com/zzj3720/k-3720/issues"
+    "url": "https://github.com/zzj3720/dimi/issues"
   },
   "license": "MIT",
   "author": "Moonshot AI",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "url": "git+https://github.com/zzj3720/dimi.git",
     "directory": "packages/oauth"
   },
   "files": [

@@ -1,15 +1,15 @@
 ---
 name: update-config
-description: Inspect or edit kimi-code's own config — `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update). Use when the user asks what a setting does or wants to change one.
+description: Inspect or edit the CLI's own config — `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update). Use when the user asks what a setting does or wants to change one.
 ---
 
-# Configure kimi-code (update-config)
+# Configure the CLI (update-config)
 
-Help the user inspect, change, and validate kimi-code's configuration files. The files are **TOML** with **snake_case** keys.
+Help the user inspect, change, and validate the CLI's configuration files. The files are **TOML** with **snake_case** keys.
 
 ## The two config files
 
-kimi-code has two TOML config files, both under `<KIMI_CODE_HOME>/`, both snake_case, but with different ownership — decide which one the user means before doing anything.
+The CLI has two TOML config files, both under `<KIMI_CODE_HOME>/`, both snake_case, but with different ownership — decide which one the user means before doing anything.
 
 The runtime resolves the data directory as `KIMI_CODE_HOME` first, falling back to `~/.kimi-code`. Before doing anything, resolve the actual directory with Bash so you don't write to the wrong place. Check whether `KIMI_CODE_HOME` is set and fall back to `~/.kimi-code` when it is empty:
 
@@ -30,7 +30,7 @@ The "read → copy → Edit → validate → back up → overwrite" flow below a
 Before touching any config, use **FetchURL** to fetch the official config docs as the one authoritative reference for fields (key names, types, allowed values, owning section):
 
 ```
-https://github.com/zzj3720/k-3720/blob/main/docs/en/configuration/config-files.md
+https://github.com/zzj3720/dimi/blob/main/docs/en/configuration/config-files.md
 ```
 
 - Use the **snake_case key names and sections exactly as documented** — don't invent them, don't guess camelCase.
@@ -73,7 +73,7 @@ Don't edit the target file in place, and **don't rewrite it from scratch** — i
 
 ## Capability 3: validate the candidate file (must pass before overwrite)
 
-Use **`kimi doctor`** to validate the candidate you wrote — it doesn't start the TUI and doesn't modify any file; it runs kimi's own parser + schema (syntax and schema together), so it's the authoritative check. Pick the subcommand by which file you changed, and pass the **candidate** path explicitly:
+Use **`kimi doctor`** to validate the candidate you wrote — it doesn't start the TUI and doesn't modify any file; it runs the CLI's own parser + schema (syntax and schema together), so it's the authoritative check. Pick the subcommand by which file you changed, and pass the **candidate** path explicitly:
 
 - changed `config.toml` → `kimi doctor config <config-new.toml path>`
 - changed `tui.toml` → `kimi doctor tui <tui-new.toml path>`

@@ -40,7 +40,7 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
+git clone https://github.com/zzj3720/dimi.git
 cd kimi-code
 pnpm install
 ```

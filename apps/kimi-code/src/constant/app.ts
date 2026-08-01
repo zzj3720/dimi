@@ -61,7 +61,7 @@ export const DEFAULT_OAUTH_PROVIDER_NAME = "kimi-coding";
 // auto-propagates instead of silently breaking the startup recovery path.
 export const AUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
-export const FEEDBACK_ISSUE_URL = "https://github.com/zzj3720/k-3720/issues";
+export const FEEDBACK_ISSUE_URL = "https://github.com/zzj3720/dimi/issues";
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.

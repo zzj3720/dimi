@@ -10,7 +10,7 @@ We take security seriously. **Please do not open a public issue for security vul
 
 Preferred channel:
 
-- GitHub Security Advisories — https://github.com/zzj3720/k-3720/security/advisories/new
+- GitHub Security Advisories — https://github.com/zzj3720/dimi/security/advisories/new
   (private disclosure, tracked with the codebase)
 
 Alternative channel:

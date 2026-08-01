@@ -1,8 +1,8 @@
 # 开始使用
 
-## Kimi Code CLI 是什么
+## Dimi 是什么
 
-Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开发任务和日常的终端操作——阅读和修改代码、执行 Shell 命令、搜索文件、抓取网页，并在执行过程中根据反馈自主规划和调整下一步行动。
+Dimi 是一个运行在终端中的 AI Agent，帮助你完成软件开发任务和日常的终端操作——阅读和修改代码、执行 Shell 命令、搜索文件、抓取网页，并在执行过程中根据反馈自主规划和调整下一步行动。
 
 它适用于以下场景：
 
@@ -14,17 +14,17 @@ Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开
 
 ## 安装
 
-请克隆本仓库并运行开发版 CLI。不要使用旧 Kimi Code 安装脚本或 `@moonshot-ai/kimi-code@latest`，它们指向的是另一份产品发布。
+请克隆本仓库并运行开发版 CLI。不要使用旧安装脚本或 `@moonshot-ai/kimi-code@latest`，它们指向的是另一份产品发布。
 
 ::: tip 安装之前
-Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
+Dimi 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
 :::
 
 需要 Node.js 24.15.0 或更高版本以及 pnpm 10.33.0：
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
+git clone https://github.com/zzj3720/dimi.git
+cd dimi
 vp install
 vp run dev:cli
 ```
@@ -39,7 +39,7 @@ vp install
 vp run dev:cli
 ```
 
-`kimi upgrade` / `kimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的 Kimi Code 发布版。
+`kimi upgrade` / `kimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的发布版。
 
 **卸载**：删除 clone 出来的目录即可。`~/.kimi-code/` 下的本地数据独立保存；只有同时希望删除会话和凭据时才删除它。
 
@@ -48,7 +48,7 @@ vp run dev:cli
 在 clone 得到的源码 checkout 中启动交互界面：
 
 ```sh
-cd k-3720
+cd dimi
 vp run dev:cli
 ```
 
@@ -90,7 +90,7 @@ vp run dev:cli -- -c
 帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的
 ```
 
-Kimi Code CLI 会自动调用文件读取、搜索等工具浏览相关内容后给出回答。只读操作默认自动执行无需确认；对于会修改文件或执行 Shell 命令的操作，默认会在执行前征求确认。
+Dimi 会自动调用文件读取、搜索等工具浏览相关内容后给出回答。只读操作默认自动执行无需确认；对于会修改文件或执行 Shell 命令的操作，默认会在执行前征求确认。
 
 也可以直接描述更具体的任务：
 
@@ -98,7 +98,7 @@ Kimi Code CLI 会自动调用文件读取、搜索等工具浏览相关内容后
 在 src/utils 里新增一个函数，用来把任意字符串转成 kebab-case，并补一个单元测试
 ```
 
-Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告诉你它做了什么。
+Dimi 会规划步骤、修改代码、运行测试，并在每一步告诉你它做了什么。
 
 ::: tip 不知道能做什么？输入 `/help`
 随时在输入框输入 `/help`，可以打开内置的命令和快捷键面板，按 `↑`/`↓` 翻看，`Esc` 关闭。退出时输入 `/exit`，或按 `Ctrl-C` 两次，或在输入框为空时按 `Ctrl-D`。
@@ -132,7 +132,7 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 
 ## 数据存放在哪里
 
-Kimi Code CLI 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录和日志。本源码构建没有启用更新通道。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
+Dimi 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录和日志。本源码构建没有启用更新通道。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
 
 ## 下一步
 

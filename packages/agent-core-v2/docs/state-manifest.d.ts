@@ -578,7 +578,7 @@ export interface SessionStateSnapshot {
       readonly type: string;
       readonly reason: string;
     }[];
-    getKimiSkillsDescription: () => string;
+    getSkillsDescription: () => string;
     getModelSkillListing: () => string;
   };
   // src/session/sessionToolPolicy/sessionToolPolicyService.ts

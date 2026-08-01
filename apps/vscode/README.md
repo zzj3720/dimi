@@ -33,7 +33,7 @@ See [the changelog](CHANGELOG.md) for the full compatibility notes.
 
 ## Docs
 
-Source and project documentation: [zzj3720/k-3720](https://github.com/zzj3720/k-3720/tree/main/docs)
+Source and project documentation: [zzj3720/dimi](https://github.com/zzj3720/dimi/tree/main/docs)
 
 ## License
 

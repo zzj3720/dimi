@@ -14,7 +14,7 @@ import {
 
 import { type InstallSource, type UpdateTarget } from './types';
 
-export const CHANGELOG_URL = 'https://github.com/zzj3720/k-3720/releases';
+export const CHANGELOG_URL = 'https://github.com/zzj3720/dimi/releases';
 
 export type InstallPromptChoiceValue = 'install' | 'skip';
 

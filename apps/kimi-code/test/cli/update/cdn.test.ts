@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { fetchLatestFromCdn, fetchLatestVersionFromCdn, hasUpdateChannel } from '#/cli/update/cdn';
 
-const UPDATE_CHANNEL = 'https://updates.example.test/k-3720/';
+const UPDATE_CHANNEL = 'https://updates.example.test/dimi/';
 const LATEST_URL = new URL('latest', UPDATE_CHANNEL).toString();
 const LATEST_JSON_URL = new URL('latest.json', UPDATE_CHANNEL).toString();
 

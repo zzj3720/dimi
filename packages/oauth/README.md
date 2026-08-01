@@ -1,8 +1,8 @@
 # @moonshot-ai/kimi-code-oauth
 
-OAuth toolkit for Kimi Code managed authentication.
+OAuth toolkit for Dimi managed authentication.
 
-Part of the [Kimi Code](https://github.com/zzj3720/k-3720) monorepo.
+Part of the [Dimi](https://github.com/zzj3720/dimi) monorepo.
 
 See the main repository for documentation, issues, and contribution guidelines.
 

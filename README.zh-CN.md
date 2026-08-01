@@ -1,22 +1,22 @@
-# Kimi Code CLI
+# Dimi
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [文档](docs/zh/guides/getting-started.md) · [Issues](https://github.com/zzj3720/k-3720/issues) · [English](README.md)
-
-
-![Kimi Code 的使用演示](./docs/media/intro.gif)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · [文档](docs/zh/guides/getting-started.md) · [Issues](https://github.com/zzj3720/dimi/issues) · [English](README.md)
 
 
-## 什么是 Kimi Code CLI
+![Dimi 的使用演示](./docs/media/intro.gif)
 
-Kimi Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你读写代码、执行 shell 命令、检索文件、抓取网页，并根据反馈自主决定下一步动作。它使用同一套供应商运行时连接 Kimi、Codex、Grok、Claude、Gemini、云服务和兼容的自定义端点。
+
+## 什么是 Dimi
+
+Dimi 是一个运行在终端里的 AI 编程 agent，可以帮你读写代码、执行 shell 命令、检索文件、抓取网页，并根据反馈自主决定下一步动作。它使用同一套供应商运行时连接 Kimi、Codex、Grok、Claude、Gemini、云服务和兼容的自定义端点。
 
 ## 安装
 
-这是没有独立发布通道的源码构建。请 clone 本仓库，不要使用旧 Kimi Code 安装脚本或 npm 的 `latest` 包：
+这是没有独立发布通道的源码构建。请 clone 本仓库，不要使用旧安装脚本或 npm 的 `latest` 包：
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
+git clone https://github.com/zzj3720/dimi.git
+cd dimi
 vp install
 vp run dev:cli
 ```
@@ -28,11 +28,11 @@ vp run dev:cli
 在 clone 得到的 checkout 中启动交互界面：
 
 ```sh
-cd k-3720
+cd dimi
 vp run dev:cli
 ```
 
-首次启动时，在 Kimi Code CLI 里输入 `/login`，选择供应商及其支持的 OAuth、API 密钥或云身份登录方式。兼容端点可以在 `~/.kimi-code/models.json` 中添加或覆盖；详见[供应商与模型](docs/zh/configuration/providers.md)。登录完成后，可以先让它熟悉项目：
+首次启动时，在 Dimi 里输入 `/login`，选择供应商及其支持的 OAuth、API 密钥或云身份登录方式。兼容端点可以在 `~/.kimi-code/models.json` 中添加或覆盖；详见[供应商与模型](docs/zh/configuration/providers.md)。登录完成后，可以先让它熟悉项目：
 
 ```
 帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的
@@ -53,14 +53,14 @@ vp run dev:cli
 
 ## 在编辑器里使用（ACP）
 
-Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)，ACP 兼容的编辑器 / IDE（Zed、JetBrains……）可以通过 stdio 直接驱动会话。登录一次后，把编辑器指向 `kimi acp` 子命令即可，无需重复登录。
+Dimi 支持 [Agent Client Protocol](https://agentclientprotocol.com/)，ACP 兼容的编辑器 / IDE（Zed、JetBrains……）可以通过 stdio 直接驱动会话。登录一次后，把编辑器指向 `kimi acp` 子命令即可，无需重复登录。
 
 以 Zed 为例，在 `~/.config/zed/settings.json` 中加入：
 
 ```json
 {
   "agent_servers": {
-    "Kimi Code CLI": {
+    "Dimi": {
       "type": "custom",
       "command": "kimi",
       "args": ["acp"],
@@ -86,8 +86,8 @@ Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)�
 环境要求：Node.js ≥ 24.15.0，pnpm 10.33.0。
 
 ```sh
-git clone https://github.com/zzj3720/k-3720.git
-cd k-3720
+git clone https://github.com/zzj3720/dimi.git
+cd dimi
 vp install
 ```
 
@@ -103,7 +103,7 @@ vp run build    # 构建所有包
 
 ## 社区
 
-- [Issues](https://github.com/zzj3720/k-3720/issues)
+- [Issues](https://github.com/zzj3720/dimi/issues)
 - 安全漏洞反馈，请见 [SECURITY.md](SECURITY.md)。
 
 ## 致谢

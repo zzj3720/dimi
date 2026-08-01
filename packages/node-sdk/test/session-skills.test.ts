@@ -171,11 +171,11 @@ describe("Session skills", () => {
             text: [
               'User activated the skill "review". Follow the loaded skill instructions.',
               "",
-              `<kimi-skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
+              `<skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
               "Review the requested file.",
               "",
               "ARGUMENTS: src/app.ts",
-              "</kimi-skill-loaded>",
+              "</skill-loaded>",
             ].join("\n"),
           },
         ],

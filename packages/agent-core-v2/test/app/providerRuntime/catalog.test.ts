@@ -127,7 +127,7 @@ afterEach(() => {
 });
 
 describe("builtin provider model catalogs", () => {
-  it("keeps Pi's 38 provider identities in the generated K-3720 catalog", () => {
+  it("keeps Pi's 38 provider identities in the generated Dimi catalog", () => {
     const ids = BUILTIN_CATALOG.providers.map((provider) => provider.id);
 
     expect(ids).toHaveLength(38);

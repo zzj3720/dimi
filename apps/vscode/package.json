@@ -9,7 +9,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "url": "git+https://github.com/zzj3720/dimi.git",
     "directory": "apps/vscode"
   },
   "engines": {

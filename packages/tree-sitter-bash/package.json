@@ -5,14 +5,14 @@
   "description": "A pure-TypeScript bash parser producing a syntax tree whose named node types match tree-sitter-bash one-to-one.",
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/zzj3720/k-3720/tree/main/packages/tree-sitter-bash#readme",
+  "homepage": "https://github.com/zzj3720/dimi/tree/main/packages/tree-sitter-bash#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzj3720/k-3720.git",
+    "url": "git+https://github.com/zzj3720/dimi.git",
     "directory": "packages/tree-sitter-bash"
   },
   "bugs": {
-    "url": "https://github.com/zzj3720/k-3720/issues"
+    "url": "https://github.com/zzj3720/dimi/issues"
   },
   "keywords": [
     "kimi",
