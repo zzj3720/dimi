@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (22 sections · 1 overlay(s))
+# Index (23 sections · 1 overlay(s))
 #   cron                     src/app/cron/configSection.ts
 #   defaultModel             (unresolved)
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
@@ -23,6 +23,7 @@
 #   mcp                      src/agent/mcp/configSection.ts
 #   mergeAllAvailableSkills  src/app/skillCatalog/configSection.ts
 #   modelCatalog             (unresolved)
+#   modelEfforts             (unresolved)
 #   modelOverrides           (unresolved)
 #   permission               src/agent/permissionRules/configSection.ts
 #   secondaryModel           (unresolved)
@@ -196,6 +197,15 @@ merge_all_available_skills = true
 [model_catalog]
 # refresh_interval_ms: integer
 # refresh_on_start: boolean
+
+# ##########################################################################
+# modelEfforts (config.toml: model_efforts)
+#   owner: (unresolved)
+#   scope: core
+# ##########################################################################
+
+[model_efforts]
+# <name>: string
 
 # ##########################################################################
 # modelOverrides (config.toml: model_overrides)
