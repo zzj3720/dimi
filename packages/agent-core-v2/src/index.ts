@@ -218,6 +218,7 @@ export * from "#/agent/toolDedupe/toolDedupe";
 export * from "#/agent/toolDedupe/toolDedupeService";
 import "#/agent/toolSelect/flag";
 import "#/agent/faultInjection/flag";
+import "#/agent/task/flag";
 export * from "#/agent/tools/select-tools/select-tools";
 import "#/agent/tools/select-tools/selectToolsTool";
 export * from "#/agent/toolSelect/dynamicTools";
@@ -241,6 +242,7 @@ export {
 export * from "#/agent/task/printDefaults";
 export * from "#/agent/tools/task/task-list/task-list";
 import "#/agent/tools/task/task-list/taskListTool";
+export * from "#/agent/tools/task/task-input/task-input";
 export * from "#/agent/tools/task/task-output/task-output";
 import "#/agent/tools/task/task-output/taskOutputTool";
 export * from "#/agent/tools/task/task-stop/task-stop";

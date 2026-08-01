@@ -563,6 +563,12 @@ describe("Agent tool description", () => {
     expect(description).toContain("Tools: Agent, AgentSwarm, Bash");
   });
 
+  it("omits background Bash stdin tools when the experiment is disabled", () => {
+    ctx = createTestAgent();
+
+    expect(agentDescription()).not.toContain("TaskInput");
+  });
+
   it("renders global tool restrictions in subagent type descriptions", () => {
     ctx = createTestAgent(
       configServices(() => ({

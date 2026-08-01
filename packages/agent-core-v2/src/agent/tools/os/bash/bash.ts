@@ -65,8 +65,21 @@ export const BashInputSchema = z
       .describe(
         'If true, do not apply a timeout to the command. Only applies when run_in_background is true.',
       ),
+    stdin_mode: z
+      .enum(['closed', 'pipe'])
+      .optional()
+      .describe(
+        'Use pipe to keep stdin open for TaskInput. Only applies when run_in_background is true.',
+      ),
   })
   .superRefine((val, ctx) => {
+    if (val.stdin_mode === 'pipe' && val.run_in_background !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['stdin_mode'],
+        message: 'stdin_mode="pipe" requires run_in_background=true',
+      });
+    }
     if (val.timeout === undefined) return;
     const isBackground = val.run_in_background === true;
     if (!isValidTimeoutValue(val.timeout, isBackground)) {

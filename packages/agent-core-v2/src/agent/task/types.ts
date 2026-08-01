@@ -54,6 +54,13 @@ export interface AgentTaskSink {
   settle(settlement: AgentTaskSettlement): Promise<boolean>;
 }
 
+export interface AgentTaskInput {
+  readonly data: string;
+  readonly close?: boolean;
+}
+
+export type AgentTaskInputResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
+
 export interface AgentTask {
   readonly idPrefix: string;
   readonly kind: AgentTaskKind;
@@ -61,6 +68,7 @@ export interface AgentTask {
   readonly timeoutMs?: number;
 
   start(sink: AgentTaskSink): void | Promise<void>;
+  sendInput?(input: AgentTaskInput): Promise<AgentTaskInputResult>;
   onDetach?(): void;
   forceStop?(): Promise<void>;
   toInfo(base: AgentTaskInfoBase): AgentTaskInfo;

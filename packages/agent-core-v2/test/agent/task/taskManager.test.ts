@@ -20,6 +20,7 @@ import {
   type SubagentHandle,
 } from '#/agent/tools/agent/subagent-task';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import { TaskInputTool } from '#/agent/tools/task/task-input/task-input';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import {
   configServices,
@@ -32,6 +33,7 @@ import {
   createAgentTaskPersistence,
   type TaskServiceTestManager,
 } from './stubs';
+import { executeTool } from '../../tools/fixtures/execute-tool';
 
 const MiB = 1024 * 1024;
 const LIMIT_BYTES = 16 * MiB;
@@ -1323,5 +1325,63 @@ describe('AgentTaskService', () => {
 
     expect(info).toMatchObject({ kind: 'process', status: 'completed', exitCode: 0 });
     expect(await manager.readOutput(taskId)).toContain('bg-ok');
+  }, 15_000);
+
+  it('writes through TaskInput to a real background process and closes stdin', async () => {
+    const { spawn } = await import('node:child_process');
+    const { manager } = createAgentTaskService();
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        'process.stdin.setEncoding("utf8"); let data = ""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => process.stdout.write("received:" + data))',
+      ],
+      { stdio: 'pipe' },
+    );
+    const proc: IProcess = {
+      stdin: child.stdin,
+      stdout: child.stdout,
+      stderr: child.stderr,
+      pid: child.pid ?? 0,
+      get exitCode(): number | null {
+        return child.exitCode;
+      },
+      wait: () =>
+        new Promise<number>((resolve) => {
+          child.once('exit', (code) => {
+            resolve(code ?? 0);
+          });
+        }),
+      kill: async (signal?: NodeJS.Signals) => {
+        child.kill(signal ?? 'SIGTERM');
+      },
+      dispose: () => {
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+      },
+    };
+    const taskId = manager.registerTask(
+      new ProcessTask(proc, 'node stdin reader', 'real stdin worker', undefined, 'pipe'),
+    );
+
+    const first = await executeTool(new TaskInputTool(manager), {
+      turnId: 0,
+      toolCallId: 'call_task_input',
+      args: { task_id: taskId, input: 'hello ' },
+      signal: new AbortController().signal,
+    });
+    const second = await executeTool(new TaskInputTool(manager), {
+      turnId: 0,
+      toolCallId: 'call_task_input_eof',
+      args: { task_id: taskId, input: 'world\n', close_stdin: true },
+      signal: new AbortController().signal,
+    });
+    const info = await manager.wait(taskId, 10_000);
+
+    expect(first).toMatchObject({ isError: false });
+    expect(second.output).toContain('written_bytes: 6');
+    expect(info).toMatchObject({ status: 'completed', exitCode: 0 });
+    expect(await manager.readOutput(taskId)).toBe('received:hello world\n');
   }, 15_000);
 });

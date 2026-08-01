@@ -255,6 +255,80 @@ describe("Session.prompt events", () => {
     }
   });
 
+  it("lets the agent write to a real background process and send EOF", async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const script =
+      'process.stdin.setEncoding("utf8");let data="";process.stdin.on("data",chunk=>data+=chunk);process.stdin.on("end",()=>process.stdout.write("received:"+data))';
+    provider.route("POST", "/v1/chat/completions", async (request, reply) => {
+      if (isCompletionReview(request.bodyJson)) {
+        await reply.sseJson(200, chatCompletionAllDoneChunks(`call-stdin-done-${request.index}`));
+        return;
+      }
+      if (request.index === 0) {
+        await reply.sseJson(200, [
+          toolCallChunk("call-bash-stdin", "Bash", {
+            command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+            description: "stdin e2e reader",
+            run_in_background: true,
+            stdin_mode: "pipe",
+          }),
+          completionChunk({}, "tool_calls"),
+        ]);
+        return;
+      }
+      if (request.index === 1) {
+        const taskId = JSON.stringify(requestMessages(request.bodyJson)).match(
+          /task_id: (bash-[0-9a-z]{8})/,
+        )?.[1];
+        if (taskId === undefined) throw new Error("Bash result did not contain a task id");
+        await reply.sseJson(200, [
+          toolCallChunk("call-task-input", "TaskInput", {
+            task_id: taskId,
+            input: "hello world\n",
+            close_stdin: true,
+          }),
+          completionChunk({}, "tool_calls"),
+        ]);
+        return;
+      }
+      await reply.sseJson(200, [
+        completionChunk({ content: "stdin complete" }),
+        completionChunk({}, "stop"),
+      ]);
+    });
+
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+    try {
+      await harness.setConfig({ experimental: { "background-bash-stdin": true } });
+      expect(await harness.getExperimentalFeatures()).toContainEqual(
+        expect.objectContaining({ id: "background-bash-stdin", enabled: true }),
+      );
+      await configureFakeProvider(harness);
+      const session = await harness.createSession({
+        id: "ses_background_bash_stdin",
+        workDir,
+        permission: "auto",
+      });
+      const terminated = waitForEvent(
+        session,
+        (event) => event.type === "task.terminated" && event.info.kind === "process",
+        10_000,
+      );
+      const turnEnded = waitForEvent(session, (event) => event.type === "turn.ended", 10_000);
+
+      await session.prompt("Send hello world to a background stdin reader and close stdin.");
+      await Promise.all([terminated, turnEnded]);
+
+      const task = (await session.listBackgroundTasks()).find((entry) => entry.kind === "process");
+      expect(task).toMatchObject({ status: "completed", exitCode: 0 });
+      expect(await session.getBackgroundTaskOutput(task!.taskId)).toBe("received:hello world\n");
+      expect(JSON.stringify(provider.requests[0]?.bodyJson)).toContain('"name":"TaskInput"');
+    } finally {
+      await harness.close();
+    }
+  }, 15_000);
+
   it("supports onEvent unsubscribe without touching runtime wire directly", async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
@@ -725,6 +799,18 @@ function completionChunk(
   };
 }
 
+function toolCallChunk(
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  return completionChunk({
+    tool_calls: [
+      { index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } },
+    ],
+  });
+}
+
 function requestMessages(body: unknown): readonly Record<string, unknown>[] {
   if (typeof body !== "object" || body === null || !("messages" in body)) return [];
   const messages = (body as { readonly messages?: unknown }).messages;
@@ -741,12 +827,13 @@ function waitForEvent(
     onEvent(listener: (event: Event) => void): () => void;
   },
   predicate: (event: Event) => boolean,
+  timeoutMs = 1_000,
 ): Promise<Event> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       unsubscribe();
       reject(new Error("Timed out waiting for session event"));
-    }, 1_000);
+    }, timeoutMs);
     const unsubscribe = session.onEvent((event) => {
       if (!predicate(event)) return;
       clearTimeout(timeout);

@@ -4,6 +4,8 @@ import type { IProcess } from '#/session/process/processRunner';
 
 import type {
   AgentTask,
+  AgentTaskInput,
+  AgentTaskInputResult,
   AgentTaskInfoBase,
   AgentTaskSink,
   AgentTaskSettlement,
@@ -35,13 +37,28 @@ export class ProcessTask implements AgentTask {
   readonly kind = 'process' as const;
   readonly idPrefix = 'bash';
   private exitCode: number | null = null;
+  private stdinOpen: boolean;
+  private inputQueue: Promise<void> = Promise.resolve();
 
   constructor(
     readonly proc: IProcess,
     readonly command: string,
     readonly description: string,
     private readonly onOutput?: ProcessTaskOutputCallback,
-  ) {}
+    stdinMode: 'closed' | 'pipe' = 'closed',
+  ) {
+    this.stdinOpen = stdinMode === 'pipe';
+    this.proc.stdin.on?.('error', () => {
+      this.stdinOpen = false;
+    });
+    if (!this.stdinOpen) closeStdin(this.proc);
+  }
+
+  sendInput(input: AgentTaskInput): Promise<AgentTaskInputResult> {
+    const write = this.inputQueue.then(() => this.writeInput(input));
+    this.inputQueue = write.then(() => undefined);
+    return write;
+  }
 
   async start(sink: AgentTaskSink): Promise<void> {
     const streamDrained = Promise.all([
@@ -102,11 +119,49 @@ export class ProcessTask implements AgentTask {
   }
 
   private async disposeProcess(): Promise<void> {
+    this.stdinOpen = false;
     try {
       await this.proc.dispose();
     } catch {
     }
   }
+
+  private async writeInput(input: AgentTaskInput): Promise<AgentTaskInputResult> {
+    if (!this.stdinOpen || this.proc.stdin.destroyed || this.proc.stdin.writableEnded) {
+      return { ok: false, error: 'Task stdin is closed.' };
+    }
+    try {
+      if (input.data.length > 0) await writeStdin(this.proc, input.data);
+      if (input.close === true) {
+        this.stdinOpen = false;
+        this.proc.stdin.end();
+      }
+      return { ok: true };
+    } catch (error) {
+      this.stdinOpen = false;
+      return { ok: false, error: `Failed to write to task stdin: ${errorMessage(error)}` };
+    }
+  }
+}
+
+function closeStdin(proc: IProcess): void {
+  try {
+    proc.stdin.end();
+  } catch {
+  }
+}
+
+function writeStdin(proc: IProcess, data: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      proc.stdin.write(data, (error) => {
+        if (error === undefined || error === null) resolve();
+        else reject(error);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
 
 async function waitForStreamDrain(streamDrained: Promise<void>): Promise<void> {

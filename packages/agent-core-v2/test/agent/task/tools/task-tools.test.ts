@@ -1,11 +1,13 @@
 /**
- * Covers: TaskListTool, TaskOutputTool, TaskStopTool.
+ * Covers: TaskListTool, TaskInputTool, TaskOutputTool, TaskStopTool.
  */
 
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
   AgentTask,
+  AgentTaskInput,
+  AgentTaskInputResult,
   AgentTaskInfo,
   AgentTaskOutputSnapshot,
   AgentTaskTrackOptions,
@@ -17,14 +19,17 @@ import type {
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { TaskListInputSchema } from '#/agent/tools/task/task-list/task-list';
 import { TaskListTool } from '#/agent/tools/task/task-list/taskListTool';
+import { TaskInputSchema, TaskInputTool } from '#/agent/tools/task/task-input/task-input';
 import { TaskOutputInputSchema } from '#/agent/tools/task/task-output/task-output';
 import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { TaskStopInputSchema } from '#/agent/tools/task/task-stop/task-stop';
 import { TaskStopTool } from '#/agent/tools/task/task-stop/taskStopTool';
+import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import type { ITaskHandle } from '#/app/task/task';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
 import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
+import { stubFlag } from '../../../app/flag/stubs';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -103,6 +108,8 @@ class FakeTaskService implements IAgentTaskService {
   readonly stopCalls: Array<{ taskId: string; reason: string | undefined }> = [];
   readonly suppressCalls: string[] = [];
   readonly waitCalls: Array<{ taskId: string; timeoutMs: number | undefined }> = [];
+  readonly inputCalls: Array<{ taskId: string; input: AgentTaskInput }> = [];
+  inputResult: AgentTaskInputResult = { ok: false, error: 'Task does not accept input' };
 
   private readonly entries = new Map<string, FakeTaskEntry>();
 
@@ -151,6 +158,11 @@ class FakeTaskService implements IAgentTaskService {
     const preview = this.entries.get(taskId)?.output.preview ?? '';
     if (tail === undefined) return preview;
     return preview.slice(-Math.max(0, Math.trunc(tail)));
+  }
+
+  async sendInput(taskId: string, input: AgentTaskInput): Promise<AgentTaskInputResult> {
+    this.inputCalls.push({ taskId, input });
+    return this.inputResult;
   }
 
   async suppressTerminalNotification(taskId: string): Promise<void> {
@@ -218,6 +230,69 @@ class FakeTaskService implements IAgentTaskService {
     return this.entries.has(taskId) ? 'detached' : undefined;
   }
 }
+
+describe('TaskInputTool', () => {
+  it('is contributed only when the experimental flag is enabled', () => {
+    const contribution = getAgentToolContributions().find(({ ctor }) => ctor === TaskInputTool);
+    const when = contribution?.options.when;
+    expect(when).toBeDefined();
+
+    expect(when!({ get: () => stubFlag(false) } as never)).toBe(false);
+    expect(when!({ get: () => stubFlag(true) } as never)).toBe(true);
+  });
+
+  it('requires input and writes verbatim bytes with optional EOF', async () => {
+    const tasks = new FakeTaskService();
+    tasks.inputResult = { ok: true };
+    const tool = new TaskInputTool(tasks);
+
+    expect(TaskInputSchema.safeParse({ task_id: 'bash-1' }).success).toBe(false);
+    expect(TaskInputSchema.safeParse({ task_id: 'bash-1', input: '', close_stdin: true }).success).toBe(true);
+    const result = await executeTool(
+      tool,
+      context('task_input', { task_id: 'bash-1', input: 'hello\n', close_stdin: true }),
+    );
+
+    expect(tasks.inputCalls).toEqual([
+      { taskId: 'bash-1', input: { data: 'hello\n', close: true } },
+    ]);
+    expect(outputString(result)).toContain('written_bytes: 6');
+    expect(outputString(result)).toContain('stdin_closed: true');
+  });
+
+  it('does not expose input content in the approval display or rule', () => {
+    const execution = new TaskInputTool(new FakeTaskService()).resolveExecution({
+      task_id: 'bash-1',
+      input: 'secret input',
+    });
+    if (execution.isError === true) throw new Error('TaskInput resolution failed');
+
+    expect(execution).toMatchObject({
+      approvalRule: 'TaskInput(bash-1)',
+      display: { kind: 'generic', detail: '12 input bytes' },
+    });
+    expect(JSON.stringify(execution.display)).not.toContain('secret input');
+  });
+
+  it('reports unsupported and closed task input as errors', async () => {
+    const tasks = new FakeTaskService();
+    const tool = new TaskInputTool(tasks);
+    const unsupported = await executeTool(
+      tool,
+      context('task_input_unsupported', { task_id: 'agent-1', input: 'x' }),
+    );
+    tasks.inputResult = { ok: false, error: 'Task stdin is closed' };
+    const closed = await executeTool(
+      tool,
+      context('task_input_closed', { task_id: 'bash-1', input: '', close_stdin: true }),
+    );
+
+    expect(unsupported).toMatchObject({ isError: true });
+    expect(outputString(unsupported)).toContain('does not accept input');
+    expect(closed).toMatchObject({ isError: true });
+    expect(outputString(closed)).toContain('stdin is closed');
+  });
+});
 
 describe('TaskListTool', () => {
   it('has name and accepts the current schema', () => {
