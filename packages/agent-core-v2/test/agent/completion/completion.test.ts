@@ -43,34 +43,77 @@ describe("intentional completion", () => {
     await ctx?.dispose();
   });
 
-  it("continues after every tool-free response until a sole AllDone call", async () => {
+  it("ends a short turn on a text-only reply without the completion reminder", async () => {
     ctx = createTestAgent();
     await bindAgent(ctx);
-    expect(ctx.toolsData()).toContainEqual(expect.objectContaining({ name: ALL_DONE_TOOL_NAME, active: true }));
 
-    ctx.mockNextResponse({ type: "text", text: "I should review the request." });
-    ctx.mockNextResponse({ type: "text", text: "Everything is verified." });
-    ctx.mockNextResponse(call("call_done", ALL_DONE_TOOL_NAME));
+    ctx.mockNextResponse({ type: "text", text: "Done — here is the answer." });
 
     const run = await runAgentTurn(
       currentAgentHandle(ctx),
-      { kind: "prompt", prompt: "Complete the task" },
+      { kind: "prompt", prompt: "What is 2+2?" },
       { signal: new AbortController().signal },
     );
-    await expect(run.completion).resolves.toMatchObject({ summary: "Everything is verified." });
+    await expect(run.completion).resolves.toMatchObject({ summary: "Done — here is the answer." });
 
-    expect(ctx.llmCalls).toHaveLength(3);
-    // The completion protocol is announced up front in the base system prompt
-    // template, so the model knows about AllDone from the first round instead
-    // of learning it from a post-hoc reminder. (The test harness substitutes
-    // its own prompt, so assert on the template directly.)
-    expect(SYSTEM_PROMPT_TEMPLATE).toContain('AllDone');
+    // A quick answer ends the turn directly: no continuation, no AllDone.
+    expect(ctx.llmCalls).toHaveLength(1);
     const reminders = ctx.contextData().history.filter(
       (message) =>
         message.origin?.kind === "system_trigger" && message.origin.name === "completion_review",
     );
-    expect(reminders).toHaveLength(2);
-    expect(JSON.stringify(reminders)).toContain(COMPLETION_REVIEW_REMINDER.trim());
+    expect(reminders).toHaveLength(0);
+  });
+
+  it("keeps the completion review protocol once a turn exceeds the short-turn threshold", async () => {
+    ctx = createTestAgent();
+    await ctx.rpc.setPermission({ mode: "yolo" });
+    await bindAgent(ctx, ["Probe"]);
+    const execute = vi.fn(async () => ({ output: "probe complete" }));
+    const probe: ExecutableTool = {
+      name: "Probe",
+      description: "Run a test probe.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+      resolveExecution: (): ToolExecution => ({
+        accesses: ToolAccesses.none(),
+        taskMode: "control",
+        approvalRule: "Probe",
+        execute,
+      }),
+    };
+    const registration = ctx.get(IAgentToolRegistryService).register(probe);
+
+    try {
+      // 10 tool-call steps (steps 0-9) keep the turn running; the text-only
+      // reply at step 10 crosses the threshold and must be reviewed.
+      for (let i = 0; i < 10; i++) {
+        ctx.mockNextResponse(call(`call_probe_${i}`, "Probe"));
+      }
+      ctx.mockNextResponse({ type: "text", text: "Everything is verified." });
+      ctx.mockNextResponse(call("call_done", ALL_DONE_TOOL_NAME));
+
+      const run = await runAgentTurn(
+        currentAgentHandle(ctx),
+        { kind: "prompt", prompt: "Complete the task" },
+        { signal: new AbortController().signal },
+      );
+      await expect(run.completion).resolves.toMatchObject({ summary: "Everything is verified." });
+
+      expect(ctx.llmCalls).toHaveLength(12);
+      // The completion protocol is announced up front in the base system prompt
+      // template, so the model knows about AllDone from the first round instead
+      // of learning it from a post-hoc reminder. (The test harness substitutes
+      // its own prompt, so assert on the template directly.)
+      expect(SYSTEM_PROMPT_TEMPLATE).toContain('AllDone');
+      const reminders = ctx.contextData().history.filter(
+        (message) =>
+          message.origin?.kind === "system_trigger" && message.origin.name === "completion_review",
+      );
+      expect(reminders).toHaveLength(1);
+      expect(JSON.stringify(reminders)).toContain(COMPLETION_REVIEW_REMINDER.trim());
+    } finally {
+      registration.dispose();
+    }
   });
 
   it("rejects AllDone mixed with another tool without skipping its sibling", async () => {

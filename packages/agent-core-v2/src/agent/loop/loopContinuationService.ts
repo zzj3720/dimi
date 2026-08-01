@@ -8,7 +8,7 @@
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
+import { COMPLETION_REVIEW_MIN_STEPS, COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 
@@ -34,6 +34,10 @@ export class AgentLoopContinuationService
         if (ctx.stopTurn || ctx.finishReason === 'filtered') return;
         if (ctx.toolCalls.length === 0) {
           if (!profile.isRunnable()) return;
+          // Short turns may end with a plain text reply: the completion
+          // review only kicks in after enough steps, so quick answers finish
+          // naturally without the AllDone ceremony.
+          if (ctx.step < COMPLETION_REVIEW_MIN_STEPS) return;
           reminders.appendSystemReminder(COMPLETION_REVIEW_REMINDER, {
             kind: 'system_trigger',
             name: 'completion_review',
