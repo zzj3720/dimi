@@ -198,6 +198,20 @@ describe('SessionInteractionService', () => {
     expect(svc.listPending()).toHaveLength(1);
   });
 
+  it('keeps questions pending after their originating turn ends', () => {
+    const svc = ix.get(ISessionInteractionService);
+    svc.enqueue({
+      id: 'q1',
+      kind: 'question',
+      payload: {},
+      origin: { turnId: 1 },
+    });
+
+    svc.cancelPendingForTurn(1);
+
+    expect(svc.listPending().map((interaction) => interaction.id)).toEqual(['q1']);
+  });
+
   it('request journals an interaction.request op to the origin agent wire', () => {
     const sub = makeFakeAgent('agent-1');
     agents.set('agent-1', sub);

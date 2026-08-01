@@ -72,12 +72,15 @@
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol
+        ./packages/remote
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
         ./apps/dimi
         ./apps/dimi-inspect
         ./apps/dimi-web
+        ./apps/mobile
+        ./apps/relay
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -95,12 +98,15 @@
         "@dimi-agent/klient"
         "@dimi-agent/pi-tui"
         "@dimi-agent/protocol"
+        "@dimi-agent/remote"
         "@dimi-agent/dimi-telemetry"
         "@dimi-agent/transcript"
         "@dimi-agent/tree-sitter-bash"
         "@dimi-agent/cli"
         "@dimi-agent/dimi-inspect"
         "@dimi-agent/dimi-web"
+        "@dimi-agent/mobile"
+        "@dimi-agent/relay"
         "@dimi-agent/vis"
         "@dimi-agent/vis-server"
         "@dimi-agent/vis-web"
