@@ -10,7 +10,7 @@
  * helpers; no scoped service.
  */
 
-const KIMI_FILE_SCHEME = 'kimi-file://';
+const DIMI_FILE_SCHEME = 'kimi-file://';
 const PATH_QUERY = '?path=';
 
 export interface KimiFileRef {
@@ -19,19 +19,19 @@ export interface KimiFileRef {
 }
 
 export function isKimiFileUrl(url: string): boolean {
-  return url.startsWith(KIMI_FILE_SCHEME);
+  return url.startsWith(DIMI_FILE_SCHEME);
 }
 
 export function buildKimiFileUrl(fileId: string, path?: string): string {
-  const base = `${KIMI_FILE_SCHEME}${fileId}`;
+  const base = `${DIMI_FILE_SCHEME}${fileId}`;
   return path === undefined || path.length === 0
     ? base
     : `${base}${PATH_QUERY}${encodeURIComponent(path)}`;
 }
 
 export function parseKimiFileUrl(url: string): KimiFileRef | undefined {
-  if (!url.startsWith(KIMI_FILE_SCHEME)) return undefined;
-  const rest = url.slice(KIMI_FILE_SCHEME.length);
+  if (!url.startsWith(DIMI_FILE_SCHEME)) return undefined;
+  const rest = url.slice(DIMI_FILE_SCHEME.length);
   const queryAt = rest.indexOf(PATH_QUERY);
   if (queryAt === -1) {
     return rest.length > 0 ? { fileId: rest } : undefined;

@@ -3,7 +3,7 @@ import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
-import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
+import { resolveDimiHome } from '@moonshot-ai/kimi-code-sdk';
 
 import { getUpdateRolloutLogFile } from '#/utils/paths';
 
@@ -72,7 +72,7 @@ export type PassiveUpdateReason =
   | 'held'
   /** Gated and the batch delay has elapsed: update is visible. */
   | 'eligible'
-  /** KIMI_CODE_EXPERIMENTAL_FLAG is on: rollout skipped, newest always visible. */
+  /** DIMI_CODE_EXPERIMENTAL_FLAG is on: rollout skipped, newest always visible. */
   | 'experimental';
 
 export interface PassiveUpdateDecision {
@@ -191,20 +191,20 @@ export async function appendRolloutDecisionLog(
  * creates the telemetry device_id before telemetry can emit first_launch.
  */
 export function resolveUpdateDeviceId(): string {
-  return readKimiDeviceId(resolveKimiHome()) ?? randomUUID();
+  return readKimiDeviceId(resolveDimiHome()) ?? randomUUID();
 }
 
 /**
  * The experimental master switch opts a device out of staged rollouts: the
  * newest version is always visible to the passive update surfaces, exactly as
  * if every release were fully rolled out. Read directly from the env (same
- * truthy values as `KIMI_CODE_NO_AUTO_UPDATE`) — the update preflight runs
+ * truthy values as `DIMI_CODE_NO_AUTO_UPDATE`) — the update preflight runs
  * before the harness exists, so the core flag registry is not consulted.
- * `KIMI_CODE_NO_AUTO_UPDATE` still wins: disabling updates beats opting in.
+ * `DIMI_CODE_NO_AUTO_UPDATE` still wins: disabling updates beats opting in.
  */
 export function isRolloutBypassedByExperimentalEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  const value = (env['KIMI_CODE_EXPERIMENTAL_FLAG'] ?? '').trim().toLowerCase();
+  const value = (env['DIMI_CODE_EXPERIMENTAL_FLAG'] ?? '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(value);
 }

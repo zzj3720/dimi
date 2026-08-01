@@ -29,7 +29,7 @@ beforeEach(() => {
   });
   vscodeTest.runTests.mockImplementation(async (options) => {
     await writeFile(
-      options.extensionTestsEnv.KIMI_VSCODE_SMOKE_REPORT,
+      options.extensionTestsEnv.DIMI_VSCODE_SMOKE_REPORT,
       JSON.stringify({ vscode: options.version === 'stable' ? '1.127.0' : options.version }),
       'utf8',
     );
@@ -72,15 +72,15 @@ describe('installed VSIX Extension Host smoke', () => {
 
     const options = vscodeTest.runTests.mock.calls[0]?.[0];
     const env = options.extensionTestsEnv;
-    expect(env.KIMI_CODE_HOME).not.toBe(env.KIMI_VSCODE_SMOKE_OS_HOME);
-    expect(env.KIMI_VSCODE_SMOKE_OS_HOME).toContain('os-home');
+    expect(env.DIMI_CODE_HOME).not.toBe(env.DIMI_VSCODE_SMOKE_OS_HOME);
+    expect(env.DIMI_VSCODE_SMOKE_OS_HOME).toContain('os-home');
   });
 
   it('rejects a cached host that does not match an exact requested version', async () => {
     const fixture = await makeFixture();
     vscodeTest.runTests.mockImplementationOnce(async (options) => {
       await writeFile(
-        options.extensionTestsEnv.KIMI_VSCODE_SMOKE_REPORT,
+        options.extensionTestsEnv.DIMI_VSCODE_SMOKE_REPORT,
         JSON.stringify({ vscode: '1.99.3' }),
         'utf8',
       );

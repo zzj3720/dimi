@@ -72,7 +72,7 @@ describe("Session skills", () => {
         source: "project",
         disableModelInvocation: true,
       });
-      expect(listed?.path.endsWith("/.kimi-code/skills/review/SKILL.md")).toBe(true);
+      expect(listed?.path.endsWith("/.dimi/skills/review/SKILL.md")).toBe(true);
       expect(JSON.stringify(skills)).not.toContain("Review the requested file.");
     } finally {
       await harness.close();
@@ -154,7 +154,7 @@ describe("Session skills", () => {
       expect(state["lastPrompt"]).toBe("/review src/app.ts");
 
       const skillDir = normalizeWorkDir(
-        await realpath(join(workDir, ".kimi-code", "skills", "review")),
+        await realpath(join(workDir, ".dimi", "skills", "review")),
       );
       await expect(
         waitForAgentWireEvent(
@@ -190,12 +190,12 @@ describe("Session skills", () => {
     }
   });
 
-  it("resolves user brand skills from KIMI_CODE_HOME, not the OS home", async () => {
+  it("resolves user brand skills from DIMI_CODE_HOME, not the OS home", async () => {
     const homeDir = await makeTempDir(tempDirs, "kimi-sdk-skills-home-");
     const processHome = await makeTempDir(tempDirs, "kimi-sdk-skills-process-home-");
     const workDir = await makeTempDir(tempDirs, "kimi-sdk-skills-work-");
     vi.stubEnv("HOME", processHome);
-    vi.stubEnv("KIMI_CODE_HOME", homeDir);
+    vi.stubEnv("DIMI_CODE_HOME", homeDir);
     await writeLegacyUserSkill(processHome, "sdk-real-home-only", "SDK real home skill");
     await writeBrandUserSkill(homeDir, "sdk-sandbox-only", "SDK sandbox skill");
     const harness = createKimiHarness({ identity: TEST_IDENTITY });
@@ -334,7 +334,7 @@ describe("KimiHarness workspace skills", () => {
 });
 
 async function writeSkill(workDir: string, name: string, lines: readonly string[]): Promise<void> {
-  const dir = join(workDir, ".kimi-code", "skills", name);
+  const dir = join(workDir, ".dimi", "skills", name);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "SKILL.md"), lines.join("\n"));
 }
@@ -388,7 +388,7 @@ async function writeLegacyUserSkill(
   name: string,
   description: string,
 ): Promise<void> {
-  await writeSkillFile(join(userHomeDir, ".kimi-code", "skills", name), name, description);
+  await writeSkillFile(join(userHomeDir, ".dimi", "skills", name), name, description);
 }
 
 async function writeBrandUserSkill(

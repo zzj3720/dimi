@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = resolve(packageRoot, "src/app/providerRuntime/builtinCatalog.generated.ts");
-const source = process.env.KIMI_MODELS_CATALOG_SOURCE ?? "https://models.dev/api.json";
+const source = process.env.DIMI_MODELS_CATALOG_SOURCE ?? "https://models.dev/api.json";
 
 const providers = [
   ["amazon-bedrock", "amazon-bedrock", "bedrock-converse-stream"],
@@ -79,7 +79,7 @@ const providerCorrections = {
   "kimi-coding": {
     name: "Kimi Code",
     baseUrl: "https://api.kimi.com/coding/v1",
-    envNames: ["KIMI_API_KEY"],
+    envNames: ["DIMI_API_KEY"],
     models: [
       {
         id: "kimi-for-coding",
@@ -124,7 +124,7 @@ const providerCorrections = {
   minimax: { baseUrl: "https://api.minimax.io/anthropic", envNames: ["MINIMAX_API_KEY"], models: [] },
   "minimax-cn": { baseUrl: "https://api.minimaxi.com/anthropic", envNames: ["MINIMAX_CN_API_KEY"], models: [] },
   mistral: { baseUrl: "https://api.mistral.ai/v1", envNames: ["MISTRAL_API_KEY"], models: [] },
-  moonshotai: { baseUrl: "https://api.moonshot.ai/v1", envNames: ["MOONSHOT_API_KEY", "KIMI_API_KEY"], models: [] },
+  moonshotai: { baseUrl: "https://api.moonshot.ai/v1", envNames: ["MOONSHOT_API_KEY", "DIMI_API_KEY"], models: [] },
   "moonshotai-cn": { baseUrl: "https://api.moonshot.cn/v1", envNames: ["MOONSHOT_API_KEY"], models: [] },
   nvidia: { baseUrl: "https://integrate.api.nvidia.com/v1", envNames: ["NVIDIA_API_KEY"], models: [] },
   openai: { baseUrl: "https://api.openai.com/v1", envNames: ["OPENAI_API_KEY"], models: [] },

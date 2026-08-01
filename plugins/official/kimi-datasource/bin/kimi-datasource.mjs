@@ -19,8 +19,8 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 const VERSION = '3.3.0';
-const DEFAULT_KIMI_CODE_OAUTH_HOST = 'https://auth.kimi.com';
-const DEFAULT_KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
+const DEFAULT_DIMI_CODE_OAUTH_HOST = 'https://auth.kimi.com';
+const DEFAULT_DIMI_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
 const API_URL = datasourceApiUrl();
 const REQUEST_TIMEOUT_MS = 30_000;
 const PROTOCOL_VERSION = '2025-06-18';
@@ -241,26 +241,26 @@ function appendTrace(text, trace) {
   return `${text}\n\n[kimi-datasource] ${parts.join(' · ')}`;
 }
 
-function resolveKimiHome() {
-  const explicit = process.env.KIMI_CODE_HOME?.trim();
-  return explicit && explicit.length > 0 ? explicit : path.join(homedir(), '.kimi-code');
+function resolveDimiHome() {
+  const explicit = process.env.DIMI_CODE_HOME?.trim();
+  return explicit && explicit.length > 0 ? explicit : path.join(homedir(), '.dimi');
 }
 
 function datasourceApiUrl() {
-  const explicit = process.env.KIMI_DATASOURCE_API_URL?.trim();
+  const explicit = process.env.DIMI_DATASOURCE_API_URL?.trim();
   if (explicit !== undefined && explicit.length > 0) return explicit;
   return `${kimiCodeBaseUrl()}/tools`;
 }
 
 function kimiCodeBaseUrl() {
-  return (process.env.KIMI_CODE_BASE_URL ?? DEFAULT_KIMI_CODE_BASE_URL).replace(/\/+$/, '');
+  return (process.env.DIMI_CODE_BASE_URL ?? DEFAULT_DIMI_CODE_BASE_URL).replace(/\/+$/, '');
 }
 
 function kimiCodeOAuthHost() {
   return normalizeEndpoint(
-    process.env.KIMI_CODE_OAUTH_HOST ??
-      process.env.KIMI_OAUTH_HOST ??
-      DEFAULT_KIMI_CODE_OAUTH_HOST,
+    process.env.DIMI_CODE_OAUTH_HOST ??
+      process.env.DIMI_OAUTH_HOST ??
+      DEFAULT_DIMI_CODE_OAUTH_HOST,
   );
 }
 
@@ -272,8 +272,8 @@ function resolveKimiCodeCredentialName() {
   const oauthHost = kimiCodeOAuthHost();
   const baseUrl = kimiCodeBaseUrl();
   if (
-    oauthHost === normalizeEndpoint(DEFAULT_KIMI_CODE_OAUTH_HOST) &&
-    baseUrl === DEFAULT_KIMI_CODE_BASE_URL
+    oauthHost === normalizeEndpoint(DEFAULT_DIMI_CODE_OAUTH_HOST) &&
+    baseUrl === DEFAULT_DIMI_CODE_BASE_URL
   ) {
     return 'kimi-code';
   }
@@ -287,7 +287,7 @@ function resolveKimiCodeCredentialName() {
 }
 
 async function loadAccessToken() {
-  const kimiHome = resolveKimiHome();
+  const kimiHome = resolveDimiHome();
   const credentialsFile = path.join(
     kimiHome,
     'credentials',
@@ -373,12 +373,12 @@ async function buildHeaders(kimiHome, token, toolCallId) {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Msh-Tool-Call-Id': toolCallId,
-    'X-Msh-Platform': asciiHeader(process.env.KIMI_MSH_PLATFORM ?? 'kimi-code-cli'),
-    'X-Msh-Version': asciiHeader(process.env.KIMI_MSH_VERSION ?? VERSION),
-    'X-Msh-Device-Name': asciiHeader(process.env.KIMI_MSH_DEVICE_NAME ?? hostname()),
-    'X-Msh-Device-Model': asciiHeader(process.env.KIMI_MSH_DEVICE_MODEL ?? deviceModel()),
-    'X-Msh-Os-Version': asciiHeader(process.env.KIMI_MSH_OS_VERSION ?? release()),
-    'X-Msh-Device-Id': asciiHeader(process.env.KIMI_MSH_DEVICE_ID ?? (await createDeviceId(kimiHome))),
+    'X-Msh-Platform': asciiHeader(process.env.DIMI_MSH_PLATFORM ?? 'kimi-code-cli'),
+    'X-Msh-Version': asciiHeader(process.env.DIMI_MSH_VERSION ?? VERSION),
+    'X-Msh-Device-Name': asciiHeader(process.env.DIMI_MSH_DEVICE_NAME ?? hostname()),
+    'X-Msh-Device-Model': asciiHeader(process.env.DIMI_MSH_DEVICE_MODEL ?? deviceModel()),
+    'X-Msh-Os-Version': asciiHeader(process.env.DIMI_MSH_OS_VERSION ?? release()),
+    'X-Msh-Device-Id': asciiHeader(process.env.DIMI_MSH_DEVICE_ID ?? (await createDeviceId(kimiHome))),
     'User-Agent': `kimi-datasource/${VERSION}`,
   };
 }

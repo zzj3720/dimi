@@ -15,11 +15,11 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { KIMI_CODE_CDN_BASE } from '#/constant/app';
+import { DIMI_CODE_CDN_BASE } from '#/constant/app';
 import { getBinDir } from '#/utils/paths';
 
 const CANDIDATES = ['fd', 'fdfind'];
-const FD_BASE_URL = `${KIMI_CODE_CDN_BASE}/fd`;
+const FD_BASE_URL = `${DIMI_CODE_CDN_BASE}/fd`;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const FD_ARCHIVE_SHA256: Record<string, string> = {

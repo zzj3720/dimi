@@ -224,7 +224,7 @@ async function withSkillCatalogWorkspace(
   run: (fixture: { readonly workDir: string; readonly skillRoot: string }) => Promise<void>,
 ): Promise<void> {
   const workDir = await mkdtemp(join(tmpdir(), "skill-catalog-"));
-  const skillRoot = join(workDir, ".kimi-code", "skills");
+  const skillRoot = join(workDir, ".dimi", "skills");
   await mkdir(skillRoot, { recursive: true });
   try {
     await run({ workDir, skillRoot: await realpath(skillRoot) });
@@ -559,7 +559,7 @@ describe("SessionSkillCatalogService", () => {
   it("feeds skipped skills from file sources into the merged catalog", async () => {
     await withSkillCatalogWorkspace(async ({ workDir }) => {
       const skippedEntry = {
-        path: join(workDir, ".kimi-code", "skills", "bad", "SKILL.md"),
+        path: join(workDir, ".dimi", "skills", "bad", "SKILL.md"),
         type: "nope",
         reason: 'unsupported skill type "nope"',
       };

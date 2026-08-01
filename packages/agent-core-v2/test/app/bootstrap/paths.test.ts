@@ -4,22 +4,22 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/app/bootstrap/bootstrap';
+import { ensureDimiHome, resolveConfigPath, resolveDimiHome } from '#/app/bootstrap/bootstrap';
 
 describe('bootstrap path helpers', () => {
-  describe('resolveKimiHome', () => {
+  describe('resolveDimiHome', () => {
     it('uses explicit homeDir when provided', () => {
-      expect(resolveKimiHome('/tmp/kimi')).toBe('/tmp/kimi');
+      expect(resolveDimiHome('/tmp/kimi')).toBe('/tmp/kimi');
     });
 
-    it('falls back to KIMI_CODE_HOME env', () => {
-      const prev = process.env['KIMI_CODE_HOME'];
-      process.env['KIMI_CODE_HOME'] = '/env/kimi';
+    it('falls back to DIMI_CODE_HOME env', () => {
+      const prev = process.env['DIMI_CODE_HOME'];
+      process.env['DIMI_CODE_HOME'] = '/env/kimi';
       try {
-        expect(resolveKimiHome()).toBe('/env/kimi');
+        expect(resolveDimiHome()).toBe('/env/kimi');
       } finally {
-        if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
-        else process.env['KIMI_CODE_HOME'] = prev;
+        if (prev === undefined) delete process.env['DIMI_CODE_HOME'];
+        else process.env['DIMI_CODE_HOME'] = prev;
       }
     });
   });
@@ -34,7 +34,7 @@ describe('bootstrap path helpers', () => {
     });
   });
 
-  describe('ensureKimiHome', () => {
+  describe('ensureDimiHome', () => {
     let dir: string | undefined;
     afterEach(() => {
       if (dir) rmSync(dir, { recursive: true, force: true });
@@ -42,7 +42,7 @@ describe('bootstrap path helpers', () => {
 
     it('creates the directory with 0700 permissions', () => {
       dir = join(mkdtempSync(join(tmpdir(), 'kimi-home-')), 'nested');
-      ensureKimiHome(dir);
+      ensureDimiHome(dir);
       expect(existsSync(dir)).toBe(true);
     });
   });

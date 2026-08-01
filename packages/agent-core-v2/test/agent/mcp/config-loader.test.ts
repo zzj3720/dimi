@@ -41,11 +41,11 @@ describe('resolveMcpJsonPaths', () => {
     await mkdir(join(repoRoot, '.git'), { recursive: true });
     await mkdir(cwd, { recursive: true });
 
-    const paths = await resolveMcpJsonPaths({ cwd, homeDir: '/home/user/.kimi-code' });
+    const paths = await resolveMcpJsonPaths({ cwd, homeDir: '/home/user/.dimi' });
 
-    expect(paths.user).toBe('/home/user/.kimi-code/mcp.json');
+    expect(paths.user).toBe('/home/user/.dimi/mcp.json');
     expect(paths.projectRoot).toBe(join(repoRoot, '.mcp.json'));
-    expect(paths.project).toBe(join(cwd, '.kimi-code', 'mcp.json'));
+    expect(paths.project).toBe(join(cwd, '.dimi', 'mcp.json'));
   });
 });
 
@@ -75,7 +75,7 @@ describe('loadMcpServers', () => {
         userOnly: { transport: 'stdio', command: 'user-only' },
       },
     });
-    await writeJson(join(cwd, '.kimi-code', 'mcp.json'), {
+    await writeJson(join(cwd, '.dimi', 'mcp.json'), {
       mcpServers: {
         shared: { transport: 'stdio', command: 'shared-project' },
         local: { transport: 'http', url: 'http://localhost:8080/mcp' },
@@ -118,7 +118,7 @@ describe('loadMcpServers', () => {
         rootOnly: { command: 'root-only' },
       },
     });
-    await writeJson(join(cwd, '.kimi-code', 'mcp.json'), {
+    await writeJson(join(cwd, '.dimi', 'mcp.json'), {
       mcpServers: {
         shared: { transport: 'stdio', command: 'shared-project' },
         projectOnly: { transport: 'http', url: 'https://mcp.example.com' },
@@ -313,20 +313,20 @@ describe('loadMcpServers', () => {
     });
   });
 
-  it('honors KIMI_CODE_HOME env var when homeDir is not supplied', async () => {
+  it('honors DIMI_CODE_HOME env var when homeDir is not supplied', async () => {
     const home = makeTempDir();
     const cwd = makeTempDir();
     await writeJson(join(home, 'mcp.json'), {
       mcpServers: { from_env: { transport: 'stdio', command: 'env-cmd' } },
     });
-    const saved = process.env['KIMI_CODE_HOME'];
-    process.env['KIMI_CODE_HOME'] = home;
+    const saved = process.env['DIMI_CODE_HOME'];
+    process.env['DIMI_CODE_HOME'] = home;
     try {
       const servers = await loadMcpServers({ cwd });
       expect(servers['from_env']).toEqual({ transport: 'stdio', command: 'env-cmd' });
     } finally {
-      if (saved === undefined) delete process.env['KIMI_CODE_HOME'];
-      else process.env['KIMI_CODE_HOME'] = saved;
+      if (saved === undefined) delete process.env['DIMI_CODE_HOME'];
+      else process.env['DIMI_CODE_HOME'] = saved;
     }
   });
 });

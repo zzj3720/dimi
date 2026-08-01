@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
-const serverTarget = process.env.KIMI_SERVER_URL || 'http://127.0.0.1:58627';
+const serverTarget = process.env.DIMI_SERVER_URL || 'http://127.0.0.1:58627';
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
   version: string;
 };
@@ -54,7 +54,7 @@ export default defineConfig({
     // True only for the web bundle embedded in the Kimi Desktop app (set by the
     // desktop-build workflow). Gates an "internal testing build" banner. When
     // false (default) the banner is tree-shaken out of the production bundle.
-    __KIMI_WEB_DESKTOP__: JSON.stringify(process.env.KIMI_WEB_DESKTOP === '1'),
+    __KIMI_WEB_DESKTOP__: JSON.stringify(process.env.DIMI_WEB_DESKTOP === '1'),
   },
   server: {
     port: webPort,

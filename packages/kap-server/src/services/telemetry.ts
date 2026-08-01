@@ -24,7 +24,7 @@ import { createKimiDeviceId } from "@moonshot-ai/kimi-code-oauth";
 // convention: CLI_USER_AGENT_PRODUCT / WEB_UI_MODE in apps/kimi-code).
 const SERVER_TELEMETRY_APP_NAME = "kimi-code-cli";
 const SERVER_TELEMETRY_UI_MODE = "web";
-const TELEMETRY_DISABLE_ENV = "KIMI_DISABLE_TELEMETRY";
+const TELEMETRY_DISABLE_ENV = "DIMI_DISABLE_TELEMETRY";
 const TELEMETRY_DISABLE_ENV_VALUES = new Set(["1", "true", "t", "yes", "y"]);
 
 /**

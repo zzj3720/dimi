@@ -1,5 +1,5 @@
 /**
- * User-global MCP configuration (`<KIMI_CODE_HOME>/mcp.json`) and standalone
+ * User-global MCP configuration (`<DIMI_CODE_HOME>/mcp.json`) and standalone
  * connection probes. The session runtime reads this file while the SDK owns
  * its app-scope CRUD boundary.
  */

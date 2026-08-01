@@ -15,7 +15,7 @@ import {
   IWorkspaceService,
   logSeed,
   resolveConfigPath,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   skillCatalogRuntimeOptionsSeed,
   type Scope,
@@ -151,7 +151,7 @@ const DEFAULT_PORT = 58627;
 export async function startServer(opts: ServerStartOptions = {}): Promise<RunningServer> {
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
-  const homeDir = resolveKimiHome(opts.homeDir);
+  const homeDir = resolveDimiHome(opts.homeDir);
   // Instance discovery: every server registers itself under
   // `<home>/server/instances/<serverId>.json`, so multiple servers can share
   // one homeDir and consumers (the CLI's `server ps/kill`, `kimi web`, dev
@@ -247,7 +247,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     if (!passwordConfigured) {
       logger.warn(
         { host, exposureClass },
-        "binding non-loopback host with token-only auth (no KIMI_CODE_PASSWORD) — the bearer token printed in the startup banner is the only credential protecting this server",
+        "binding non-loopback host with token-only auth (no DIMI_CODE_PASSWORD) — the bearer token printed in the startup banner is the only credential protecting this server",
       );
     }
   }

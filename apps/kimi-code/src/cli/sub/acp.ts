@@ -29,7 +29,7 @@ import {
 } from '@moonshot-ai/acp-adapter';
 import { createKimiHarness, type Session, type SkillSummary } from '@moonshot-ai/kimi-code-sdk';
 
-import { KIMI_CODE_HOME_ENV } from '#/constant/app';
+import { DIMI_CODE_HOME_ENV } from '#/constant/app';
 import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
 import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
@@ -54,16 +54,16 @@ export function registerAcpCommand(parent: Command): void {
         identity,
         uiMode: 'acp',
       });
-      // Forward `KIMI_CODE_HOME` (if set) into `authMethods[0].env` so the
+      // Forward `DIMI_CODE_HOME` (if set) into `authMethods[0].env` so the
       // `kimi login` subprocess clients spawn for terminal-auth writes its
       // token under the same data root the ACP server reads from. Used for
-      // sandboxed test setups (Zed's `agent_servers.*.env.KIMI_CODE_HOME =
+      // sandboxed test setups (Zed's `agent_servers.*.env.DIMI_CODE_HOME =
       // /tmp/...`). Production runs leave the env unset and the field stays
       // empty.
-      const sandboxHome = process.env[KIMI_CODE_HOME_ENV];
+      const sandboxHome = process.env[DIMI_CODE_HOME_ENV];
       const terminalAuthEnv =
         sandboxHome !== undefined && sandboxHome.length > 0
-          ? { [KIMI_CODE_HOME_ENV]: sandboxHome }
+          ? { [DIMI_CODE_HOME_ENV]: sandboxHome }
           : undefined;
       // Legacy `_meta.terminal-auth` fallback for clients that don't yet
       // honor the first-class `type:'terminal'` (Zed without the

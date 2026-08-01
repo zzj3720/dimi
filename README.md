@@ -30,7 +30,7 @@ cd dimi
 vp run dev:cli
 ```
 
-On first launch, run `/login` inside Dimi and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.kimi-code/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
+On first launch, run `/login` inside Dimi and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.dimi/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
 
 ```
 Take a look at this project and explain its main directories.

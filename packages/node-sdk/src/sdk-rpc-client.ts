@@ -32,7 +32,7 @@ import {
   bootstrap,
   BUILTIN_SKILLS,
   DEFAULT_AGENT_PROFILE_NAME,
-  ensureKimiHome,
+  ensureDimiHome,
   ensureMainAgent,
   IAgentActivityView,
   IAgentContextMemoryService,
@@ -86,7 +86,7 @@ import {
   promptMetadataTextFromSkill,
   resolveAgentTaskConfig,
   resolveConfigPath,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   skillCatalogRuntimeOptionsSeed,
@@ -276,12 +276,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
     super();
     this.identity =
       options.identity === undefined ? undefined : assertKimiHostIdentity(options.identity);
-    this.homeDir = resolveKimiHome(options.homeDir);
+    this.homeDir = resolveDimiHome(options.homeDir);
     this.configPath = resolveConfigPath({
       homeDir: this.homeDir,
       configPath: options.configPath,
     });
-    ensureKimiHome(this.homeDir);
+    ensureDimiHome(this.homeDir);
     this.telemetry = options.telemetry ?? nullTelemetryAppender;
 
     const { app } = bootstrap(
@@ -451,7 +451,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
    * v1 returns the whole config.toml document as one `KimiConfig`; v2
    * resolves the same file per config domain. `getAll()` is the effective
    * view (file + env overlays + section defaults), which matches v1's
-   * runtime config (`loadRuntimeConfigSafe` + the KIMI_MODEL_* overlay);
+   * runtime config (`loadRuntimeConfigSafe` + the DIMI_MODEL_* overlay);
    * `reload` mirrors v1's re-read-from-disk option.
    */
   override async getConfig(options?: GetConfigOptions): Promise<KimiConfig> {

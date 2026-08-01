@@ -80,7 +80,7 @@ This package also hosts the e2e suites (the retired `server-e2e` package was
 folded in here):
 
 - `test/e2e/legacy/` + `test/e2e/harness/` — the legacy `/api/v1` live suites
-  and their client harness (skip unless `KIMI_SERVER_URL` is set; the v1
+  and their client harness (skip unless `DIMI_SERVER_URL` is set; the v1
   surface has no in-memory equivalent, so these stay live-server-only).
 
 The docker e2e runner (`pnpm docker:e2e`) runs this whole vitest suite inside
@@ -104,5 +104,5 @@ pnpm -C packages/klient smoke
 `examples/smoke.ts` boots an in-process engine (memory transport) and asserts
 the `global` facade end-to-end — no server needed. `examples/basic.ts` is a
 shorter narrated tour; `examples/context-usage.ts` traces context-size
-readings through a real prompt (requires `KIMI_EXAMPLE_MODEL` +
-`KIMI_EXAMPLE_API_KEY`).
+readings through a real prompt (requires `DIMI_EXAMPLE_MODEL` +
+`DIMI_EXAMPLE_API_KEY`).

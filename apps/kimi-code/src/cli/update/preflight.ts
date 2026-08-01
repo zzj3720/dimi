@@ -4,7 +4,7 @@ import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
 import {
-  KIMI_CODE_OFFICIAL_INSTALL_URL,
+  DIMI_CODE_OFFICIAL_INSTALL_URL,
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
 } from '#/constant/app';
@@ -150,7 +150,7 @@ function formatErrorMessage(error: unknown): string {
 
 const THIRD_PARTY_SOURCE_NOTE =
   '\nNote: Third-party sources may lag behind the official release.\n' +
-  `For the latest updates, use the official installer: ${KIMI_CODE_OFFICIAL_INSTALL_URL}\n`;
+  `For the latest updates, use the official installer: ${DIMI_CODE_OFFICIAL_INSTALL_URL}\n`;
 
 export function renderManualUpdateMessage(
   currentVersion: string,
@@ -413,14 +413,14 @@ async function showPendingBackgroundInstallNotice(
 }
 
 /**
- * `KIMI_CODE_NO_AUTO_UPDATE` fully disables the update preflight — no check,
+ * `DIMI_CODE_NO_AUTO_UPDATE` fully disables the update preflight — no check,
  * no background install, no prompt. Accepts the usual truthy values
  * (`1`/`true`/`yes`/`on`).
  */
 function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const truthy = (value?: string): boolean =>
     ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
-  return truthy(env['KIMI_CODE_NO_AUTO_UPDATE']);
+  return truthy(env['DIMI_CODE_NO_AUTO_UPDATE']);
 }
 
 async function shouldAutoInstallUpdates(): Promise<boolean> {

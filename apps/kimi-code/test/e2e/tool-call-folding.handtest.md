@@ -5,7 +5,7 @@ Run this flow through the local interactive TUI. Component rendering and replay 
 ## Preconditions
 
 - Start the TUI from the current worktree in a controlled `tmux` session.
-- Use a real model with tool use enabled. An isolated `KIMI_CODE_HOME` and CLIProxyAPI are suitable; do not copy credentials into the repository.
+- Use a real model with tool use enabled. An isolated `DIMI_CODE_HOME` and CLIProxyAPI are suitable; do not copy credentials into the repository.
 - Use a prompt that produces at least two consecutive tool calls before the next Assistant message.
 
 ## Flow

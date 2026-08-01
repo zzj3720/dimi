@@ -137,7 +137,7 @@ export class AcpSession {
    * route them to {@link Session.activateSkill} instead of forwarding
    * the raw slash text to {@link Session.prompt} — which is what made
    * Zed fall back to model-driven Bash exploration of
-   * `~/.kimi-code/skills/` and incurred permission prompts. Defaults
+   * `~/.dimi/skills/` and incurred permission prompts. Defaults
    * to an empty map so adapter-level unit tests (which never call
    * `setSkillCommandMap`) behave as a no-op passthrough.
    */

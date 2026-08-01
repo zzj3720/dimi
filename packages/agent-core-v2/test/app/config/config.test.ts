@@ -403,7 +403,7 @@ describe("Agent config", () => {
 
 describe("ConfigService env overlay (live)", () => {
   it("re-applies env bindings on every get()", async () => {
-    const env: Record<string, string> = { KIMI_DISABLE_CRON: "0" };
+    const env: Record<string, string> = { DIMI_DISABLE_CRON: "0" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
@@ -416,16 +416,16 @@ describe("ConfigService env overlay (live)", () => {
     await config.ready;
 
     expect(config.get<CronConfig>("cron").disabled).toBe(false);
-    env["KIMI_DISABLE_CRON"] = "1";
+    env["DIMI_DISABLE_CRON"] = "1";
     expect(config.get<CronConfig>("cron").disabled).toBe(true);
-    env["KIMI_DISABLE_CRON"] = "0";
+    env["DIMI_DISABLE_CRON"] = "0";
     expect(config.get<CronConfig>("cron").disabled).toBe(false);
 
     disposables.dispose();
   });
 
   it("keeps the Kimi effort force separate from the configured effort", async () => {
-    const env: Record<string, string> = { KIMI_MODEL_THINKING_EFFORT: "max" };
+    const env: Record<string, string> = { DIMI_MODEL_THINKING_EFFORT: "max" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
@@ -511,7 +511,7 @@ describe("services config section env bindings", () => {
     return { config: ix.get(IConfigService), disposables };
   }
 
-  it("resolves moonshot_search / moonshot_fetch fields from KIMI_WEB_* env vars", async () => {
+  it("resolves moonshot_search / moonshot_fetch fields from DIMI_WEB_* env vars", async () => {
     const { config, disposables } = createConfig({
       [WEB_SEARCH_BASE_URL_ENV]: "https://search-env.example/search",
       [WEB_SEARCH_API_KEY_ENV]: "env-search-key",
@@ -703,25 +703,25 @@ describe("image config section", () => {
 
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({});
 
-    env["KIMI_IMAGE_MAX_EDGE_PX"] = "abc";
-    env["KIMI_IMAGE_READ_BYTE_BUDGET"] = "-1";
+    env["DIMI_IMAGE_MAX_EDGE_PX"] = "abc";
+    env["DIMI_IMAGE_READ_BYTE_BUDGET"] = "-1";
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({});
 
-    env["KIMI_IMAGE_MAX_EDGE_PX"] = "1500";
-    env["KIMI_IMAGE_READ_BYTE_BUDGET"] = "131072";
+    env["DIMI_IMAGE_MAX_EDGE_PX"] = "1500";
+    env["DIMI_IMAGE_READ_BYTE_BUDGET"] = "131072";
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({
       maxEdgePx: 1500,
       readByteBudget: 131072,
     });
 
-    env["KIMI_IMAGE_MAX_EDGE_PX"] = "2500";
+    env["DIMI_IMAGE_MAX_EDGE_PX"] = "2500";
     expect(config.get<ImageConfig>(IMAGE_SECTION).maxEdgePx).toBe(2500);
 
     disposables.dispose();
   });
 
   it("restores env-owned fields to the raw value on set() while the env var is set", async () => {
-    const env: Record<string, string> = { KIMI_IMAGE_MAX_EDGE_PX: "1500" };
+    const env: Record<string, string> = { DIMI_IMAGE_MAX_EDGE_PX: "1500" };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
@@ -1388,7 +1388,7 @@ describe("subagent config section", () => {
     expect(toErrorPayload(result)).toMatchObject({
       code: ErrorCodes.CONFIG_INVALID,
       message: expect.stringContaining(
-        "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+        "comes from [secondary_model].provider + model / DIMI_SECONDARY_MODEL",
       ),
       details: {
         model: "provider/bad",

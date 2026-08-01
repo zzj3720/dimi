@@ -13,12 +13,12 @@ Kimi Code CLI keeps persistent preferences, provider credentials, and one-off ru
 For a new session, provider/model selection is resolved in this order:
 
 1. `-m, --model <provider>/<model>`
-2. `KIMI_MODEL_PROVIDER` together with `KIMI_MODEL_NAME`
+2. `DIMI_MODEL_PROVIDER` together with `DIMI_MODEL_NAME`
 3. `default_provider` together with `default_model` in `config.toml`
 
 The selected pair must exist in the runtime model catalog. That catalog composes built-in or SDK providers with the `models.json` layer. When the provider supports remote discovery, `vp run dev:cli -- provider refresh` updates that catalog; the cached result is stored in `models-store.json` and only complete remote metadata changes a model's context, output, or Thinking capability.
 
-The CLI currently reads one user-level config file and has no project-level config mechanism. To isolate configurations, point `KIMI_CODE_HOME` at a different data directory.
+The CLI currently reads one user-level config file and has no project-level config mechanism. To isolate configurations, point `DIMI_CODE_HOME` at a different data directory.
 
 ## Provider credentials
 
@@ -40,7 +40,7 @@ OpenAI Codex uses OAuth. Kimi Code, xAI, Anthropic, OpenRouter, GitHub Copilot, 
 
 ## Other runtime parameters
 
-For ordinary parameters such as Plan mode, permission mode, and Skills directories, command-line options override `config.toml` for the current launch. A documented environment variable may override its matching config field; for example, `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` overrides `[task].max_running_tasks`.
+For ordinary parameters such as Plan mode, permission mode, and Skills directories, command-line options override `config.toml` for the current launch. A documented environment variable may override its matching config field; for example, `DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` overrides `[task].max_running_tasks`.
 
 | Option                           | Effect                                                                     |
 | -------------------------------- | -------------------------------------------------------------------------- |
@@ -59,15 +59,15 @@ For ordinary parameters such as Plan mode, permission mode, and Skills directori
 Isolate all local state:
 
 ```sh
-KIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
+DIMI_CODE_HOME="$PWD/.kimi-sandbox" kimi
 ```
 
 Temporarily select OpenAI without changing `config.toml`:
 
 ```sh
 OPENAI_API_KEY="YOUR_API_KEY" \
-  KIMI_MODEL_PROVIDER="openai" \
-  KIMI_MODEL_NAME="gpt-5.4" \
+  DIMI_MODEL_PROVIDER="openai" \
+  DIMI_MODEL_NAME="gpt-5.4" \
   kimi
 ```
 

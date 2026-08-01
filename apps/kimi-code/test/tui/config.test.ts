@@ -178,12 +178,12 @@ describe('TUI config status_line', () => {
     const config = parseTuiConfig(`
 [status_line]
 items = ["model", "git", "cwd"]
-command = "~/.kimi-code/statusline.sh"
+command = "~/.dimi/statusline.sh"
 `);
 
     expect(config.statusLine).toEqual({
       items: ['model', 'git', 'cwd'],
-      command: '~/.kimi-code/statusline.sh',
+      command: '~/.dimi/statusline.sh',
     });
   });
 
@@ -234,7 +234,7 @@ describe('TUI config status_line round-trip', () => {
     await saveTuiConfig(
       {
         ...DEFAULT_TUI_CONFIG,
-        statusLine: { items: ['model', 'git'], command: '~/.kimi-code/statusline.sh' },
+        statusLine: { items: ['model', 'git'], command: '~/.dimi/statusline.sh' },
       },
       filePath,
     );
@@ -242,7 +242,7 @@ describe('TUI config status_line round-trip', () => {
     const reloaded = await loadTuiConfig(filePath);
     expect(reloaded.statusLine).toEqual({
       items: ['model', 'git'],
-      command: '~/.kimi-code/statusline.sh',
+      command: '~/.dimi/statusline.sh',
     });
   });
 

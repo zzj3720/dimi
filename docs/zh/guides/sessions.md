@@ -4,10 +4,10 @@ Kimi Code CLI 把每次对话持久化为一个「会话」，保留消息历史
 
 ## 会话存储
 
-所有会话保存在 `$KIMI_CODE_HOME/sessions/` 下（默认 `~/.kimi-code/sessions/`），按工作目录分组存放：
+所有会话保存在 `$DIMI_CODE_HOME/sessions/` 下（默认 `~/.dimi/sessions/`），按工作目录分组存放：
 
 ```text
-~/.kimi-code/
+~/.dimi/
 ├── config.toml
 ├── workspaces.json
 └── sessions/
@@ -103,7 +103,7 @@ kimi export <sessionId>
 kimi export <sessionId> -o ~/Desktop/my-session.zip
 ```
 
-导出包含会话目录下的所有文件，包括诊断日志。全局诊断日志（`~/.kimi-code/logs/kimi-code.log`）默认也会打包；如不需要，加 `--no-include-global-log` 排除。
+导出包含会话目录下的所有文件，包括诊断日志。全局诊断日志（`~/.dimi/logs/kimi-code.log`）默认也会打包；如不需要，加 `--no-include-global-log` 排除。
 
 也可以在 TUI 内导出，无需离开交互界面：
 

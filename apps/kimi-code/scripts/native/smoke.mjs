@@ -74,8 +74,8 @@ const exportHelpOutput = await runKimi(['export', '--help']);
 assertIncludes(exportHelpOutput, 'Usage: kimi export', 'export --help');
 
 const nativeAssetOutput = await runKimiWithEnv(['--version'], {
-  KIMI_CODE_HOME: smokeHome,
-  KIMI_CODE_NATIVE_ASSET_SMOKE: '1',
+  DIMI_CODE_HOME: smokeHome,
+  DIMI_CODE_NATIVE_ASSET_SMOKE: '1',
 });
 assertIncludes(nativeAssetOutput, `Native asset smoke passed: ${target}`, 'native asset smoke');
 

@@ -39,13 +39,13 @@
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     debug <- KIMI_CRON_DEBUG (custom parse)
-#     no_jitter <- KIMI_CRON_NO_JITTER (custom parse)
-#     no_stale <- KIMI_CRON_NO_STALE (custom parse)
-#     disabled <- KIMI_DISABLE_CRON (custom parse)
-#     manual_tick <- KIMI_CRON_MANUAL_TICK (custom parse)
-#     clock <- KIMI_CRON_CLOCK
-#     poll_interval_ms <- KIMI_CRON_POLL_INTERVAL_MS (custom parse)
+#     debug <- DIMI_CRON_DEBUG (custom parse)
+#     no_jitter <- DIMI_CRON_NO_JITTER (custom parse)
+#     no_stale <- DIMI_CRON_NO_STALE (custom parse)
+#     disabled <- DIMI_DISABLE_CRON (custom parse)
+#     manual_tick <- DIMI_CRON_MANUAL_TICK (custom parse)
+#     clock <- DIMI_CRON_CLOCK
+#     poll_interval_ms <- DIMI_CRON_POLL_INTERVAL_MS (custom parse)
 # ##########################################################################
 
 [cron]
@@ -62,7 +62,7 @@ manual_tick = false
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#      <- KIMI_MODEL_NAME
+#      <- DIMI_MODEL_NAME
 # ##########################################################################
 
 # default_model: string
@@ -89,7 +89,7 @@ default_plan_mode = false
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#      <- KIMI_MODEL_PROVIDER
+#      <- DIMI_MODEL_PROVIDER
 # ##########################################################################
 
 # default_provider: string
@@ -140,8 +140,8 @@ extra_skill_dirs = []
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     max_edge_px <- KIMI_IMAGE_MAX_EDGE_PX (custom parse)
-#     read_byte_budget <- KIMI_IMAGE_READ_BYTE_BUDGET (custom parse)
+#     max_edge_px <- DIMI_IMAGE_MAX_EDGE_PX (custom parse)
+#     read_byte_budget <- DIMI_IMAGE_READ_BYTE_BUDGET (custom parse)
 # ##########################################################################
 
 [image]
@@ -154,8 +154,8 @@ extra_skill_dirs = []
 #   scope: core
 #   hooks: custom fromToml · custom toToml · stripEnv
 #   env:
-#     max_steps_per_turn <- KIMI_LOOP_MAX_STEPS_PER_TURN (custom parse)
-#     max_retries_per_step <- KIMI_LOOP_MAX_RETRIES_PER_STEP (custom parse)
+#     max_steps_per_turn <- DIMI_LOOP_MAX_STEPS_PER_TURN (custom parse)
+#     max_retries_per_step <- DIMI_LOOP_MAX_RETRIES_PER_STEP (custom parse)
 # ##########################################################################
 
 [loop_control]
@@ -171,8 +171,8 @@ extra_skill_dirs = []
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     startup_timeout_ms <- KIMI_MCP_STARTUP_TIMEOUT_MS (custom parse)
-#     tool_timeout_ms <- KIMI_MCP_TOOL_TIMEOUT_MS (custom parse)
+#     startup_timeout_ms <- DIMI_MCP_STARTUP_TIMEOUT_MS (custom parse)
+#     tool_timeout_ms <- DIMI_MCP_TOOL_TIMEOUT_MS (custom parse)
 # ##########################################################################
 
 [mcp]
@@ -203,10 +203,10 @@ merge_all_available_skills = true
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     temperature <- KIMI_MODEL_TEMPERATURE (custom parse)
-#     top_p <- KIMI_MODEL_TOP_P (custom parse)
-#     thinking_keep <- KIMI_MODEL_THINKING_KEEP (custom parse)
-#     max_completion_tokens <- KIMI_MODEL_MAX_COMPLETION_TOKENS (custom parse)
+#     temperature <- DIMI_MODEL_TEMPERATURE (custom parse)
+#     top_p <- DIMI_MODEL_TOP_P (custom parse)
+#     thinking_keep <- DIMI_MODEL_THINKING_KEEP (custom parse)
+#     max_completion_tokens <- DIMI_MODEL_MAX_COMPLETION_TOKENS (custom parse)
 # ##########################################################################
 
 [model_overrides]
@@ -235,9 +235,9 @@ merge_all_available_skills = true
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     provider <- KIMI_SECONDARY_PROVIDER (custom parse)
-#     model <- KIMI_SECONDARY_MODEL (custom parse)
-#     default_effort <- KIMI_SECONDARY_EFFORT (custom parse)
+#     provider <- DIMI_SECONDARY_PROVIDER (custom parse)
+#     model <- DIMI_SECONDARY_MODEL (custom parse)
+#     default_effort <- DIMI_SECONDARY_EFFORT (custom parse)
 # ##########################################################################
 
 [secondary_model]
@@ -251,10 +251,10 @@ merge_all_available_skills = true
 #   scope: core
 #   hooks: custom fromToml · custom toToml · stripEnv
 #   env:
-#     moonshot_search.base_url <- KIMI_WEB_SEARCH_BASE_URL (custom parse)
-#     moonshot_search.api_key <- KIMI_WEB_SEARCH_API_KEY (custom parse)
-#     moonshot_fetch.base_url <- KIMI_WEB_FETCH_BASE_URL (custom parse)
-#     moonshot_fetch.api_key <- KIMI_WEB_FETCH_API_KEY (custom parse)
+#     moonshot_search.base_url <- DIMI_WEB_SEARCH_BASE_URL (custom parse)
+#     moonshot_search.api_key <- DIMI_WEB_SEARCH_API_KEY (custom parse)
+#     moonshot_fetch.base_url <- DIMI_WEB_FETCH_BASE_URL (custom parse)
+#     moonshot_fetch.api_key <- DIMI_WEB_FETCH_API_KEY (custom parse)
 # ##########################################################################
 
 [services]
@@ -275,7 +275,7 @@ merge_all_available_skills = true
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     timeout_ms <- KIMI_SUBAGENT_TIMEOUT_MS (custom parse)
+#     timeout_ms <- DIMI_SUBAGENT_TIMEOUT_MS (custom parse)
 # ##########################################################################
 
 [subagent]
@@ -287,7 +287,7 @@ timeout_ms = 7200000
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
+#     max_running_tasks <- DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
 # ##########################################################################
 
 [task]
@@ -305,7 +305,7 @@ timeout_ms = 7200000
 #   scope: core
 #   hooks: stripEnv
 #   env:
-#     forced_effort <- KIMI_MODEL_THINKING_EFFORT
+#     forced_effort <- DIMI_MODEL_THINKING_EFFORT
 # ##########################################################################
 
 [thinking]

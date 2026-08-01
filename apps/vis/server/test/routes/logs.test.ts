@@ -15,7 +15,7 @@ describe('logs route (local sessions)', () => {
   let cleanup: (() => Promise<void>) | null = null;
   afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
 
-  it('reads the session log from the session dir and the global log from KIMI_CODE_HOME', async () => {
+  it('reads the session log from the session dir and the global log from DIMI_CODE_HOME', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
     // Per-session log lives under the session dir…

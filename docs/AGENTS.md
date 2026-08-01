@@ -134,9 +134,9 @@ Rules:
   - Chinese: use `提示` for tip, `注意` for warning, `说明` for info, `警告` for danger.
   - English: use no title or short words like `Note` for warning.
   - ✓ `::: tip 提示` + content starting with the key point
-  - ✓ `::: warning 注意` + content `部分 \`.agents\` 资源不受 \`KIMI_CODE_HOME\` 影响。...`
+  - ✓ `::: warning 注意` + content `部分 \`.agents\` 资源不受 \`DIMI_CODE_HOME\` 影响。...`
   - ✗ `::: warning 不影响 .agents` (title too long, should be in content)
-  - ✗ `::: tip .agents 路径独立于 KIMI_CODE_HOME` (title too long)
+  - ✗ `::: tip .agents 路径独立于 DIMI_CODE_HOME` (title too long)
 - **Version info blocks**: For version change callouts, use `::: info` with a category title (Added/Changed/Removed in English; 新增/变更/移除 in Chinese). The content should be a complete sentence.
   - ✓ `::: info 新增` + content `新增于 0.2.0。`
   - ✗ `::: info 新增于 0.2.0` (title too long)

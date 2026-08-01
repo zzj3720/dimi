@@ -149,11 +149,11 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
-      env: { KIMI_TEST_ENV: 'forwarded-value' },
+      env: { DIMI_TEST_ENV: 'forwarded-value' },
     });
     try {
       await client.connect();
-      const result = await client.callTool('read_env', { name: 'KIMI_TEST_ENV' });
+      const result = await client.callTool('read_env', { name: 'DIMI_TEST_ENV' });
       expect(result.content).toEqual([{ type: 'text', text: 'forwarded-value' }]);
     } finally {
       await client.close();
@@ -161,8 +161,8 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('inherits parent process env so PATH/HOME survive; config.env overrides on conflict', async () => {
-    const parentOnly = `KIMI_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const shared = `KIMI_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const parentOnly = `DIMI_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const shared = `DIMI_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     process.env[parentOnly] = 'from-parent';
     process.env[shared] = 'from-parent';
     const client = new StdioMcpClient({
@@ -190,7 +190,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [stderrThenExitFixture],
-      env: { KIMI_TEST_MCP_STDERR: banner },
+      env: { DIMI_TEST_MCP_STDERR: banner },
     });
     try {
       await expect(client.connect()).rejects.toThrow();
@@ -221,7 +221,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { KIMI_TEST_MCP_EXIT_AFTER_MS: '50', KIMI_TEST_MCP_STDERR: banner },
+      env: { DIMI_TEST_MCP_EXIT_AFTER_MS: '50', DIMI_TEST_MCP_STDERR: banner },
     });
     const closes: Array<{ stderr?: string; error?: string }> = [];
     client.onUnexpectedClose((reason) => {
@@ -246,7 +246,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { KIMI_TEST_MCP_STDERR: banner, KIMI_TEST_MCP_EXIT_CODE: '0' },
+      env: { DIMI_TEST_MCP_STDERR: banner, DIMI_TEST_MCP_EXIT_CODE: '0' },
     });
     try {
       await client.connect();

@@ -202,7 +202,7 @@ describe('messagesToTurns', () => {
           { type: 'text', text: 'look at this' },
           {
             type: 'text',
-            text: `<video path="/Users/me/.kimi-code/cache/${fileId}.mp4"></video>`,
+            text: `<video path="/Users/me/.dimi/cache/${fileId}.mp4"></video>`,
           },
         ]),
       ],
@@ -322,7 +322,7 @@ describe('messagesToTurns', () => {
     const fileId = 'f_01KWK39A0ZC8R2ATZEQMD8716C';
     const notice =
       `Attached file "report.pdf" (application/pdf, 24 bytes): ` +
-      `/home/u/.kimi-code/sessions/s_1/attachments/${fileId}-report.pdf — open it with the Read tool`;
+      `/home/u/.dimi/sessions/s_1/attachments/${fileId}-report.pdf — open it with the Read tool`;
     const turns = messagesToTurns(
       [
         message('u1', 'user', [
@@ -354,7 +354,7 @@ describe('messagesToTurns', () => {
     // id — the chip keeps name/size but has no bytes to open.
     const notice =
       'Attached file "image.avif" (image/avif, 100 bytes): ' +
-      '/home/u/.kimi-code/sessions/s_1/attachments/9f86d081884c7d659a2feaa0c55ad015-image.avif — open it with the Read tool';
+      '/home/u/.dimi/sessions/s_1/attachments/9f86d081884c7d659a2feaa0c55ad015-image.avif — open it with the Read tool';
     const turns = messagesToTurns(
       [message('u1', 'user', [{ type: 'text', text: notice }])],
       [],
@@ -374,7 +374,7 @@ describe('messagesToTurns', () => {
     const fileId = 'f_550e8400-e29b-41d4-a716-446655440000';
     const notice =
       `Attached file "api-spec-v2.yaml" (application/yaml, 18 bytes): ` +
-      `/home/u/.kimi-code/sessions/s_1/attachments/${fileId}-api-spec-v2.yaml — open it with the Read tool`;
+      `/home/u/.dimi/sessions/s_1/attachments/${fileId}-api-spec-v2.yaml — open it with the Read tool`;
     const turns = messagesToTurns(
       [message('u1', 'user', [{ type: 'text', text: notice }])],
       [],
@@ -401,7 +401,7 @@ describe('messagesToTurns', () => {
         message('u1', 'user', [
           {
             type: 'text',
-            text: `<video path="/Users/me/.kimi-code/cache/${fileId}.mp4"></video>`,
+            text: `<video path="/Users/me/.dimi/cache/${fileId}.mp4"></video>`,
           },
         ]),
       ],
@@ -430,7 +430,7 @@ describe('messagesToTurns', () => {
 
   it('keeps the video tag as text when no file resolver is provided', () => {
     const tag =
-      '<video path="/Users/me/.kimi-code/cache/f_01KWK39A0ZC8R2ATZEQMD8716C.mp4"></video>';
+      '<video path="/Users/me/.dimi/cache/f_01KWK39A0ZC8R2ATZEQMD8716C.mp4"></video>';
     const turns = messagesToTurns(
       [message('u1', 'user', [{ type: 'text', text: tag }])],
       [],
@@ -465,7 +465,7 @@ describe('messagesToTurns', () => {
     const caption =
       '<system>Image compressed to fit model limits: original 3024x1834 image/png (934 KB) -> ' +
       'sent 2000x1213 image/png (518 KB). Fine detail may be lost. The uncompressed original ' +
-      'is saved at "/Users/me/.kimi-code/files/f_0000000000000000000000000"; if you need fine ' +
+      'is saved at "/Users/me/.dimi/files/f_0000000000000000000000000"; if you need fine ' +
       'detail, call ReadMediaFile on that path with the region parameter to view a crop at full ' +
       'fidelity.</system>';
     const turns = messagesToTurns(

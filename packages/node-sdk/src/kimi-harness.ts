@@ -284,7 +284,7 @@ export class KimiHarness {
     return this.rpc.setConfig(patch);
   }
 
-  /** User-global MCP entries from `<KIMI_CODE_HOME>/mcp.json` only. */
+  /** User-global MCP entries from `<DIMI_CODE_HOME>/mcp.json` only. */
   async listMcpServers(): Promise<readonly McpServerConfig[]> {
     return this.rpc.listGlobalMcpServers();
   }

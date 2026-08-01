@@ -29,7 +29,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   }) as Promise<T>;
 }
 
-const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
+const DIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.SESSION_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
   // v1 maps a missing agent onto the session-not-found envelope; keep parity.
   [ErrorCodes.AGENT_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
@@ -65,7 +65,7 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
  */
 export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
   if (err instanceof Error2) {
-    const code = KIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
+    const code = DIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
     return errEnvelope(code, err.message, requestId, err.stack);
   }
   if (err instanceof TimeoutError) {

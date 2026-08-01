@@ -19,7 +19,7 @@ let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'kimi-update-cache-'));
-  process.env['KIMI_CODE_HOME'] = dir;
+  process.env['DIMI_CODE_HOME'] = dir;
 });
 
 afterEach(() => {

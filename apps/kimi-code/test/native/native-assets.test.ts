@@ -63,10 +63,10 @@ function fakeManifest(files: Record<string, string>): {
 }
 
 describe('native assets', () => {
-  it('uses KIMI_CODE_CACHE_DIR as the native cache base when present', () => {
+  it('uses DIMI_CODE_CACHE_DIR as the native cache base when present', () => {
     expect(
       getNativeCacheBase({
-        env: { KIMI_CODE_CACHE_DIR: '/tmp/kimi-cache' },
+        env: { DIMI_CODE_CACHE_DIR: '/tmp/kimi-cache' },
         homeDir: '/home/kimi',
         platform: 'linux',
       }),

@@ -13,7 +13,7 @@ import type { ConfigDiagnostics, KimiConfig } from "#/types";
  * Every public `KimiConfig` field except the internal `raw` write-path field.
  * Each entry is also the runtime config domain name.
  */
-const KIMI_CONFIG_DOMAINS = [
+const DIMI_CONFIG_DOMAINS = [
   "defaultProvider",
   "defaultModel",
   "thinking",
@@ -45,7 +45,7 @@ const KIMI_CONFIG_DOMAINS = [
  */
 export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): KimiConfig {
   const config: Record<string, unknown> = {};
-  for (const domain of KIMI_CONFIG_DOMAINS) {
+  for (const domain of DIMI_CONFIG_DOMAINS) {
     const value = resolved[domain];
     if (value !== undefined) {
       config[domain] = value;

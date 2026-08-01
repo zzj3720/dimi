@@ -34,7 +34,7 @@ const mocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   ensureMainAgent: vi.fn(),
   createKimiDefaultHeaders: vi.fn(() => ({})),
-  resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? "/tmp/kimi-code-test-home"),
+  resolveDimiHome: vi.fn((homeDir?: string) => homeDir ?? "/tmp/kimi-code-test-home"),
   createKimiDeviceId: vi.fn(() => "device-1"),
 }));
 
@@ -62,7 +62,7 @@ vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
   return {
     ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
+    resolveDimiHome: mocks.resolveDimiHome,
   };
 });
 
@@ -272,8 +272,8 @@ describe("runPrint", () => {
 
   beforeEach(() => {
     savedExitCode = process.exitCode;
-    vi.stubEnv("KIMI_CODE_EXPERIMENTAL_FLAG", "1");
-    vi.stubEnv("KIMI_MODEL_OUTPUT_FORMAT", "");
+    vi.stubEnv("DIMI_CODE_EXPERIMENTAL_FLAG", "1");
+    vi.stubEnv("DIMI_MODEL_OUTPUT_FORMAT", "");
   });
 
   afterEach(() => {

@@ -196,7 +196,7 @@ function projectLocalConfigStub(
     readAdditionalDirs: (workDir: string) =>
       Promise.resolve({
         projectRoot: workDir,
-        configPath: `${workDir}/.kimi-code/local.toml`,
+        configPath: `${workDir}/.dimi/local.toml`,
         additionalDirs: [...localDirs],
       }),
     resolveAdditionalDirs: (baseDir: string, dirs: readonly string[]) =>

@@ -3,7 +3,7 @@ import { createKimiHarness, type Event, type Session } from '@moonshot-ai/kimi-c
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
 
 const PROMPT =
-  process.env['KIMI_SDK_PROMPT'] ??
+  process.env['DIMI_SDK_PROMPT'] ??
   'Introduce yourself in two concise sentences and mention the current working directory.';
 
 async function main(): Promise<void> {

@@ -38,20 +38,20 @@ export const HEADLESS_STDIO_DRAIN_TIMEOUT_MS = 10000;
 export const NPM_PACKAGE_NAME = "@moonshot-ai/kimi-code";
 
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
-export const KIMI_CODE_HOME_ENV = "KIMI_CODE_HOME";
-export const KIMI_CODE_DATA_DIR_NAME = ".kimi-code";
-export const KIMI_CODE_LOG_DIR_NAME = "logs";
-export const KIMI_CODE_CACHE_DIR_NAME = "cache";
-export const KIMI_CODE_UPDATE_DIR_NAME = "updates";
-export const KIMI_CODE_BIN_DIR_NAME = "bin";
-export const KIMI_CODE_UPDATE_STATE_FILE_NAME = "latest.json";
-export const KIMI_CODE_UPDATE_INSTALL_STATE_FILE_NAME = "install.json";
-export const KIMI_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = "install.lock";
-export const KIMI_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = "rollout.log";
-export const KIMI_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME = "plugin-notices.json";
-export const KIMI_CODE_INPUT_HISTORY_DIR_NAME = "user-history";
-export const KIMI_CODE_BANNER_DIR_NAME = "banner";
-export const KIMI_CODE_BANNER_STATE_FILE_NAME = "state.json";
+export const DIMI_CODE_HOME_ENV = "DIMI_CODE_HOME";
+export const DIMI_CODE_DATA_DIR_NAME = ".dimi";
+export const DIMI_CODE_LOG_DIR_NAME = "logs";
+export const DIMI_CODE_CACHE_DIR_NAME = "cache";
+export const DIMI_CODE_UPDATE_DIR_NAME = "updates";
+export const DIMI_CODE_BIN_DIR_NAME = "bin";
+export const DIMI_CODE_UPDATE_STATE_FILE_NAME = "latest.json";
+export const DIMI_CODE_UPDATE_INSTALL_STATE_FILE_NAME = "install.json";
+export const DIMI_CODE_UPDATE_INSTALL_LOCK_FILE_NAME = "install.lock";
+export const DIMI_CODE_UPDATE_ROLLOUT_LOG_FILE_NAME = "rollout.log";
+export const DIMI_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME = "plugin-notices.json";
+export const DIMI_CODE_INPUT_HISTORY_DIR_NAME = "user-history";
+export const DIMI_CODE_BANNER_DIR_NAME = "banner";
+export const DIMI_CODE_BANNER_STATE_FILE_NAME = "state.json";
 
 // Managed Kimi auth provider key shared with OAuth/SDK config.
 export const DEFAULT_OAUTH_PROVIDER_NAME = "kimi-coding";
@@ -71,7 +71,7 @@ export const FEEDBACK_VERSION_PREFIX = "kimi-code-";
 export const FEEDBACK_TELEMETRY_EVENT = "feedback_submitted";
 
 // Legacy CDN used by the pre-fork installer and plugin marketplace.
-export const KIMI_CODE_CDN_BASE = "https://code.kimi.com/kimi-code";
+export const DIMI_CODE_CDN_BASE = "https://code.kimi.com/kimi-code";
 /**
  * Dimi's own update authority: the `latest.json` manifest attached to the
  * newest GitHub Release. GitHub's `releases/latest/download/<asset>` endpoint
@@ -80,21 +80,21 @@ export const KIMI_CODE_CDN_BASE = "https://code.kimi.com/kimi-code";
  * entire release process. The URL 404s until the first release exists, which
  * degrades cleanly to "no update available".
  */
-export const KIMI_CODE_UPDATE_CHANNEL_URL =
+export const DIMI_CODE_UPDATE_CHANNEL_URL =
   "https://github.com/zzj3720/dimi/releases/latest/download/latest.json";
 /** The old product's remotely controlled banner must not be shown by this build. */
-export const KIMI_CODE_TIPS_BANNER_URL: string | undefined = undefined;
-export const KIMI_CODE_PLUGIN_MARKETPLACE_URL = `${KIMI_CODE_CDN_BASE}/plugins/marketplace.json`;
-export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = "KIMI_CODE_PLUGIN_MARKETPLACE_URL";
+export const DIMI_CODE_TIPS_BANNER_URL: string | undefined = undefined;
+export const DIMI_CODE_PLUGIN_MARKETPLACE_URL = `${DIMI_CODE_CDN_BASE}/plugins/marketplace.json`;
+export const DIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = "DIMI_CODE_PLUGIN_MARKETPLACE_URL";
 // Official plugins whose usage bills against the user's plan quota. Installing
 // one of these shows a quota note after the install result.
 export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ["kimi-datasource"];
-export const KIMI_CODE_INSTALL_SH_URL = `${KIMI_CODE_CDN_BASE}/install.sh`;
-export const KIMI_CODE_INSTALL_PS1_URL = `${KIMI_CODE_CDN_BASE}/install.ps1`;
+export const DIMI_CODE_INSTALL_SH_URL = `${DIMI_CODE_CDN_BASE}/install.sh`;
+export const DIMI_CODE_INSTALL_PS1_URL = `${DIMI_CODE_CDN_BASE}/install.ps1`;
 // Official download page, referenced by prompt copy that steers users away
 // from third-party install sources.
-export const KIMI_CODE_OFFICIAL_INSTALL_URL = "https://www.kimi.com/code";
+export const DIMI_CODE_OFFICIAL_INSTALL_URL = "https://www.kimi.com/code";
 
 // Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
-export const NATIVE_INSTALL_COMMAND_UNIX = `curl -fsSL ${KIMI_CODE_INSTALL_SH_URL} | bash`;
-export const NATIVE_INSTALL_COMMAND_WIN = `irm ${KIMI_CODE_INSTALL_PS1_URL} | iex`;
+export const NATIVE_INSTALL_COMMAND_UNIX = `curl -fsSL ${DIMI_CODE_INSTALL_SH_URL} | bash`;
+export const NATIVE_INSTALL_COMMAND_WIN = `irm ${DIMI_CODE_INSTALL_PS1_URL} | iex`;

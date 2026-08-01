@@ -316,7 +316,7 @@ describe("CLI options parsing", () => {
     });
   });
 
-  describe("KIMI_MODEL_OUTPUT_FORMAT", () => {
+  describe("DIMI_MODEL_OUTPUT_FORMAT", () => {
     it("defaults to text when unset in prompt mode", () => {
       expect(resolveOutputFormat({ prompt: "run this", outputFormat: undefined }, {})).toBe("text");
     });
@@ -378,7 +378,7 @@ describe("CLI options parsing", () => {
           { prompt: "run this", outputFormat: undefined },
           { [OUTPUT_FORMAT_ENV]: "json" },
         ),
-      ).toThrow('Invalid KIMI_MODEL_OUTPUT_FORMAT value "json"');
+      ).toThrow('Invalid DIMI_MODEL_OUTPUT_FORMAT value "json"');
     });
 
     it("fails validation fast for an invalid env value in prompt mode", () => {
@@ -516,7 +516,7 @@ describe("CLI options parsing", () => {
 
     it("accepts the flags in prompt mode with the v2 engine flag", () => {
       const opts = parse(["-p", "hi", "--agent", "reviewer"]);
-      expect(validateOptions(opts, { KIMI_CODE_EXPERIMENTAL_FLAG: "1" }).uiMode).toBe("print");
+      expect(validateOptions(opts, { DIMI_CODE_EXPERIMENTAL_FLAG: "1" }).uiMode).toBe("print");
     });
   });
 

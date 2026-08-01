@@ -2511,7 +2511,7 @@ describe("FullCompaction", () => {
   });
 
   it("honors completion budget env hard caps during compaction", async () => {
-    vi.stubEnv("KIMI_MODEL_MAX_COMPLETION_TOKENS", "8192");
+    vi.stubEnv("DIMI_MODEL_MAX_COMPLETION_TOKENS", "8192");
     let callCount = 0;
     const compactionMaxCompletionTokens: unknown[] = [];
     const generate: GenerateFn = async (
@@ -2554,7 +2554,7 @@ describe("FullCompaction", () => {
   it.each(["0", "-1"])(
     "honors completion budget env opt-out (%s) during compaction",
     async (maxCompletionTokens) => {
-      vi.stubEnv("KIMI_MODEL_MAX_COMPLETION_TOKENS", maxCompletionTokens);
+      vi.stubEnv("DIMI_MODEL_MAX_COMPLETION_TOKENS", maxCompletionTokens);
       let callCount = 0;
       const compactionMaxCompletionTokens: unknown[] = [];
       const generate: GenerateFn = async (

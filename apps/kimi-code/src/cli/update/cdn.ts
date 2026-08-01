@@ -1,7 +1,7 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { KIMI_CODE_UPDATE_CHANNEL_URL } from '#/constant/app';
+import { DIMI_CODE_UPDATE_CHANNEL_URL } from '#/constant/app';
 
 import type { UpdateManifest } from './types';
 
@@ -47,12 +47,12 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: string): Promise
 
 /**
  * The Dimi update authority is the `latest.json` manifest attached to the
- * newest GitHub Release (see `KIMI_CODE_UPDATE_CHANNEL_URL`). The guard below
+ * newest GitHub Release (see `DIMI_CODE_UPDATE_CHANNEL_URL`). The guard below
  * keeps the HTTP boundary honest when no channel is configured: direct
  * callers cannot accidentally fall back to the old product's update channel.
  */
 export function hasUpdateChannel(): boolean {
-  return KIMI_CODE_UPDATE_CHANNEL_URL !== undefined;
+  return DIMI_CODE_UPDATE_CHANNEL_URL !== undefined;
 }
 
 function updateUrl(path: string, channelUrl: string | undefined): string {
@@ -74,7 +74,7 @@ function updateUrl(path: string, channelUrl: string | undefined): string {
  */
 export async function fetchLatestVersionFromCdn(
   fetchImpl: typeof fetch = fetch,
-  channelUrl: string | undefined = KIMI_CODE_UPDATE_CHANNEL_URL,
+  channelUrl: string | undefined = DIMI_CODE_UPDATE_CHANNEL_URL,
 ): Promise<string> {
   const response = await fetchWithTimeout(fetchImpl, updateUrl('latest', channelUrl));
   if (!response.ok) {
@@ -108,7 +108,7 @@ async function fetchUpdateManifestFromCdn(
  */
 export async function fetchLatestFromCdn(
   fetchImpl: typeof fetch = fetch,
-  channelUrl: string | undefined = KIMI_CODE_UPDATE_CHANNEL_URL,
+  channelUrl: string | undefined = DIMI_CODE_UPDATE_CHANNEL_URL,
 ): Promise<FetchLatestResult> {
   const manifest = await fetchUpdateManifestFromCdn(fetchImpl, channelUrl).catch(() => null);
   if (manifest !== null) {

@@ -19,7 +19,7 @@ vp run dev:cli -- login anthropic --method api-key
 vp run dev:cli -- login openai --method api-key
 ```
 
-保存的 API 密钥和 OAuth 凭据写入 `$KIMI_CODE_HOME/auth.json`，不会写入 `config.toml`。保存的密钥优先于对应的 shell 环境变量。OAuth token 会在需要时自动刷新。`/logout` 只移除一个供应商保存的凭据，不会取消设置 shell 环境变量。
+保存的 API 密钥和 OAuth 凭据写入 `$DIMI_CODE_HOME/auth.json`，不会写入 `config.toml`。保存的密钥优先于对应的 shell 环境变量。OAuth token 会在需要时自动刷新。`/logout` 只移除一个供应商保存的凭据，不会取消设置 shell 环境变量。
 
 部分云供应商使用各自的标准凭据链，而不是单个 API 密钥：
 
@@ -80,11 +80,11 @@ vp run dev:cli -- provider refresh
 
 `provider list` 显示内置和已配置供应商及其连接状态。`provider models` 显示已认证供应商当前可用的模型，包括权威的上下文窗口和能力。`provider refresh` 会获取每个拥有远程模型端点的已认证供应商；某个供应商刷新失败不会丢弃其他供应商的成功结果。
 
-缓存位于 `$KIMI_CODE_HOME/models-store.json`。它记录新鲜度和 ETag，支持条件请求；离线时仅在元数据不早于随包目录时使用。TUI 的 `/model` 选择器和 `/provider refresh` 走同一刷新路径。模型发生变化时，显示的 Thinking 选项和上下文限制也会随模型元数据更新，不会根据模型名称猜测。
+缓存位于 `$DIMI_CODE_HOME/models-store.json`。它记录新鲜度和 ETag，支持条件请求；离线时仅在元数据不早于随包目录时使用。TUI 的 `/model` 选择器和 `/provider refresh` 走同一刷新路径。模型发生变化时，显示的 Thinking 选项和上下文限制也会随模型元数据更新，不会根据模型名称猜测。
 
 ## 使用 `models.json` 添加或覆盖供应商
 
-`$KIMI_CODE_HOME/models.json` 是用户拥有的供应商层，支持 JSONC：可以使用注释和尾随逗号。根对象必须是 `{ "providers": { … } }`；每个 key 就是供应商 ID，因此条目内部不要重复 `id`。运行时会在读取目录、刷新和选择模型前重新加载此文件，外部修改无需重启 Kimi Code 即可生效。
+`$DIMI_CODE_HOME/models.json` 是用户拥有的供应商层，支持 JSONC：可以使用注释和尾随逗号。根对象必须是 `{ "providers": { … } }`；每个 key 就是供应商 ID，因此条目内部不要重复 `id`。运行时会在读取目录、刷新和选择模型前重新加载此文件，外部修改无需重启 Kimi Code 即可生效。
 
 供应商条目的字段都是可选的。使用内置供应商（或 SDK 注入供应商）的 ID 时，它会覆盖该供应商：未写出的模型、认证行为、目录和流式适配器仍然保留。使用新 ID 时，它定义完整供应商，所有新模型都必须显式提供 `contextWindow` 和 `maxTokens`；Kimi Code 不会猜测这些限制。
 

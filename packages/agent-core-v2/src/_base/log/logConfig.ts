@@ -1,7 +1,7 @@
 /**
  * `log` domain (L1) — runtime logging configuration.
  *
- * Builds the `LoggingConfig` from `KIMI_LOG_*` environment variables plus
+ * Builds the `LoggingConfig` from `DIMI_LOG_*` environment variables plus
  * defaults, resolves the global and per-session log paths, and exposes the
  * `ILogOptions` seed used to inject the resolved config into a App scope.
  */
@@ -49,13 +49,13 @@ export function resolveSessionLogPath(sessionDir: string): string {
 export function resolveLoggingConfig(input: ResolveLoggingInput): LoggingConfig {
   const env = input.env;
   return {
-    level: parseLevel(env['KIMI_LOG_LEVEL']) ?? DEFAULT_LOG_LEVEL,
+    level: parseLevel(env['DIMI_LOG_LEVEL']) ?? DEFAULT_LOG_LEVEL,
     globalLogPath: resolveGlobalLogPath(input.homeDir),
-    globalMaxBytes: parsePositiveInt(env['KIMI_LOG_GLOBAL_MAX_BYTES']) ?? DEFAULT_GLOBAL_MAX_BYTES,
-    globalFiles: parsePositiveInt(env['KIMI_LOG_GLOBAL_FILES']) ?? DEFAULT_GLOBAL_FILES,
+    globalMaxBytes: parsePositiveInt(env['DIMI_LOG_GLOBAL_MAX_BYTES']) ?? DEFAULT_GLOBAL_MAX_BYTES,
+    globalFiles: parsePositiveInt(env['DIMI_LOG_GLOBAL_FILES']) ?? DEFAULT_GLOBAL_FILES,
     sessionMaxBytes:
-      parsePositiveInt(env['KIMI_LOG_SESSION_MAX_BYTES']) ?? DEFAULT_SESSION_MAX_BYTES,
-    sessionFiles: parsePositiveInt(env['KIMI_LOG_SESSION_FILES']) ?? DEFAULT_SESSION_FILES,
+      parsePositiveInt(env['DIMI_LOG_SESSION_MAX_BYTES']) ?? DEFAULT_SESSION_MAX_BYTES,
+    sessionFiles: parsePositiveInt(env['DIMI_LOG_SESSION_FILES']) ?? DEFAULT_SESSION_FILES,
   };
 }
 

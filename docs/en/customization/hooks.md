@@ -28,7 +28,7 @@ Precisely because of fail-open, Hooks are suitable for alerts and lightweight in
 The following hook flashes a notification in the terminal title bar each time a background task completes (macOS requires `terminal-notifier` to be installed):
 
 ```toml
-# Written in ~/.kimi-code/config.toml
+# Written in ~/.dimi/config.toml
 [[hooks]]
 event = "Notification"           # Trigger: when a background task status changes
 matcher = "task\\.completed"     # Only care about "completed" notifications
@@ -39,7 +39,7 @@ Save the config, start a new session, and a notification will appear the next ti
 
 ## Configuration
 
-All hook rules are written in the `[[hooks]]` array in `~/.kimi-code/config.toml`, where each entry is one rule:
+All hook rules are written in the `[[hooks]]` array in `~/.dimi/config.toml`, where each entry is one rule:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -123,7 +123,7 @@ The following hook checks the command content before the Agent calls the `Bash` 
 [[hooks]]
 event = "PreToolUse"
 matcher = "Bash"
-command = "node ~/.kimi-code/hooks/block-dangerous-bash.mjs"
+command = "node ~/.dimi/hooks/block-dangerous-bash.mjs"
 timeout = 5
 ```
 

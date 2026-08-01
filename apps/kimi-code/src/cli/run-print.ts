@@ -44,7 +44,7 @@ import {
   parseAgentFileText,
   resolveAgentPath,
   resolveAgentTaskConfig,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   skillCatalogRuntimeOptionsSeed,
@@ -200,7 +200,7 @@ export async function runPrint(
 
   writeVersion(version, outputFormat, stdout, stderr);
 
-  const homeDir = resolveKimiHome();
+  const homeDir = resolveDimiHome();
   let firstLaunch = false;
   const deviceId = createKimiDeviceId(homeDir, {
     onFirstLaunch: () => {

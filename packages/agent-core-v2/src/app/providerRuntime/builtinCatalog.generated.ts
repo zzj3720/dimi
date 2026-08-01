@@ -6133,7 +6133,7 @@ export const BUILTIN_CATALOG = {
       "api": "anthropic-messages",
       "baseUrl": "https://api.kimi.com/coding/v1",
       "envNames": [
-        "KIMI_API_KEY"
+        "DIMI_API_KEY"
       ],
       "models": [
         {
@@ -6809,7 +6809,7 @@ export const BUILTIN_CATALOG = {
       "baseUrl": "https://api.moonshot.ai/v1",
       "envNames": [
         "MOONSHOT_API_KEY",
-        "KIMI_API_KEY"
+        "DIMI_API_KEY"
       ],
       "models": [
         {

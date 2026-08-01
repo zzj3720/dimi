@@ -63,7 +63,7 @@ vi.mock('../../../src/tui/config', () => ({
     readonly fallback: TuiConfig;
 
     constructor(fallback: TuiConfig) {
-      super('Invalid client preferences in ~/.kimi-code/tui.toml; using defaults.');
+      super('Invalid client preferences in ~/.dimi/tui.toml; using defaults.');
       this.fallback = fallback;
     }
   },
@@ -233,11 +233,11 @@ describe('runUpdatePreflight', () => {
     // Pin the experimental flag off so rollout gating is deterministic
     // regardless of the host environment (the flag bypasses batch holds).
     // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+    vi.stubEnv('DIMI_CODE_EXPERIMENTAL_FLAG', '');
     // Isolate the host's auto-update kill switch (e.g. a dev machine that
-    // exports KIMI_CODE_NO_AUTO_UPDATE=1) so the update path is exercised;
+    // exports DIMI_CODE_NO_AUTO_UPDATE=1) so the update path is exercised;
     // the dedicated test below opts back in with `vi.stubEnv(..., '1')`.
-    vi.stubEnv('KIMI_CODE_NO_AUTO_UPDATE', '');
+    vi.stubEnv('DIMI_CODE_NO_AUTO_UPDATE', '');
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -251,8 +251,8 @@ describe('runUpdatePreflight', () => {
 
   afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
 
-  it('skips all update work when KIMI_CODE_NO_AUTO_UPDATE is set', async () => {
-    vi.stubEnv('KIMI_CODE_NO_AUTO_UPDATE', '1');
+  it('skips all update work when DIMI_CODE_NO_AUTO_UPDATE is set', async () => {
+    vi.stubEnv('DIMI_CODE_NO_AUTO_UPDATE', '1');
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     const { options } = captureOutput();
@@ -1038,8 +1038,8 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).not.toHaveBeenCalled();
     });
 
-    it('KIMI_CODE_EXPERIMENTAL_FLAG bypasses the rollout: held devices still update', async () => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
+    it('DIMI_CODE_EXPERIMENTAL_FLAG bypasses the rollout: held devices still update', async () => {
+      vi.stubEnv('DIMI_CODE_EXPERIMENTAL_FLAG', '1');
       const held = cacheWithManifest(heldForEveryone('0.5.0'));
       mocks.readUpdateCache.mockResolvedValue(held);
       mocks.refreshUpdateCache.mockResolvedValue(held);
@@ -1067,9 +1067,9 @@ describe('runUpdatePreflight', () => {
       }));
     });
 
-    it('KIMI_CODE_NO_AUTO_UPDATE still wins over the experimental flag', async () => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
-      vi.stubEnv('KIMI_CODE_NO_AUTO_UPDATE', '1');
+    it('DIMI_CODE_NO_AUTO_UPDATE still wins over the experimental flag', async () => {
+      vi.stubEnv('DIMI_CODE_EXPERIMENTAL_FLAG', '1');
+      vi.stubEnv('DIMI_CODE_NO_AUTO_UPDATE', '1');
       mocks.readUpdateCache.mockResolvedValue(cacheWithManifest(releasedForEveryone('0.5.0')));
       const { options } = captureOutput();
 

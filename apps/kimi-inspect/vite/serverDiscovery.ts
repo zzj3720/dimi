@@ -18,7 +18,7 @@
  *
  * Security: dev/preview only, bound to loopback by Vite defaults. It hands
  * out the same token the user would otherwise paste from
- * `~/.kimi-code/server.token` by hand — no new exposure beyond the local dev
+ * `~/.dimi/server.token` by hand — no new exposure beyond the local dev
  * session.
  */
 
@@ -66,11 +66,11 @@ interface ServerLockDisk {
   host_version?: string;
 }
 
-/** home resolution per request: `KIMI_CODE_HOME` env, else `~/.kimi-code`. */
+/** home resolution per request: `DIMI_CODE_HOME` env, else `~/.dimi`. */
 export function resolveKimiHomeDir(env: NodeJS.ProcessEnv = process.env): string {
-  const fromEnv = env['KIMI_CODE_HOME'];
+  const fromEnv = env['DIMI_CODE_HOME'];
   if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
-  return join(homedir(), '.kimi-code');
+  return join(homedir(), '.dimi');
 }
 
 /** `process.kill(pid, 0)` probe — same semantics as the server's registry:
@@ -175,7 +175,7 @@ export async function readServerToken(homeDir: string): Promise<string | undefin
 }
 
 export interface DiscoverOptions {
-  /** The dev-proxy target (`KIMI_SERVER_URL`); merged as a `proxy` entry. */
+  /** The dev-proxy target (`DIMI_SERVER_URL`); merged as a `proxy` entry. */
   readonly proxyTarget?: string;
   /** home override; defaults to the request-time env resolution. */
   readonly homeDir?: string;

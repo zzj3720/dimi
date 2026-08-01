@@ -158,7 +158,7 @@ export class AcpServer implements Agent {
        * Env vars to advertise in `authMethods[0].env` so the `kimi login`
        * subprocess the client spawns (via `terminal-auth`) lands its
        * token under the same data root the ACP server uses. Intended for
-       * sandboxed test setups (e.g. `{ KIMI_CODE_HOME: '/tmp/...' }`);
+       * sandboxed test setups (e.g. `{ DIMI_CODE_HOME: '/tmp/...' }`);
        * leave undefined in production so the advertised env stays empty.
        */
       terminalAuthEnv?: Readonly<Record<string, string>>;
@@ -185,7 +185,7 @@ export class AcpServer implements Agent {
        * them to {@link Session.activateSkill} instead of forwarding the
        * raw slash text — matching the TUI's slash-command behavior so
        * skill activations don't fall back to model-driven Bash
-       * exploration of `~/.kimi-code/skills/`.
+       * exploration of `~/.dimi/skills/`.
        */
       slashCommands?: SlashCommandsResolver;
     },

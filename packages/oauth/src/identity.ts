@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import type { DeviceHeaders } from './types';
 
-export const KIMI_CODE_PLATFORM = 'kimi_code_cli';
+export const DIMI_CODE_PLATFORM = 'kimi_code_cli';
 
 export interface KimiHostIdentity {
   readonly userAgentProduct: string;
@@ -72,7 +72,7 @@ export function createKimiDeviceHeaders(options: {
   readonly version: string;
 }): DeviceHeaders {
   return {
-    'X-Msh-Platform': KIMI_CODE_PLATFORM,
+    'X-Msh-Platform': DIMI_CODE_PLATFORM,
     'X-Msh-Version': requiredAsciiHeader(options.version, 'Kimi identity version'),
     'X-Msh-Device-Name': asciiHeader(hostname()),
     'X-Msh-Device-Model': asciiHeader(deviceModel()),
@@ -119,12 +119,12 @@ export function createKimiDefaultHeaders(options: KimiIdentityOptions): Record<s
  * environment-derived and stateless (re-read on every call) so callers can
  * apply it uniformly without plumbing the value through every host layer.
  */
-export const KIMI_CODE_CUSTOM_HEADERS_ENV = 'KIMI_CODE_CUSTOM_HEADERS';
+export const DIMI_CODE_CUSTOM_HEADERS_ENV = 'DIMI_CODE_CUSTOM_HEADERS';
 
 export function parseKimiCodeCustomHeaders(
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  const raw = env[KIMI_CODE_CUSTOM_HEADERS_ENV]?.trim();
+  const raw = env[DIMI_CODE_CUSTOM_HEADERS_ENV]?.trim();
   if (raw === undefined || raw.length === 0) return {};
   const headers: Record<string, string> = {};
   for (const line of raw.split('\n')) {

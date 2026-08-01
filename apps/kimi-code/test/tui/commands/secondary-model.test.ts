@@ -137,7 +137,7 @@ describe('handleSecondaryModelCommand', () => {
   });
 
   it('warns with the env-overridden effective binding instead of the picked model', async () => {
-    // KIMI_SECONDARY_MODEL / KIMI_SECONDARY_EFFORT win over the persisted
+    // DIMI_SECONDARY_MODEL / DIMI_SECONDARY_EFFORT win over the persisted
     // recipe: the reloaded config carries the overlaid values, and the status
     // message must name them rather than echo the pick.
     const { host } = makeHost({
@@ -151,8 +151,8 @@ describe('handleSecondaryModelCommand', () => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     const [message, color] = host.showStatus.mock.calls[0]!;
-    expect(message).toContain('KIMI_SECONDARY_MODEL=cheap');
-    expect(message).toContain('KIMI_SECONDARY_EFFORT=low');
+    expect(message).toContain('DIMI_SECONDARY_MODEL=cheap');
+    expect(message).toContain('DIMI_SECONDARY_EFFORT=low');
     expect(color).toBe('warning');
     expect(host.showError).not.toHaveBeenCalled();
   });

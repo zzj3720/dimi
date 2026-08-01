@@ -346,7 +346,7 @@ function ConnectScreen({
         <label className="mb-1 block text-xs text-neutral-400">Bearer token (optional)</label>
         <input
           className="mb-5 w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
-          placeholder="~/.kimi-code/server.token"
+          placeholder="~/.dimi/server.token"
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />

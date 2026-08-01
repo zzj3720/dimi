@@ -9,7 +9,7 @@ import {
   createKimiDeviceHeaders,
   createKimiDeviceId,
   createKimiUserAgent,
-  KIMI_CODE_PLATFORM,
+  DIMI_CODE_PLATFORM,
   readKimiDeviceId,
 } from '../src/identity';
 
@@ -67,7 +67,7 @@ describe('Kimi identity factories', () => {
       version: '1.2.3-test',
     });
 
-    expect(headers['X-Msh-Platform']).toBe(KIMI_CODE_PLATFORM);
+    expect(headers['X-Msh-Platform']).toBe(DIMI_CODE_PLATFORM);
     expect(headers['X-Msh-Version']).toBe('1.2.3-test');
     expect(headers['X-Msh-Device-Name']).toBeTruthy();
     expect(headers['X-Msh-Device-Model']).toBeTruthy();

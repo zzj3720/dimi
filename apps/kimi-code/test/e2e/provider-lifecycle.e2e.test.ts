@@ -378,7 +378,7 @@ function runCli(
       ],
       {
         cwd,
-        env: { ...env, KIMI_CODE_HOME: home, KIMI_LOG_LEVEL: "off" },
+        env: { ...env, DIMI_CODE_HOME: home, DIMI_LOG_LEVEL: "off" },
         stdio: ["pipe", "pipe", "pipe"],
       },
     );
@@ -427,7 +427,7 @@ function runCliPty(
     ];
     const child = spawn("python3", ["-u", "-c", PTY_BRIDGE, ...command], {
       cwd: appRoot,
-      env: { ...env, KIMI_CODE_HOME: home, KIMI_LOG_LEVEL: "off", TERM: "xterm-256color" },
+      env: { ...env, DIMI_CODE_HOME: home, DIMI_LOG_LEVEL: "off", TERM: "xterm-256color" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let output = "";
@@ -466,7 +466,7 @@ function sanitizedProviderEnv(overrides: Readonly<Record<string, string>> = {}):
     "AZURE_OPENAI_API_KEY", "CEREBRAS_API_KEY", "CLOUDFLARE_API_KEY", "COPILOT_GITHUB_TOKEN",
     "DEEPSEEK_API_KEY", "FIREWORKS_API_KEY", "GEMINI_API_KEY", "GOOGLE_CLOUD_API_KEY",
     "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS", "GCLOUD_PROJECT",
-    "GROQ_API_KEY", "HF_TOKEN", "KIMI_API_KEY", "MINIMAX_API_KEY", "MINIMAX_CN_API_KEY",
+    "GROQ_API_KEY", "HF_TOKEN", "DIMI_API_KEY", "MINIMAX_API_KEY", "MINIMAX_CN_API_KEY",
     "MISTRAL_API_KEY", "MOONSHOT_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY",
     "OPENROUTER_API_KEY", "QWEN_TOKEN_PLAN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY", "RADIUS_API_KEY",
     "TOGETHER_API_KEY", "AI_GATEWAY_API_KEY", "XAI_API_KEY", "XIAOMI_API_KEY",

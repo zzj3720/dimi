@@ -7,7 +7,7 @@
  * snake_case ↔ camelCase TOML transforms (including nested `custom_headers`
  * normalization, with `custom_headers` record keys preserved
  * verbatim). Both entries' `base_url` / `api_key` are env-overridable
- * (`KIMI_WEB_SEARCH_*` / `KIMI_WEB_FETCH_*`, env wins over the file). Its
+ * (`DIMI_WEB_SEARCH_*` / `DIMI_WEB_FETCH_*`, env wins over the file). Its
  * effective overlay treats an env base URL as a new credential boundary and
  * prevents persisted API keys or custom headers from crossing
  * into that endpoint; the composed `stripEnv` keeps env-derived values from
@@ -57,10 +57,10 @@ export const ServicesConfigSchema = z
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
-export const WEB_SEARCH_BASE_URL_ENV = "KIMI_WEB_SEARCH_BASE_URL";
-export const WEB_SEARCH_API_KEY_ENV = "KIMI_WEB_SEARCH_API_KEY";
-export const WEB_FETCH_BASE_URL_ENV = "KIMI_WEB_FETCH_BASE_URL";
-export const WEB_FETCH_API_KEY_ENV = "KIMI_WEB_FETCH_API_KEY";
+export const WEB_SEARCH_BASE_URL_ENV = "DIMI_WEB_SEARCH_BASE_URL";
+export const WEB_SEARCH_API_KEY_ENV = "DIMI_WEB_SEARCH_API_KEY";
+export const WEB_FETCH_BASE_URL_ENV = "DIMI_WEB_FETCH_BASE_URL";
+export const WEB_FETCH_API_KEY_ENV = "DIMI_WEB_FETCH_API_KEY";
 
 const nonBlankEnv = (raw: string): string | undefined => {
   const trimmed = raw.trim();

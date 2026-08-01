@@ -13,14 +13,14 @@ const APP_ROOT = resolve(SCRIPT_DIR, '..');
 // the whole repo instead of just apps/kimi-code.
 const REPO_ROOT = resolve(APP_ROOT, '../..');
 // Runtime variable the CLI reads to locate the marketplace JSON.
-const MARKETPLACE_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
+const MARKETPLACE_ENV = 'DIMI_CODE_PLUGIN_MARKETPLACE_URL';
 // Opt-in for dev: point this run at an external marketplace instead of a local one.
-const EXTERNAL_MARKETPLACE_ENV = 'KIMI_CODE_DEV_MARKETPLACE_URL';
+const EXTERNAL_MARKETPLACE_ENV = 'DIMI_CODE_DEV_MARKETPLACE_URL';
 
 let marketplaceServer;
 // A source checkout must run the code being developed, never hand control to
 // the release updater before the dev TUI starts.
-const env = { ...process.env, KIMI_CODE_NO_AUTO_UPDATE: '1' };
+const env = { ...process.env, DIMI_CODE_NO_AUTO_UPDATE: '1' };
 
 const externalUrl = process.env[EXTERNAL_MARKETPLACE_ENV]?.trim();
 if (externalUrl !== undefined && externalUrl.length > 0) {

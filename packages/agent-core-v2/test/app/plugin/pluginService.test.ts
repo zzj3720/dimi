@@ -556,14 +556,14 @@ describe("PluginService (plugin boundary)", () => {
       expect(servers["plugin-demo:finance"]).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({
-            KIMI_CODE_BASE_URL: "https://api.example.test/",
+            DIMI_CODE_BASE_URL: "https://api.example.test/",
             CUSTOM: "1",
-            KIMI_CODE_HOME: home,
-            KIMI_PLUGIN_ROOT: await realpath(managedRoot),
+            DIMI_CODE_HOME: home,
+            DIMI_PLUGIN_ROOT: await realpath(managedRoot),
           }),
         }),
       );
-      expect(JSON.stringify(servers["plugin-demo:docs"])).not.toContain("KIMI_CODE_BASE_URL");
+      expect(JSON.stringify(servers["plugin-demo:docs"])).not.toContain("DIMI_CODE_BASE_URL");
     } finally {
       host.dispose();
     }
@@ -601,7 +601,7 @@ describe("PluginService (plugin boundary)", () => {
       await expect(servers).resolves.toMatchObject({
         "plugin-ready-demo:finance": {
           env: {
-            KIMI_CODE_BASE_URL: "https://ready.example.test/",
+            DIMI_CODE_BASE_URL: "https://ready.example.test/",
           },
         },
       });
@@ -610,7 +610,7 @@ describe("PluginService (plugin boundary)", () => {
     }
   });
 
-  it("prefers explicit KIMI_CODE_BASE_URL / KIMI_OAUTH_HOST env over the persisted provider", async () => {
+  it("prefers explicit DIMI_CODE_BASE_URL / DIMI_OAUTH_HOST env over the persisted provider", async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
     const host = makeHost(
@@ -619,8 +619,8 @@ describe("PluginService (plugin boundary)", () => {
         "kimi-for-coding": { baseUrl: "https://api.example.test" },
       }),
       {
-        KIMI_CODE_BASE_URL: "https://env.example.test/",
-        KIMI_OAUTH_HOST: "https://legacy.example.test",
+        DIMI_CODE_BASE_URL: "https://env.example.test/",
+        DIMI_OAUTH_HOST: "https://legacy.example.test",
       },
     );
     try {
@@ -635,8 +635,8 @@ describe("PluginService (plugin boundary)", () => {
       expect(servers["plugin-demo:finance"]).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({
-            KIMI_CODE_BASE_URL: "https://env.example.test",
-            KIMI_CODE_OAUTH_HOST: "https://legacy.example.test",
+            DIMI_CODE_BASE_URL: "https://env.example.test",
+            DIMI_CODE_OAUTH_HOST: "https://legacy.example.test",
           }),
         }),
       );
@@ -660,8 +660,8 @@ describe("PluginService (plugin boundary)", () => {
       const servers = await svc.enabledMcpServers();
       const env = (servers["plugin-demo:finance"] as { env?: Record<string, string> }).env ?? {};
       expect(env["CUSTOM"]).toBe("1");
-      expect(env).not.toHaveProperty("KIMI_CODE_BASE_URL");
-      expect(env).not.toHaveProperty("KIMI_CODE_OAUTH_HOST");
+      expect(env).not.toHaveProperty("DIMI_CODE_BASE_URL");
+      expect(env).not.toHaveProperty("DIMI_CODE_OAUTH_HOST");
     } finally {
       host.dispose();
     }

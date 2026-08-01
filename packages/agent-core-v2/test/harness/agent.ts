@@ -2339,12 +2339,12 @@ function configService(readConfig: () => KimiConfig): IConfigService {
 
 function configWithEnvOverrides(config: KimiConfig): KimiConfig {
   const maxCompletionTokens =
-    parseEnvCompletionTokens(process.env["KIMI_MODEL_MAX_COMPLETION_TOKENS"]) ??
-    parseEnvCompletionTokens(process.env["KIMI_MODEL_MAX_TOKENS"]);
-  const temperature = parseEnvFloat(process.env["KIMI_MODEL_TEMPERATURE"]);
-  const topP = parseEnvFloat(process.env["KIMI_MODEL_TOP_P"]);
-  const forcedEffort = process.env["KIMI_MODEL_THINKING_EFFORT"]?.trim();
-  const thinkingKeep = process.env["KIMI_MODEL_THINKING_KEEP"]?.trim();
+    parseEnvCompletionTokens(process.env["DIMI_MODEL_MAX_COMPLETION_TOKENS"]) ??
+    parseEnvCompletionTokens(process.env["DIMI_MODEL_MAX_TOKENS"]);
+  const temperature = parseEnvFloat(process.env["DIMI_MODEL_TEMPERATURE"]);
+  const topP = parseEnvFloat(process.env["DIMI_MODEL_TOP_P"]);
+  const forcedEffort = process.env["DIMI_MODEL_THINKING_EFFORT"]?.trim();
+  const thinkingKeep = process.env["DIMI_MODEL_THINKING_KEEP"]?.trim();
   const cron = cronEnvOverrides(asMutableRecord(config["cron"]));
   if (
     maxCompletionTokens === undefined &&
@@ -2386,18 +2386,18 @@ function cronEnvOverrides(base: Record<string, unknown>): Record<string, unknown
     next[key] = value;
     changed = true;
   };
-  setBoolean("debug", "KIMI_CRON_DEBUG");
-  setBoolean("noJitter", "KIMI_CRON_NO_JITTER");
-  setBoolean("noStale", "KIMI_CRON_NO_STALE");
-  setBoolean("disabled", "KIMI_DISABLE_CRON");
-  setBoolean("manualTick", "KIMI_CRON_MANUAL_TICK");
-  const pollIntervalMs = parseEnvCronPollIntervalMs(process.env["KIMI_CRON_POLL_INTERVAL_MS"]);
+  setBoolean("debug", "DIMI_CRON_DEBUG");
+  setBoolean("noJitter", "DIMI_CRON_NO_JITTER");
+  setBoolean("noStale", "DIMI_CRON_NO_STALE");
+  setBoolean("disabled", "DIMI_DISABLE_CRON");
+  setBoolean("manualTick", "DIMI_CRON_MANUAL_TICK");
+  const pollIntervalMs = parseEnvCronPollIntervalMs(process.env["DIMI_CRON_POLL_INTERVAL_MS"]);
   if (pollIntervalMs !== undefined) {
     next["pollIntervalMs"] = pollIntervalMs;
     changed = true;
   }
-  if (process.env["KIMI_CRON_CLOCK"] !== undefined) {
-    next["clock"] = process.env["KIMI_CRON_CLOCK"];
+  if (process.env["DIMI_CRON_CLOCK"] !== undefined) {
+    next["clock"] = process.env["DIMI_CRON_CLOCK"];
     changed = true;
   }
   return changed ? next : undefined;

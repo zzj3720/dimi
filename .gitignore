@@ -17,7 +17,7 @@ coverage/
 .kimi-stash-dir
 plugins/cdn/
 .worktrees/
-.kimi-code/local.toml
+.dimi/local.toml
 .kimi-sandbox/
 .vscode/
 !apps/vscode/.vscode/

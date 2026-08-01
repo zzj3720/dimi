@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { KIMI_BUILD_INFO } from '#/cli/build-info';
+import { DIMI_BUILD_INFO } from '#/cli/build-info';
 import {
   getNativeCacheBase,
   getSeaAssetSource,
@@ -46,7 +46,7 @@ type RawWebAssetManifest = Omit<WebAssetManifest, 'version' | 'root'> & {
 };
 
 function currentTarget(): string {
-  return KIMI_BUILD_INFO.buildTarget ?? `${process.platform}-${process.arch}`;
+  return DIMI_BUILD_INFO.buildTarget ?? `${process.platform}-${process.arch}`;
 }
 
 function toBuffer(value: ArrayBuffer | ArrayBufferView | Buffer | string): Buffer {
@@ -143,7 +143,7 @@ export function getWebAssetCacheRoot(
   manifest: WebAssetManifest,
   options: WebAssetOptions = {},
 ): string {
-  const version = sanitizeSegment(options.version ?? KIMI_BUILD_INFO.version ?? 'dev');
+  const version = sanitizeSegment(options.version ?? DIMI_BUILD_INFO.version ?? 'dev');
   const manifestHash = sha256(JSON.stringify(manifest));
   return join(
     getNativeCacheBase({

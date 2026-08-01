@@ -43,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   telemetryTrack: vi.fn(),
   setTelemetryContext: vi.fn(),
   withTelemetryContext: vi.fn(),
-  resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
+  resolveDimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
 }));
 
@@ -51,7 +51,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   return {
     ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
+    resolveDimiHome: mocks.resolveDimiHome,
     createKimiHarness: (...args: unknown[]) => {
       const options = args[0] as { readonly homeDir?: string } | undefined;
       const homeDir = options?.homeDir ?? '/tmp/kimi-export-home';
@@ -80,7 +80,7 @@ vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
   return {
     ...actual,
     createKimiDeviceId: mocks.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: 'kimi-code',
+    DIMI_CODE_PROVIDER_NAME: 'kimi-code',
   };
 });
 
@@ -105,7 +105,7 @@ afterEach(() => {
     telemetry: true,
   });
   mocks.createKimiDeviceId.mockImplementation(() => 'device-1');
-  mocks.resolveKimiHome.mockImplementation(
+  mocks.resolveDimiHome.mockImplementation(
     (homeDir?: string) => homeDir ?? '/tmp/kimi-export-home',
   );
   mocks.harnessCreatesDeviceIdOnConstruction = false;

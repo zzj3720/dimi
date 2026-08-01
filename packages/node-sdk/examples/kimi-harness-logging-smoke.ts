@@ -7,7 +7,7 @@ import { createKimiHarness, log } from '@moonshot-ai/kimi-code-sdk';
 const SESSION_LOG = 'logs/kimi-code.log';
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
 const MAIN_WIRE = 'agents/main/wire.jsonl';
-const TEST_HOME = join(homedir(), '.kimi-code-test');
+const TEST_HOME = join(homedir(), '.dimi-test');
 const MAX_LOG_BYTES = 4096;
 
 function assert(value: unknown, message: string): asserts value {
@@ -53,12 +53,12 @@ async function describeFiles(dir: string, files: readonly string[]): Promise<str
 }
 
 async function main(): Promise<void> {
-  process.env['KIMI_CODE_HOME'] = TEST_HOME;
-  process.env['KIMI_LOG_LEVEL'] = 'warn';
-  process.env['KIMI_LOG_SESSION_MAX_BYTES'] = String(MAX_LOG_BYTES);
-  process.env['KIMI_LOG_SESSION_FILES'] = '2';
-  process.env['KIMI_LOG_GLOBAL_MAX_BYTES'] = String(MAX_LOG_BYTES);
-  process.env['KIMI_LOG_GLOBAL_FILES'] = '2';
+  process.env['DIMI_CODE_HOME'] = TEST_HOME;
+  process.env['DIMI_LOG_LEVEL'] = 'warn';
+  process.env['DIMI_LOG_SESSION_MAX_BYTES'] = String(MAX_LOG_BYTES);
+  process.env['DIMI_LOG_SESSION_FILES'] = '2';
+  process.env['DIMI_LOG_GLOBAL_MAX_BYTES'] = String(MAX_LOG_BYTES);
+  process.env['DIMI_LOG_GLOBAL_FILES'] = '2';
 
   await rm(TEST_HOME, { recursive: true, force: true });
   await mkdir(TEST_HOME, { recursive: true });
@@ -191,7 +191,7 @@ async function main(): Promise<void> {
         '  - logging-session.zip includes session logs and wire.jsonl',
         '  - logging-session.zip does not include logs/global/kimi-code.log',
         '  - logging-with-global.zip includes only the active global log at logs/global/kimi-code.log',
-        '  - global rotated logs such as ~/.kimi-code-test/logs/kimi-code.log.1 are intentionally not bundled',
+        '  - global rotated logs such as ~/.dimi-test/logs/kimi-code.log.1 are intentionally not bundled',
         '',
         'Redaction evidence:',
         '  - must-not-leak should NOT appear',

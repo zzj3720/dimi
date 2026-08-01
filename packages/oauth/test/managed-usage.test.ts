@@ -14,12 +14,12 @@ afterEach(() => {
 });
 
 describe("kimiCodeBaseUrl", () => {
-  it("strips trailing slashes from the KIMI_CODE_BASE_URL override", () => {
+  it("strips trailing slashes from the DIMI_CODE_BASE_URL override", () => {
     // The env value must be normalized at the source: provision persists it
     // verbatim while the model refresh rewrites it normalized, and the
     // deep-equal diff between the two shapes would fire a spurious
     // providers-changed event mid-login.
-    vi.stubEnv("KIMI_CODE_BASE_URL", "https://gw.example.com/");
+    vi.stubEnv("DIMI_CODE_BASE_URL", "https://gw.example.com/");
     expect(kimiCodeBaseUrl()).toBe("https://gw.example.com");
     expect(kimiCodeUsageUrl()).toBe("https://gw.example.com/usages");
   });

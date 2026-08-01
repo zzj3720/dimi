@@ -277,7 +277,7 @@ describe('interactive provider login', () => {
       const home = await mkdtemp(join(tmpdir(), 'kimi-retired-model-tui-e2e-'));
       tempHomes.push(home);
       await writeFile(join(home, 'tui.toml'), 'disable_paste_burst = true\n', 'utf8');
-      const { terminal, read } = startTui(home, { KIMI_MODEL_NAME: 'retired-model' });
+      const { terminal, read } = startTui(home, { DIMI_MODEL_NAME: 'retired-model' });
 
       try {
         await waitForText(terminal, read, 'Run /login to connect a provider.');
@@ -399,8 +399,8 @@ function startTui(
     env: {
       ...env,
       TERM: 'xterm-256color',
-      KIMI_CODE_HOME: home,
-      KIMI_LOG_LEVEL: 'off',
+      DIMI_CODE_HOME: home,
+      DIMI_LOG_LEVEL: 'off',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -427,8 +427,8 @@ function startDevTui(
     env: {
       ...env,
       TERM: 'xterm-256color',
-      KIMI_CODE_HOME: home,
-      KIMI_LOG_LEVEL: 'off',
+      DIMI_CODE_HOME: home,
+      DIMI_LOG_LEVEL: 'off',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -603,11 +603,11 @@ function waitForExit(terminal: ChildProcessWithoutNullStreams, timeoutMs = 15_00
 function sanitizedProviderEnv(overrides: Readonly<Record<string, string>> = {}): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const name of [
-    'KIMI_MODEL_NAME', 'KIMI_MODEL_PROVIDER', 'ANT_LING_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
+    'DIMI_MODEL_NAME', 'DIMI_MODEL_PROVIDER', 'ANT_LING_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_OAUTH_TOKEN', 'AZURE_OPENAI_API_KEY', 'CEREBRAS_API_KEY', 'CLOUDFLARE_API_KEY',
     'COPILOT_GITHUB_TOKEN', 'DEEPSEEK_API_KEY', 'FIREWORKS_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_CLOUD_API_KEY',
     'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION', 'GOOGLE_APPLICATION_CREDENTIALS', 'GCLOUD_PROJECT',
-    'GROQ_API_KEY', 'HF_TOKEN', 'KIMI_API_KEY', 'MINIMAX_API_KEY', 'MINIMAX_CN_API_KEY', 'MISTRAL_API_KEY',
+    'GROQ_API_KEY', 'HF_TOKEN', 'DIMI_API_KEY', 'MINIMAX_API_KEY', 'MINIMAX_CN_API_KEY', 'MISTRAL_API_KEY',
     'MOONSHOT_API_KEY', 'NVIDIA_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'OPENROUTER_API_KEY',
     'QWEN_TOKEN_PLAN_API_KEY', 'QWEN_TOKEN_PLAN_CN_API_KEY', 'RADIUS_API_KEY', 'TOGETHER_API_KEY',
     'AI_GATEWAY_API_KEY', 'XAI_API_KEY', 'XIAOMI_API_KEY', 'XIAOMI_TOKEN_PLAN_AMS_API_KEY',

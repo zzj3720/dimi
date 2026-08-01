@@ -71,7 +71,7 @@ async function main() {
   }
   const paths = await prepareDevEnvironment(options.baseDir);
   console.log(`Prepared isolated VS Code profile: ${paths.root}`);
-  console.log(`KIMI_CODE_HOME=${paths.kimiHome}`);
+  console.log(`DIMI_CODE_HOME=${paths.kimiHome}`);
   console.log(`Workspace=${paths.workspace}`);
 }
 

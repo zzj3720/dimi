@@ -34,7 +34,7 @@ const REQUIRED_WEBVIEW_FILES = [
 ];
 const FORBIDDEN_PATH_SEGMENTS = new Set([
   '.kimi',
-  '.kimi-code',
+  '.dimi',
   '.vscode',
   '__tests__',
   'cache',

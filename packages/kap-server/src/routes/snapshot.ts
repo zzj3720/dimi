@@ -4,7 +4,7 @@
  * Delegates to `ISnapshotReader`, which reads `state.json` and
  * `agents/main/wire.jsonl` directly without materializing the session scope.
  *
- * **Timeout**: the auto path races against a hard `KIMI_SNAPSHOT_TIMEOUT_MS`
+ * **Timeout**: the auto path races against a hard `DIMI_SNAPSHOT_TIMEOUT_MS`
  * ceiling (default 4000ms, under traefik's 5s cut-off). Timeout returns 50001
  * with a structured `snapshot.timeout` log line so the gateway never sees a 499.
  *

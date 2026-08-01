@@ -3,7 +3,7 @@
  *
  * Resolves the `rg` command used by Glob and Grep, preferring a file found on
  * PATH, then the vendor hook, then the app cache, and finally bootstrapping a
- * pinned ripgrep archive into `<KIMI_CODE_HOME|~/.kimi-code>/bin` when the
+ * pinned ripgrep archive into `<DIMI_CODE_HOME|~/.dimi>/bin` when the
  * caller permits it. File lookup intentionally avoids spawning `rg --version`
  * so tool resolution has the same observable shape as v1.
  */
@@ -65,9 +65,9 @@ function rgBinaryName(): string {
 }
 
 function getShareDir(): string {
-  const override = process.env['KIMI_CODE_HOME'];
+  const override = process.env['DIMI_CODE_HOME'];
   if (override !== undefined && override !== '') return override;
-  return join(homedir(), '.kimi-code');
+  return join(homedir(), '.dimi');
 }
 
 export function getShareBinRgPath(): string {

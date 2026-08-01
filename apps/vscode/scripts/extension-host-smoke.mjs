@@ -83,10 +83,10 @@ export async function runExtensionHostSmoke(options = {}) {
         "--skip-release-notes",
       ],
       extensionTestsEnv: {
-        KIMI_CODE_HOME: paths.kimiHome,
-        KIMI_VSCODE_SMOKE_OS_HOME: paths.osHome,
-        KIMI_VSCODE_SMOKE_REPORT: paths.report,
-        KIMI_VSCODE_SMOKE_VSIX: basename(vsixPath),
+        DIMI_CODE_HOME: paths.kimiHome,
+        DIMI_VSCODE_SMOKE_OS_HOME: paths.osHome,
+        DIMI_VSCODE_SMOKE_REPORT: paths.report,
+        DIMI_VSCODE_SMOKE_VSIX: basename(vsixPath),
       },
     });
 

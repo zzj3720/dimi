@@ -16,15 +16,15 @@ import {
 
 const SESSION_LOG = 'logs/kimi-code.log';
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
-const ENABLED = process.env['KIMI_E2E'] === '1';
+const ENABLED = process.env['DIMI_E2E'] === '1';
 
 const loggingEnv = vi.hoisted(() => {
   const tempRoot = process.env['TMPDIR'] ?? process.env['TEMP'] ?? process.env['TMP'] ?? '/tmp';
   const homeDir = `${tempRoot.replace(/[\\/]$/, '')}/kimi-cli-log-home-${String(process.pid)}`;
-  const previousHome = process.env['KIMI_CODE_HOME'];
-  const previousLogLevel = process.env['KIMI_LOG_LEVEL'];
-  process.env['KIMI_CODE_HOME'] = homeDir;
-  process.env['KIMI_LOG_LEVEL'] = 'info';
+  const previousHome = process.env['DIMI_CODE_HOME'];
+  const previousLogLevel = process.env['DIMI_LOG_LEVEL'];
+  process.env['DIMI_CODE_HOME'] = homeDir;
+  process.env['DIMI_LOG_LEVEL'] = 'info';
   return { homeDir, previousHome, previousLogLevel };
 });
 
@@ -40,14 +40,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await flushDiagnosticLogs();
   if (loggingEnv.previousHome === undefined) {
-    delete process.env['KIMI_CODE_HOME'];
+    delete process.env['DIMI_CODE_HOME'];
   } else {
-    process.env['KIMI_CODE_HOME'] = loggingEnv.previousHome;
+    process.env['DIMI_CODE_HOME'] = loggingEnv.previousHome;
   }
   if (loggingEnv.previousLogLevel === undefined) {
-    delete process.env['KIMI_LOG_LEVEL'];
+    delete process.env['DIMI_LOG_LEVEL'];
   } else {
-    process.env['KIMI_LOG_LEVEL'] = loggingEnv.previousLogLevel;
+    process.env['DIMI_LOG_LEVEL'] = loggingEnv.previousLogLevel;
   }
   await rm(homeDir, { recursive: true, force: true });
   await rm(workDir, { recursive: true, force: true });

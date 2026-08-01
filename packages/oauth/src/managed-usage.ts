@@ -24,14 +24,14 @@
 import { readApiErrorMessage } from "./api-error";
 import { isRecord } from "./utils";
 
-export const DEFAULT_KIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1";
+export const DEFAULT_DIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1";
 
 export function kimiCodeBaseUrl(): string {
   // Single source of truth for the canonical base-url shape: normalize the
   // env override here instead of letting a trailing slash leak into the
   // persisted provider entry, where a later normalized rewrite would diff
   // against it and emit a spurious providers-changed event during login.
-  return (process.env["KIMI_CODE_BASE_URL"] ?? DEFAULT_KIMI_CODE_BASE_URL).replace(/\/+$/, "");
+  return (process.env["DIMI_CODE_BASE_URL"] ?? DEFAULT_DIMI_CODE_BASE_URL).replace(/\/+$/, "");
 }
 
 export function kimiCodeUsageUrl(): string {

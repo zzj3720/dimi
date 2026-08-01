@@ -1,5 +1,5 @@
 import {
-  KIMI_CODE_FLOW_CONFIG,
+  DIMI_CODE_FLOW_CONFIG,
   pollDeviceToken,
   refreshAccessToken,
   requestDeviceAuthorization,
@@ -248,7 +248,7 @@ export const kimiCodingOAuth: OAuthAuth = {
   name: "Kimi Code (subscription)",
   loginLabel: "Sign in with Kimi Code",
   login: async (interaction) => {
-    const device = await requestDeviceAuthorization(KIMI_CODE_FLOW_CONFIG, {});
+    const device = await requestDeviceAuthorization(DIMI_CODE_FLOW_CONFIG, {});
     interaction.notify({
       type: "device_code",
       userCode: device.userCode,
@@ -261,7 +261,7 @@ export const kimiCodingOAuth: OAuthAuth = {
     while (Date.now() < deadline) {
       interaction.signal?.throwIfAborted();
       await abortableSleep(interval, interaction.signal);
-      const result = await pollDeviceToken(KIMI_CODE_FLOW_CONFIG, device.deviceCode, {});
+      const result = await pollDeviceToken(DIMI_CODE_FLOW_CONFIG, device.deviceCode, {});
       if (result.kind === "success") {
         return {
           type: "oauth",
@@ -277,7 +277,7 @@ export const kimiCodingOAuth: OAuthAuth = {
     throw new Error("Kimi device login timed out");
   },
   refresh: async (credential) => {
-    const token = await refreshAccessToken(KIMI_CODE_FLOW_CONFIG, credential.refresh, {});
+    const token = await refreshAccessToken(DIMI_CODE_FLOW_CONFIG, credential.refresh, {});
     return {
       type: "oauth",
       access: token.accessToken,

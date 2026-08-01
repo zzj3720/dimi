@@ -5,7 +5,7 @@ Run this flow through the local interactive TUI. API calls and internal service 
 ## Preconditions
 
 - CLIProxyAPI is healthy on its local OpenAI-compatible endpoint.
-- An isolated `KIMI_CODE_HOME` configures a Grok model through CLIProxyAPI without copying credentials into this repository.
+- An isolated `DIMI_CODE_HOME` configures a Grok model through CLIProxyAPI without copying credentials into this repository.
 - The repository build used by the TUI contains the current worktree.
 - A slow tool that does not implement its own background-task handoff is available. A local stdio MCP probe is suitable; `Bash` is not suitable for the timeout flow because it may return its own process task before the generic wait expires.
 

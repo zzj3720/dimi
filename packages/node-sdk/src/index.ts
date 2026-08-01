@@ -22,7 +22,7 @@ export * from "#/errors";
 // RootLogger / getRootLogger / LoggingConfig stay inside agent-core.
 export { flushDiagnosticLogs, flushDiagnosticLogsSync, log } from "#/logging";
 export type { Logger, LogContext, LogLevel, LogPayload } from "#/logging";
-export { resolveGlobalLogPath, resolveKimiHome } from "@moonshot-ai/agent-core-v2";
+export { resolveGlobalLogPath, resolveDimiHome } from "@moonshot-ai/agent-core-v2";
 
 // Host-side config path resolution.
 export { resolveConfigPath } from "@moonshot-ai/agent-core-v2";

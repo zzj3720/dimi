@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 import { dirname, join, win32 as pathWin32 } from 'node:path';
 import { join as joinPosix } from 'pathe';
 
-import { KIMI_BUILD_INFO } from '#/cli/build-info';
+import { DIMI_BUILD_INFO } from '#/cli/build-info';
 import { NATIVE_ASSET_MANIFEST_VERSION as MANIFEST_VERSION, buildManifestKey } from '../../scripts/native/manifest.mjs';
 
 export const NATIVE_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
@@ -77,7 +77,7 @@ function loadSeaModule(): NodeSeaModule | null {
 }
 
 function currentTarget(): string {
-  return KIMI_BUILD_INFO.buildTarget ?? `${process.platform}-${process.arch}`;
+  return DIMI_BUILD_INFO.buildTarget ?? `${process.platform}-${process.arch}`;
 }
 
 export function nativeAssetManifestKey(target: string = currentTarget()): string {
@@ -141,7 +141,7 @@ export function getNativeCacheBase(options: NativeAssetOptions = {}): string {
   const platform = options.platform ?? process.platform;
   const home = options.homeDir ?? homedir();
 
-  const cacheDirEnv = optionalEnvValue(env, 'KIMI_CODE_CACHE_DIR');
+  const cacheDirEnv = optionalEnvValue(env, 'DIMI_CODE_CACHE_DIR');
   if (cacheDirEnv !== null) return cacheDirEnv;
 
   if (platform === 'darwin') return joinPosix(home, 'Library', 'Caches', 'kimi-code');
@@ -159,7 +159,7 @@ export function getNativeAssetCacheRoot(
   manifest: NativeAssetManifest,
   options: NativeAssetOptions = {},
 ): string {
-  const version = sanitizeSegment(options.version ?? KIMI_BUILD_INFO.version ?? 'dev');
+  const version = sanitizeSegment(options.version ?? DIMI_BUILD_INFO.version ?? 'dev');
   const manifestHash = sha256(JSON.stringify(manifest));
   return join(
     getNativeCacheBase(options),
@@ -360,7 +360,7 @@ export function cleanupStaleNativeCacheForCurrent(
   if (manifest === null) return null;
 
   const cacheBase = getNativeCacheBase(options);
-  const version = KIMI_BUILD_INFO.version ?? 'dev';
+  const version = DIMI_BUILD_INFO.version ?? 'dev';
   const currentRoot = getNativeAssetCacheRoot(manifest, options);
 
   return cleanupStaleNativeCache({

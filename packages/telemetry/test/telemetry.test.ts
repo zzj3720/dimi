@@ -796,19 +796,19 @@ describe('AsyncTransport', () => {
 });
 
 describe('telemetry bootstrap', () => {
-  it('matches the KIMI_DISABLE_TELEMETRY true-value semantics', () => {
-    expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: '1' })).toBe(true);
-    expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: 'yes' })).toBe(true);
-    expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: '0' })).toBe(false);
-    expect(isTelemetryDisabledByEnv({ KIMI_DISABLE_TELEMETRY: 'false' })).toBe(false);
+  it('matches the DIMI_DISABLE_TELEMETRY true-value semantics', () => {
+    expect(isTelemetryDisabledByEnv({ DIMI_DISABLE_TELEMETRY: '1' })).toBe(true);
+    expect(isTelemetryDisabledByEnv({ DIMI_DISABLE_TELEMETRY: 'yes' })).toBe(true);
+    expect(isTelemetryDisabledByEnv({ DIMI_DISABLE_TELEMETRY: '0' })).toBe(false);
+    expect(isTelemetryDisabledByEnv({ DIMI_DISABLE_TELEMETRY: 'false' })).toBe(false);
   });
 
   it('disables the singleton without attaching a sink when opted out', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchImpl);
-    const saved = process.env['KIMI_DISABLE_TELEMETRY'];
+    const saved = process.env['DIMI_DISABLE_TELEMETRY'];
     try {
-      process.env['KIMI_DISABLE_TELEMETRY'] = 'true';
+      process.env['DIMI_DISABLE_TELEMETRY'] = 'true';
       initializeTelemetry({
         homeDir: await tempHome(),
         deviceId: 'dev',
@@ -818,8 +818,8 @@ describe('telemetry bootstrap', () => {
       track('dropped');
       await shutdownTelemetry();
     } finally {
-      if (saved === undefined) delete process.env['KIMI_DISABLE_TELEMETRY'];
-      else process.env['KIMI_DISABLE_TELEMETRY'] = saved;
+      if (saved === undefined) delete process.env['DIMI_DISABLE_TELEMETRY'];
+      else process.env['DIMI_DISABLE_TELEMETRY'] = saved;
     }
 
     expect(fetchImpl).not.toHaveBeenCalled();

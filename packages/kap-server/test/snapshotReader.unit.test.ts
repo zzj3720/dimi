@@ -4,7 +4,7 @@
  * Constructs `SnapshotReader` with stub core services and a real tmp `homeDir`,
  * writing `state.json` + `agents/main/wire.jsonl` directly — exercising the
  * disk read, the `context.*` reduction, the `(size, mtimeMs)` transcript cache,
- * current `state.json` schema, and `KIMI_SNAPSHOT_*` config parsing without
+ * current `state.json` schema, and `DIMI_SNAPSHOT_*` config parsing without
  * booting a Fastify daemon.
  */
 
@@ -497,15 +497,15 @@ describe('loadSnapshotConfig', () => {
 
   it('parses integer knobs with floors', () => {
     const c = loadSnapshotConfig({
-      KIMI_SNAPSHOT_TIMEOUT_MS: '2500',
-      KIMI_SNAPSHOT_CACHE_LIMIT: '0', // below min → default
+      DIMI_SNAPSHOT_TIMEOUT_MS: '2500',
+      DIMI_SNAPSHOT_CACHE_LIMIT: '0', // below min → default
     });
     expect(c.timeoutMs).toBe(2500);
     expect(c.cacheLimit).toBe(32);
   });
 
   it('falls back on non-numeric / sub-minimum timeout', () => {
-    expect(loadSnapshotConfig({ KIMI_SNAPSHOT_TIMEOUT_MS: 'abc' }).timeoutMs).toBe(4000);
-    expect(loadSnapshotConfig({ KIMI_SNAPSHOT_TIMEOUT_MS: '50' }).timeoutMs).toBe(4000);
+    expect(loadSnapshotConfig({ DIMI_SNAPSHOT_TIMEOUT_MS: 'abc' }).timeoutMs).toBe(4000);
+    expect(loadSnapshotConfig({ DIMI_SNAPSHOT_TIMEOUT_MS: '50' }).timeoutMs).toBe(4000);
   });
 });

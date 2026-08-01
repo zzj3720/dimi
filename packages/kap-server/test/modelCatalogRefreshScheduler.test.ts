@@ -60,8 +60,8 @@ describe("ModelCatalogRefreshScheduler", () => {
   it("honors env overrides for interval and refresh-on-start", async () => {
     const catalog = makeCatalog();
     const scheduler = new ModelCatalogRefreshScheduler(catalog, makeConfig(), makeLogger(), {
-      KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
-      KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "0",
+      DIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
+      DIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "0",
     });
 
     await scheduler.start();
@@ -97,8 +97,8 @@ describe("ModelCatalogRefreshScheduler", () => {
       makeConfig({ refreshIntervalMs: 6 * 60 * 60 * 1000, refreshOnStart: true }),
       makeLogger(),
       {
-        KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "0",
-        KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
+        DIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "0",
+        DIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
       },
     );
 
@@ -128,8 +128,8 @@ describe("ModelCatalogRefreshScheduler", () => {
     const catalog = makeCatalog(refresh);
     const logger = makeLogger();
     const scheduler = new ModelCatalogRefreshScheduler(catalog, makeConfig(), logger, {
-      KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
-      KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "false",
+      DIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS: "1000",
+      DIMI_CODE_MODEL_CATALOG_REFRESH_ON_START: "false",
     });
 
     await scheduler.start();

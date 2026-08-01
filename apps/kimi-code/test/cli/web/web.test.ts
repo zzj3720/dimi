@@ -516,7 +516,7 @@ describe('server web asset directory resolution', () => {
     try {
       writeFileSync(join(dir, 'index.html'), '<html></html>');
       expect(serverWebAssetsDir({}, dir)).toBe(dir);
-      expect(serverWebAssetsDir({ KIMI_CODE_DEV_SERVER: '1' }, dir)).toBe(dir);
+      expect(serverWebAssetsDir({ DIMI_CODE_DEV_SERVER: '1' }, dir)).toBe(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -536,7 +536,7 @@ describe('server web asset directory resolution', () => {
     const { serverWebAssetsDir } = await import('#/cli/sub/web/run');
     const dir = mkdtempSync(join(tmpdir(), 'kimi-web-assets-'));
     try {
-      expect(serverWebAssetsDir({ KIMI_CODE_DEV_SERVER: '1' }, dir)).toBeUndefined();
+      expect(serverWebAssetsDir({ DIMI_CODE_DEV_SERVER: '1' }, dir)).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -637,16 +637,16 @@ describe('`kimi web rotate-token`', () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'kimi-rotate-'));
-    prevHome = process.env['KIMI_CODE_HOME'];
-    process.env['KIMI_CODE_HOME'] = dir;
+    prevHome = process.env['DIMI_CODE_HOME'];
+    process.env['DIMI_CODE_HOME'] = dir;
     vi.resetModules();
   });
 
   afterEach(() => {
     if (prevHome === undefined) {
-      delete process.env['KIMI_CODE_HOME'];
+      delete process.env['DIMI_CODE_HOME'];
     } else {
-      process.env['KIMI_CODE_HOME'] = prevHome;
+      process.env['DIMI_CODE_HOME'] = prevHome;
     }
     rmSync(dir, { recursive: true, force: true });
   });

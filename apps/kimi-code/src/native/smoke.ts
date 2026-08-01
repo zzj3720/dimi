@@ -35,7 +35,7 @@ function smokePiTuiNativeLoad(): void {
 }
 
 export function runNativeAssetSmokeIfRequested(): boolean {
-  if (process.env['KIMI_CODE_NATIVE_ASSET_SMOKE'] !== '1') return false;
+  if (process.env['DIMI_CODE_NATIVE_ASSET_SMOKE'] !== '1') return false;
 
   try {
     const manifest = getEmbeddedNativeAssetManifest();

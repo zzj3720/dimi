@@ -18,16 +18,16 @@ export {
   createKimiDeviceHeaders,
   createKimiDeviceId,
   createKimiUserAgent,
-  KIMI_CODE_CUSTOM_HEADERS_ENV,
-  KIMI_CODE_PLATFORM,
+  DIMI_CODE_CUSTOM_HEADERS_ENV,
+  DIMI_CODE_PLATFORM,
   parseKimiCodeCustomHeaders,
   readKimiDeviceId,
 } from "./identity";
 export type { KimiHostIdentity, KimiIdentityOptions } from "./identity";
 
-export { KIMI_CODE_FLOW_CONFIG } from "./constants";
+export { DIMI_CODE_FLOW_CONFIG } from "./constants";
 
-export { KIMI_CODE_OAUTH_KEY, resolveKimiCodeOAuthKey } from "./credential-key";
+export { DIMI_CODE_OAUTH_KEY, resolveKimiCodeOAuthKey } from "./credential-key";
 
 export {
   fetchManagedUsage,

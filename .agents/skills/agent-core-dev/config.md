@@ -15,7 +15,7 @@ registering a section, classify the value along three axes — **decision-maker*
 | Type | Decision-maker | Preference/Fact | Persisted? | Examples | Home |
 |---|---|---|---|---|---|
 | User preference | user | preference | ✅ config.toml | model, theme, log level | **Config** |
-| Operational override | operator/deployer | preference | ❌ env / flag | `KIMI_MODEL_*`, `KIMI_LOG_*` | **Config** (env overlay) |
+| Operational override | operator/deployer | preference | ❌ env / flag | `DIMI_MODEL_*`, `DIMI_LOG_*` | **Config** (env overlay) |
 | Per-run intent | invoker | preference | ❌ ephemeral | CLI `--model`, `--config` | **Config** (Memory layer) |
 | Host fact | host | fact | ❌ | platform, CI, proxy, home dir | **Bootstrap** |
 | Derived convention | code | fact (derived) | ❌ | `configPath`, `logsDir` | **Bootstrap / code** |
@@ -47,7 +47,7 @@ upper domain (no `cron`, no `flags`, no feature-specific fields): that couples
 the foundational layer to an upstream one.
 
 Any value that belongs to a specific domain — including env-only operational
-toggles (`KIMI_CRON_*`, `KIMI_CODE_EXPERIMENTAL_*`), model parameters, or feature
+toggles (`DIMI_CRON_*`, `DIMI_CODE_EXPERIMENTAL_*`), model parameters, or feature
 flags — goes through **Config registration**: the owning domain registers a
 section with a declarative `envBindings` map (and a `stripEnv` when the value must
 not be persisted) and reads it via `config.get(...)`. Each config value declares
@@ -57,7 +57,7 @@ keeps every domain's config in one registry and keeps Bootstrap free of upstream
 knowledge.
 
 Operational env overrides and per-run intent live *inside* Config as layers over
-the same persistable key: `model` can be set in `config.toml`, via `KIMI_MODEL_*`,
+the same persistable key: `model` can be set in `config.toml`, via `DIMI_MODEL_*`,
 or via CLI `--model`. They are not separate abstractions — see "Reads vs writes"
 and "Layered resolution" below.
 
@@ -75,7 +75,7 @@ Default   registered defaultValue (and code constants promoted to a section)
    ↓
 User      config.toml (persisted user preferences)
    ↓
-Operational env overlay (e.g. KIMI_MODEL_*, KIMI_CODE_EXPERIMENTAL_*)
+Operational env overlay (e.g. DIMI_MODEL_*, DIMI_CODE_EXPERIMENTAL_*)
    ↓
 Memory    per-run intent (CLI flags); never persisted; highest
 ```
@@ -92,11 +92,11 @@ pass `ConfigTarget.Memory` for a per-run override that is never written to disk.
 - `src/profile/thinking.ts` (owner domain, not `config`) — the `resolveThinkingEffort` helper; uses the authoritative `ThinkingConfig` from `configSection.ts`.
 - `src/config/configPure.ts` — `isPlainObject`, `deepMerge`, `omitUndefined`, `describeUnknownError`.
 
-A domain that owns a section keeps the schema in its own `configSection.ts` (e.g. `src/flag/flag.ts` for `experimental`, `src/loop/configSection.ts` for `loopControl`). Exception: kosong-owned sections (`providers`, `models`, `thinking`) — kosong is a pure, persistence-free abstraction layer that defines only the types (`src/kosong/{provider,model}`); the section constants, the zod schemas (re-derived from those types and compile-time pinned via `AssertExact<Equal<z.infer<typeof Schema>, Type>>`, see `_base/utils/typeEquality.ts`), the registrations, env bindings, and TOML transforms all live in the persistence wrapper `src/app/kosongConfig/configSection.ts`. (`modelCatalog` and `secondaryModel` have no kosong-side type at all — their sections are fully self-contained in `app/kosongConfig`, types derived from the schemas.) A cross-section env overlay (e.g. the `KIMI_MODEL_*` synthesis) lives in the wrapper too (`src/app/kosongConfig/envOverlay.ts`; the `[secondary_model]` derived-entry synthesis in `secondaryModelOverlay.ts`) and is registered via `IConfigRegistry.registerEffectiveOverlay`. The two-way sync between config sections and kosong's in-memory registries is owned by `IKosongConfigService` (`src/app/kosongConfig/kosongConfigService.ts`).
+A domain that owns a section keeps the schema in its own `configSection.ts` (e.g. `src/flag/flag.ts` for `experimental`, `src/loop/configSection.ts` for `loopControl`). Exception: kosong-owned sections (`providers`, `models`, `thinking`) — kosong is a pure, persistence-free abstraction layer that defines only the types (`src/kosong/{provider,model}`); the section constants, the zod schemas (re-derived from those types and compile-time pinned via `AssertExact<Equal<z.infer<typeof Schema>, Type>>`, see `_base/utils/typeEquality.ts`), the registrations, env bindings, and TOML transforms all live in the persistence wrapper `src/app/kosongConfig/configSection.ts`. (`modelCatalog` and `secondaryModel` have no kosong-side type at all — their sections are fully self-contained in `app/kosongConfig`, types derived from the schemas.) A cross-section env overlay (e.g. the `DIMI_MODEL_*` synthesis) lives in the wrapper too (`src/app/kosongConfig/envOverlay.ts`; the `[secondary_model]` derived-entry synthesis in `secondaryModelOverlay.ts`) and is registered via `IConfigRegistry.registerEffectiveOverlay`. The two-way sync between config sections and kosong's in-memory registries is owned by `IKosongConfigService` (`src/app/kosongConfig/kosongConfigService.ts`).
 
 ## Scope
 
-- `IConfigRegistry` / `IConfigService` — **App** scope, process-global. One registry of sections; one loader reading `~/.kimi-code/config.toml` (path from `IBootstrapService.configPath`).
+- `IConfigRegistry` / `IConfigService` — **App** scope, process-global. One registry of sections; one loader reading `~/.dimi/config.toml` (path from `IBootstrapService.configPath`).
 
 All config reads go through `IConfigService` (global config). Per-session runtime state (active model, thinking level, etc.) lives in the owning Session-scoped service (e.g. `IProfileService`), not in `config`.
 
@@ -126,7 +126,7 @@ type-checked against the schema (no magic strings), and nested schemas recurse:
 ```ts
 registerSection('thinking', ThinkingConfigSchema, {
   env: envBindings(ThinkingConfigSchema, {
-    effort: 'KIMI_MODEL_THINKING_EFFORT',
+    effort: 'DIMI_MODEL_THINKING_EFFORT',
   }),
 });
 
@@ -135,9 +135,9 @@ registerSection('thinking', ThinkingConfigSchema, {
 registerSection('providers', ProvidersSectionSchema, {
   env: envBindings(ProvidersSectionSchema, {
     [ENV_MODEL_PROVIDER_KEY]: envBindings(ProviderConfigSchema, {
-      apiKey: 'KIMI_MODEL_API_KEY',
-      type:   'KIMI_MODEL_PROVIDER_TYPE',
-      baseUrl:'KIMI_MODEL_BASE_URL',
+      apiKey: 'DIMI_MODEL_API_KEY',
+      type:   'DIMI_MODEL_PROVIDER_TYPE',
+      baseUrl:'DIMI_MODEL_BASE_URL',
     }),
   }),
   stripEnv: stripProvidersEnv,
@@ -234,13 +234,13 @@ This means registration order is never a correctness concern — you do not need
 - `validated` — validated `raw`, env-free; the base every live env re-application starts from, so a degraded or removed env value falls back to the file instead of a stale overlay.
 - `effective` — `validated` plus the env overlay, recomputed on load/set; `get()`/`getAll()` re-apply the overlay on a fresh `validated` copy per read rather than caching it.
 
-### `KIMI_MODEL_*` env overlay
+### `DIMI_MODEL_*` env overlay
 
-When `KIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `kimiModelEnvOverlay` (`src/app/kosongConfig/envOverlay.ts`) injects a reserved model alias (`__kimi_env_model__`) into `effective`, points `defaultModel` at it, and merges the request `modelOverrides`; the reserved provider (`__kimi_env__`) comes from the `providers` section env bindings. The overlay is registered via `IConfigRegistry.registerEffectiveOverlay` and applied **only to `effective`**, never to `rawSnake`, so it is never persisted. Its `strip` (plus the providers section `stripEnv`) is the final guard so a caller that read `effective` (with the overlay) cannot write the reserved entries or the shell API key back to disk. `config` itself only runs registered overlays — it does not know the `KIMI_MODEL_*` semantics.
+When `DIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `kimiModelEnvOverlay` (`src/app/kosongConfig/envOverlay.ts`) injects a reserved model alias (`__kimi_env_model__`) into `effective`, points `defaultModel` at it, and merges the request `modelOverrides`; the reserved provider (`__kimi_env__`) comes from the `providers` section env bindings. The overlay is registered via `IConfigRegistry.registerEffectiveOverlay` and applied **only to `effective`**, never to `rawSnake`, so it is never persisted. Its `strip` (plus the providers section `stripEnv`) is the final guard so a caller that read `effective` (with the overlay) cannot write the reserved entries or the shell API key back to disk. `config` itself only runs registered overlays — it does not know the `DIMI_MODEL_*` semantics.
 
 ## Owner-owned sections
 
-`config` holds no monolithic config schema and no whole-config object. Every section is owned by the domain that consumes it: the schema (and any `fromToml` / `toToml` normalization and `stripEnv`) lives in that domain's `configSection.ts`, and the domain registers it via `IConfigRegistry.registerSection`. Cross-section env behavior (e.g. `KIMI_MODEL_*`) lives in an owner-registered `ConfigEffectiveOverlay`. To add a section, follow "Add a config section" above in the owning domain — never add schema or normalization to `config` itself.
+`config` holds no monolithic config schema and no whole-config object. Every section is owned by the domain that consumes it: the schema (and any `fromToml` / `toToml` normalization and `stripEnv`) lives in that domain's `configSection.ts`, and the domain registers it via `IConfigRegistry.registerSection`. Cross-section env behavior (e.g. `DIMI_MODEL_*`) lives in an owner-registered `ConfigEffectiveOverlay`. To add a section, follow "Add a config section" above in the owning domain — never add schema or normalization to `config` itself.
 
 ## Ownership map (generated)
 

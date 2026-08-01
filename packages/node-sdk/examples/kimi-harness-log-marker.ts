@@ -7,7 +7,7 @@ import {
   flushDiagnosticLogs,
   log,
   resolveGlobalLogPath,
-  resolveKimiHome,
+  resolveDimiHome,
 } from '@moonshot-ai/kimi-code-sdk';
 
 type MarkerLevel = 'error' | 'warn';
@@ -32,7 +32,7 @@ const USAGE = `Usage:
 
 Options:
   -s, --session <id>   Existing session id to resume and mark
-      --home <dir>     Kimi home dir; defaults to KIMI_CODE_HOME or ~/.kimi-code
+      --home <dir>     Kimi home dir; defaults to DIMI_CODE_HOME or ~/.dimi
       --level <level>  error | warn; defaults to error
   -m, --message <text> Marker text; defaults to MANUAL_SESSION_LOG_MARKER_<timestamp>
   -h, --help           Show this help
@@ -40,7 +40,7 @@ Options:
 
 async function main(): Promise<void> {
   const options = parseCliArgs();
-  const resolvedHome = resolveKimiHome(options.homeDir);
+  const resolvedHome = resolveDimiHome(options.homeDir);
   const harness = createKimiHarness({
     identity: { userAgentProduct: 'kimi-code-cli', version: 'log-marker' },
     homeDir: options.homeDir,
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     process.stderr.write(
       [
         'error: marker was not found in the session log.',
-        'Check that KIMI_LOG_LEVEL is not "off" and that the session id exists in this KIMI_CODE_HOME.',
+        'Check that DIMI_LOG_LEVEL is not "off" and that the session id exists in this DIMI_CODE_HOME.',
         '',
       ].join('\n'),
     );

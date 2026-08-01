@@ -672,19 +672,19 @@ async function performSecondaryModelSwitch(
     }
   }
   // Report the effective binding from the reloaded config, not the picked
-  // value: KIMI_SECONDARY_MODEL / KIMI_SECONDARY_EFFORT override the recipe at
+  // value: DIMI_SECONDARY_MODEL / DIMI_SECONDARY_EFFORT override the recipe at
   // runtime, and the session binds the overlaid snapshot (mirrors how
   // /model displays the effective alias read back from the session).
   const effective = updatedConfig.secondaryModel;
   const envOverrides: string[] = [];
   if (effective?.provider !== undefined && effective.provider !== selected?.provider) {
-    envOverrides.push(`KIMI_SECONDARY_PROVIDER=${effective.provider}`);
+    envOverrides.push(`DIMI_SECONDARY_PROVIDER=${effective.provider}`);
   }
   if (effective?.model !== undefined && effective.model !== selected?.model) {
-    envOverrides.push(`KIMI_SECONDARY_MODEL=${effective.model}`);
+    envOverrides.push(`DIMI_SECONDARY_MODEL=${effective.model}`);
   }
   if (effective?.defaultEffort !== undefined && effective.defaultEffort !== effort) {
-    envOverrides.push(`KIMI_SECONDARY_EFFORT=${effective.defaultEffort}`);
+    envOverrides.push(`DIMI_SECONDARY_EFFORT=${effective.defaultEffort}`);
   }
   if (envOverrides.length > 0 && effective?.model !== undefined) {
     const effectiveReference = configuredModelReference(

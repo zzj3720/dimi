@@ -689,7 +689,7 @@ describe('McpConnectionManager', () => {
           transport: 'stdio',
           command: process.execPath,
           args: [crashAfterConnectFixture],
-          env: { KIMI_TEST_MCP_EXIT_AFTER_MS: '500', KIMI_TEST_MCP_STDERR: 'fatal: out of memory' },
+          env: { DIMI_TEST_MCP_EXIT_AFTER_MS: '500', DIMI_TEST_MCP_STDERR: 'fatal: out of memory' },
           startupTimeoutMs: 4_000,
         },
       });
@@ -722,13 +722,13 @@ describe('McpConnectionManager', () => {
           transport: 'stdio',
           command: process.execPath,
           args: [stderrThenExitFixture],
-          env: { KIMI_TEST_MCP_STDERR: 'fatal: missing API token KIMI_X' },
+          env: { DIMI_TEST_MCP_STDERR: 'fatal: missing API token DIMI_X' },
           startupTimeoutMs: 4_000,
         },
       });
       const entry = cm.get('nope');
       expect(entry?.status).toBe('failed');
-      expect(entry?.error).toContain('fatal: missing API token KIMI_X');
+      expect(entry?.error).toContain('fatal: missing API token DIMI_X');
     } finally {
       await cm.shutdown();
     }
@@ -914,7 +914,7 @@ describe('Session MCP initialization', () => {
         transport: 'stdio',
         command: process.execPath,
         args: [slowToolStdioFixture],
-        env: { KIMI_TEST_MCP_TOOL_DELAY_MS: '300' },
+        env: { DIMI_TEST_MCP_TOOL_DELAY_MS: '300' },
       },
     });
     manager = service.connectionManager();

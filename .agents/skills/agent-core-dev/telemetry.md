@@ -73,7 +73,7 @@ telemetry.addAppender(new ConsoleAppender({ prefix: '[dev]' }));   // dev echo
 telemetry.addAppender(new CloudAppender({                          // production
   homeDir, deviceId, sessionId,
   appName: 'kimi-code', version, uiMode: 'shell', model,
-  getAccessToken: () => auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME),
+  getAccessToken: () => auth.getCachedAccessToken(DIMI_CODE_PROVIDER_NAME),
 }));
 ```
 

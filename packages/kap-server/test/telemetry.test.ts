@@ -51,7 +51,7 @@ describe("server telemetry", () => {
   ): Promise<Scope> {
     const resolvedEnv = env ?? {
       ...process.env,
-      KIMI_DISABLE_TELEMETRY: undefined,
+      DIMI_DISABLE_TELEMETRY: undefined,
     };
     if (toml !== undefined) {
       await writeFile(join(home as string, "config.toml"), toml, "utf-8");
@@ -121,11 +121,11 @@ describe("server telemetry", () => {
   });
 
   it.each(["1", "true", "t", "yes", "y", " TRUE "])(
-    "keeps the null appender when KIMI_DISABLE_TELEMETRY=%s",
+    "keeps the null appender when DIMI_DISABLE_TELEMETRY=%s",
     async (value) => {
       const app = await bootCore(undefined, {
         ...process.env,
-        KIMI_DISABLE_TELEMETRY: value,
+        DIMI_DISABLE_TELEMETRY: value,
       });
       const telemetry = await initializeServerTelemetry(app, home as string);
       expect(telemetry.appender).toBeUndefined();

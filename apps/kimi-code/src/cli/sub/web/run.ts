@@ -324,7 +324,7 @@ async function runServerInProcess(
 
 /**
  * Resolve the web assets directory passed to kap-server. In dev mode
- * (`KIMI_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
+ * (`DIMI_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
  * scripts) a missing `dist-web` build is tolerated: the server starts API-only
  * and the web UI is expected to come from the kimi-web Vite dev server.
  * Outside dev mode the directory is always returned and kap-server keeps
@@ -335,7 +335,7 @@ export function serverWebAssetsDir(
   nativeWebAssetsDir: string | null = getNativeWebAssetsDir(),
 ): string | undefined {
   const dir = resolveServerWebAssetsDir(nativeWebAssetsDir);
-  if (env['KIMI_CODE_DEV_SERVER'] === '1' && !existsSync(join(dir, 'index.html'))) {
+  if (env['DIMI_CODE_DEV_SERVER'] === '1' && !existsSync(join(dir, 'index.html'))) {
     return undefined;
   }
   return dir;

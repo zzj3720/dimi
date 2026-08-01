@@ -273,8 +273,8 @@ export class PluginManager {
           ...hook,
           cwd: record.root,
           env: {
-            KIMI_CODE_HOME: this.kimiHomeDir,
-            KIMI_PLUGIN_ROOT: record.root,
+            DIMI_CODE_HOME: this.kimiHomeDir,
+            DIMI_PLUGIN_ROOT: record.root,
           },
         });
       }
@@ -656,7 +656,7 @@ function pluginMcpRuntimeName(pluginId: string, serverName: string): string {
   return `plugin-${pluginId}:${serverName}`;
 }
 
-const KIMI_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
+const DIMI_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
 
 function withMcpServerEnabled(config: McpServerConfig, enabled: boolean): McpServerConfig {
   return { ...config, enabled };
@@ -671,8 +671,8 @@ function withPluginMcpRuntime(
 
   const env = {
     ...config.env,
-    KIMI_CODE_HOME: kimiHomeDir,
-    KIMI_PLUGIN_ROOT: pluginRoot,
+    DIMI_CODE_HOME: kimiHomeDir,
+    DIMI_PLUGIN_ROOT: pluginRoot,
   };
 
   if (config.command === 'node' && isElectron()) {
@@ -692,7 +692,7 @@ function withPluginMcpRuntime(
     return {
       ...config,
       command: process.execPath,
-      args: [KIMI_NODE_FALLBACK_SUBCOMMAND, ...(config.args ?? [])],
+      args: [DIMI_NODE_FALLBACK_SUBCOMMAND, ...(config.args ?? [])],
       cwd: config.cwd ?? pluginRoot,
       env,
     };

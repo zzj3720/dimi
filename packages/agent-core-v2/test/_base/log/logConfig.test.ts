@@ -29,11 +29,11 @@ describe('resolveLoggingConfig', () => {
     const cfg = resolveLoggingConfig({
       homeDir: '/h',
       env: {
-        KIMI_LOG_LEVEL: 'debug',
-        KIMI_LOG_GLOBAL_MAX_BYTES: '1024',
-        KIMI_LOG_GLOBAL_FILES: '7',
-        KIMI_LOG_SESSION_MAX_BYTES: '2048',
-        KIMI_LOG_SESSION_FILES: '4',
+        DIMI_LOG_LEVEL: 'debug',
+        DIMI_LOG_GLOBAL_MAX_BYTES: '1024',
+        DIMI_LOG_GLOBAL_FILES: '7',
+        DIMI_LOG_SESSION_MAX_BYTES: '2048',
+        DIMI_LOG_SESSION_FILES: '4',
       },
     });
     expect(cfg.level).toBe('debug');
@@ -47,9 +47,9 @@ describe('resolveLoggingConfig', () => {
     const cfg = resolveLoggingConfig({
       homeDir: '/h',
       env: {
-        KIMI_LOG_LEVEL: 'verbose',
-        KIMI_LOG_GLOBAL_MAX_BYTES: '-5',
-        KIMI_LOG_GLOBAL_FILES: 'abc',
+        DIMI_LOG_LEVEL: 'verbose',
+        DIMI_LOG_GLOBAL_MAX_BYTES: '-5',
+        DIMI_LOG_GLOBAL_FILES: 'abc',
       },
     });
     expect(cfg.level).toBe(DEFAULT_LOG_LEVEL);
@@ -75,7 +75,7 @@ describe('path resolution', () => {
 
 describe('logSeed', () => {
   it('seeds ILogOptions into a App scope', () => {
-    const cfg = resolveLoggingConfig({ homeDir: '/h', env: { KIMI_LOG_LEVEL: 'warn' } });
+    const cfg = resolveLoggingConfig({ homeDir: '/h', env: { DIMI_LOG_LEVEL: 'warn' } });
     const host = createScopedTestHost(logSeed(cfg));
     const opts = host.app.accessor.get(ILogOptions);
     expect(opts.level).toBe('warn');

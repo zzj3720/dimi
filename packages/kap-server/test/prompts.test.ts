@@ -743,7 +743,7 @@ describe("server-v2 /api/v1 prompts", () => {
   });
 
   it("binds a discovered custom agent profile on the first prompt", async () => {
-    // A user-level agent file under $KIMI_CODE_HOME/agents is discovered into
+    // A user-level agent file under $DIMI_CODE_HOME/agents is discovered into
     // the session profile catalog and selectable by name.
     await mkdir(join(home as string, "agents"), { recursive: true });
     await writeFile(

@@ -103,7 +103,7 @@ describe('native release artifacts', () => {
 
     await execFileAsync(process.execPath, [packageScript], {
       cwd: appRoot,
-      env: { ...process.env, KIMI_CODE_BUILD_TARGET: target },
+      env: { ...process.env, DIMI_CODE_BUILD_TARGET: target },
     });
 
     const archivePath = resolve(artifactsDir, `kimi-code-${target}.zip`);

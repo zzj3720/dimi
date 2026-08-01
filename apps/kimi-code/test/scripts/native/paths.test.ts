@@ -31,12 +31,12 @@ describe('targetTriple', () => {
     expect(targetTriple({ platform: 'win32', arch: 'x64', env: {} })).toBe('win32-x64');
   });
 
-  it('honors KIMI_CODE_BUILD_TARGET override', () => {
+  it('honors DIMI_CODE_BUILD_TARGET override', () => {
     expect(
       targetTriple({
         platform: 'darwin',
         arch: 'arm64',
-        env: { KIMI_CODE_BUILD_TARGET: 'linux-arm64' },
+        env: { DIMI_CODE_BUILD_TARGET: 'linux-arm64' },
       }),
     ).toBe('linux-arm64');
   });

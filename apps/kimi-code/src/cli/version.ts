@@ -12,7 +12,7 @@ import { createKimiDefaultHeaders, createKimiUserAgent, type KimiHostIdentity } 
 import { CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 
 import { getDataDir } from '../utils/paths';
-import { KIMI_BUILD_INFO } from './build-info';
+import { DIMI_BUILD_INFO } from './build-info';
 
 const MODULE_DIR = import.meta.dirname;
 
@@ -39,8 +39,8 @@ export function getHostPackageRoot(): string {
 }
 
 export function getVersion(): string {
-  if (KIMI_BUILD_INFO.version !== undefined) {
-    return KIMI_BUILD_INFO.version;
+  if (DIMI_BUILD_INFO.version !== undefined) {
+    return DIMI_BUILD_INFO.version;
   }
   const pkg = JSON.parse(readFileSync(getHostPackageJsonPath(), 'utf-8')) as {
     version: string;

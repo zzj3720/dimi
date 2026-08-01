@@ -1,7 +1,7 @@
 import {
   BoundLogger,
   createFileLogWriter,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   type ILogger,
   type LogContext,
@@ -9,7 +9,7 @@ import {
   type LogPayload,
 } from '@moonshot-ai/agent-core-v2';
 
-const config = resolveLoggingConfig({ homeDir: resolveKimiHome(), env: process.env });
+const config = resolveLoggingConfig({ homeDir: resolveDimiHome(), env: process.env });
 const writer = createFileLogWriter({
   path: config.globalLogPath,
   maxBytes: config.globalMaxBytes,

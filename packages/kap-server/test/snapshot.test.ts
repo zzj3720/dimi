@@ -99,7 +99,7 @@ describe('server-v2 snapshot route error mapping', () => {
     };
     const handler = captureHandler(
       { core, broadcaster: {}, reader },
-      { KIMI_SNAPSHOT_TIMEOUT_MS: '150' },
+      { DIMI_SNAPSHOT_TIMEOUT_MS: '150' },
     );
     let payload: unknown;
     await handler(

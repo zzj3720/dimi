@@ -32,7 +32,7 @@ cd dimi
 vp run dev:cli
 ```
 
-首次启动时，在 Dimi 里输入 `/login`，选择供应商及其支持的 OAuth、API 密钥或云身份登录方式。兼容端点可以在 `~/.kimi-code/models.json` 中添加或覆盖；详见[供应商与模型](docs/zh/configuration/providers.md)。登录完成后，可以先让它熟悉项目：
+首次启动时，在 Dimi 里输入 `/login`，选择供应商及其支持的 OAuth、API 密钥或云身份登录方式。兼容端点可以在 `~/.dimi/models.json` 中添加或覆盖；详见[供应商与模型](docs/zh/configuration/providers.md)。登录完成后，可以先让它熟悉项目：
 
 ```
 帮我看一下这个项目的目录结构，简单介绍一下每个目录是做什么的

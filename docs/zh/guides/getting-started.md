@@ -41,7 +41,7 @@ vp run dev:cli
 
 `kimi upgrade` / `kimi update` 会明确提示本构建未配置自动升级，绝不会安装旧的发布版。
 
-**卸载**：删除 clone 出来的目录即可。`~/.kimi-code/` 下的本地数据独立保存；只有同时希望删除会话和凭据时才删除它。
+**卸载**：删除 clone 出来的目录即可。`~/.dimi/` 下的本地数据独立保存；只有同时希望删除会话和凭据时才删除它。
 
 ## 第一次启动
 
@@ -132,7 +132,7 @@ Dimi 会规划步骤、修改代码、运行测试，并在每一步告诉你它
 
 ## 数据存放在哪里
 
-Dimi 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录和日志。本源码构建没有启用更新通道。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
+Dimi 的本地数据默认保存在 `~/.dimi/` 下，包含配置文件、会话记录和日志。本源码构建没有启用更新通道。如需迁移到别处，通过 `DIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
 
 ## 下一步
 

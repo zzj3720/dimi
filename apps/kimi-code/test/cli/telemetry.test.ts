@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   initializeTelemetry: vi.fn(),
   createKimiDeviceId: vi.fn(() => "device-123"),
-  resolveKimiHome: vi.fn(() => "/home/.kimi-code"),
-  resolveConfigPath: vi.fn(() => "/home/.kimi-code/config.toml"),
+  resolveDimiHome: vi.fn(() => "/home/.dimi"),
+  resolveConfigPath: vi.fn(() => "/home/.dimi/config.toml"),
   readFileSync: vi.fn(() => 'default_model = "kimi-k2"\ntelemetry = true\n'),
   getCachedAccessToken: vi.fn(async () => "tok"),
 }));
@@ -35,7 +35,7 @@ vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
   return {
     ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
+    resolveDimiHome: mocks.resolveDimiHome,
     resolveConfigPath: mocks.resolveConfigPath,
     KimiAuthFacade: vi.fn(function () {
       return { getCachedAccessToken: mocks.getCachedAccessToken };
@@ -61,7 +61,7 @@ describe("initializeServerTelemetry", () => {
         model: "kimi-k2",
         enabled: true,
         deviceId: "device-123",
-        homeDir: "/home/.kimi-code",
+        homeDir: "/home/.dimi",
       }),
     );
     // The returned client wraps the module functions so core + the host share

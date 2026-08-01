@@ -5,7 +5,7 @@ import { ConfigRegistry } from "@moonshot-ai/agent-core-v2";
 import { transformTomlData } from "@moonshot-ai/agent-core-v2/app/config/toml";
 import {
   resolveConfigPath,
-  resolveKimiHome,
+  resolveDimiHome,
   type KimiConfig,
   type KimiHarness,
   type TelemetryClient,
@@ -38,7 +38,7 @@ export interface InitializeCliTelemetryOptions {
 
 export function createCliTelemetryBootstrap(): CliTelemetryBootstrap {
   let firstLaunch = false;
-  const homeDir = resolveKimiHome();
+  const homeDir = resolveDimiHome();
   const deviceId = createKimiDeviceId(homeDir, {
     onFirstLaunch: () => {
       firstLaunch = true;

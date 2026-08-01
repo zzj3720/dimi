@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
     readonly fallback: TuiConfigFallback;
 
     constructor(fallback: TuiConfigFallback) {
-      super("Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.");
+      super("Invalid TUI config in ~/.dimi/tui.toml; using defaults.");
       this.fallback = fallback;
     }
   }
@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => {
     withTelemetryContext: vi.fn(() => ({
       track: lifecycleTrack,
     })),
-    resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? "/tmp/kimi-code-test-home"),
+    resolveDimiHome: vi.fn((homeDir?: string) => homeDir ?? "/tmp/kimi-code-test-home"),
     flushDiagnosticLogsSync: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
     execSync: vi.fn(),
@@ -83,7 +83,7 @@ vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
   };
   return {
     ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
+    resolveDimiHome: mocks.resolveDimiHome,
     flushDiagnosticLogsSync: mocks.flushDiagnosticLogsSync,
     createKimiHarness: (...args: unknown[]) => {
       const options = args[0] as { readonly homeDir?: string } | undefined;
@@ -104,7 +104,7 @@ vi.mock("@moonshot-ai/kimi-code-oauth", async () => {
   return {
     ...actual,
     createKimiDeviceId: mocks.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: "kimi-code",
+    DIMI_CODE_PROVIDER_NAME: "kimi-code",
   };
 });
 
@@ -157,7 +157,7 @@ describe("runShell", () => {
     mocks.tuiGetCurrentSessionId.mockReturnValue("");
     mocks.tuiHasSessionContent.mockReturnValue(false);
     mocks.createKimiDeviceId.mockImplementation(() => "device-1");
-    mocks.resolveKimiHome.mockImplementation(
+    mocks.resolveDimiHome.mockImplementation(
       (homeDir?: string) => homeDir ?? "/tmp/kimi-code-test-home",
     );
     mocks.harnessCreatesDeviceIdOnConstruction = false;
@@ -476,7 +476,7 @@ describe("runShell", () => {
     expect(mocks.detectTerminalTheme).toHaveBeenCalledOnce();
     const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({
-      startupNotice: "Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.",
+      startupNotice: "Invalid TUI config in ~/.dimi/tui.toml; using defaults.",
       tuiConfig: {
         theme: "auto",
         editorCommand: "vim",

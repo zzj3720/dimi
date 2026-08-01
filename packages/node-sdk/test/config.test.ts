@@ -154,7 +154,7 @@ describe("KimiHarness config API", () => {
   });
 
   it("returns experimental feature metadata through the harness", async () => {
-    vi.stubEnv("KIMI_CODE_EXPERIMENTAL_FLAG", "0");
+    vi.stubEnv("DIMI_CODE_EXPERIMENTAL_FLAG", "0");
     const homeDir = await makeTempDir();
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 

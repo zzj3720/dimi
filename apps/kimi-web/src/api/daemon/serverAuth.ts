@@ -2,7 +2,7 @@
 // Minimal server-transport credential store for the Web UI.
 //
 // The local server now requires a bearer credential on every non-bypass API
-// and WebSocket call (the persistent server token, or the KIMI_CODE_PASSWORD
+// and WebSocket call (the persistent server token, or the DIMI_CODE_PASSWORD
 // password). The Web UI obtains that credential in one of two ways:
 //   1. From the URL fragment (`#token=<...>`) that `kimi web` appends when it
 //      opens the browser — read once at boot, then scrubbed from the URL so it
@@ -12,7 +12,7 @@
 // The credential is held in memory and mirrored to localStorage for up to 7
 // days so it survives tab close and browser restarts without becoming a
 // permanent browser-profile secret. The token is already persisted server-side
-// at <KIMI_CODE_HOME>/server.token and handed to the browser in the launch URL.
+// at <DIMI_CODE_HOME>/server.token and handed to the browser in the launch URL.
 // `kimi web rotate-token` invalidates a stale copy, and the next 401 clears
 // it here.
 

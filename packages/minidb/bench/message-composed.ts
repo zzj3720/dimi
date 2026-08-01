@@ -37,7 +37,7 @@ interface Msg {
 }
 
 function loadAllMessages(): Msg[] {
-  const DATA = path.join(os.homedir(), '.kimi-code');
+  const DATA = path.join(os.homedir(), '.dimi');
   const out: Msg[] = [];
   for (const meta of listKimiSessions(DATA)) {
     const wire = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');

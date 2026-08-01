@@ -1125,7 +1125,7 @@ describe("Agent tool execution contract", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain('Model "provider/bad" is not configured in config.toml.');
     expect(result.output).toContain(
-      "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+      "comes from [secondary_model].provider + model / DIMI_SECONDARY_MODEL",
     );
     expect(lifecycle.create).not.toHaveBeenCalled();
   });
@@ -1146,7 +1146,7 @@ describe("Agent tool execution contract", () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("MCP server failed to start");
-    expect(result.output).not.toContain("KIMI_SECONDARY_MODEL");
+    expect(result.output).not.toContain("DIMI_SECONDARY_MODEL");
   });
 
   it("mirrors v1-compatible subagent lifecycle event fields", async () => {

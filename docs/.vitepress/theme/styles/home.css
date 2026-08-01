@@ -3,7 +3,7 @@
  * shared utilities and layout container live here.
  */
 
-.KimiHome {
+.DimiHome {
   --section-px: clamp(20px, 5vw, 64px);
   --section-py: clamp(28px, 4vw, 56px);
   position: relative;

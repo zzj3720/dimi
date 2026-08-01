@@ -1,5 +1,5 @@
 /**
- * Custom theme loader — reads JSON files from `~/.kimi-code/themes/`.
+ * Custom theme loader — reads JSON files from `~/.dimi/themes/`.
  */
 
 import { readdirSync } from 'node:fs';

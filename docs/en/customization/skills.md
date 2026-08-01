@@ -57,7 +57,7 @@ Before the body is sent to the model, a small set of placeholders are expanded:
 - `$ARGUMENTS`: The full raw argument string passed at invocation
 - `$ARGUMENTS[0]`, `$ARGUMENTS[1]` and shorthand `$0`, `$1`: Positional arguments after whitespace tokenization (zero-indexed)
 - `$<name>`: Named parameters declared in `arguments`
-- `${KIMI_SKILL_DIR}`: The directory containing the current Skill file
+- `${DIMI_SKILL_DIR}`: The directory containing the current Skill file
 
 Positional arguments support single and double quoting, so in `/skill:commit "fix login" patch`, `$0` expands to `fix login`. If the body contains no argument placeholders, text passed at invocation is appended to the end of the body as `\n\nARGUMENTS: <text>`.
 
@@ -66,13 +66,13 @@ Positional arguments support single and double quoting, so in `/skill:commit "fi
 Kimi Code CLI scans four tiers by scope; more specific scopes take higher priority: **Project > User > Extra > Built-in**
 
 **User level** (applies to all projects):
-- `$KIMI_CODE_HOME/skills/` (default: `~/.kimi-code/skills/`)
+- `$DIMI_CODE_HOME/skills/` (default: `~/.dimi/skills/`)
 - `~/.agents/skills/`
 
-The Kimi-specific user Skill directory moves with `KIMI_CODE_HOME`, so isolated data roots also get isolated Kimi-specific Skills. The generic `~/.agents/skills/` directory stays under the real OS home so it can be shared across tools.
+The Kimi-specific user Skill directory moves with `DIMI_CODE_HOME`, so isolated data roots also get isolated Kimi-specific Skills. The generic `~/.agents/skills/` directory stays under the real OS home so it can be shared across tools.
 
 **Project level** (project root = the nearest directory containing `.git`, searching upward from the working directory):
-- `.kimi-code/skills/`
+- `.dimi/skills/`
 - `.agents/skills/`
 
 **Extra directories**: Declared via `extra_skill_dirs` at the top level of `config.toml`:
@@ -122,7 +122,7 @@ Please review the PR the user specified: $pr_ref
    - Noteworthy positives
 ```
 
-Save this as `$KIMI_CODE_HOME/skills/review-pr/SKILL.md` (or `~/.kimi-code/skills/review-pr/SKILL.md` when `KIMI_CODE_HOME` is unset), place the checklist at `references/checklist.md` in the same directory, and after starting a new session you can invoke it with `/skill:review-pr #1234`, where `#1234` is expanded into `$pr_ref`.
+Save this as `$DIMI_CODE_HOME/skills/review-pr/SKILL.md` (or `~/.dimi/skills/review-pr/SKILL.md` when `DIMI_CODE_HOME` is unset), place the checklist at `references/checklist.md` in the same directory, and after starting a new session you can invoke it with `/skill:review-pr #1234`, where `#1234` is expanded into `$pr_ref`.
 
 ## Next steps
 

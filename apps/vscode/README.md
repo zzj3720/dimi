@@ -19,8 +19,8 @@ This source build is not published to the VS Code Marketplace. Run the extension
 
 The extension runs the Kimi Code Node SDK in the VS Code Extension Host. When
 the extension and the Kimi Code terminal app resolve to the same
-`KIMI_CODE_HOME`, they share `config.toml`, `models.json`, MCP configuration, login state, and
-sessions. The system-level `KIMI_CODE_HOME` environment variable is supported;
+`DIMI_CODE_HOME`, they share `config.toml`, `models.json`, MCP configuration, login state, and
+sessions. The system-level `DIMI_CODE_HOME` environment variable is supported;
 there is no separate VS Code setting for it. Do not run the same session from
 both applications at the same time, because cross-process session locking is
 not guaranteed.

@@ -41,7 +41,7 @@ vp run dev:cli
 
 `kimi upgrade` / `kimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Dimi release.
 
-**Uninstall**: remove the cloned checkout. Your local data under `~/.kimi-code/` is separate; remove it only if you also intend to delete sessions and credentials.
+**Uninstall**: remove the cloned checkout. Your local data under `~/.dimi/` is separate; remove it only if you also intend to delete sessions and credentials.
 
 ## First launch
 
@@ -132,7 +132,7 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 ## Where data is stored
 
-Dimi stores its local data under `~/.kimi-code/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+Dimi stores its local data under `~/.dimi/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `DIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
 ## Next steps
 

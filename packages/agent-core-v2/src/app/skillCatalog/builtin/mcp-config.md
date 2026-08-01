@@ -40,27 +40,27 @@ tools exist and the user didn't name one, ask which.
 Config lives in three files; on key collision, later entries in this
 precedence order override earlier ones.
 
-The runtime resolves the user-global directory as `KIMI_CODE_HOME`
-first, falling back to `~/.kimi-code`. Before touching the user-global file,
+The runtime resolves the user-global directory as `DIMI_CODE_HOME`
+first, falling back to `~/.dimi`. Before touching the user-global file,
 resolve the actual directory with Bash so you don't read or write the wrong
-one. Check whether `KIMI_CODE_HOME` is set and fall back to `~/.kimi-code`
+one. Check whether `DIMI_CODE_HOME` is set and fall back to `~/.dimi`
 when it is empty:
 
 ```bash
-echo "$KIMI_CODE_HOME"
-echo "$HOME/.kimi-code"
+echo "$DIMI_CODE_HOME"
+echo "$HOME/.dimi"
 ```
 
 Use the first line when it is non-empty; otherwise use the second line. In the
-rest of this skill, `<KIMI_CODE_HOME>` means that resolved data root —
-**never assume `~/.kimi-code`**.
+rest of this skill, `<DIMI_CODE_HOME>` means that resolved data root —
+**never assume `~/.dimi`**.
 
-- User-global: `<KIMI_CODE_HOME>/mcp.json`. Use for servers you want
+- User-global: `<DIMI_CODE_HOME>/mcp.json`. Use for servers you want
   everywhere.
 - Project-root: `<project root>/.mcp.json`, where project root is found
   by walking up from `<cwd>` to the nearest `.git`. Use for
   Claude-compatible, repo-shared, or cross-agent servers.
-- Project-local: `<cwd>/.kimi-code/mcp.json`. Use for CLI-specific
+- Project-local: `<cwd>/.dimi/mcp.json`. Use for CLI-specific
   overrides in the current working directory.
 
 Mention once that project-root and project-local stdio entries spawn
@@ -88,7 +88,7 @@ the runtime MCP domain as the source of truth.
 When the user wants to change a timeout for *every* server, don't write
 `startupTimeoutMs` / `toolTimeoutMs` into each entry — the global defaults
 live in `config.toml` (`[mcp] startup_timeout_ms` / `[mcp] tool_timeout_ms`)
-or the `KIMI_MCP_STARTUP_TIMEOUT_MS` / `KIMI_MCP_TOOL_TIMEOUT_MS` env vars;
+or the `DIMI_MCP_STARTUP_TIMEOUT_MS` / `DIMI_MCP_TOOL_TIMEOUT_MS` env vars;
 per-server fields override them. Every timeout must be an integer from `1` to
 `2147483647` milliseconds.
 
@@ -102,7 +102,7 @@ For changes, the flow is:
 1. **Pick a scope.** Infer it from the user's words when you can
    (global / everywhere / all projects → user-global; root / repo /
    shared / cross-agent / Claude / `.mcp.json` → project-root; cwd /
-   current directory / CLI-specific / `.kimi-code` → project-local). When
+   current directory / CLI-specific / `.dimi` → project-local). When
    the request is genuinely scope-less, use one `AskUserQuestion` to ask
    user-global vs project-root vs project-local, defaulting to
    user-global. Use plain text for every other question — `AskUserQuestion`

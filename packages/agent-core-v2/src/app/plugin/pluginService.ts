@@ -41,9 +41,9 @@ import type {
   ReloadSummary,
 } from "./types";
 
-const KIMI_CODE_BASE_URL_ENV = "KIMI_CODE_BASE_URL";
-const KIMI_CODE_OAUTH_HOST_ENV = "KIMI_CODE_OAUTH_HOST";
-const KIMI_OAUTH_HOST_ENV = "KIMI_OAUTH_HOST";
+const DIMI_CODE_BASE_URL_ENV = "DIMI_CODE_BASE_URL";
+const DIMI_CODE_OAUTH_HOST_ENV = "DIMI_CODE_OAUTH_HOST";
+const DIMI_OAUTH_HOST_ENV = "DIMI_OAUTH_HOST";
 
 export class PluginService extends Disposable implements IPluginService {
   declare readonly _serviceBrand: undefined;
@@ -67,9 +67,9 @@ export class PluginService extends Disposable implements IPluginService {
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
-    this.envBaseUrl = bootstrap.getEnv(KIMI_CODE_BASE_URL_ENV);
+    this.envBaseUrl = bootstrap.getEnv(DIMI_CODE_BASE_URL_ENV);
     this.envOAuthHost =
-      bootstrap.getEnv(KIMI_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(KIMI_OAUTH_HOST_ENV);
+      bootstrap.getEnv(DIMI_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(DIMI_OAUTH_HOST_ENV);
     this.manager = new PluginManager({
       kimiHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
@@ -252,8 +252,8 @@ export class PluginService extends Disposable implements IPluginService {
     const envOAuthHost = this.envOAuthHost;
     const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, "") : model?.baseUrl;
     const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[KIMI_CODE_BASE_URL_ENV] = baseUrl;
-    if (envOAuthHost !== undefined) env[KIMI_CODE_OAUTH_HOST_ENV] = envOAuthHost;
+    if (baseUrl !== undefined) env[DIMI_CODE_BASE_URL_ENV] = baseUrl;
+    if (envOAuthHost !== undefined) env[DIMI_CODE_OAUTH_HOST_ENV] = envOAuthHost;
     return env;
   }
 }

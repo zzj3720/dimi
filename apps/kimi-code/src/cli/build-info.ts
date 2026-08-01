@@ -14,7 +14,7 @@ function optionalBuildString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export const KIMI_BUILD_INFO: KimiBuildInfo = {
+export const DIMI_BUILD_INFO: KimiBuildInfo = {
   version:
     typeof __KIMI_CODE_VERSION__ === 'string'
       ? optionalBuildString(__KIMI_CODE_VERSION__)

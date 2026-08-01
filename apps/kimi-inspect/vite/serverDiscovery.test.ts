@@ -130,8 +130,8 @@ describe('discoverLocalServers', () => {
 });
 
 describe('resolveKimiHomeDir', () => {
-  it('honors KIMI_CODE_HOME, else falls back to ~/.kimi-code', () => {
-    expect(resolveKimiHomeDir({ KIMI_CODE_HOME: '/tmp/kh' })).toBe('/tmp/kh');
-    expect(resolveKimiHomeDir({})).toBe(join(process.env['HOME'] ?? '', '.kimi-code'));
+  it('honors DIMI_CODE_HOME, else falls back to ~/.dimi', () => {
+    expect(resolveKimiHomeDir({ DIMI_CODE_HOME: '/tmp/kh' })).toBe('/tmp/kh');
+    expect(resolveKimiHomeDir({})).toBe(join(process.env['HOME'] ?? '', '.dimi'));
   });
 });

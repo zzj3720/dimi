@@ -11,7 +11,7 @@ import {
   installGlobalProxyDispatcher,
   log,
   resolveGlobalLogPath,
-  resolveKimiHome,
+  resolveDimiHome,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import {
@@ -171,7 +171,7 @@ export function main(): void {
               operation,
             }),
           );
-          process.stderr.write(`See log: ${resolveGlobalLogPath(resolveKimiHome())}\n`);
+          process.stderr.write(`See log: ${resolveGlobalLogPath(resolveDimiHome())}\n`);
           process.exit(1);
         });
     },
@@ -186,7 +186,7 @@ export function main(): void {
       void handleUpgradeCommand(version).catch(async (error: unknown) => {
         await logStartupFailure('upgrade', error);
         process.stderr.write(formatStartupError(error, { operation: 'upgrade' }));
-        process.stderr.write(`See log: ${resolveGlobalLogPath(resolveKimiHome())}\n`);
+        process.stderr.write(`See log: ${resolveGlobalLogPath(resolveDimiHome())}\n`);
         process.exit(1);
       });
     },

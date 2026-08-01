@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 
-import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
+import { resolveDimiHome } from '#/app/bootstrap/bootstrap';
 import { McpServerConfigSchema, type McpServerConfig } from './config-schema';
 import { ErrorCodes, Error2 } from '#/errors';
 import { z } from 'zod';
@@ -25,9 +25,9 @@ export async function resolveMcpJsonPaths(input: ResolveMcpJsonPathsInput): Prom
   const projectRoot = await findProjectRoot(input.cwd);
 
   return {
-    user: join(resolveKimiHome(input.homeDir), 'mcp.json'),
+    user: join(resolveDimiHome(input.homeDir), 'mcp.json'),
     projectRoot: join(projectRoot, '.mcp.json'),
-    project: join(input.cwd, '.kimi-code', 'mcp.json'),
+    project: join(input.cwd, '.dimi', 'mcp.json'),
   };
 }
 

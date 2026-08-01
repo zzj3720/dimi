@@ -13,7 +13,7 @@ export default defineConfig({
   test: {
     name: 'kimi-sdk',
     env: {
-      KIMI_LOG_LEVEL: 'off',
+      DIMI_LOG_LEVEL: 'off',
     },
     include: ['test/**/*.test.ts'],
   },

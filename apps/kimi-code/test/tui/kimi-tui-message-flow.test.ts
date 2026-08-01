@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
-import { KIMI_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
+import { DIMI_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
 import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import {
   AgentSwarmProgressComponent,
@@ -450,8 +450,8 @@ function countOccurrences(haystack: string, needle: string): number {
 }
 
 const tempDirs: string[] = [];
-const originalKimiCodeHome = process.env['KIMI_CODE_HOME'];
-const originalPluginMarketplaceUrl = process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'];
+const originalKimiCodeHome = process.env['DIMI_CODE_HOME'];
+const originalPluginMarketplaceUrl = process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'];
 const originalVisual = process.env['VISUAL'];
 const originalEditor = process.env['EDITOR'];
 
@@ -475,9 +475,9 @@ afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
   }
   if (originalKimiCodeHome === undefined) {
-    delete process.env['KIMI_CODE_HOME'];
+    delete process.env['DIMI_CODE_HOME'];
   } else {
-    process.env['KIMI_CODE_HOME'] = originalKimiCodeHome;
+    process.env['DIMI_CODE_HOME'] = originalKimiCodeHome;
   }
   if (originalVisual === undefined) {
     delete process.env['VISUAL'];
@@ -485,9 +485,9 @@ afterEach(async () => {
     process.env['VISUAL'] = originalVisual;
   }
   if (originalPluginMarketplaceUrl === undefined) {
-    delete process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'];
+    delete process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'];
   } else {
-    process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] = originalPluginMarketplaceUrl;
+    process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'] = originalPluginMarketplaceUrl;
   }
   if (originalEditor === undefined) {
     delete process.env['EDITOR'];
@@ -530,7 +530,7 @@ describe('KimiTUI message flow', () => {
   });
 
   it('tracks theme changes from slash commands', async () => {
-    process.env['KIMI_CODE_HOME'] = await makeTempHome();
+    process.env['DIMI_CODE_HOME'] = await makeTempHome();
     const { driver, harness } = await makeDriver();
     harness.track.mockClear();
 
@@ -545,7 +545,7 @@ describe('KimiTUI message flow', () => {
 
   it('dispatches /reload-tui without reloading the active session', async () => {
     const homeDir = await makeTempHome();
-    process.env['KIMI_CODE_HOME'] = homeDir;
+    process.env['DIMI_CODE_HOME'] = homeDir;
     await writeFile(
       join(homeDir, 'tui.toml'),
       `
@@ -572,7 +572,7 @@ command = "vim"
 
   it('dispatches /reload through session reload and applies tui.toml', async () => {
     const homeDir = await makeTempHome();
-    process.env['KIMI_CODE_HOME'] = homeDir;
+    process.env['DIMI_CODE_HOME'] = homeDir;
     await writeFile(join(homeDir, 'tui.toml'), 'theme = "light"\n', 'utf-8');
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
@@ -1575,8 +1575,8 @@ command = "vim"
 
   it('removes debug timing status from undone turns', async () => {
     const { driver, session } = await makeDriver();
-    const previousDebug = process.env['KIMI_CODE_DEBUG'];
-    process.env['KIMI_CODE_DEBUG'] = '1';
+    const previousDebug = process.env['DIMI_CODE_DEBUG'];
+    process.env['DIMI_CODE_DEBUG'] = '1';
     try {
       driver.handleUserInput('hello');
       driver.sessionEventHandler.handleEvent(
@@ -1609,9 +1609,9 @@ command = "vim"
       expect(transcript).not.toContain('[Debug]');
     } finally {
       if (previousDebug === undefined) {
-        delete process.env['KIMI_CODE_DEBUG'];
+        delete process.env['DIMI_CODE_DEBUG'];
       } else {
-        process.env['KIMI_CODE_DEBUG'] = previousDebug;
+        process.env['DIMI_CODE_DEBUG'] = previousDebug;
       }
     }
   });
@@ -4518,7 +4518,7 @@ command = "vim"
       }),
       'utf8',
     );
-    process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] = marketplacePath;
+    process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'] = marketplacePath;
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
@@ -4571,7 +4571,7 @@ command = "vim"
       }),
       'utf8',
     );
-    process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] = marketplacePath;
+    process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'] = marketplacePath;
     const installPlugin = vi.fn(async () => {
       throw new Error('install failed');
     });
@@ -4758,7 +4758,7 @@ command = "vim"
           'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
         );
       });
-      expect(globalThis.fetch).toHaveBeenCalledWith(KIMI_CODE_PLUGIN_MARKETPLACE_URL);
+      expect(globalThis.fetch).toHaveBeenCalledWith(DIMI_CODE_PLUGIN_MARKETPLACE_URL);
     } finally {
       vi.stubGlobal('fetch', originalFetch);
     }
@@ -4766,7 +4766,7 @@ command = "vim"
 
   it('shows an inline Official error when the marketplace is unreachable, keeping the panel open', async () => {
     const originalFetch = globalThis.fetch;
-    process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] = 'https://example.test/marketplace.json';
+    process.env['DIMI_CODE_PLUGIN_MARKETPLACE_URL'] = 'https://example.test/marketplace.json';
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
