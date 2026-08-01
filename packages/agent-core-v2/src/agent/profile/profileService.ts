@@ -103,7 +103,6 @@ import { IAgentTelemetryContextService } from "#/app/telemetry/agentTelemetryCon
 import { IWireService } from "#/wire/wire";
 import type { PayloadOf } from "#/wire/types";
 import { IEventBus } from "#/app/event/eventBus";
-import { IHostIdentity } from "#/app/hostIdentity/hostIdentity";
 import { prepareSystemPromptContext } from "./context";
 import type {
   ApplyProfileOptions,
@@ -217,7 +216,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentProfileCatalogService private readonly builtinProfiles: IAgentProfileCatalogService,
     @IAgentStateService private readonly states: IAgentStateService,
-    @IHostIdentity private readonly hostIdentity: IHostIdentity,
     @IPluginService private readonly plugins: IPluginService,
   ) {
     super();
@@ -892,8 +890,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       skills,
       pluginSections,
       skillActive: this.isToolActiveForProfile(profile, "Skill"),
-      productName: this.hostIdentity.productName,
-      replyStyleGuide: this.hostIdentity.replyStyleGuide,
     };
   }
 

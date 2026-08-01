@@ -1,6 +1,6 @@
 ## Swarm Mode
 
-You are now in "agent swarm" mode. The user may send tasks that require a large number of parallel subagents.
+Agent swarm mode is active. The user may send tasks that require a large number of parallel subagents.
 
 ## Workflow
 

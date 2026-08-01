@@ -9,7 +9,6 @@
 
 import {
   bootstrap,
-  hostIdentitySeed,
   hostRequestHeadersSeed,
   IConfigService,
   IProviderRuntime,
@@ -19,7 +18,6 @@ import {
   resolveKimiHome,
   resolveLoggingConfig,
   skillCatalogRuntimeOptionsSeed,
-  type HostIdentityOverrides,
   type Scope,
   type ScopeSeed,
 } from "@moonshot-ai/agent-core-v2";
@@ -107,14 +105,6 @@ export interface ServerStartOptions {
   readonly rpcToken?: string;
   /** Extra scope seeds applied at bootstrap (e.g. a host-provided `ISessionModelResolver`). */
   readonly seeds?: ScopeSeed;
-  /**
-   * Host product identity injected into the base system prompt: `productName`
-   * fills the `${product_name}` slot, `replyStyleGuide` replaces the
-   * `${reply_style_guide}` block. Applied to every agent the server hosts — for
-   * embedding hosts (e.g. a desktop app), not per-session use. Defaults render
-   * the CLI text.
-   */
-  readonly hostIdentity?: HostIdentityOverrides;
   /**
    * Explicit skill directories for this process (v1's SDK `skillDirs`): when
    * non-empty, default user / project skill discovery is skipped and these
@@ -229,7 +219,6 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     // through `opts.seeds`, which override this entry (last seed wins).
     ...hostRequestHeadersSeed({ "User-Agent": `kimi-code-cli/${hostVersion}` }),
     ...skillCatalogRuntimeOptionsSeed(opts.skillDirs),
-    ...hostIdentitySeed(opts.hostIdentity),
     ...(opts.seeds ?? []),
   ]);
 

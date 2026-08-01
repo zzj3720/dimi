@@ -14,11 +14,7 @@
  * context fields render as empty strings when missing and the composed
  * `*_section` / `windows_notes` blocks are empty unless their content exists,
  * so templates can place them on their own line without leaving stray
- * headings behind. Host-identity blocks (`product_name`, `reply_style_guide`)
- * work the same way: the context may carry overrides seeded by the embedding
- * host (e.g. a desktop app), and the table falls back to the CLI defaults
- * ({@link DEFAULT_PRODUCT_NAME}, {@link DEFAULT_REPLY_STYLE_GUIDE}) when it
- * does not. `renderPromptTemplate` renders a user-owned template (an
+ * headings behind. `renderPromptTemplate` renders a user-owned template (an
  * agent-file body or `SYSTEM.md`) against the table; `${base_prompt}` is
  * bound to the default profile's prompt when a `basePrompt` is given,
  * resolved lazily and only when the template actually references it. Also
@@ -34,10 +30,8 @@ import type { AgentProfile, AgentProfileContext } from './agentProfileCatalog';
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
 export const TASK_AGENT_ROLE_PREFIX =
-  'You are now running as a subagent. All the `user` messages are sent by the main agent. ' +
-  'The main agent cannot see your context, it can only see your last message when you finish the task. ' +
-  'You must treat the parent agent as your caller. Do not directly ask the end user questions. ' +
-  'If something is unclear, explain the ambiguity in your final summary to the parent agent.';
+  'Treat the parent agent as your caller. User messages are forwarded by it, and it only receives ' +
+  'your final message. Do not ask the end user questions; report ambiguities in your final summary.';
 
 export function skillActiveFor(tools: readonly string[]): boolean {
   return tools.includes('Skill');
@@ -66,11 +60,6 @@ export function subagentTypeNotAllowedMessage(
 const WINDOWS_NOTES =
   'IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
 
-export const DEFAULT_PRODUCT_NAME = 'Kimi Code CLI';
-
-export const DEFAULT_REPLY_STYLE_GUIDE =
-  "Your text replies render as Markdown in the user's terminal. Use light Markdown that reads well there: short paragraphs, `-` bullets for lists, backticks for code, commands, paths, and identifiers, and fenced blocks for multi-line code. Keep structure shallow — avoid deep nesting, large tables, and heavy headings in ordinary replies. Do not use emoji unless the user does first or asks for it. Default to prose; reach for a list only when the content is genuinely a set of items or steps. When you point to a specific code location, cite it as `path/to/file.ts:42` — a precise, consistent reference the user can navigate to.";
-
 const ADDITIONAL_DIRS_SECTION_PROSE =
   'The following directories have been added to the workspace. You can read, write, search, and glob files in these directories as part of your workspace scope.';
 
@@ -95,8 +84,6 @@ export function systemPromptVars(
   const additionalDirsInfo = context.additionalDirsInfo ?? '';
   return {
     role_additional: '',
-    product_name: context.productName ?? DEFAULT_PRODUCT_NAME,
-    reply_style_guide: context.replyStyleGuide ?? DEFAULT_REPLY_STYLE_GUIDE,
     os: context.osKind ?? '',
     windows_notes: context.osKind === 'Windows' ? `\n\n${WINDOWS_NOTES}\n\n` : '',
     shell: shellName.length > 0 ? `${shellName} (\`${shellPath}\`)` : '',

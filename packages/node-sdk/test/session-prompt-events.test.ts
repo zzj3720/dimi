@@ -236,11 +236,13 @@ describe("Session.prompt events", () => {
         }),
       );
       const request = provider.requests[0];
-      expect(requestMessages(request?.bodyJson)[0]).toMatchObject({
+      const systemMessage = requestMessages(request?.bodyJson)[0];
+      expect(systemMessage).toMatchObject({
         role: "system",
-        content: expect.stringContaining("You are Kimi Code CLI"),
+        content: expect.stringContaining("# Tool Use"),
       });
-      expect(JSON.stringify(requestMessages(request?.bodyJson)[0])).toContain("Available skills");
+      expect(JSON.stringify(systemMessage)).not.toContain("Kimi Code CLI");
+      expect(JSON.stringify(systemMessage)).toContain("Available skills");
       expect(request?.headers["user-agent"]).toBe("kimi-code-cli/0.0.0-test");
       expect(request?.headers["x-msh-platform"]).toBe("kimi_code_cli");
       expect(existsSync(join(homeDir, "device_id"))).toBe(true);

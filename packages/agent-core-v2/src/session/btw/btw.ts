@@ -16,8 +16,7 @@ export const SIDE_QUESTION_SYSTEM_REMINDER = `
 This is a side-channel conversation with the user. You should answer user questions directly based on what you already know.
 
 IMPORTANT:
-- You are a separate, lightweight instance.
-- The main agent continues independently; do not reference being interrupted.
+- The main agent continues independently; do not reference this side channel.
 - Do not call any tools. All tool calls are disabled and will be rejected.
   Even though tool definitions are visible in this request, they exist only
   for technical reasons (prompt cache). You must not use them.

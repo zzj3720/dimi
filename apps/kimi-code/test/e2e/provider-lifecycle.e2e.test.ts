@@ -114,14 +114,18 @@ describe("provider CLI lifecycle", () => {
       // This is a fresh production process after the catalog inspection. It
       // reproduces the user's restart path instead of sharing an in-memory
       // model registry from setup.
-      const run = await runCli(home, ["-p", "hello from e2e"], undefined, environment);
+      const run = await runCli(home, ["-p", "hello from e2e"], undefined, environment, home);
       expect(run).toMatchObject({ code: 0 });
       expect(run.stdout).toContain("local grok reply");
       expect(seen).toHaveLength(1);
       expect(seen[0]).toMatchObject({
+        instructions: expect.stringContaining("# Tool Use"),
         model: "grok-4.5",
         reasoning: { effort: "high", summary: "auto" },
       });
+      expect(JSON.stringify(seen[0])).not.toContain("Kimi Code CLI");
+      expect(JSON.stringify(seen[0])).not.toContain("You are Kimi");
+      expect(JSON.stringify(seen[0])).not.toContain("interactive general AI agent");
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
     }
@@ -352,6 +356,7 @@ function runCli(
   args: readonly string[],
   input?: string,
   envOverrides: Readonly<Record<string, string>> = {},
+  cwd = appRoot,
 ): Promise<{
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -372,7 +377,7 @@ function runCli(
         ...args,
       ],
       {
-        cwd: appRoot,
+        cwd,
         env: { ...env, KIMI_CODE_HOME: home, KIMI_LOG_LEVEL: "off" },
         stdio: ["pipe", "pipe", "pipe"],
       },

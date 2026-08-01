@@ -201,8 +201,6 @@ export interface SessionStateSnapshot {
           readonly skills?: string;
           readonly skillActive?: boolean;
           readonly pluginSections?: string;
-          readonly productName?: string;
-          readonly replyStyleGuide?: string;
           [key: string]: unknown;
         }) => string;
         readonly promptPrefix?: (ctx: /* AgentProfilePromptPrefixContext — packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts */ {
@@ -268,8 +266,6 @@ export interface SessionStateSnapshot {
       readonly skills?: string;
       readonly skillActive?: boolean;
       readonly pluginSections?: string;
-      readonly productName?: string;
-      readonly replyStyleGuide?: string;
       [key: string]: unknown;
     }) => string;
     readonly promptPrefix?: (ctx: /* AgentProfilePromptPrefixContext — packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts */ {
@@ -1083,7 +1079,7 @@ export interface AgentStateSnapshot {
   'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.mediaDegradedTurns': Set<number>;
   'llmRequester.mediaStrippedTurns': Map<number, /* MediaStripSnapshot — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
-    readonly "__@mediaStripSnapshotBrand@2692": undefined;
+    readonly "__@mediaStripSnapshotBrand@2687": undefined;
   }>;
   'llmRequester.turnConfigs': Map<number, /* TurnRequestConfig — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly resolved: /* ProfileModelContext — packages/agent-core-v2/src/agent/profile/profile.ts */ {
