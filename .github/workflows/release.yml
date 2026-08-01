@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -78,13 +79,17 @@ jobs:
       - name: Report publish outputs
         run: |
           VERSION="$(node -e 'console.log(require("./apps/dimi/package.json").version)')"
-          LATEST="$(npm view @dimi-agent/cli version 2>/dev/null || echo none)"
-          if [ "$VERSION" = "$LATEST" ] && [ "$LATEST" != "none" ]; then
+          TAG="@dimi-agent/cli@${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release ${TAG} already exists; no native release needed"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release ${TAG} missing; building native release"
             echo "published=true" >> "$GITHUB_OUTPUT"
             printf 'CHANGESETS_PUBLISHED_PACKAGES=[{"name":"@dimi-agent/cli","version":"%s"}]\n' "$VERSION" >> "$GITHUB_ENV"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Resolve Dimi native release
         if: steps.changesets.outputs.published == 'true'
