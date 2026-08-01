@@ -1,0 +1,16 @@
+# Rust workspace for the dimi migration (see PLAN.md).
+# Crates live under crates/*; the TS side remains the product until M6.
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

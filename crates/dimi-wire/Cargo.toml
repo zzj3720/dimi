@@ -1,0 +1,17 @@
+[package]
+name = "dimi-wire"
+description = "Byte-exact Rust mirror of the dimi transcript wire contract (zod schemas in packages/transcript/src/contract/schema.ts)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps parsed JSON object key order (IndexMap), so open
+# content envelopes (`input` / `output` / `display` / `payload` …) round-trip
+# byte-exactly — same as JS object insertion order through JSON.stringify.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[lints]
+workspace = true

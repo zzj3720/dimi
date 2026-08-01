@@ -49,3 +49,6 @@ handover.md
 .env
 .env.*
 !.env.example
+
+# Rust workspace
+/target/

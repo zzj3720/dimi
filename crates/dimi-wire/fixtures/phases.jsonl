@@ -1,0 +1,10 @@
+# AgentPhase wire samples (schema.ts 254–316), one per line, field order
+# matching declaration order.
+{"kind":"idle"}
+{"kind":"running","turnId":3,"step":1,"stepId":"s_9","since":1750000000000}
+{"kind":"streaming","turnId":3,"step":1,"stepId":"s_9","stream":"assistant","toolCallId":"call_9","toolName":"bash","since":1750000000000}
+{"kind":"tool_call","turnId":4,"step":2,"toolCallId":"call_9","name":"bash","since":1750000000001}
+{"kind":"retrying","turnId":3,"step":1,"stepId":"s_9","failedAttempt":1,"nextAttempt":2,"maxAttempts":3,"delayMs":500,"errorName":"TimeoutError","statusCode":408,"since":1750000000002}
+{"kind":"awaiting_approval","turnId":5,"step":3,"approval":{"interactionId":"i_1"},"since":1750000000003}
+{"kind":"interrupted","turnId":3,"step":1,"reason":"max_steps","message":"step limit","at":1750000000004}
+{"kind":"ended","turnId":3,"reason":"completed","durationMs":4200,"at":1750000000005}
