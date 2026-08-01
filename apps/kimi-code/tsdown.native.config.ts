@@ -53,6 +53,11 @@ export default defineConfig({
     neverBundle: [...optionalNativeDependencies],
     onlyBundle: false,
   },
+  inputOptions: {
+    resolve: {
+      mainFields: ["module", "main"],
+    },
+  },
   outputOptions: {
     codeSplitting: false,
     entryFileNames: "main.cjs",
