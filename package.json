@@ -17,7 +17,7 @@
     "build:plugin-marketplace": "pnpm -C apps/dimi run build:plugin-marketplace",
     "vis": "pnpm -C apps/vis run dev",
     "dev:docs": "pnpm -C docs install --ignore-workspace && pnpm -C docs run dev",
-    "typecheck": "pnpm run build:packages && pnpm -r --filter './packages/*' run typecheck && pnpm --filter @dimi-agent/cli run typecheck && pnpm --filter dimi run typecheck && pnpm --filter @dimi-agent/dimi-web run typecheck && pnpm --filter @dimi-agent/vis-server run typecheck && pnpm --filter @dimi-agent/vis-web run typecheck",
+    "typecheck": "pnpm run build:packages && pnpm -r --filter './packages/*' run typecheck && pnpm --filter @dimi-agent/cli run typecheck && pnpm --filter @dimi-agent/dimi-web run typecheck && pnpm --filter @dimi-agent/vis-server run typecheck && pnpm --filter @dimi-agent/vis-web run typecheck",
     "lint": "oxlint --type-aware",
     "lint:fix": "pnpm run lint --fix",
     "lint:pkg": "pnpm --filter @dimi-agent/cli exec publint && npm_config_cache=${TMPDIR:-/tmp}/dimi-npm-cache pnpm --filter @dimi-agent/cli exec attw --pack . --profile node16",

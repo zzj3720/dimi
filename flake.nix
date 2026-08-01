@@ -76,7 +76,6 @@
         ./packages/transcript
         ./packages/tree-sitter-bash
         ./apps/dimi
-        ./apps/vscode
         ./apps/dimi-inspect
         ./apps/dimi-web
         ./apps/vis
@@ -100,7 +99,6 @@
         "@dimi-agent/transcript"
         "@dimi-agent/tree-sitter-bash"
         "@dimi-agent/cli"
-        "dimi"
         "@dimi-agent/dimi-inspect"
         "@dimi-agent/dimi-web"
         "@dimi-agent/vis"
