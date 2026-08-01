@@ -137,7 +137,9 @@ export class ChoicePickerComponent extends Container implements Focusable {
     // the search line. Key vocabulary is lowercase to match every list dialog.
     const navParts = ['↑↓ navigate'];
     if (view.page.pageCount > 1) navParts.push('←→ page');
-    navParts.push('Enter select', 'Esc cancel');
+    navParts.push('Enter select');
+    if (this.opts.onSessionOnlySelect !== undefined) navParts.push('Alt+S session-only');
+    navParts.push('Esc cancel');
     const hint = this.opts.hint ?? navParts.join(' · ');
 
     const titleSuffix =

@@ -17,6 +17,7 @@ const DIMI_CONFIG_DOMAINS = [
   "defaultProvider",
   "defaultModel",
   "thinking",
+  "modelEfforts",
   "planMode",
   "yolo",
   "defaultPermissionMode",

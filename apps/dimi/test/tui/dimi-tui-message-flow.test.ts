@@ -2624,6 +2624,168 @@ command = "vim"
     expect(transcript).toContain('Pipeline complete.');
   });
 
+  it('keeps the AllDone completion card visible instead of folding it', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('finish the task');
+
+    // A normal tool call, then the AllDone completion control as the final
+    // round — the Bash call folds into the summary, AllDone stays standalone.
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_1',
+        name: 'Bash',
+        args: { command: 'echo done' },
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_1',
+        output: 'ok',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_alldone',
+        name: 'AllDone',
+        args: {},
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_alldone',
+        output: 'All work is complete.',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        delta: 'Done.',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+
+    const sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    const transcript = stripSgr(renderTranscript(driver));
+    // The Bash call folds; AllDone renders as its own card, not part of the count.
+    expect(countOccurrences(transcript, 'Used 1 tool')).toBe(1);
+    expect(transcript).not.toContain('Used 2 tools');
+    expect(transcript).toContain('Work complete');
+    expect(transcript).toContain('All work is complete.');
+    expect(transcript).toContain('Done.');
+  });
+
+  it('keeps the WaitFor wait card visible instead of folding it', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('wait for the build');
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_1',
+        name: 'Bash',
+        args: { command: 'echo waiting' },
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_1',
+        output: 'ok',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_wait',
+        name: 'WaitFor',
+        args: { reason: 'watching the build', timeout_seconds: 60 },
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_wait',
+        output: JSON.stringify({
+          status: 'waiting',
+          wait_id: 'wait-1',
+          reason: 'watching the build',
+          timeout_seconds: 60,
+          started_at: Date.now(),
+          deadline_at: Date.now() + 60_000,
+          message: 'wake on notification',
+        }),
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        delta: 'Watching it.',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+
+    const sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    const transcript = stripSgr(renderTranscript(driver));
+    // The Bash call folds; the WaitFor card stays standalone with its timer.
+    expect(countOccurrences(transcript, 'Used 1 tool')).toBe(1);
+    expect(transcript).not.toContain('Used 2 tools');
+    expect(transcript).toContain('Waiting');
+    expect(transcript).toContain('watching the build');
+    expect(transcript).toContain('Watching it.');
+  });
+
   it('cancels manual compaction from the editor', async () => {
     const { driver, session } = await makeDriver();
     driver.sessionEventHandler.handleEvent(
@@ -5104,6 +5266,7 @@ command = "vim"
       expect(setConfig).toHaveBeenCalledWith({
         defaultProvider: 'kimi-coding',
         defaultModel: 'turbo',
+        modelEfforts: { 'kimi-coding/turbo': 'on' },
         thinking: { enabled: true },
       });
     });
@@ -5211,6 +5374,7 @@ command = "vim"
       expect(setConfig).toHaveBeenCalledWith({
         defaultProvider: 'kimi-coding',
         defaultModel: 'turbo',
+        modelEfforts: { 'kimi-coding/turbo': 'mid' },
         thinking: { enabled: true, effort: 'mid' },
       });
     });
@@ -5872,6 +6036,7 @@ describe('/model status displayName override', () => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultProvider: 'kimi-coding',
         defaultModel: 'turbo',
+        modelEfforts: { 'kimi-coding/turbo': 'on' },
         thinking: { enabled: true },
       });
     });

@@ -6,6 +6,7 @@ import { registerConfigSection } from "#/app/config/configSectionContributions";
 export const DEFAULT_PROVIDER_SECTION = "defaultProvider";
 export const DEFAULT_MODEL_SECTION = "defaultModel";
 export const THINKING_SECTION = "thinking";
+export const MODEL_EFFORTS_SECTION = "modelEfforts";
 export const SECONDARY_MODEL_SECTION = "secondaryModel";
 export const MODEL_CATALOG_SECTION = "modelCatalog";
 export const MODEL_OVERRIDES_SECTION = "modelOverrides";
@@ -54,6 +55,17 @@ registerConfigSection(THINKING_SECTION, ThinkingConfigSchema, {
   env: thinkingEnvBindings,
   stripEnv: stripThinkingEnv,
 });
+
+/**
+ * Per-model thinking effort memory: `"<provider>/<model>" -> effort`. The TUI
+ * writes the effort the user chose for a model here and re-applies it when
+ * that model becomes the active one, so each model keeps its own thinking
+ * level instead of sharing the global `[thinking]` default.
+ */
+export const ModelEffortsSchema = z.record(z.string(), z.string());
+export type ModelEfforts = z.infer<typeof ModelEffortsSchema>;
+
+registerConfigSection(MODEL_EFFORTS_SECTION, ModelEffortsSchema);
 
 export const SecondaryModelConfigSchema = z.object({
   provider: z.string().min(1).optional(),

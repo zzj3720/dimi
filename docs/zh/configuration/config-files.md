@@ -81,7 +81,7 @@ timeout = 5
 | ---------------------------- | --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `default_provider`           | `string`        | —        | 默认模型的供应商 ID                                                                                                                           |
 | `default_model`              | `string`        | —        | `default_provider` 中的模型 ID                                                                                                                |
-| `default_permission_mode`    | `string`        | `manual` | 新会话的默认权限模式，可选 `manual`（逐次询问）、`yolo`（自动批准工具操作，Agent 仍可能提问）、`auto`（完全自主，Agent 自己做决定，不再提问） |
+| `default_permission_mode`    | `string`        | `manual` | 新会话的默认权限模式，可选 `manual`（逐次询问）、`yolo`（自动批准工具操作，Agent 仍可能提问）、`auto`（完全自主，Agent 自己做决定，不再提问）。可在 TUI 中用 `/permission <mode>` 设置 |
 | `default_plan_mode`          | `boolean`       | `false`  | 新会话是否默认以 Plan 模式（先出计划再执行）启动                                                                                              |
 | `merge_all_available_skills` | `boolean`       | `true`   | 是否合并所有目录中的 Agent Skills                                                                                                             |
 | `extra_skill_dirs`           | `array<string>` | —        | 额外 Skill 搜索目录，叠加到默认目录之上                                                                                                       |
@@ -162,6 +162,16 @@ default_effort = "low"
 | ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `default_thinking` | 0.21.0   | 顶层布尔值，由 `[thinking] enabled` 取代。将 `default_thinking = true` 迁移为 `enabled = true`，`default_thinking = false` 迁移为 `enabled = false`。                               |
 | `thinking.mode`    | 0.21.0   | 可选值 `auto` / `on` / `off`，由 `[thinking] enabled` 取代。`mode = "off"` 改为 `enabled = false`；`mode = "on"` 和 `mode = "auto"` 等价于 `enabled = true`（默认值），可删除该行。 |
+
+## `model_efforts`
+
+`model_efforts` 按模型记忆你上次选择的 Thinking 档位（`"<provider>/<model>" -> effort`）。切换到有记录的模型时，Dimi 会恢复该档位而不是使用全局 `[thinking]` 默认；在选档器中按 `Enter`（或 `/effort <level>`）会写入记录，`Alt+S` 仅应用到当前会话。没有记录的模型回退到全局 `[thinking]`。
+
+```toml
+[model_efforts]
+"anthropic/claude-sonnet-4-5" = "high"
+"kimi-coding/kimi-k2.5" = "off"
+```
 
 ## `loop_control`
 

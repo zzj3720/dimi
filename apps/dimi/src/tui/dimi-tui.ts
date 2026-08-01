@@ -142,6 +142,7 @@ import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
+import { rememberedEffortFromConfig } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import {
   getTranscriptComponentEntry,
@@ -173,6 +174,10 @@ export interface DimiTUIStartupInput {
   readonly agentProfile?: string;
   readonly additionalDirs?: readonly string[];
   readonly tuiConfig: TuiConfig;
+  /** Persisted `default_permission_mode` from config.toml; seeds the app state
+   * so fresh sessions and the footer start at the saved permission posture.
+   * CLI --auto/--yolo flags override it. */
+  readonly defaultPermissionMode?: PermissionMode;
   readonly version: string;
   readonly workDir: string;
   readonly startupNotice?: string;
@@ -200,7 +205,7 @@ function createInitialAppState(input: DimiTUIStartupInput): AppState {
     ? 'auto'
     : input.cliOptions.yolo
       ? 'yolo'
-      : 'manual';
+      : (input.defaultPermissionMode ?? 'manual');
   return {
     model: '',
     workDir: input.workDir,
@@ -701,6 +706,29 @@ export class DimiTUI {
     this.showStatus(warning, 'warning');
   }
 
+  /**
+   * The effort the user last chose for the startup model ([model_efforts]),
+   * so a fresh session resumes it instead of the global [thinking] default.
+   * `undefined` when the model is unknown or has no remembered effort.
+   * Best-effort: a config read failure must not block startup.
+   */
+  private async startupRememberedEffort(cliModel: string | undefined): Promise<string | undefined> {
+    try {
+      const config = await this.harness.getConfig();
+      const provider = config.defaultProvider;
+      const defaultModel = config.defaultModel;
+      const alias =
+        cliModel ??
+        (provider !== undefined && defaultModel !== undefined
+          ? `${provider}/${defaultModel}`
+          : defaultModel);
+      if (alias === undefined) return undefined;
+      return rememberedEffortFromConfig(config, this.state.appState.availableModels[alias]);
+    } catch {
+      return undefined;
+    }
+  }
+
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
     await this.authFlow.refreshAvailableModels();
@@ -724,6 +752,10 @@ export class DimiTUI {
     if (this.state.appState.additionalDirs.length > 0) {
       createSessionOptions.additionalDirs = [...this.state.appState.additionalDirs];
     }
+    // Fresh startup sessions resume the effort the user last chose for the
+    // model they start on ([model_efforts]); unremembered models fall back
+    // to the global [thinking] default inside the core.
+    createSessionOptions.thinking = await this.startupRememberedEffort(startup.model);
 
     try {
       if (isResumeStartup) {
@@ -2167,12 +2199,33 @@ export class DimiTUI {
     }
     if (toolCalls.length === 0) return;
 
+    // AllDone (terminal completion control) and WaitFor (wait card with its
+    // live timer) are control cards — keep them visible as standalone entries
+    // instead of folding them into the summary line.
+    const standaloneNames = new Set(['AllDone', 'WaitFor']);
+    const standaloneCalls = new Set(
+      toolCalls.filter((call) => standaloneNames.has(call.toolCallView.name)),
+    );
+    const sequenceCalls = toolCalls.filter((call) => !standaloneCalls.has(call));
+    const components = children.slice(start);
+    const standalone: Component[] = [];
+    const sequenceComponents: Component[] = [];
+    for (const component of components) {
+      if (component instanceof ToolCallComponent && standaloneCalls.has(component)) {
+        standalone.push(component);
+      } else {
+        sequenceComponents.push(component);
+      }
+    }
+
+    if (sequenceCalls.length === 0) return;
+
     const sequence = new ToolCallSequenceComponent(
-      children.slice(start),
-      toolCalls,
+      sequenceComponents,
+      sequenceCalls,
       this.state.toolDisplayMode,
     );
-    children.splice(start, children.length - start, sequence);
+    children.splice(start, components.length, sequence, ...standalone);
     this.state.transcriptContainer.invalidate();
   }
 

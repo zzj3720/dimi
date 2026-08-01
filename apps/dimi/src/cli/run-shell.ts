@@ -80,11 +80,18 @@ export async function runShell(opts: CLIOptions, version: string): Promise<void>
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
+  const rawDefaultPermissionMode = config['defaultPermissionMode'];
   const tui = new DimiTUI(harness, {
     cliOptions: opts,
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
+    defaultPermissionMode:
+      rawDefaultPermissionMode === 'manual' ||
+      rawDefaultPermissionMode === 'yolo' ||
+      rawDefaultPermissionMode === 'auto'
+        ? rawDefaultPermissionMode
+        : undefined,
     version,
     workDir,
     startupNotice: configWarning,

@@ -81,7 +81,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | ---------------------------- | --------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `default_provider`           | `string`        | —        | Provider ID for the default model                                                                                                                                                                                                   |
 | `default_model`              | `string`        | —        | Model ID within `default_provider`                                                                                                                                                                                                  |
-| `default_permission_mode`    | `string`        | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking) |
+| `default_permission_mode`    | `string`        | `manual` | Default permission mode for new sessions; one of `manual` (prompt each time), `yolo` (auto-approve tool actions, but the agent may still ask questions), or `auto` (fully autonomous — the agent decides everything without asking). Set it from the TUI with `/permission <mode>` |
 | `default_plan_mode`          | `boolean`       | `false`  | Whether new sessions start in Plan mode (produce a plan before executing) by default                                                                                                                                                |
 | `merge_all_available_skills` | `boolean`       | `true`   | Whether to merge Agent Skills from all available directories                                                                                                                                                                        |
 | `extra_skill_dirs`           | `array<string>` | —        | Extra skill search directories, layered on top of the default directories                                                                                                                                                           |
@@ -162,6 +162,16 @@ When the experiment is enabled, the configuration is validated as the session st
 | ------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `default_thinking` | 0.21.0        | Top-level boolean, replaced by `[thinking] enabled`. Migrate `default_thinking = true` to `enabled = true`, and `default_thinking = false` to `enabled = false`.                                                 |
 | `thinking.mode`    | 0.21.0        | One of `auto` / `on` / `off`, replaced by `[thinking] enabled`. `mode = "off"` becomes `enabled = false`; `mode = "on"` and `mode = "auto"` are equivalent to `enabled = true` (the default) and can be removed. |
+
+## `model_efforts`
+
+`model_efforts` remembers the Thinking level you last chose **per model** (`"<provider>/<model>" -> effort`). When you switch to a model that has an entry here, Dimi resumes that effort instead of the global `[thinking]` default; the picker writes the entry when you select an effort with `Enter` (or `/effort <level>`), while `Alt+S` applies the current session only. The global `[thinking]` section remains the fallback for models without an entry.
+
+```toml
+[model_efforts]
+"anthropic/claude-sonnet-4-5" = "high"
+"kimi-coding/kimi-k2.5" = "off"
+```
 
 ## `loop_control`
 

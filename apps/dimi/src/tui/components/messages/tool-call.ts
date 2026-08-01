@@ -1599,6 +1599,17 @@ export class ToolCallComponent extends Container {
       return label;
     }
 
+    if (toolCall.name === 'AllDone') {
+      // Terminal completion control card — rendered like WaitFor's dedicated
+      // header and never folded into the tool-run summary.
+      if (isError) {
+        return `${bullet}${currentTheme.boldFg('error', 'AllDone failed')}`;
+      }
+      const label = isFinished ? 'Work complete' : 'Completing work';
+      const tone = isFinished ? 'success' : 'primary';
+      return `${bullet}${currentTheme.boldFg(tone, label)}`;
+    }
+
     if (toolCall.name === 'WaitFor') {
       if (isError) {
         return `${bullet}${currentTheme.boldFg('error', 'Wait failed')}`;

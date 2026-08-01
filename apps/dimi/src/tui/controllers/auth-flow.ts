@@ -10,7 +10,7 @@ import type { SkillListSession } from '../commands';
 import { AUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/dimi-tui';
 import type { RefreshResult } from '../utils/refresh-providers';
 import { providerModelToAlias } from '../utils/provider-model';
-import { thinkingEffortFromConfig } from '../utils/thinking-config';
+import { rememberedEffortFromConfig, thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { SessionEventHandler } from './session-event-handler';
 import type { AppState, DimiTUIOptions } from '../types';
 import type { TUIState } from '../tui-state';
@@ -144,7 +144,12 @@ export class AuthFlowController {
       return;
     }
 
-    await this.activateModelAfterLogin(defaultModel, thinkingEffortFromConfig(config.thinking));
+    // Prefer the effort remembered for this model ([model_efforts]) over the
+    // global [thinking] default so login restores the per-model choice.
+    await this.activateModelAfterLogin(
+      defaultModel,
+      rememberedEffortFromConfig(config, selected) ?? thinkingEffortFromConfig(config.thinking),
+    );
     const appStatePatch: Partial<AppState> = {
       availableModels,
       availableProviders,

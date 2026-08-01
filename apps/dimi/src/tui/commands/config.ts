@@ -28,7 +28,11 @@ import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/dimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { thinkingEffortToConfig } from '../utils/thinking-config';
+import {
+  modelEffortKey,
+  rememberedEffortFromConfig,
+  thinkingEffortToConfig,
+} from '../utils/thinking-config';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
 import type { SlashCommandHost } from './dispatch';
@@ -134,11 +138,10 @@ export async function handleYoloCommand(host: SlashCommandHost, args: string): P
       host.showNotice('YOLO mode is already on');
       return;
     }
-    await session.setPermission('yolo');
-    host.setAppState({ permissionMode: 'yolo' });
+    if (!(await applyPermissionModeWithDefault(host, 'yolo'))) return;
     host.showNotice(
       'YOLO mode: ON',
-      'Tool actions auto-approved; the agent may still ask you questions.',
+      'Tool actions auto-approved; the agent may still ask you questions. Saved as the default for new sessions.',
     );
     return;
   }
@@ -148,23 +151,20 @@ export async function handleYoloCommand(host: SlashCommandHost, args: string): P
       host.showNotice('YOLO mode is already off');
       return;
     }
-    await session.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
+    if (!(await applyPermissionModeWithDefault(host, 'manual'))) return;
     host.showNotice('YOLO mode: OFF');
     return;
   }
 
   // toggle
   if (currentMode === 'yolo') {
-    await session.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
+    if (!(await applyPermissionModeWithDefault(host, 'manual'))) return;
     host.showNotice('YOLO mode: OFF');
   } else {
-    await session.setPermission('yolo');
-    host.setAppState({ permissionMode: 'yolo' });
+    if (!(await applyPermissionModeWithDefault(host, 'yolo'))) return;
     host.showNotice(
       'YOLO mode: ON',
-      'Tool actions auto-approved; the agent may still ask you questions.',
+      'Tool actions auto-approved; the agent may still ask you questions. Saved as the default for new sessions.',
     );
   }
 }
@@ -184,11 +184,10 @@ export async function handleAutoCommand(host: SlashCommandHost, args: string): P
       host.showNotice('Auto mode is already on');
       return;
     }
-    await session.setPermission('auto');
-    host.setAppState({ permissionMode: 'auto' });
+    if (!(await applyPermissionModeWithDefault(host, 'auto'))) return;
     host.showNotice(
       'Auto mode: ON',
-      'All actions auto-approved; the agent will not ask you questions.',
+      'All actions auto-approved; the agent will not ask you questions. Saved as the default for new sessions.',
     );
     return;
   }
@@ -198,25 +197,50 @@ export async function handleAutoCommand(host: SlashCommandHost, args: string): P
       host.showNotice('Auto mode is already off');
       return;
     }
-    await session.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
+    if (!(await applyPermissionModeWithDefault(host, 'manual'))) return;
     host.showNotice('Auto mode: OFF');
     return;
   }
 
   // toggle
   if (currentMode === 'auto') {
-    await session.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
+    if (!(await applyPermissionModeWithDefault(host, 'manual'))) return;
     host.showNotice('Auto mode: OFF');
   } else {
-    await session.setPermission('auto');
-    host.setAppState({ permissionMode: 'auto' });
+    if (!(await applyPermissionModeWithDefault(host, 'auto'))) return;
     host.showNotice(
       'Auto mode: ON',
-      'All actions auto-approved; the agent will not ask you questions.',
+      'All actions auto-approved; the agent will not ask you questions. Saved as the default for new sessions.',
     );
   }
+}
+
+/**
+ * Apply a permission mode to the current session and persist it as the
+ * default for new sessions (`default_permission_mode`). On failure shows the
+ * error and returns false; an already-applied session change is not rolled
+ * back (matching the model-switch behavior).
+ */
+async function applyPermissionModeWithDefault(
+  host: SlashCommandHost,
+  mode: PermissionMode,
+): Promise<boolean> {
+  try {
+    await host.requireSession().setPermission(mode);
+  } catch (error) {
+    host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
+    return false;
+  }
+  host.setAppState({ permissionMode: mode });
+  try {
+    await host.harness.setConfig({ defaultPermissionMode: mode });
+  } catch (error) {
+    host.showError(
+      `Permission mode: ${mode} for this session, but failed to save default: ${formatErrorMessage(error)}`,
+    );
+    return false;
+  }
+  return true;
 }
 
 export async function handleCompactCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -476,7 +500,22 @@ export function showModelPicker(
   );
 }
 
-async function performModelSwitch(
+/**
+ * The effort the user last chose for a model, from `[model_efforts]` in
+ * config.toml (`"provider/model" -> effort`). Returns `undefined` when the
+ * model is unknown or has no recorded effort.
+ */
+async function rememberedEffortForModel(
+  host: SlashCommandHost,
+  model: ModelAlias | undefined,
+): Promise<ThinkingEffort | undefined> {
+  if (model === undefined) return undefined;
+  const config = await host.harness.getConfig();
+  if (config === undefined) return undefined;
+  return rememberedEffortFromConfig(config, model);
+}
+
+export async function performModelSwitch(
   host: SlashCommandHost,
   alias: string,
   effort: ThinkingEffort,
@@ -505,6 +544,18 @@ async function performModelSwitch(
       }
       if (effort !== prevEffort) {
         await session.setThinking(effort);
+      }
+      // Switching models without an explicit effort change restores the
+      // target model's remembered thinking level ([model_efforts]) — each
+      // model keeps the effort the user last chose for it.
+      if (modelChanged && !effortChanged) {
+        const remembered = await rememberedEffortForModel(
+          host,
+          host.state.appState.availableModels[alias],
+        );
+        if (remembered !== undefined && remembered !== prevEffort) {
+          await session.setThinking(remembered);
+        }
       }
       const status = await session.getStatus();
       effectiveAlias = status.model ?? alias;
@@ -581,18 +632,21 @@ async function persistModelSelection(
 ): Promise<boolean> {
   const config = await host.harness.getConfig({ reload: true });
   const model = host.state.appState.availableModels[alias];
-  const full = thinkingEffortToConfig(
-    effort,
-    model === undefined ? undefined : effectiveModelForHost(host, model).supportEfforts,
-  );
+  const full = thinkingEffortToConfig(effort);
   // Re-confirming the effort shown when the picker opened is not an explicit
   // choice — persist the model but leave the stored effort preference alone.
   const patch = effortChanged ? full : { enabled: full.enabled };
+  const rememberedKey =
+    model === undefined ? undefined : modelEffortKey(model.provider, model.model);
+  const modelEfforts = config['modelEfforts'] as Record<string, string> | undefined;
   if (
     config.defaultProvider === model?.provider &&
     config.defaultModel === model?.model &&
     config.thinking?.enabled === patch.enabled &&
-    (!effortChanged || config.thinking?.effort === patch.effort)
+    (!effortChanged || config.thinking?.effort === patch.effort) &&
+    // Only an explicit effort change records/checks the per-model memory;
+    // re-confirming the current value is not an explicit choice.
+    (!effortChanged || rememberedKey === undefined || modelEfforts?.[rememberedKey] === effort)
   ) {
     return false;
   }
@@ -600,6 +654,11 @@ async function persistModelSelection(
     defaultProvider: model?.provider,
     defaultModel: model?.model,
     thinking: patch,
+    // Remember the effort per (provider, model) so switching back to this
+    // model restores the level the user chose for it.
+    ...(effortChanged && rememberedKey !== undefined
+      ? { modelEfforts: { [rememberedKey]: effort } }
+      : {}),
   });
   return true;
 }
@@ -769,7 +828,11 @@ export function showPermissionPicker(host: SlashCommandHost): void {
       currentValue: host.state.appState.permissionMode,
       onSelect: (value) => {
         host.restoreEditor();
-        void applyPermissionChoice(host, value);
+        void applyPermissionChoice(host, value, true);
+      },
+      onSessionOnlySelect: (value) => {
+        host.restoreEditor();
+        void applyPermissionChoice(host, value, false);
       },
       onCancel: () => {
         host.restoreEditor();
@@ -952,9 +1015,43 @@ export async function applyBusyInputModeChoice(
   );
 }
 
-async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
+/**
+ * `/permission [<mode>]` — with an argument, applies the mode to the current
+ * session and saves it as the default for new sessions (`default_permission_mode`);
+ * without one, opens the picker (Enter saves the default, Alt+S is session-only).
+ */
+export async function handlePermissionCommand(
+  host: SlashCommandHost,
+  args: string,
+): Promise<void> {
+  const arg = args.trim().toLowerCase();
+  if (arg.length === 0) {
+    showPermissionPicker(host);
+    return;
+  }
+  if (arg === 'manual' || arg === 'yolo' || arg === 'auto') {
+    await applyPermissionChoice(host, arg, true);
+    return;
+  }
+  host.showError(`Unknown permission mode: ${arg}. Use manual, yolo, or auto.`);
+}
+
+export async function applyPermissionChoice(
+  host: SlashCommandHost,
+  mode: PermissionMode,
+  persistDefault: boolean,
+): Promise<void> {
   if (mode === host.state.appState.permissionMode) {
     host.showStatus(`Permission mode unchanged: ${mode}.`);
+    return;
+  }
+
+  if (persistDefault) {
+    if (!(await applyPermissionModeWithDefault(host, mode))) return;
+    host.showNotice(
+      `Permission mode: ${mode}`,
+      'Saved as the default for new sessions (Alt+S applies to this session only).',
+    );
     return;
   }
 
@@ -967,7 +1064,7 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   }
 
   host.setAppState({ permissionMode: mode });
-  host.showNotice(`Permission mode: ${mode}`);
+  host.showNotice(`Permission mode: ${mode}`, 'Applied to this session only.');
 }
 
 export function showSettingsSelector(host: SlashCommandHost): void {

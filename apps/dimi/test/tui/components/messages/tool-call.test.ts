@@ -2059,4 +2059,38 @@ describe('ToolCallComponent', () => {
       expect(out).not.toContain('Waited');
     });
   });
+
+  describe('AllDone completion card', () => {
+    const allDoneComponent = (result?: { output: string; is_error?: boolean }): ToolCallComponent =>
+      new ToolCallComponent(
+        { id: 'call_alldone', name: 'AllDone', args: {} },
+        result === undefined
+          ? undefined
+          : {
+              tool_call_id: 'call_alldone',
+              output: result.output,
+              is_error: result.is_error,
+            },
+      );
+
+    it('renders a Work complete header once the result lands', () => {
+      const out = strip(allDoneComponent({ output: 'All work is complete.' }).render(100).join('\n'));
+      expect(out).toContain('Work complete');
+      expect(out).toContain('All work is complete.');
+    });
+
+    it('renders an in-flight Completing work header before the result', () => {
+      const out = strip(allDoneComponent().render(100).join('\n'));
+      expect(out).toContain('Completing work');
+      expect(out).not.toContain('Work complete');
+    });
+
+    it('renders AllDone failed on an error result', () => {
+      const out = strip(
+        allDoneComponent({ output: 'AllDone cannot complete while tasks run.', is_error: true }).render(100).join('\n'),
+      );
+      expect(out).toContain('AllDone failed');
+      expect(out).toContain('AllDone cannot complete while tasks run.');
+    });
+  });
 });

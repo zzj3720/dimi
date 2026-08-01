@@ -26,7 +26,10 @@ function isPermissionModeChoice(value: string): value is PermissionMode {
 
 export interface PermissionSelectorOptions {
   readonly currentValue: PermissionMode;
+  /** Enter: applies to the current session and saves as the default for new sessions. */
   readonly onSelect: (mode: PermissionMode) => void;
+  /** When provided, Alt+S applies the choice to the current session only. */
+  readonly onSessionOnlySelect?: (mode: PermissionMode) => void;
   readonly onCancel: () => void;
 }
 
@@ -39,6 +42,12 @@ export class PermissionSelectorComponent extends ChoicePickerComponent {
       onSelect: (value) => {
         if (isPermissionModeChoice(value)) opts.onSelect(value);
       },
+      onSessionOnlySelect:
+        opts.onSessionOnlySelect === undefined
+          ? undefined
+          : (value) => {
+              if (isPermissionModeChoice(value)) opts.onSessionOnlySelect!(value);
+            },
       onCancel: opts.onCancel,
     });
   }

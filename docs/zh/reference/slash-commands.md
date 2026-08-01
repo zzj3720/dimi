@@ -16,11 +16,11 @@
 | `/logout`                         | —               | 选择供应商并删除其已保存凭证                                                                                                                                            | 否       |
 | `/provider [<provider>\|add\|import\|remove\|refresh]` | `/providers` | 连接供应商、添加/导入/移除 `models.json` 定义，或刷新动态目录。详见[供应商与模型](../configuration/providers.md) | 是 |
 | `/model`                          | —               | 切换当前会话使用的 LLM 模型；选择器使用模型声明的上下文限制和能力 | 是 |
-| `/effort [<level>]`               | `/thinking`      | 调整所选模型的 Thinking 档位，或打开 Thinking 选择器。仅显示声明的档位；没有档位映射的推理模型只有开/关 | 是 |
+| `/effort [<level>]`               | `/thinking`      | 调整所选模型的 Thinking 档位，或打开 Thinking 选择器。仅显示声明的档位；没有档位映射的推理模型只有开/关。所选档位会按模型记忆，切回该模型时自动恢复；`Alt+S` 仅应用到当前会话 | 是 |
 | `/secondary_model`                | —               | 配置子 Agent 使用的第二模型（写入 [`[secondary_model]`](../configuration/config-files.md#secondary-model) 配置并在当前会话立即生效）。需开启 `secondary-model` 实验功能 | 是       |
 | `/settings`                       | `/config`       | 打开 TUI 内的设置面板                                                                                                                                                   | 是       |
 | `/experiments`                    | `/experimental` | 打开实验功能面板                                                                                                                                                        | 是       |
-| `/permission`                     | —               | 选择权限模式                                                                                                                                                            | 是       |
+| `/permission [<mode>]`             | —               | 选择权限模式。带模式参数（`manual`、`yolo` 或 `auto`）时，应用到当前会话并保存为新会话的默认值（`default_permission_mode`）；选择器中按 `Enter` 同样保存为默认值，按 `Alt+S` 仅应用到当前会话 | 是       |
 | `/editor`                         | —               | 配置 `Ctrl-G` 调起的外部编辑器                                                                                                                                          | 是       |
 | `/theme`                          | —               | 切换终端 UI 配色主题                                                                                                                                                    | 是       |
 
@@ -46,8 +46,8 @@
 
 | 命令              | 别名   | 说明                                                                                                                                                                  | 随时可用 |
 | ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `/yolo [on\|off]` | `/yes` | 切换 YOLO 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。开启后跳过普通工具调用审批；Plan 模式的退出审批不受影响                                                 | 是       |
-| `/auto [on\|off]` | —      | 切换 auto 权限模式。开启后工具审批自动处理，Agent 不会向用户提问                                                                                                      | 是       |
+| `/yolo [on\|off]` | `/yes` | 切换 YOLO 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。结果会保存为新会话的默认权限模式。开启后跳过普通工具调用审批；Plan 模式的退出审批不受影响 | 是       |
+| `/auto [on\|off]` | —      | 切换 auto 权限模式。结果会保存为新会话的默认权限模式。开启后工具审批自动处理，Agent 不会向用户提问 | 是       |
 | `/plan [on\|off]` | —      | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件                                                                              | 是       |
 | `/plan clear`     | —      | 清除当前 plan 方案                                                                                                                                                    | 否       |
 | `/swarm on\|off`  | —      | 开启或关闭 swarm mode，但不发送提示词。                                                                                                                               | 是       |

@@ -27,6 +27,7 @@ import {
   handleEditorCommand,
   handleEffortCommand,
   handleModelCommand,
+  handlePermissionCommand,
   handlePlanCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
@@ -70,6 +71,7 @@ export {
   handleEditorCommand,
   handleEffortCommand,
   handleModelCommand,
+  handlePermissionCommand,
   handlePlanCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
@@ -313,7 +315,7 @@ async function handleBuiltInSlashCommand(
       await handleProviderCommand(host, args);
       return;
     case 'permission':
-      showPermissionPicker(host);
+      await handlePermissionCommand(host, args);
       return;
     case 'settings':
       showSettingsSelector(host);
