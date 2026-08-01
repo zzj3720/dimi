@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.4.1
+
+### Patch Changes
+
+- [`4c6b7ec`](https://github.com/zzj3720/dimi/commit/4c6b7ec31a5d513b0c1d05902a3bf0a4398e58ab) - Fix the footer CH badge and /usage panel under-reporting the prompt cache hit rate for OpenAI-compatible providers, where cached input tokens were counted twice.
+
+- [`5db585a`](https://github.com/zzj3720/dimi/commit/5db585a6e32602eb4d3f2356a30595564457619e) - Render WaitFor wait cards with a live count-up timer, the max wait duration, and the wait reason instead of the generic tool output.
+
 ## 0.4.0
 
 ### Minor Changes
