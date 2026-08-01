@@ -2385,6 +2385,12 @@ export class ToolCallComponent extends Container {
       return;
     }
 
+    // AllDone: the single-line "Work complete" header is the whole story;
+    // "All work is complete." adds nothing.
+    if (this.toolCall.name === 'AllDone' && !result.is_error) {
+      return;
+    }
+
     if (
       this.toolCall.name === 'AskUserQuestion' &&
       this.toolCall.args['background'] !== true &&

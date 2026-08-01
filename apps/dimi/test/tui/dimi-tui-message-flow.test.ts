@@ -2694,11 +2694,11 @@ command = "vim"
     );
     expect(sequences).toHaveLength(1);
     const transcript = stripSgr(renderTranscript(driver));
-    // The Bash call folds; AllDone renders as its own card, not part of the count.
+    // The Bash call folds; AllDone renders as its own single-line card.
     expect(countOccurrences(transcript, 'Used 1 tool')).toBe(1);
     expect(transcript).not.toContain('Used 2 tools');
     expect(transcript).toContain('Work complete');
-    expect(transcript).toContain('All work is complete.');
+    expect(transcript).not.toContain('All work is complete.');
     expect(transcript).toContain('Done.');
   });
 

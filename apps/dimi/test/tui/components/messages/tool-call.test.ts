@@ -2073,10 +2073,11 @@ describe('ToolCallComponent', () => {
             },
       );
 
-    it('renders a Work complete header once the result lands', () => {
+    it('renders a single-line Work complete header once the result lands', () => {
       const out = strip(allDoneComponent({ output: 'All work is complete.' }).render(100).join('\n'));
+      // Header only — the boilerplate output text is dropped like WaitFor's JSON.
       expect(out).toContain('Work complete');
-      expect(out).toContain('All work is complete.');
+      expect(out).not.toContain('All work is complete.');
     });
 
     it('renders an in-flight Completing work header before the result', () => {
