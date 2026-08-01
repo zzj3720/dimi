@@ -9,8 +9,7 @@
   "ignore": [
     "@dimi-agent/vis",
     "@dimi-agent/vis-server",
-    "@dimi-agent/vis-web",
-    "@dimi-agent/dimi-inspect"
+    "@dimi-agent/vis-web"
   ],
   "snapshot": {
     "useCalculatedVersion": true,
