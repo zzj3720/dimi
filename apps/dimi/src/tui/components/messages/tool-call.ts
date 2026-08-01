@@ -53,6 +53,26 @@ const MAX_LIVE_OUTPUT_CHARS = 50_000;
 const DETACH_HINT_DELAY_MS = 10_000;
 const DETACH_HINT_TEXT = 'Press Ctrl+B to run in background';
 
+/** Tick interval for the live WaitFor count-up timer. */
+const WAIT_TIMER_INTERVAL_MS = 1_000;
+
+/**
+ * Parsed `WaitFor` tool state. Populated from the tool's `waiting` result
+ * payload (`status`, `reason`, `timeout_seconds`, `started_at`, `deadline_at`),
+ * falling back to the call args when the payload lacks the timing fields
+ * (sessions recorded before the fields were added). `ended` means the wait was
+ * finalized early (a new turn started — user/notification wake); `timedOut`
+ * means the deadline passed and the timer stopped itself.
+ */
+interface WaitForState {
+  readonly reason: string;
+  readonly maxSeconds: number;
+  readonly startedAtMs: number;
+  readonly deadlineAtMs: number;
+  ended: boolean;
+  timedOut: boolean;
+}
+
 type SubagentTextKind = 'thinking' | 'text';
 type SubagentPhase = 'queued' | 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded';
 
@@ -137,6 +157,42 @@ function backgroundFailureMessage(
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+function waitNumber(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+}
+
+/**
+ * Parse a `WaitFor` result output into timer state. Returns `undefined` when
+ * the output is not the structured `waiting` payload (error text, old formats),
+ * so the card falls back to the generic tool rendering.
+ */
+function parseWaitForResult(output: string, args: Record<string, unknown>): WaitForState | undefined {
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    const value = JSON.parse(output) as unknown;
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      parsed = value as Record<string, unknown>;
+    }
+  } catch {
+    return undefined;
+  }
+  if (parsed === undefined || parsed['status'] !== 'waiting') return undefined;
+  const reason = str(parsed['reason']) || str(args['reason']) || 'waiting';
+  const maxSeconds =
+    waitNumber(parsed['timeout_seconds']) ?? waitNumber(args['timeout_seconds']) ?? 60;
+  const startedAtMs = waitNumber(parsed['started_at']) ?? Date.now();
+  const deadlineAtMs =
+    waitNumber(parsed['deadline_at']) ?? startedAtMs + maxSeconds * 1_000;
+  return {
+    reason,
+    maxSeconds,
+    startedAtMs,
+    deadlineAtMs,
+    ended: false,
+    timedOut: false,
+  };
 }
 
 function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
@@ -619,6 +675,18 @@ export class ToolCallComponent extends Container {
   private static readonly MAX_PROGRESS_LINES = 24;
   private liveOutput = '';
 
+  // ── WaitFor state ─────────────────────────────────────────────────
+  //
+  // Populated when the WaitFor tool result (`status:'waiting'`) lands; drives
+  // the live count-up in the single-line header (`elapsed / max · reason`).
+  // The timer stops when the wait is finalized via `finalizeWait()` (next turn
+  // started — the agent woke up) or when the deadline passes on its own. Not
+  // registered anywhere: the card lives standalone in the transcript, so the
+  // component owns the timer and the streaming-ui controller only needs the
+  // component reference to finalize it on the next turn start.
+  private waitState: WaitForState | undefined;
+  private waitTimer: ReturnType<typeof setInterval> | undefined;
+
   /**
    * Advertises `Ctrl+B` on a foreground Bash/Agent card that has been running
    * for {@link DETACH_HINT_DELAY_MS}. Cleared when the result lands.
@@ -657,6 +725,7 @@ export class ToolCallComponent extends Container {
     this.buildLiveOutputBlock();
     this.buildContent();
     this.buildSubagentBlock();
+    this.syncWaitForState();
     this.syncStreamingProgressTimer();
     this.syncSubagentElapsedTimer();
     this.startDetachHintTimer();
@@ -733,6 +802,9 @@ export class ToolCallComponent extends Container {
     this.finalizeSubagentElapsedIfNeeded();
     this.syncStreamingProgressTimer();
     this.syncSubagentElapsedTimer();
+    // Parse WaitFor state before the rebuild so the wait card renders its
+    // timer row (not the generic JSON body) on the first pass.
+    this.syncWaitForState();
     this.headerText.setText(this.buildHeader());
     // rebuildBody (not rebuildContent) so the call preview re-renders
     // with the collapsed cap applied — Write streaming previews and
@@ -786,6 +858,7 @@ export class ToolCallComponent extends Container {
   }
 
   dispose(): void {
+    this.stopWaitTimer();
     this.stopStreamingProgressTimer();
     this.stopSubagentElapsedTimer();
     this.stopDetachHintTimer();
@@ -1080,6 +1153,75 @@ export class ToolCallComponent extends Container {
     if (this.subagentElapsedTimer === undefined) return;
     clearInterval(this.subagentElapsedTimer);
     this.subagentElapsedTimer = undefined;
+  }
+
+  // ── WaitFor timer ─────────────────────────────────────────────────
+
+  /**
+   * Parse the WaitFor result into timer state and arm the live count-up.
+   * Called from the constructor (replay path may construct with a result) and
+   * from `setResult`. A wait whose deadline already passed (resumed session
+   * where the wait expired while away) renders its final state immediately
+   * without arming a timer.
+   */
+  private syncWaitForState(): void {
+    if (this.toolCall.name !== 'WaitFor' || this.result === undefined) return;
+    if (this.waitState !== undefined) return;
+    if (this.result.is_error === true) return;
+    const parsed = parseWaitForResult(this.result.output, this.toolCall.args);
+    if (parsed === undefined) return;
+    this.waitState = parsed;
+    // A wait whose deadline already passed (resumed session where it expired
+    // while away) renders its final state immediately — mark it before the
+    // first header build so it never flashes a live "waiting" frame.
+    if (Date.now() >= parsed.deadlineAtMs) parsed.timedOut = true;
+    // Constructor path: the header was built before the state was parsed, so
+    // refresh it once with the wait rendering active.
+    this.headerText.setText(this.buildHeader());
+    if (!parsed.timedOut) this.startWaitTimerIfNeeded();
+  }
+
+  private startWaitTimerIfNeeded(): void {
+    const wait = this.waitState;
+    if (wait === undefined || wait.ended || wait.timedOut) return;
+    if (this.waitTimer !== undefined) return;
+    this.waitTimer = setInterval(() => {
+      const current = this.waitState;
+      if (current === undefined) {
+        this.stopWaitTimer();
+        return;
+      }
+      if (Date.now() >= current.deadlineAtMs) {
+        current.timedOut = true;
+        this.stopWaitTimer();
+      }
+      // Only the header changes on a tick — the whole wait card is one line.
+      this.headerText.setText(this.buildHeader());
+      this.notifySnapshotChange();
+      this.ui?.requestRender();
+    }, WAIT_TIMER_INTERVAL_MS);
+  }
+
+  private stopWaitTimer(): void {
+    if (this.waitTimer === undefined) return;
+    clearInterval(this.waitTimer);
+    this.waitTimer = undefined;
+  }
+
+  /**
+   * Freeze the wait card at its actual elapsed duration. Called by
+   * `StreamingUI.finalizeActiveWait` when the next turn starts — the agent
+   * woke up (user message, notification, or timeout), so the wait is over.
+   * No-op when no wait timer is active.
+   */
+  finalizeWait(): void {
+    const wait = this.waitState;
+    if (wait === undefined || wait.ended || wait.timedOut) return;
+    wait.ended = true;
+    this.stopWaitTimer();
+    this.headerText.setText(this.buildHeader());
+    this.notifySnapshotChange();
+    this.ui?.requestRender();
   }
 
   private finalizeSubagentElapsedIfNeeded(): void {
@@ -1455,6 +1597,34 @@ export class ToolCallComponent extends Container {
         return `${label}${currentTheme.fg('warning', ' · Auto-approved')}`;
       }
       return label;
+    }
+
+    if (toolCall.name === 'WaitFor') {
+      if (isError) {
+        return `${bullet}${currentTheme.boldFg('error', 'Wait failed')}`;
+      }
+      if (this.waitState !== undefined) {
+        const wait = this.waitState;
+        const elapsedSeconds = Math.min(
+          wait.maxSeconds,
+          Math.max(0, Math.floor((Date.now() - wait.startedAtMs) / 1_000)),
+        );
+        const max = formatElapsed(wait.maxSeconds);
+        // One-line wait card: state verb + live `elapsed / max` timer + reason.
+        let verb: string;
+        let timerText: string;
+        if (wait.timedOut) {
+          verb = currentTheme.boldFg('primary', 'Waited');
+          timerText = `${max} (timeout)`;
+        } else if (wait.ended) {
+          verb = currentTheme.boldFg('success', 'Waited');
+          timerText = `${formatElapsed(elapsedSeconds)} / ${max}`;
+        } else {
+          verb = currentTheme.boldFg('primary', 'Waiting');
+          timerText = `${formatElapsed(elapsedSeconds)} / ${max}`;
+        }
+        return `${bullet}${verb}${currentTheme.dim(` ${timerText} — ${wait.reason}`)}`;
+      }
     }
 
     if (toolCall.name === 'AskUserQuestion') {
@@ -2195,6 +2365,12 @@ export class ToolCallComponent extends Container {
     }
 
     if (this.toolCall.name === 'EnterPlanMode' && !result.is_error) {
+      return;
+    }
+
+    // WaitFor: the single-line header (timer / max / reason) is the whole
+    // story; the structured `waiting` JSON payload would only add noise.
+    if (this.toolCall.name === 'WaitFor' && !result.is_error) {
       return;
     }
 

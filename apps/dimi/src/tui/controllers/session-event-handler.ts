@@ -371,6 +371,10 @@ export class SessionEventHandler {
 
   private handleTurnBegin(event: TurnStartedEvent): void {
     this.currentTurnHasAssistantText = false;
+    // A new turn means a pending WaitFor wait ended (user/notification wake or
+    // timeout wake): freeze its count-up before resetToolUi tears down the
+    // tool-call bookkeeping.
+    this.host.streamingUI.finalizeActiveWait();
     if (event.origin?.kind === 'plugin_command') {
       this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
     }

@@ -63,6 +63,14 @@ export class StreamingUIController {
     { name?: string; argumentsText: string; startedAtMs: number }
   >();
   private _pendingToolComponents = new Map<string, ToolCallComponent>();
+  /**
+   * The most recent live `WaitFor` card whose wait is still running. Kept after
+   * the card leaves `_pendingToolComponents` (the result landed but the wait
+   * continues in the background) so `finalizeActiveWait` can freeze the card
+   * when the next turn starts. Survives replay cleanup so a resumed mid-wait
+   * session keeps its countdown live.
+   */
+  private activeWaitComponent: ToolCallComponent | undefined;
   private _pendingAgentGroup: {
     readonly turnId: string | undefined;
     readonly step: number;
@@ -550,6 +558,17 @@ export class StreamingUIController {
     this._activeToolCalls.clear();
   }
 
+  /**
+   * Freeze the active WaitFor card's count-up timer. Called when a new turn
+   * starts (live) or replay advances past the wake message — both mean the
+   * wait ended and the card should stop ticking. No-op when no wait is active.
+   */
+  finalizeActiveWait(): void {
+    if (this.activeWaitComponent === undefined) return;
+    this.activeWaitComponent.finalizeWait();
+    this.activeWaitComponent = undefined;
+  }
+
   finalizeLiveTextBuffers(nextMode: LivePaneState['mode'] = 'idle'): void {
     this.flushThinkingToTranscript(nextMode);
     this.finalizeAssistantStream();
@@ -708,6 +727,12 @@ export class StreamingUIController {
     if (tc) {
       tc.setResult(result);
       this._pendingToolComponents.delete(toolCallId);
+      if (matchedCall?.name === 'WaitFor' && !result.is_error) {
+        // The wait keeps running after the result lands (stopTurn); keep the
+        // card referenced so the next turn start can freeze its timer.
+        this.finalizeActiveWait();
+        this.activeWaitComponent = tc;
+      }
       state.ui.requestRender();
       this.host.mergeCurrentTurnSteps();
       return;

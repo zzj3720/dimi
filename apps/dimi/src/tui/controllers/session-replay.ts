@@ -378,6 +378,10 @@ export class SessionReplayRenderer {
     context.turnIndex += 1;
     context.stepIndex = 0;
     context.currentTurnId = `replay:${String(context.turnIndex)}`;
+    // A new turn in the history means the previous WaitFor wait ended (the
+    // wake message follows the wait card); freeze its count-up at the actual
+    // elapsed duration instead of letting it tick to the timeout.
+    this.host.streamingUI.finalizeActiveWait();
     this.applyStepContext(context);
   }
 

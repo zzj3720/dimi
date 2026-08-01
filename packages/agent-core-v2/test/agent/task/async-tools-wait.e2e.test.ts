@@ -158,6 +158,13 @@ describe('async tools and wait end-to-end', () => {
       expect(ctx.get(IAgentWaitService).active()).toBeNull();
     });
     expect(JSON.stringify(ctx.llmCalls[1]?.history)).toContain('Continue now');
+
+    // The WaitFor result (with its timing fields) rides into the follow-up
+    // request's history as a tool message.
+    const waitResult = JSON.stringify(ctx.llmCalls[1]?.history);
+    expect(waitResult).toContain('\\"status\\":\\"waiting\\"');
+    expect(waitResult).toContain('\\"started_at\\":');
+    expect(waitResult).toContain('\\"deadline_at\\":');
   });
 
   it('stops one detached generic tool without cancelling its sibling', async () => {

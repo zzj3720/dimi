@@ -55,6 +55,8 @@ export class WaitForTool implements IWaitForTool {
             wait_id: wait.waitId,
             reason: wait.reason,
             timeout_seconds: wait.timeoutSeconds,
+            started_at: wait.startedAt,
+            deadline_at: wait.deadlineAt,
             message: 'the agent will wake on any notification or on wait timeout',
           }),
           stopTurn: true,

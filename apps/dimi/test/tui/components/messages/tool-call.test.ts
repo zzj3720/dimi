@@ -1933,4 +1933,130 @@ describe('ToolCallComponent', () => {
       stderr.restore();
     }
   });
+
+  describe('WaitFor timer card', () => {
+    const WAIT_REASON = 'waiting for the build to finish';
+    const waitingPayload = (startedAt: number, timeoutSeconds = 60): string =>
+      JSON.stringify({
+        status: 'waiting',
+        wait_id: 'wait-1',
+        reason: WAIT_REASON,
+        timeout_seconds: timeoutSeconds,
+        started_at: startedAt,
+        deadline_at: startedAt + timeoutSeconds * 1000,
+        message: 'the agent will wake on any notification or on wait timeout',
+      });
+    const waitComponent = (
+      startedAt: number,
+      result?: { output: string; is_error?: boolean },
+    ): ToolCallComponent =>
+      new ToolCallComponent(
+        {
+          id: 'call_wait',
+          name: 'WaitFor',
+          args: { reason: WAIT_REASON, timeout_seconds: 60 },
+        },
+        result === undefined
+          ? undefined
+          : { tool_call_id: 'call_wait', output: result.output, is_error: result.is_error },
+      );
+
+    it('renders a single-line waiting header with the timer and reason, hiding the raw JSON', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = waitComponent(10_000, { output: waitingPayload(10_000) });
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain(`Waiting 0s / 1m 0s — ${WAIT_REASON}`);
+      expect(out).not.toContain('"status"');
+      expect(out).not.toContain('wait_id');
+    });
+
+    it('advances the elapsed time on each timer tick', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = waitComponent(10_000, { output: waitingPayload(10_000) });
+
+      vi.advanceTimersByTime(5_000);
+      expect(strip(component.render(100).join('\n'))).toContain(
+        `Waiting 5s / 1m 0s — ${WAIT_REASON}`,
+      );
+
+      vi.advanceTimersByTime(55_000);
+      expect(strip(component.render(100).join('\n'))).toContain('Waited 1m 0s (timeout)');
+    });
+
+    it('starts ticking only once the waiting result lands via setResult', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = waitComponent(10_000);
+
+      vi.advanceTimersByTime(3_000);
+      expect(strip(component.render(100).join('\n'))).not.toContain('waiting 3s');
+
+      // The wait starts when the tool executes (result landing time here).
+      component.setResult({
+        tool_call_id: 'call_wait',
+        output: waitingPayload(13_000),
+        is_error: false,
+      });
+      vi.advanceTimersByTime(2_000);
+      expect(strip(component.render(100).join('\n'))).toContain('Waiting 2s / 1m 0s');
+    });
+
+    it('freezes at the actual duration when finalized early', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = waitComponent(10_000, { output: waitingPayload(10_000) });
+
+      vi.advanceTimersByTime(12_000);
+      component.finalizeWait();
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain(`Waited 12s / 1m 0s — ${WAIT_REASON}`);
+      expect(out).not.toContain('(timeout)');
+
+      // Frozen: later ticks/render passes must not change the elapsed text.
+      vi.advanceTimersByTime(30_000);
+      expect(strip(component.render(100).join('\n'))).toContain(`Waited 12s / 1m 0s — ${WAIT_REASON}`);
+      expect(strip(component.render(100).join('\n'))).not.toContain('Waited 42s');
+    });
+
+    it('shows the expired state immediately for a wait whose deadline already passed', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(100_000);
+      const component = waitComponent(10_000, { output: waitingPayload(10_000) });
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Waited 1m 0s (timeout) — waiting for the build to finish');
+      expect(out).not.toContain('Waiting 0s');
+    });
+
+    it('renders an error result as a failed wait without a timer', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = waitComponent(10_000, { output: 'wait rejected', is_error: true });
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Wait failed');
+      expect(out).toContain('wait rejected');
+
+      vi.advanceTimersByTime(5_000);
+      expect(strip(component.render(100).join('\n'))).not.toContain('Waiting 5s');
+    });
+
+    it('does not treat other tools with a waiting-looking output as waits', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      const component = new ToolCallComponent(
+        { id: 'call_read', name: 'Read', args: { path: 'a.ts' } },
+        { tool_call_id: 'call_read', output: waitingPayload(10_000), is_error: false },
+      );
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Used Read');
+      expect(out).not.toContain('Waiting 0s / 1m 0s');
+      expect(out).not.toContain('Waited');
+    });
+  });
 });
