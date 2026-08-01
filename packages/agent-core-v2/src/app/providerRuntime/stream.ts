@@ -2326,11 +2326,15 @@ function parsedToolCall(call: { id: string; name: string; arguments: string }): 
 function openAIUsage(value: Record<string, unknown>): Usage {
   const input = number(value["prompt_tokens"]) ?? 0;
   const output = number(value["completion_tokens"]) ?? 0;
+  // OpenAI-compatible prompt caching reports cached tokens as a subset of
+  // `prompt_tokens`: OpenAI nests them under `prompt_tokens_details.cached_tokens`,
+  // Moonshot (Kimi) at the top level as `cached_tokens`. Either way the cached
+  // share must be split out of `input` so the two are not double-counted.
   const details = record(value["prompt_tokens_details"]);
-  const cacheRead = number(details?.["cached_tokens"]) ?? 0;
+  const cacheRead = number(value["cached_tokens"]) ?? number(details?.["cached_tokens"]) ?? 0;
   return {
     ...emptyUsage(),
-    input,
+    input: Math.max(0, input - cacheRead),
     output,
     cacheRead,
     totalTokens: number(value["total_tokens"]) ?? input + output,
@@ -2340,11 +2344,13 @@ function openAIUsage(value: Record<string, unknown>): Usage {
 function responsesUsage(value: Record<string, unknown>): Usage {
   const input = number(value["input_tokens"]) ?? 0;
   const output = number(value["output_tokens"]) ?? 0;
+  // Responses-API `input_tokens` also includes the cached share; it is broken
+  // out in `input_tokens_details.cached_tokens` and must not be double-counted.
   const details = record(value["input_tokens_details"]);
   const cacheRead = number(details?.["cached_tokens"]) ?? 0;
   return {
     ...emptyUsage(),
-    input,
+    input: Math.max(0, input - cacheRead),
     output,
     cacheRead,
     totalTokens: number(value["total_tokens"]) ?? input + output,

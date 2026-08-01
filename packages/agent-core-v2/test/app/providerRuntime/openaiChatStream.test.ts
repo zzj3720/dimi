@@ -158,7 +158,7 @@ describe("OpenAI Chat streaming", () => {
       stopReason: "toolUse",
       finishReason: "tool_calls",
       rawStopReason: "tool_calls",
-      usage: { input: 5, output: 7, cacheRead: 2, totalTokens: 12 },
+      usage: { input: 3, output: 7, cacheRead: 2, totalTokens: 12 },
       content: [
         { type: "text", text: "Hello " },
         { type: "thinking", thinking: "considering" },
@@ -177,6 +177,33 @@ describe("OpenAI Chat streaming", () => {
           argumentsRaw: '{"right":2}',
         },
       ],
+    });
+  });
+
+  it("splits Moonshot top-level cached_tokens out of prompt input", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sse([
+          {
+            choices: [{ delta: { content: "cached answer" } }],
+            usage: {
+              prompt_tokens: 12,
+              completion_tokens: 4,
+              total_tokens: 16,
+              cached_tokens: 9,
+            },
+          },
+          { choices: [{ delta: {}, finish_reason: "stop" }] },
+        ]),
+      ),
+    );
+
+    const result = await collect(streamProvider(model, context(), auth));
+
+    expect(result.message).toMatchObject({
+      stopReason: "stop",
+      usage: { input: 3, output: 4, cacheRead: 9, totalTokens: 16 },
     });
   });
 

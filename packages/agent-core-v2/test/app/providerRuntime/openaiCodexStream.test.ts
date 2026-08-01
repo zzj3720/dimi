@@ -169,7 +169,7 @@ describe("OpenAI Codex Responses streaming", () => {
       responseModel: "server-codex-model",
       stopReason: "toolUse",
       finishReason: "tool_calls",
-      usage: { input: 8, output: 5, cacheRead: 1, totalTokens: 14 },
+      usage: { input: 7, output: 5, cacheRead: 1, totalTokens: 14 },
       content: expect.arrayContaining([
         { type: "text", text: "Answer" },
         { type: "thinking", thinking: "Reasoning" },

@@ -149,7 +149,7 @@ describe("OpenAI Responses streaming", () => {
       stopReason: "toolUse",
       finishReason: "tool_calls",
       rawStopReason: "completed",
-      usage: { input: 10, output: 6, cacheRead: 2, totalTokens: 18 },
+      usage: { input: 8, output: 6, cacheRead: 2, totalTokens: 18 },
       content: expect.arrayContaining([
         { type: "text", text: "Answer" },
         { type: "thinking", thinking: "Reasoning" },
@@ -206,7 +206,7 @@ describe("OpenAI Responses streaming", () => {
       stopReason: "length",
       finishReason: "truncated",
       rawStopReason: "incomplete",
-      usage: { input: 7, output: 3, cacheRead: 1, totalTokens: 11 },
+      usage: { input: 6, output: 3, cacheRead: 1, totalTokens: 11 },
     });
   });
 
