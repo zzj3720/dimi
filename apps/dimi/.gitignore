@@ -9,3 +9,12 @@ src/generated/vis-web-asset.ts
 
 # Copied from packages/pi-tui/native at build time by scripts/copy-native-assets.mjs
 native/
+# The TS/MJS sources under src/native/, scripts/native/ and test/native/ are
+# real source files (native module bootstrap, SEA blob, web assets staging,
+# release packaging) — do not let the `native/` rule above swallow them.
+!src/native/
+!src/native/*.ts
+!scripts/native/
+!scripts/native/*
+!test/native/
+!test/native/*.ts
