@@ -21,6 +21,11 @@ const optionalRuntimeRequires = new Set([
   'fast-json-stringify/lib/serializer',
   'fast-json-stringify/lib/validator',
   'utf-8-validate',
+  // aws-sdk error-message guidance strings reference these signers inside a
+  // string literal (`[require('@aws-sdk/signature-v4a');]`); they are not
+  // real require calls in the bundle.
+  '@aws-sdk/signature-v4a',
+  '@aws-sdk/signature-v4-crt',
 ]);
 const optionalRelativeRuntimeRequires = new Set(['./crypto/build/Release/sshcrypto.node']);
 const handledNativeRuntimeRequires = new Set();
