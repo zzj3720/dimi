@@ -1,5 +1,5 @@
-import { IModelCatalog, IProviderRuntime, isError2, type Scope } from "@moonshot-ai/agent-core-v2";
-import { setDefaultModelResponseSchema } from "@moonshot-ai/agent-core-v2/app/modelCatalog/catalog";
+import { IModelCatalog, IProviderRuntime, isError2, type Scope } from "@dimi-agent/agent-core-v2";
+import { setDefaultModelResponseSchema } from "@dimi-agent/agent-core-v2/app/modelCatalog/catalog";
 import { z } from "zod";
 
 import { errEnvelope, okEnvelope } from "../envelope";

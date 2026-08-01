@@ -20,11 +20,11 @@ import {
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
 import type {
-  KimiHarness,
+  DimiHarness,
   Session,
   SessionMcpServerConfig,
-} from '@moonshot-ai/kimi-code-sdk';
-import { log } from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
+import { log } from '@dimi-agent/dimi-sdk';
 
 import { acpMcpServersToConfigs } from '../src/mcp';
 import { AcpServer } from '../src/server';
@@ -63,7 +63,7 @@ function makeHarness(
   sessionId: string,
   captured: CapturedCall[],
 ): {
-  harness: KimiHarness;
+  harness: DimiHarness;
 } {
   const fakeSession = {
     id: sessionId,
@@ -73,14 +73,14 @@ function makeHarness(
   } as unknown as Session;
   const harness = {
     auth: {
-      status: async () => ({ providers: [{ providerName: 'kimi', hasToken: true }] }),
+      status: async () => ({ providers: [{ providerName: 'dimi', hasToken: true }] }),
       models: async () => [],
     },
     createSession: async (options: CapturedCall['options']) => {
       captured.push({ options });
       return fakeSession;
     },
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
   return { harness };
 }
 

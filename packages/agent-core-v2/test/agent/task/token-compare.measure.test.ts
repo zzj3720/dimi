@@ -3,7 +3,7 @@
  * Measures estimateTokens of every LLM generate call for slow/fast tool scenarios.
  *
  * Run:
- *   pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/agent/task/token-compare.measure.test.ts
+ *   pnpm --filter @dimi-agent/agent-core-v2 exec vitest run test/agent/task/token-compare.measure.test.ts
  */
 /* eslint-disable jest/expect-expect -- measurement scenarios emit structured output */
 import { afterEach, beforeEach, describe, it } from "vitest";

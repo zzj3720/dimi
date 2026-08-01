@@ -6,7 +6,7 @@ import {
   readContextCompactionRecord,
   renderToolResultForModel,
   selectCompactionUserMessages,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import type {
   ContentPart,
   ContextMessage,

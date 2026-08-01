@@ -14,7 +14,7 @@ export const PREFLIGHT_CODES = new Set<string>([
 
 // User-friendly error messages
 export const ERROR_MESSAGES: Record<string, string> = {
-  "config.invalid": "Kimi Code configuration is invalid.",
+  "config.invalid": "Dimi configuration is invalid.",
   "model.not_configured": "No model is configured. Please sign in or configure a provider.",
   "auth.login_required": "Authentication failed. Please sign in.",
   "session.not_found": "Session was not found.",

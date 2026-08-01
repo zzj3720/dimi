@@ -1,17 +1,17 @@
 /**
- * ACP → kimi MCP server conversion.
+ * ACP → dimi MCP server conversion.
  *
  * Translates ACP `McpServer[]` (per the ACP schema discriminated by
- * `type: 'http' | 'sse' | 'acp' | 'stdio'`) into kimi's
+ * `type: 'http' | 'sse' | 'acp' | 'stdio'`) into dimi's
  * keyed `Record<string, McpServerConfig>` (the same shape the kernel's
  * `loadMcpServers` returns and what
  * `CreateSessionPayload.mcpServers` / `ResumeSessionPayload.mcpServers`
  * accept). The conversion is intentionally narrow:
  *
- *  - `http`  → kimi `transport: 'http'` with headers projected from
+ *  - `http`  → dimi `transport: 'http'` with headers projected from
  *              `Array<{name, value}>` to `Record<string, string>`.
- *  - `sse`   → kimi `transport: 'sse'` with headers projected the same way.
- *  - `stdio` → kimi `transport: 'stdio'` with env projected similarly.
+ *  - `sse`   → dimi `transport: 'sse'` with headers projected the same way.
+ *  - `stdio` → dimi `transport: 'stdio'` with env projected similarly.
  *  - `acp`   → dropped with a `log.warn` (experimental ACP-transport MCP
  *              is not yet supported).
  *
@@ -26,7 +26,7 @@
  */
 
 import type { McpServer, McpServerStdio } from '@agentclientprotocol/sdk';
-import { log, type SessionMcpServerConfig } from '@moonshot-ai/kimi-code-sdk';
+import { log, type SessionMcpServerConfig } from '@dimi-agent/dimi-sdk';
 
 /**
  * Convert an ACP `McpServer[]` into the kernel-native

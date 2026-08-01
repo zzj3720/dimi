@@ -14,7 +14,7 @@ The CLI is written in TypeScript and runs on Node.js. This repository is a sourc
 
 ## Installation
 
-Clone this repository and run the development CLI. Do not use an old install script or `@moonshot-ai/kimi-code@latest`: those point to a different product release.
+Clone this repository and run the development CLI. Do not use an old install script or `@dimi-agent/cli@latest`: those point to a different product release.
 
 ::: tip Before you install
 Dimi is a fully interactive TUI application. For the best visual experience, run it in a terminal with true-color and ligature support, such as [Kitty](https://sw.kovidgoyal.net/kitty/) or [Ghostty](https://ghostty.org/).
@@ -39,9 +39,9 @@ vp install
 vp run dev:cli
 ```
 
-`kimi upgrade` / `kimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Dimi release.
+`dimi upgrade` / `dimi update` deliberately reports that automatic upgrades are not configured for this build. It never installs an older Dimi release.
 
-**Uninstall**: remove the cloned checkout. Your local data under `~/.kimi-code/` is separate; remove it only if you also intend to delete sessions and credentials.
+**Uninstall**: remove the cloned checkout. Your local data under `~/.dimi/` is separate; remove it only if you also intend to delete sessions and credentials.
 
 ## First launch
 
@@ -70,9 +70,9 @@ On first launch, connect a provider. In the interactive UI, enter `/login`:
 /login
 ```
 
-`/login` first asks for a supported authentication method, then lists the matching built-in providers. The generated catalog includes Kimi Code, OpenAI Codex, xAI/Grok, OpenAI, Anthropic, Gemini, cloud providers, and other API services:
+`/login` first asks for a supported authentication method, then lists the matching built-in providers. The generated catalog includes Dimi, OpenAI Codex, xAI/Grok, OpenAI, Anthropic, Gemini, cloud providers, and other API services:
 
-- **OAuth** — available for Kimi Code, OpenAI Codex, xAI, Anthropic, GitHub Copilot, OpenRouter, and Radius when their account flow is selected
+- **OAuth** — available for Dimi, OpenAI Codex, xAI, Anthropic, GitHub Copilot, OpenRouter, and Radius when their account flow is selected
 - **API key** — enter and securely save the selected provider's key
 - **Cloud identity** — Amazon Bedrock can use an AWS credential chain; Vertex can use Google Cloud ADC or a service account
 
@@ -132,7 +132,7 @@ For the full list, type `/help` or visit [Slash commands reference](../reference
 
 ## Where data is stored
 
-Dimi stores its local data under `~/.kimi-code/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `KIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
+Dimi stores its local data under `~/.dimi/` by default — config files, session records, and logs. This source build has no active update channel. To move data elsewhere, point to a new path via the `DIMI_CODE_HOME` environment variable. For the full directory layout, see [Data locations](../configuration/data-locations.md) and [Environment variables](../configuration/env-vars.md).
 
 ## Next steps
 

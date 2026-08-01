@@ -5,7 +5,7 @@ import {
   type AuthEvent,
   type AuthInteraction,
   type Scope,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import { z } from "zod";
 
 import { okEnvelope } from "../envelope";

@@ -12,7 +12,7 @@
  * which must never surface in transcripts.
  */
 
-import type { KimiErrorPayload } from "#/_base/errors/serialize";
+import type { DimiErrorPayload } from "#/_base/errors/serialize";
 import type { PromptOrigin } from "#/agent/contextMemory/types";
 import type { FinishReason } from "#/llmProtocol/provider";
 import type { ContentPart, TextPart } from "#/llmProtocol/message";
@@ -48,7 +48,7 @@ export interface TurnEndedEvent {
   readonly type: "turn.ended";
   readonly turnId: number;
   readonly reason: TurnEndReason;
-  readonly error?: KimiErrorPayload;
+  readonly error?: DimiErrorPayload;
   readonly durationMs?: number;
 }
 

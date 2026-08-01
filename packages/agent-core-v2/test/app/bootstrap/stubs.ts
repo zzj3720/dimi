@@ -12,7 +12,7 @@ import {
   type PersistenceScopeName,
 } from '#/app/bootstrap/bootstrap';
 
-export function stubBootstrap(homeDir = '/tmp/kimi-home', env: NodeJS.ProcessEnv = {}): IBootstrapService {
+export function stubBootstrap(homeDir = '/tmp/dimi-home', env: NodeJS.ProcessEnv = {}): IBootstrapService {
   const sessionsScope = 'sessions';
   const scopes: Record<PersistenceScopeName, string> = {
     config: '',
@@ -52,6 +52,6 @@ export function stubBootstrap(homeDir = '/tmp/kimi-home', env: NodeJS.ProcessEnv
 }
 
 export function registerBootstrapServices(reg: ServiceRegistration): void {
-  const homeDir = `/tmp/kimi-code-agent-core-v2-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const homeDir = `/tmp/dimi-agent-core-v2-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   reg.defineInstance(IBootstrapService, stubBootstrap(homeDir));
 }

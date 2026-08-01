@@ -31,7 +31,7 @@ describe('server-v2 GET /api/v1/connections', () => {
   let wsUrl: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-connections-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-connections-'));
     server = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
     wsUrl = `ws://127.0.0.1:${server.port}/api/v1/ws`;
@@ -71,7 +71,7 @@ describe('server-v2 GET /api/v1/connections', () => {
   function connect(): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
       const token = (server as RunningServer).authTokenService.getToken();
-      const ws = new WebSocket(wsUrl, [`kimi-code.bearer.${token}`]);
+      const ws = new WebSocket(wsUrl, [`dimi.bearer.${token}`]);
       // Resolve on the server's first (`server_hello`) frame.
       ws.once('message', () => resolve(ws));
       ws.once('error', reject);

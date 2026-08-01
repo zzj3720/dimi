@@ -17,10 +17,10 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   Event,
-  KimiHarness,
+  DimiHarness,
   Session,
   ToolInputDisplay,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -175,7 +175,7 @@ describe('permissionResponseToApprovalResponse', () => {
     expect(result).toEqual({ decision: 'rejected' });
   });
 
-  it('maps legacy "approve" → { decision: approved } (Python kimi-cli compat)', () => {
+  it('maps legacy "approve" → { decision: approved } (Python dimi-cli compat)', () => {
     const result = permissionResponseToApprovalResponse(undefined, {
       outcome: { outcome: 'selected', optionId: 'approve' },
     });
@@ -183,7 +183,7 @@ describe('permissionResponseToApprovalResponse', () => {
     expect(result.scope).toBeUndefined();
   });
 
-  it('maps legacy "approve_for_session" → { decision: approved, scope: session } (Python kimi-cli compat)', () => {
+  it('maps legacy "approve_for_session" → { decision: approved, scope: session } (Python dimi-cli compat)', () => {
     const result = permissionResponseToApprovalResponse(undefined, {
       outcome: { outcome: 'selected', optionId: 'approve_for_session' },
     });
@@ -235,7 +235,7 @@ describe('AcpSession ↔ requestPermission bridge (end-to-end via wire)', () => 
     const harness = {
       auth: makeAuth(),
       createSession: async () => handle.session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -317,7 +317,7 @@ describe('AcpSession ↔ requestPermission bridge (end-to-end via wire)', () => 
     const harness = {
       auth: makeAuth(),
       createSession: async () => handle.session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

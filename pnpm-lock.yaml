@@ -11,10 +11,10 @@ catalogs:
       version: 4.3.6
 
 overrides:
-  kimi-code>@tailwindcss/vite: 4.1.18
+  dimi>@tailwindcss/vite: 4.1.18
   ssh2@1.17.0>cpu-features: '-'
   ssh2@1.17.0>nan: '-'
-  kimi-code>tailwindcss: 4.1.18
+  dimi>tailwindcss: 4.1.18
 
 importers:
 
@@ -72,36 +72,36 @@ importers:
         specifier: 4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  apps/kimi-code:
+  apps/dimi:
     devDependencies:
-      '@moonshot-ai/acp-adapter':
+      '@dimi-agent/acp-adapter':
         specifier: workspace:^
         version: link:../../packages/acp-adapter
-      '@moonshot-ai/agent-core-v2':
+      '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../../packages/agent-core-v2
-      '@moonshot-ai/kap-server':
-        specifier: workspace:^
-        version: link:../../packages/kap-server
-      '@moonshot-ai/kimi-code-oauth':
+      '@dimi-agent/dimi-oauth':
         specifier: workspace:^
         version: link:../../packages/oauth
-      '@moonshot-ai/kimi-code-sdk':
+      '@dimi-agent/dimi-sdk':
         specifier: workspace:^
         version: link:../../packages/node-sdk
-      '@moonshot-ai/kimi-telemetry':
+      '@dimi-agent/dimi-telemetry':
         specifier: workspace:^
         version: link:../../packages/telemetry
-      '@moonshot-ai/kimi-web':
+      '@dimi-agent/dimi-web':
         specifier: workspace:^
-        version: link:../kimi-web
-      '@moonshot-ai/pi-tui':
+        version: link:../dimi-web
+      '@dimi-agent/kap-server':
+        specifier: workspace:^
+        version: link:../../packages/kap-server
+      '@dimi-agent/pi-tui':
         specifier: workspace:^
         version: link:../../packages/pi-tui
-      '@moonshot-ai/vis-server':
+      '@dimi-agent/vis-server':
         specifier: workspace:^
         version: link:../vis/server
-      '@moonshot-ai/vis-web':
+      '@dimi-agent/vis-web':
         specifier: workspace:*
         version: link:../vis/web
       '@types/semver':
@@ -151,12 +151,12 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
 
-  apps/kimi-inspect:
+  apps/dimi-inspect:
     dependencies:
-      '@moonshot-ai/agent-core-v2':
+      '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../../packages/agent-core-v2
-      '@moonshot-ai/transcript':
+      '@dimi-agent/transcript':
         specifier: workspace:^
         version: link:../../packages/transcript
       '@tanstack/react-query':
@@ -194,7 +194,7 @@ importers:
         specifier: 4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  apps/kimi-web:
+  apps/dimi-web:
     dependencies:
       '@chenglou/pretext':
         specifier: 0.0.8
@@ -269,12 +269,12 @@ importers:
 
   apps/vis/server:
     dependencies:
+      '@dimi-agent/agent-core-v2':
+        specifier: workspace:^
+        version: link:../../../packages/agent-core-v2
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.14)
-      '@moonshot-ai/agent-core-v2':
-        specifier: workspace:^
-        version: link:../../../packages/agent-core-v2
       hono:
         specifier: ^4.7.7
         version: 4.12.14
@@ -349,12 +349,12 @@ importers:
       '@base-ui/react':
         specifier: ^1.0.0
         version: 1.6.0(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@dimi-agent/dimi-sdk':
+        specifier: workspace:^
+        version: link:../../packages/node-sdk
       '@fontsource-variable/inter':
         specifier: 5.2.8
         version: 5.2.8
-      '@moonshot-ai/kimi-code-sdk':
-        specifier: workspace:^
-        version: link:../../packages/node-sdk
       '@radix-ui/react-accordion':
         specifier: ^1.2.12
         version: 1.2.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -513,15 +513,15 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: ^0.23.0
         version: 0.23.0(zod@4.3.6)
-      '@moonshot-ai/agent-core-v2':
+      '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@moonshot-ai/kaos':
-        specifier: workspace:^
-        version: link:../kaos
-      '@moonshot-ai/kimi-code-sdk':
+      '@dimi-agent/dimi-sdk':
         specifier: workspace:^
         version: link:../node-sdk
+      '@dimi-agent/kaos':
+        specifier: workspace:^
+        version: link:../kaos
     devDependencies:
       jimp:
         specifier: ^1.6.1
@@ -541,6 +541,18 @@ importers:
       '@aws-sdk/credential-provider-node':
         specifier: ^3.972.76
         version: 3.972.76
+      '@dimi-agent/dimi-oauth':
+        specifier: workspace:^
+        version: link:../oauth
+      '@dimi-agent/minidb':
+        specifier: workspace:^
+        version: link:../minidb
+      '@dimi-agent/protocol':
+        specifier: workspace:^
+        version: link:../protocol
+      '@dimi-agent/tree-sitter-bash':
+        specifier: workspace:^
+        version: link:../tree-sitter-bash
       '@google/genai':
         specifier: ^1.49.0
         version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
@@ -550,18 +562,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-      '@moonshot-ai/kimi-code-oauth':
-        specifier: workspace:^
-        version: link:../oauth
-      '@moonshot-ai/minidb':
-        specifier: workspace:^
-        version: link:../minidb
-      '@moonshot-ai/protocol':
-        specifier: workspace:^
-        version: link:../protocol
-      '@moonshot-ai/tree-sitter-bash':
-        specifier: workspace:^
-        version: link:../tree-sitter-bash
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
@@ -714,24 +714,24 @@ importers:
 
   packages/kap-server:
     dependencies:
+      '@dimi-agent/agent-core-v2':
+        specifier: workspace:^
+        version: link:../agent-core-v2
+      '@dimi-agent/dimi-oauth':
+        specifier: workspace:^
+        version: link:../oauth
+      '@dimi-agent/minidb':
+        specifier: workspace:*
+        version: link:../minidb
+      '@dimi-agent/transcript':
+        specifier: workspace:^
+        version: link:../transcript
       '@fastify/multipart':
         specifier: ^10.0.0
         version: 10.0.0
       '@fastify/swagger':
         specifier: ^9.7.0
         version: 9.7.0
-      '@moonshot-ai/agent-core-v2':
-        specifier: workspace:^
-        version: link:../agent-core-v2
-      '@moonshot-ai/kimi-code-oauth':
-        specifier: workspace:^
-        version: link:../oauth
-      '@moonshot-ai/minidb':
-        specifier: workspace:*
-        version: link:../minidb
-      '@moonshot-ai/transcript':
-        specifier: workspace:^
-        version: link:../transcript
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -766,14 +766,14 @@ importers:
 
   packages/klient:
     dependencies:
-      '@moonshot-ai/agent-core-v2':
+      '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
       zod:
         specifier: 'catalog:'
         version: 4.3.6
     devDependencies:
-      '@moonshot-ai/protocol':
+      '@dimi-agent/protocol':
         specifier: workspace:^
         version: link:../protocol
       '@types/ws':
@@ -793,7 +793,7 @@ importers:
       '@antfu/utils':
         specifier: ^9.3.0
         version: 9.3.0
-      '@moonshot-ai/protocol':
+      '@dimi-agent/protocol':
         specifier: workspace:^
         version: link:../protocol
       smol-toml:
@@ -806,16 +806,16 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@moonshot-ai/agent-core-v2':
+      '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@moonshot-ai/kaos':
-        specifier: workspace:^
-        version: link:../kaos
-      '@moonshot-ai/kimi-code-oauth':
+      '@dimi-agent/dimi-oauth':
         specifier: workspace:^
         version: link:../oauth
-      '@moonshot-ai/klient':
+      '@dimi-agent/kaos':
+        specifier: workspace:^
+        version: link:../kaos
+      '@dimi-agent/klient':
         specifier: workspace:^
         version: link:../klient
       '@types/yazl':
@@ -13552,7 +13552,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.4':
     dependencies:

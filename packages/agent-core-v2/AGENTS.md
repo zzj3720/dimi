@@ -4,9 +4,9 @@ This package is the repository's sole agent runtime. It is organized around the 
 
 ## Examples
 
-> The runnable examples have moved to the standalone `kimi-code-mini-bench` package at `../kimi-code-mini-bench`. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
+> The runnable examples have moved to the standalone `dimi-mini-bench` package at `../dimi-mini-bench`. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
 
-Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now maintained there. Each `*.example.ts` exercises one subset of domains end-to-end, builds its own container, runs its slice's services for real, and stubs collaborators outside the slice. See `../kimi-code-mini-bench/README.md` for how to run them.
+Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now maintained there. Each `*.example.ts` exercises one subset of domains end-to-end, builds its own container, runs its slice's services for real, and stubs collaborators outside the slice. See `../dimi-mini-bench/README.md` for how to run them.
 
 ## Comment conventions
 
@@ -38,7 +38,7 @@ Business events go through `ITelemetryService.track2` — never the low-level `t
 - All other events use `defineTelemetryEvent<P>({ owner, comment, properties })`. This includes Session/App-level events and events with any non-Agent emission path (e.g. `image_compress`, which the kap-server prompt routes emit through a session-scoped view). Per-event agent identity outside the Agent scope (e.g. `subagent_created`, `cron_scheduled`) stays as explicit `agent_id` business properties.
 
 - **Naming**: event names and property keys are snake_case (`tool_call`, `duration_ms`). Durations, counts, and sizes carry a unit suffix (`_ms` / `_count` / `_bytes`). Use specific names (`error_type`, not `error`).
-- **Privacy**: never register user content, prompts, or file paths as properties. `CloudAppender` redacts URLs, emails, tokens, and absolute paths from string values before events leave the process, but that is a safety net, not a license.
+- **Privacy**: never register user content, prompts, or file paths as properties. Events stay in-process (Dimi does not upload telemetry), but treat property content as if it could be observed — it is not a place for user data.
 - **Stability**: registered event names and property keys are wire data consumed by dashboards — treat renames as breaking changes.
 - The registry is the single source of truth; `test/app/telemetry/events.test.ts` enforces the naming conventions.
 

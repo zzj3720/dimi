@@ -1,7 +1,7 @@
 /**
  * ACP protocol version negotiation.
  *
- * Ported from kimi-cli/src/kimi_cli/acp/version.py. Tracks the (negotiation
+ * Ported from dimi-cli/src/kimi_cli/acp/version.py. Tracks the (negotiation
  * integer, spec tag, SDK version) tuple per supported protocol revision and
  * picks the highest mutually-supported one when the client initializes.
  */

@@ -20,16 +20,16 @@ export default defineConfig({
     ].join("\n"),
   },
   alias: {
-    "@moonshot-ai/agent-core-v2": fileURLToPath(
+    "@dimi-agent/agent-core-v2": fileURLToPath(
       new URL("../agent-core-v2/src/index.ts", import.meta.url),
     ),
-    "@moonshot-ai/kaos": fileURLToPath(new URL("../kaos/src/index.ts", import.meta.url)),
-    "@moonshot-ai/kimi-code-oauth": fileURLToPath(
+    "@dimi-agent/kaos": fileURLToPath(new URL("../kaos/src/index.ts", import.meta.url)),
+    "@dimi-agent/dimi-oauth": fileURLToPath(
       new URL("../oauth/src/index.ts", import.meta.url),
     ),
   },
   deps: {
-    alwaysBundle: [/^@moonshot-ai\//],
+    alwaysBundle: [/^@dimi-agent\//],
     neverBundle: [],
   },
 });

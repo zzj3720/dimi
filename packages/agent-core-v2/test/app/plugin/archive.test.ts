@@ -23,7 +23,7 @@ describe('plugin archive extraction', () => {
     const source = join(dir, 'source');
     const nested = join(source, 'plugin');
     await mkdir(nested, { recursive: true });
-    await writeFile(join(nested, 'kimi.plugin.json'), JSON.stringify({ name: 'zip-demo' }), 'utf8');
+    await writeFile(join(nested, 'dimi.plugin.json'), JSON.stringify({ name: 'zip-demo' }), 'utf8');
     const zipPath = join(dir, 'plugin.zip');
     execFileSync('zip', ['-qr', zipPath, '.'], { cwd: source });
 
@@ -31,6 +31,6 @@ describe('plugin archive extraction', () => {
     const detectedRoot = await extractZip(await readFile(zipPath), outDir);
 
     expect(detectedRoot).toBe(join(outDir, 'plugin'));
-    await expect(readFile(join(detectedRoot, 'kimi.plugin.json'), 'utf8')).resolves.toContain('zip-demo');
+    await expect(readFile(join(detectedRoot, 'dimi.plugin.json'), 'utf8')).resolves.toContain('zip-demo');
   });
 });

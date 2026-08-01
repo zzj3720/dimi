@@ -17,7 +17,7 @@ export interface TempDirHandle {
 }
 
 export async function createTempWorkDir(): Promise<TempDirHandle> {
-  const path = await mkdtemp(join(tmpdir(), 'kimi-oauth-test-work-'));
+  const path = await mkdtemp(join(tmpdir(), 'dimi-oauth-test-work-'));
   let disposed = false;
   return {
     path,
@@ -66,8 +66,8 @@ export async function spawnInlineWorkers(
     const child = spawn(tsxCli, [scriptPath, String(id)], {
       env: {
         ...process.env,
-        KIMI_CODE_HOME: opts.shareDir,
-        KIMI_WORKER_ID: String(id),
+        DIMI_CODE_HOME: opts.shareDir,
+        DIMI_WORKER_ID: String(id),
         ...opts.env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

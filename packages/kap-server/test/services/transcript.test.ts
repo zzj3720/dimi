@@ -24,7 +24,7 @@ import {
   type ISessionScopeHandle,
   type ISessionStateService,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import {
   AgentTranscript,
   TranscriptStore,
@@ -36,7 +36,7 @@ import {
   type TranscriptOperation,
   type TranscriptTask,
   type TranscriptTurn,
-} from '@moonshot-ai/transcript';
+} from '@dimi-agent/transcript';
 import { describe, expect, it } from 'vitest';
 
 import { bindSessionTranscript } from '../../src/services/transcript/coreBinding';

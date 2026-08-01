@@ -4,7 +4,7 @@ import type {
   ContentPart,
   MCPServerConfig,
   SessionInfo,
-  KimiConfig,
+  DimiConfig,
   MCPTestResult,
   LoginResult,
   UpdateMCPServerRequest,
@@ -49,9 +49,9 @@ class Bridge {
     if (typeof acquireVsCodeApi === "function") {
       this.vscode = acquireVsCodeApi();
     } else {
-      console.warn("[Kimi Bridge] Running outside VS Code, using mock");
+      console.warn("[Dimi Bridge] Running outside VS Code, using mock");
       this.vscode = {
-        postMessage: (msg) => console.log("[Kimi Mock]", msg),
+        postMessage: (msg) => console.log("[Dimi Mock]", msg),
         getState: () => undefined,
         setState: () => {},
       };
@@ -156,7 +156,7 @@ class Bridge {
   }
 
   getModels() {
-    return this.call<KimiConfig>(Methods.GetModels);
+    return this.call<DimiConfig>(Methods.GetModels);
   }
 
   getMCPServers() {
@@ -232,12 +232,12 @@ class Bridge {
     });
   }
 
-  getKimiSessions() {
-    return this.call<SessionInfo[]>(Methods.GetKimiSessions);
+  getDimiSessions() {
+    return this.call<SessionInfo[]>(Methods.GetDimiSessions);
   }
 
-  getAllKimiSessions() {
-    return this.call<SessionInfo[]>(Methods.GetAllKimiSessions);
+  getAllDimiSessions() {
+    return this.call<SessionInfo[]>(Methods.GetAllDimiSessions);
   }
 
   getRegisteredWorkDirs() {
@@ -253,15 +253,15 @@ class Bridge {
   }
 
   loadSessionHistory(sessionId: string) {
-    return this.call<UIStreamEvent[]>(Methods.LoadKimiSessionHistory, { kimiSessionId: sessionId });
+    return this.call<UIStreamEvent[]>(Methods.LoadDimiSessionHistory, { dimiSessionId: sessionId });
   }
 
   deleteSession(sessionId: string) {
-    return this.call<{ ok: boolean }>(Methods.DeleteKimiSession, { sessionId });
+    return this.call<{ ok: boolean }>(Methods.DeleteDimiSession, { sessionId });
   }
 
   forkSession(sessionId: string, turnIndex: number) {
-    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, {
+    return this.call<{ sessionId: string } | null>(Methods.ForkDimiSession, {
       sessionId,
       turnIndex,
     });

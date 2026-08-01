@@ -58,8 +58,8 @@ describe('AgentProfileService.applyProfile', () => {
   let workDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-apply-home-'));
-    workDir = await mkdtemp(join(tmpdir(), 'kimi-apply-work-'));
+    homeDir = await mkdtemp(join(tmpdir(), 'dimi-apply-home-'));
+    workDir = await mkdtemp(join(tmpdir(), 'dimi-apply-work-'));
   });
 
   afterEach(async () => {

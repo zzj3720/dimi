@@ -3,7 +3,7 @@
  * mechanism (no feature flag; every instance registers itself).
  *
  * Hermetic strategy: every test uses a tmpdir instances dir so the real
- * `~/.kimi-code/server/instances` is never touched. Dead-pid simulation uses
+ * `~/.dimi/server/instances` is never touched. Dead-pid simulation uses
  * `0x7fffffff` (guaranteed ESRCH on Linux/macOS).
  */
 
@@ -28,7 +28,7 @@ let instancesDir: string;
 const DEAD_PID = 0x7fffffff;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'kimi-instance-registry-test-'));
+  tmpDir = mkdtempSync(join(tmpdir(), 'dimi-instance-registry-test-'));
   instancesDir = join(tmpDir, 'instances');
 });
 
@@ -277,7 +277,7 @@ describe('startServer — instance registry wiring', () => {
   });
 
   it('lets two servers share one homeDir, each registering a distinct instance and port', async () => {
-    home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
+    home = mkdtempSync(join(tmpdir(), 'dimi-server-multi-server-'));
     const a = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(a);
     const b = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
@@ -297,7 +297,7 @@ describe('startServer — instance registry wiring', () => {
   });
 
   it('removes its instance file on close so peers no longer list it', async () => {
-    home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
+    home = mkdtempSync(join(tmpdir(), 'dimi-server-multi-server-'));
     const a = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     servers.push(a);
     const b = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
@@ -313,7 +313,7 @@ describe('startServer — instance registry wiring', () => {
   });
 
   it('releases its registration on close so a fresh instance on the same home can start', async () => {
-    home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
+    home = mkdtempSync(join(tmpdir(), 'dimi-server-multi-server-'));
     const first = await startServer({
       host: '127.0.0.1',
       port: 0,

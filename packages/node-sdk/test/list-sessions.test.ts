@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError } from '#/index';
+import { createDimiHarness, type DimiError } from '#/index';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -20,25 +20,25 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-list-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-sdk-list-'));
   tempDirs.push(dir);
   return dir;
 }
 
-describe('KimiHarness.listSessions', () => {
+describe('DimiHarness.listSessions', () => {
   it('rejects whitespace-only workDir with request.work_dir_required', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     try {
       await expect(harness.listSessions({ workDir: '   ' })).rejects.toMatchObject({
         code: 'request.work_dir_required',
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
   });
 
   it('lists sessions across workspaces when no filter is provided', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     const otherWorkDir = await makeTempDir();
     try {
@@ -55,7 +55,7 @@ describe('KimiHarness.listSessions', () => {
   });
 
   it('filters native, relative, spaced, and non-ASCII workspace paths', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const root = await makeTempDir();
     const workDir = join(root, 'Workspace With Spaces', '项目');
     await mkdir(workDir, { recursive: true });
@@ -77,7 +77,7 @@ describe('KimiHarness.listSessions', () => {
   });
 
   it('keeps a persisted session visible after its active wrapper closes', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     try {
       const session = await harness.createSession({ id: 'ses_closed_but_listed', workDir });

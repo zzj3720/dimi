@@ -134,8 +134,8 @@ async function detectPluginRoot(dir: string): Promise<string> {
 }
 
 async function hasManifest(dir: string): Promise<boolean> {
-  const rootManifest = path.join(dir, 'kimi.plugin.json');
-  const dirManifest = path.join(dir, '.kimi-plugin', 'plugin.json');
+  const rootManifest = path.join(dir, 'dimi.plugin.json');
+  const dirManifest = path.join(dir, '.dimi-plugin', 'plugin.json');
   return (await isFile(rootManifest)) || (await isFile(dirManifest));
 }
 

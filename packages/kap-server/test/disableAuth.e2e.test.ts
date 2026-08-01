@@ -66,7 +66,7 @@ describe('server-v2 disableAuth (--dangerous-bypass-auth)', () => {
   });
 
   async function boot(disableAuth?: boolean): Promise<{ base: string; port: number }> {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-disable-auth-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-disable-auth-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

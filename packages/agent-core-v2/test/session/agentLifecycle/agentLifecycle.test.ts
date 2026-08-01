@@ -3,7 +3,7 @@
  *
  * Exercises `AgentLifecycleService` through its DI contract with controlled
  * persistence and MCP boundaries, including completion ordering.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/session/agentLifecycle/agentLifecycle.test.ts`.
  */
 
@@ -174,7 +174,7 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       sessionId: 'sess_test',
       workspaceId: 'ws_test',
-      sessionDir: '/tmp/kimi-agentLifecycle-test',
+      sessionDir: '/tmp/dimi-agentLifecycle-test',
       metaScope: 'test',
     });
     ix.stub(ISessionMetadata, {
@@ -185,7 +185,7 @@ describe('AgentLifecycleService', () => {
         Promise.resolve({
           id: 'sess_test',
           version: 2,
-          cwd: '/tmp/kimi-agentLifecycle-test',
+          cwd: '/tmp/dimi-agentLifecycle-test',
           createdAt: 0,
           updatedAt: 0,
           archived: false,
@@ -199,16 +199,16 @@ describe('AgentLifecycleService', () => {
     });
     ix.stub(IBootstrapService, {
       _serviceBrand: undefined,
-      homeDir: '/tmp/kimi-agentLifecycle-home',
-      cwd: '/tmp/kimi-agentLifecycle-home',
+      homeDir: '/tmp/dimi-agentLifecycle-home',
+      cwd: '/tmp/dimi-agentLifecycle-home',
       agentScope: (_ws: string, _session: string, agentId: string) =>
         `test/agents/${agentId}`,
       agentHomedir: (workspaceId: string, sessionId: string, agentId: string) =>
-        `/tmp/kimi-agentLifecycle-home/sessions/${workspaceId}/${sessionId}/agents/${agentId}`,
+        `/tmp/dimi-agentLifecycle-home/sessions/${workspaceId}/${sessionId}/agents/${agentId}`,
     } as unknown as IBootstrapService);
     ix.stub(ISessionWorkspaceContext, {
       _serviceBrand: undefined,
-      workDir: '/tmp/kimi-agentLifecycle-work',
+      workDir: '/tmp/dimi-agentLifecycle-work',
       additionalDirs: [],
     } as unknown as ISessionWorkspaceContext);
     ix.stub(IPluginService, pluginServiceStub);
@@ -449,13 +449,13 @@ describe('AgentLifecycleService', () => {
         Promise.resolve({
           id: 'sess_test',
           version: 2,
-          cwd: '/tmp/kimi-agentLifecycle-test',
+          cwd: '/tmp/dimi-agentLifecycle-test',
           createdAt: 0,
           updatedAt: 0,
           archived: false,
           agents: {
-            'agent-0': { homedir: '/tmp/kimi-agentLifecycle-test/agents/agent-0', type: 'sub' },
-            'agent-1': { homedir: '/tmp/kimi-agentLifecycle-test/agents/agent-1', type: 'sub' },
+            'agent-0': { homedir: '/tmp/dimi-agentLifecycle-test/agents/agent-0', type: 'sub' },
+            'agent-1': { homedir: '/tmp/dimi-agentLifecycle-test/agents/agent-1', type: 'sub' },
           },
           custom: {},
         }),
@@ -511,7 +511,7 @@ describe('AgentLifecycleService', () => {
 
     expect(child.id).toBe('child');
     expect(registerAgent).toHaveBeenCalledWith('child', {
-      homedir: '/tmp/kimi-agentLifecycle-home/sessions/ws_test/sess_test/agents/child',
+      homedir: '/tmp/dimi-agentLifecycle-home/sessions/ws_test/sess_test/agents/child',
       type: 'sub',
       parentAgentId: 'main',
       forkedFrom: 'main',

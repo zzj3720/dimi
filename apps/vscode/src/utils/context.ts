@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
-import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
+import type { DimiHarness } from "@dimi-agent/dimi-sdk";
 
-export async function updateLoginContext(harness: KimiHarness): Promise<boolean> {
+export async function updateLoginContext(harness: DimiHarness): Promise<boolean> {
   const status = await harness.auth.status();
   const loggedIn = status.providers.some((provider) => provider.hasToken);
-  await vscode.commands.executeCommand("setContext", "kimi.isLoggedIn", loggedIn);
+  await vscode.commands.executeCommand("setContext", "dimi.isLoggedIn", loggedIn);
   return loggedIn;
 }

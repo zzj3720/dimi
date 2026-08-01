@@ -6,7 +6,7 @@
 
 ## What is Dimi
 
-Dimi is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It has one provider runtime for Kimi, Codex, Grok, Claude, Gemini, cloud services, and compatible custom endpoints.
+Dimi is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It has one provider runtime for Dimi, Codex, Grok, Claude, Gemini, cloud services, and compatible custom endpoints.
 
 ## Install
 
@@ -19,7 +19,7 @@ vp install
 vp run dev:cli
 ```
 
-To update, run `git pull --ff-only && vp install`. `kimi upgrade` checks the Dimi GitHub Releases for newer versions and shows the update command. See [Getting Started](docs/en/guides/getting-started.md).
+To update, run `git pull --ff-only && vp install`. `dimi upgrade` checks the Dimi GitHub Releases for newer versions and shows the update command. See [Getting Started](docs/en/guides/getting-started.md).
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ cd dimi
 vp run dev:cli
 ```
 
-On first launch, run `/login` inside Dimi and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.kimi-code/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
+On first launch, run `/login` inside Dimi and choose a provider and its supported OAuth, API-key, or cloud-identity method. You can add or overlay compatible endpoints in `~/.dimi/models.json`; see [Providers and models](docs/en/configuration/providers.md). After login, try your first task:
 
 ```
 Take a look at this project and explain its main directories.
@@ -46,11 +46,11 @@ Take a look at this project and explain its main directories.
 - **Rich plugin ecosystem.** Install skills, MCP servers, and data sources from the marketplace or any GitHub repo, with each install's trust level surfaced up front.
 - **Subagents for focused, parallel work.** Dispatch built-in `coder`, `explore`, and `plan` subagents in isolated contexts while keeping the main conversation clean.
 - **Lifecycle hooks.** Run local commands at key points to gate risky tool calls, audit decisions, trigger desktop notifications, or connect to your own automation.
-- **Editor & IDE integration (ACP).** Drive a Dimi session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `kimi acp`.
+- **Editor & IDE integration (ACP).** Drive a Dimi session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `dimi acp`.
 
 ## Use it in your editor (ACP)
 
-Dimi speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
+Dimi speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `dimi acp` subcommand — no extra login needed.
 
 For Zed, add this to `~/.config/zed/settings.json`:
 
@@ -59,7 +59,7 @@ For Zed, add this to `~/.config/zed/settings.json`:
   "agent_servers": {
     "Dimi": {
       "type": "custom",
-      "command": "kimi",
+      "command": "dimi",
       "args": ["acp"],
       "env": {}
     }
@@ -67,7 +67,7 @@ For Zed, add this to `~/.config/zed/settings.json`:
 }
 ```
 
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/guides/ides.md) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](docs/en/reference/kimi-acp.md) for the full capability matrix.
+Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/guides/ides.md) for JetBrains setup and troubleshooting, and the [`dimi acp` reference](docs/en/reference/dimi-acp.md) for the full capability matrix.
 
 ## Docs
 
@@ -76,7 +76,7 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](docs/en/g
 - [Sessions](docs/en/guides/sessions.md)
 - [Using in IDEs (ACP)](docs/en/guides/ides.md)
 - [Configuration](docs/en/configuration/config-files.md)
-- [Command reference](docs/en/reference/kimi-command.md)
+- [Command reference](docs/en/reference/dimi-command.md)
 
 ## Develop
 

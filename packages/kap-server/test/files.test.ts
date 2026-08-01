@@ -20,7 +20,7 @@ let home: string;
 let server: RunningServer | undefined;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'kimi-server-v2-files-'));
+  home = mkdtempSync(join(tmpdir(), 'dimi-server-v2-files-'));
 });
 
 afterEach(async () => {
@@ -84,7 +84,7 @@ function buildMultipart(parts: {
   file: { fieldName: string; filename: string; contentType: string; data: Buffer };
   fields?: Array<{ name: string; value: string }>;
 }): { body: Buffer; contentType: string } {
-  const boundary = '------WebKitFormBoundaryKimiServerV2Test';
+  const boundary = '------WebKitFormBoundaryDimiServerV2Test';
   const lines: Array<Buffer | string> = [];
   if (parts.fields) {
     for (const f of parts.fields) {

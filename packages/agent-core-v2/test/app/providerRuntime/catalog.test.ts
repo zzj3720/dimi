@@ -64,7 +64,7 @@ class MemoryCatalogs implements ModelsStore {
   }
 }
 
-const defaultHeaders = { "User-Agent": "kimi-code-cli/catalog-test" };
+const defaultHeaders = { "User-Agent": "dimi-cli/catalog-test" };
 
 function runtime(
   credentials = new MemoryCredentials(),
@@ -465,7 +465,7 @@ describe("builtin provider model catalogs", () => {
   it("sends provider authentication and isolates host headers by endpoint ownership", async () => {
     const credentials = new MemoryCredentials();
     await setApiKey(credentials, "openai", "openai-secret");
-    await setApiKey(credentials, "kimi-coding", "kimi-secret");
+    await setApiKey(credentials, "kimi-coding", "dimi-secret");
     const fetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "https://api.openai.com/v1/models") return response({ data: [] });
@@ -474,7 +474,7 @@ describe("builtin provider model catalogs", () => {
     });
     vi.stubGlobal("fetch", fetch);
     const models = runtime(credentials, new MemoryCatalogs(), {
-      "User-Agent": "kimi-code-cli/catalog-test",
+      "User-Agent": "dimi-cli/catalog-test",
       "X-Msh-Device-Id": "device-test",
     });
 
@@ -482,18 +482,18 @@ describe("builtin provider model catalogs", () => {
     await models.refresh({ provider: "kimi-coding", force: true });
 
     const openaiHeaders = headers(fetch.mock.calls[0]?.[1]);
-    const kimiHeaders = headers(fetch.mock.calls[1]?.[1]);
+    const dimiHeaders = headers(fetch.mock.calls[1]?.[1]);
     expect(openaiHeaders.get("authorization")).toBe("Bearer openai-secret");
-    expect(openaiHeaders.get("user-agent")).toBe("kimi-code-cli/catalog-test");
+    expect(openaiHeaders.get("user-agent")).toBe("dimi-cli/catalog-test");
     expect(openaiHeaders.get("x-msh-device-id")).toBeNull();
-    expect(kimiHeaders.get("authorization")).toBe("Bearer kimi-secret");
-    expect(kimiHeaders.get("user-agent")).toBe("kimi-code-cli/catalog-test");
-    expect(kimiHeaders.get("x-msh-device-id")).toBe("device-test");
+    expect(dimiHeaders.get("authorization")).toBe("Bearer dimi-secret");
+    expect(dimiHeaders.get("user-agent")).toBe("dimi-cli/catalog-test");
+    expect(dimiHeaders.get("x-msh-device-id")).toBe("device-test");
   });
 
-  it("parses Kimi and Codex catalog records with their provider contracts", async () => {
+  it("parses Dimi and Codex catalog records with their provider contracts", async () => {
     const credentials = new MemoryCredentials();
-    await setApiKey(credentials, "kimi-coding", "kimi-secret");
+    await setApiKey(credentials, "kimi-coding", "dimi-secret");
     await credentials.modify("openai-codex", async () => ({
       type: "oauth",
       access: "codex-access",
@@ -505,8 +505,8 @@ describe("builtin provider model catalogs", () => {
       if (url === "https://api.kimi.com/coding/v1/models") {
         return response({
           data: [
-            catalogModel("kimi-catalog", {
-              display_name: "Kimi Catalog",
+            catalogModel("dimi-catalog", {
+              display_name: "Dimi Catalog",
               context_window: 262_144,
             }),
           ],
@@ -533,9 +533,9 @@ describe("builtin provider model catalogs", () => {
     await models.refresh({ provider: "kimi-coding", force: true });
     await models.refresh({ provider: "openai-codex", force: true });
 
-    expect(models.getModel("kimi-coding", "kimi-catalog")).toMatchObject({
+    expect(models.getModel("kimi-coding", "dimi-catalog")).toMatchObject({
       api: "anthropic-messages",
-      name: "Kimi Catalog",
+      name: "Dimi Catalog",
       contextWindow: 262_144,
     });
     expect(models.getModel("openai-codex", "codex-catalog")).toMatchObject({

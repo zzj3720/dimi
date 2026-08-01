@@ -1,17 +1,17 @@
 // T8.4 driver: create session with explicit id, twice concurrently in same process.
-import { createKimiHarness, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { createDimiHarness, type DimiHarness } from '@dimi-agent/dimi-sdk';
 
 const workDir = process.argv[2]!;
 const homeDir = process.argv[3]!;
 const sessionId = process.argv[4]!;
 
-const identity: any = { userAgentProduct: 'kimi-code-cli', version: '0.0.1-test' };
-const harnessA = createKimiHarness({ identity, homeDir });
-const harnessB = createKimiHarness({ identity, homeDir });
+const identity: any = { userAgentProduct: 'dimi-cli', version: '0.0.1-test' };
+const harnessA = createDimiHarness({ identity, homeDir });
+const harnessB = createDimiHarness({ identity, homeDir });
 
-async function run(label: string, h: KimiHarness): Promise<void> {
+async function run(label: string, h: DimiHarness): Promise<void> {
   try {
-    const s = await h.createSession({ workDir, id: sessionId, model: 'kimi-code/kimi-for-coding' });
+    const s = await h.createSession({ workDir, id: sessionId, model: 'dimi/kimi-for-coding' });
     console.log(JSON.stringify({ label, ok: true, id: s.id, dir: s.summary?.sessionDir }));
   } catch (error: any) {
     console.log(JSON.stringify({ label, ok: false, msg: String(error.message ?? error), code: error.code ?? error.cause?.code }));

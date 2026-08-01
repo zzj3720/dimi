@@ -11,11 +11,11 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'MoonshotAI'
+    if: github.repository_owner == 'zzj3720'
     outputs:
       packages_published: ${{ steps.changesets.outputs.published }}
-      kimi_native_release: ${{ steps.kimi-release.outputs.should_publish }}
-      kimi_release_tag: ${{ steps.kimi-release.outputs.tag }}
+      dimi_native_release: ${{ steps.dimi-release.outputs.should_publish }}
+      dimi_release_tag: ${{ steps.dimi-release.outputs.tag }}
     permissions:
       contents: write
       pull-requests: write
@@ -42,12 +42,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Kimi Code built-in catalog
+      - name: Generate Dimi built-in catalog
         shell: bash
         run: |
-          CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+          CATALOG_FILE="$RUNNER_TEMP/dimi-built-in-catalog.json"
+          node apps/dimi/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "DIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build packages
         run: pnpm build
@@ -64,10 +64,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
 
-      - name: Resolve Kimi Code native release
+      - name: Resolve Dimi native release
         if: steps.changesets.outputs.published == 'true'
-        id: kimi-release
-        run: node apps/kimi-code/scripts/native/resolve-release.mjs
+        id: dimi-release
+        run: node apps/dimi/scripts/native/resolve-release.mjs
         env:
           CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
 
@@ -84,10 +84,10 @@ jobs:
   native-artifacts:
     name: Native release artifact
     needs: release
-    if: needs.release.outputs.kimi_native_release == 'true'
+    if: needs.release.outputs.dimi_native_release == 'true'
     uses: ./.github/workflows/_native-build.yml
     with:
-      upload-artifact-prefix: kimi-code-native
+      upload-artifact-prefix: dimi-native
       retention-days: 7
       sign-macos: true
     secrets:
@@ -102,7 +102,7 @@ jobs:
     needs:
       - release
       - native-artifacts
-    if: needs.release.outputs.kimi_native_release == 'true'
+    if: needs.release.outputs.dimi_native_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -114,17 +114,29 @@ jobs:
       - name: Download native artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: kimi-code-native-*
+          pattern: dimi-native-*
           path: dist-native-release
           merge-multiple: true
 
       - name: Produce manifest.json
         env:
-          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: node apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+          RELEASE_TAG: ${{ needs.release.outputs.dimi_release_tag }}
+        run: node apps/dimi/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+
+      - name: Stage update-channel assets
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.dimi_release_tag }}
+        run: |
+          VERSION="$(node -e 'const m=require("./dist-native-release/manifest.json"); process.stdout.write(m.version)')"
+          PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          printf '{"version":"%s","publishedAt":"%s","rollout":[]}\n' "$VERSION" "$PUBLISHED_AT" > latest.json
+          cp scripts/install.sh scripts/install.ps1 dist-native-release/
+          # Published marketplace: rewrite relative plugin sources to flat
+          # release-asset URLs, then attach official plugin zips.
+          node apps/dimi/scripts/native/produce-marketplace.mjs dist-native-release "$RELEASE_TAG"
 
       - name: Upload assets to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber
+          RELEASE_TAG: ${{ needs.release.outputs.dimi_release_tag }}
+        run: gh release upload "$RELEASE_TAG" dist-native-release/* latest.json --clobber

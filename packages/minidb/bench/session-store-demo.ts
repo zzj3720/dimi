@@ -1,6 +1,6 @@
 // bench/session-store-demo.ts
 //
-// Demonstrate the 4 core queries against ~/.kimi-code with timing.
+// Demonstrate the 4 core queries against ~/.dimi with timing.
 // Run: node --import tsx bench/session-store-demo.ts
 
 import fs from 'node:fs/promises';
@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SessionStore } from './session-store.js';
 
-const HOME = path.join(os.homedir(), '.kimi-code');
+const HOME = path.join(os.homedir(), '.dimi');
 const OUT = path.join(os.tmpdir(), 'minidb-session-store-' + Date.now());
 
 const ms = (t: number) => t.toFixed(2) + 'ms';
@@ -19,7 +19,7 @@ async function main() {
 
   const store = await SessionStore.open(OUT);
   const t0 = performance.now();
-  const stats = await store.ingestKimiCode(HOME);
+  const stats = await store.ingestDimiCode(HOME);
   const importMs = performance.now() - t0;
   console.log(
     `\ningested ${stats.workspaces} workspaces, ${stats.sessions} sessions (${(stats.textBytes / 1024 / 1024).toFixed(1)} MiB text) in ${ms(importMs)}`,

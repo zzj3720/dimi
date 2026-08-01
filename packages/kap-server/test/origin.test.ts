@@ -74,7 +74,7 @@ describe('isOriginAllowed', () => {
 
 describe('parseCorsOrigins', () => {
   it('splits, trims, and drops empties', () => {
-    expect(parseCorsOrigins({ KIMI_CODE_CORS_ORIGINS: ' https://a.com, https://b.com, ' })).toEqual([
+    expect(parseCorsOrigins({ DIMI_CODE_CORS_ORIGINS: ' https://a.com, https://b.com, ' })).toEqual([
       'https://a.com',
       'https://b.com',
     ]);
@@ -161,13 +161,13 @@ describe('createOriginHook (onRequest hook)', () => {
         origin: 'https://foo.com',
         host: 'localhost:80',
         'access-control-request-method': 'GET',
-        'access-control-request-headers': 'x-request-id, x-kimi-client-version, authorization',
+        'access-control-request-headers': 'x-request-id, x-dimi-client-version, authorization',
       },
     });
     expect(res.statusCode).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBe('https://foo.com');
     expect(res.headers['access-control-allow-headers']).toBe(
-      'x-request-id, x-kimi-client-version, authorization',
+      'x-request-id, x-dimi-client-version, authorization',
     );
   });
 
@@ -179,7 +179,7 @@ describe('createOriginHook (onRequest hook)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['access-control-allow-headers']).toBe(
-      'Content-Type, Authorization, X-Kimi-Client-Id, X-Kimi-Client-Name, X-Kimi-Client-Version, X-Kimi-Client-Ui-Mode',
+      'Content-Type, Authorization, X-Dimi-Client-Id, X-Dimi-Client-Name, X-Dimi-Client-Version, X-Dimi-Client-Ui-Mode',
     );
   });
 });

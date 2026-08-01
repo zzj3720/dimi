@@ -2,7 +2,7 @@
  * Scenario: v1-compatible session routes, including blocked-goal Web resume.
  * Responsibilities: verify HTTP envelopes, persisted reads, and session actions.
  * Wiring: real kap-server; route errors stub the agent service contract.
- * Run: `pnpm --filter @moonshot-ai/kap-server exec vitest run test/sessions.test.ts`.
+ * Run: `pnpm --filter @dimi-agent/kap-server exec vitest run test/sessions.test.ts`.
  */
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -26,9 +26,9 @@ import {
   ISessionLifecycleService,
   MAIN_AGENT_ID,
   type ServiceIdentifier,
-} from "@moonshot-ai/agent-core-v2";
-import { sessionWarningsResponseSchema } from "@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol";
-import { encodeWorkDirKey } from "@moonshot-ai/agent-core-v2/_base/utils/workdir-slug";
+} from "@dimi-agent/agent-core-v2";
+import { sessionWarningsResponseSchema } from "@dimi-agent/agent-core-v2/app/sessionLegacy/sessionProtocol";
+import { encodeWorkDirKey } from "@dimi-agent/agent-core-v2/_base/utils/workdir-slug";
 
 import { type RunningServer, startServer } from "../src/start";
 import { authHeaders } from "./helpers/auth";
@@ -86,7 +86,7 @@ describe("server-v2 /api/v1/sessions", () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-sessions-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-sessions-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -178,7 +178,7 @@ describe("server-v2 /api/v1/sessions", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/zip");
     expect(res.headers.get("content-disposition")).toBe(
-      `attachment; filename="kimi-session-${id}.zip"`,
+      `attachment; filename="dimi-session-${id}.zip"`,
     );
     expect(res.headers.get("content-length")).toBe(String(archive.length));
     expect(res.headers.get("cache-control")).toBe("no-store");
@@ -188,10 +188,10 @@ describe("server-v2 /api/v1/sessions", () => {
       sessionId: string;
       webLogPath?: string;
     };
-    expect(entries.get("logs/kimi-web.jsonl")?.toString("utf8")).toBe(webLog);
+    expect(entries.get("logs/dimi-web.jsonl")?.toString("utf8")).toBe(webLog);
     expect(manifest).toMatchObject({
       sessionId: id,
-      webLogPath: "logs/kimi-web.jsonl",
+      webLogPath: "logs/dimi-web.jsonl",
     });
     await expect.poll(() => listExportTempDirs(id)).toEqual([]);
   });
@@ -253,7 +253,7 @@ describe("server-v2 /api/v1/sessions", () => {
     const id = created.body.data.id;
     await mkdir(join(home as string, "logs"), { recursive: true });
     await writeFile(
-      join(home as string, "logs", "kimi-code-desktop.log"),
+      join(home as string, "logs", "dimi-desktop.log"),
       "2026-07-27T00:00:00.000Z INFO  [renderer] hello\n",
       "utf-8",
     );
@@ -273,10 +273,10 @@ describe("server-v2 /api/v1/sessions", () => {
     const manifest = JSON.parse(entries.get("manifest.json")?.toString("utf8") ?? "null") as {
       desktopLogPath?: string;
     };
-    expect(entries.get("logs/kimi-desktop.log")?.toString("utf8")).toBe(
+    expect(entries.get("logs/dimi-desktop.log")?.toString("utf8")).toBe(
       "2026-07-27T00:00:00.000Z INFO  [renderer] hello\n",
     );
-    expect(manifest.desktopLogPath).toBe("logs/kimi-desktop.log");
+    expect(manifest.desktopLogPath).toBe("logs/dimi-desktop.log");
   });
 
   async function createStoppedGoalRig(status: "paused" | "blocked") {
@@ -1166,7 +1166,7 @@ describe("server-v2 /api/v1/sessions", () => {
 });
 
 async function listExportTempDirs(sessionId: string): Promise<string[]> {
-  const prefix = `kimi-session-export-${sessionId}-`;
+  const prefix = `dimi-session-export-${sessionId}-`;
   return (await readdir(tmpdir())).filter((entry) => entry.startsWith(prefix)).toSorted();
 }
 
@@ -1216,10 +1216,10 @@ describe("server-v2 /api/v1/sessions status context window", () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-status-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-status-"));
     await writeFile(
       join(home, "config.toml"),
-      ['default_provider = "kimi"', 'default_model = "kimi-k2"', ""].join("\n"),
+      ['default_provider = "dimi"', 'default_model = "kimi-k2"', ""].join("\n"),
       "utf-8",
     );
     server = await startServer({
@@ -1232,7 +1232,7 @@ describe("server-v2 /api/v1/sessions status context window", () => {
         [
           IProviderRuntime,
           createTestProviderRuntime({
-            providerId: "kimi",
+            providerId: "dimi",
             modelId: "kimi-k2",
             model: { name: "Kimi K2", contextWindow: 131_072 },
           }),

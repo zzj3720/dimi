@@ -1,0 +1,15 @@
+import { AUTH_LOGIN_REQUIRED_CODE } from '../constant/dimi-tui';
+
+export function combineStartupNotice(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (existing !== undefined && next !== undefined) {
+    return `${existing}\n${next}`;
+  }
+  return existing ?? next;
+}
+
+export function isOAuthLoginRequiredError(error: unknown): boolean {
+  return (error as { readonly code?: unknown }).code === AUTH_LOGIN_REQUIRED_CODE;
+}

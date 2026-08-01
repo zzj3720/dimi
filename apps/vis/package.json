@@ -1,15 +1,15 @@
 {
-  "name": "@moonshot-ai/vis",
+  "name": "@dimi-agent/vis",
   "version": "0.1.0",
   "private": true,
-  "description": "Debug visualization tool for kimi-code sessions",
+  "description": "Debug visualization tool for dimi sessions",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build:deps": "pnpm --filter @moonshot-ai/agent-core-v2... build",
+    "build:deps": "pnpm --filter @dimi-agent/agent-core-v2... build",
     "predev": "pnpm run build:deps",
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:deps && pnpm --filter @moonshot-ai/vis-server build && pnpm --filter @moonshot-ai/vis-web build && node scripts/copy-web-dist.mjs",
+    "build": "pnpm run build:deps && pnpm --filter @dimi-agent/vis-server build && pnpm --filter @dimi-agent/vis-web build && node scripts/copy-web-dist.mjs",
     "prestart": "pnpm run build",
     "start": "node server/dist/server.mjs"
   },

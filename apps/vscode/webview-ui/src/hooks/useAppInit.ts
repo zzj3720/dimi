@@ -78,7 +78,7 @@ export function useAppInit(): AppInitState {
         setMCPServers(mcpServers);
         setWireSlashCommands(slashCommands);
 
-        const [loginStatus, kimiConfig] = await Promise.all([
+        const [loginStatus, dimiConfig] = await Promise.all([
           bridge.checkLoginStatus(),
           bridge.getModels(),
         ]);
@@ -86,17 +86,17 @@ export function useAppInit(): AppInitState {
           return;
         }
 
-        console.log("[AppInit] Login status:", loginStatus, "kimiConfig:", kimiConfig);
+        console.log("[AppInit] Login status:", loginStatus, "dimiConfig:", dimiConfig);
 
         setIsLoggedIn(loginStatus.loggedIn);
         initModels(
-          kimiConfig.models,
-          kimiConfig.defaultModel,
-          kimiConfig.defaultThinking,
-          kimiConfig.defaultThinkingEffort,
+          dimiConfig.models,
+          dimiConfig.defaultModel,
+          dimiConfig.defaultThinking,
+          dimiConfig.defaultThinkingEffort,
         );
 
-        const modelsCount = kimiConfig.models?.length ?? 0;
+        const modelsCount = dimiConfig.models?.length ?? 0;
 
         if (modelsCount === 0 && !loginStatus.loggedIn) {
           setState({ status: "not-logged-in", errorMessage: null, modelsCount });

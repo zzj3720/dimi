@@ -21,7 +21,7 @@ describe("server-v2 /api/v1/config", () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-config-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-config-"));
   });
 
   afterEach(async () => {

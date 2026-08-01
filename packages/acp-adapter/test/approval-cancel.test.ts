@@ -18,7 +18,7 @@
  *     `rejected` (which would be a confusing audit trail) and not
  *     leak the await (which would wedge the next turn).
  *
- * These tests are the dev-2 analogue of the kimi-cli regression at
+ * These tests are the dev-2 analogue of the dimi-cli regression at
  * `tests/acp/test_session_notifications.py::test_acp_prompt_cancel_closes_abandoned_approval_stream`.
  * The Python side cancels the prompt task directly (asyncio
  * `CancelledError`); in TS land cancellation is observable as a
@@ -48,9 +48,9 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   Event,
-  KimiHarness,
+  DimiHarness,
   Session,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 
 import { APPROVE_ONCE_OPTION_ID } from '../src/approval';
 import { AcpServer } from '../src/server';
@@ -190,7 +190,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => handle.session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -285,7 +285,7 @@ describe('AcpServer cancel ⇄ pending requestPermission', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => handle.session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

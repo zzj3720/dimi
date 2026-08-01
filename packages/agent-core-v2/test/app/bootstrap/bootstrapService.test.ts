@@ -26,11 +26,11 @@ describe('BootstrapService (scoped)', () => {
   });
 
   it('resolves homeDir/configPath from the seeded context token', () => {
-    const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/kimi-home' }));
+    const host = createScopedTestHost(bootstrapSeed({ homeDir: '/tmp/dimi-home' }));
     const svc = host.app.accessor.get(IBootstrapService);
-    expect(svc.homeDir).toBe('/tmp/kimi-home');
-    expect(svc.configPath).toBe('/tmp/kimi-home/config.toml');
-    expect(svc.sessionsDir).toBe('/tmp/kimi-home/sessions');
+    expect(svc.homeDir).toBe('/tmp/dimi-home');
+    expect(svc.configPath).toBe('/tmp/dimi-home/config.toml');
+    expect(svc.sessionsDir).toBe('/tmp/dimi-home/sessions');
     host.dispose();
   });
 
@@ -44,16 +44,16 @@ describe('BootstrapService (scoped)', () => {
 });
 
 describe('resolveBootstrapOptions', () => {
-  it('prefers explicit homeDir over KIMI_CODE_HOME over osHomeDir', () => {
+  it('prefers explicit homeDir over DIMI_CODE_HOME over osHomeDir', () => {
     expect(resolveBootstrapOptions({ homeDir: '/a', osHomeDir: '/b', env: {} }).homeDir).toBe('/a');
-    expect(resolveBootstrapOptions({ osHomeDir: '/b', env: { KIMI_CODE_HOME: '/c' } }).homeDir).toBe('/c');
-    expect(resolveBootstrapOptions({ osHomeDir: '/b', env: {} }).homeDir).toBe('/b/.kimi-code');
+    expect(resolveBootstrapOptions({ osHomeDir: '/b', env: { DIMI_CODE_HOME: '/c' } }).homeDir).toBe('/c');
+    expect(resolveBootstrapOptions({ osHomeDir: '/b', env: {} }).homeDir).toBe('/b/.dimi');
   });
 });
 
 describe('bootstrap() storage seeding', () => {
   it('seeds IFileSystemStorageService as a FileStorageService instance', () => {
-    const { app } = bootstrap({ homeDir: '/tmp/kimi-home' });
+    const { app } = bootstrap({ homeDir: '/tmp/dimi-home' });
     try {
       const storage = app.accessor.get(IFileSystemStorageService);
       expect(storage).toBeInstanceOf(FileStorageService);

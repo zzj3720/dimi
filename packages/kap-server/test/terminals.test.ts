@@ -9,9 +9,9 @@ import {
   registerScopedService,
   type TerminalProcess,
   type TerminalSpawnOptions,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import { ErrorCode } from "../src/protocol/error-codes";
-import type { Terminal } from "@moonshot-ai/agent-core-v2/os/interface/terminal";
+import type { Terminal } from "@dimi-agent/agent-core-v2/os/interface/terminal";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type RunningServer, startServer } from "../src/start";
@@ -102,8 +102,8 @@ describe("server-v2 /api/v1/sessions/{sid}/terminals", () => {
   beforeEach(async () => {
     spawnOptions.length = 0;
     processes.length = 0;
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-term-home-"));
-    work = await mkdtemp(join(tmpdir(), "kimi-server-v2-term-work-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-term-home-"));
+    work = await mkdtemp(join(tmpdir(), "dimi-server-v2-term-work-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -156,8 +156,8 @@ describe("server-v2 /api/v1/sessions/{sid}/terminals", () => {
   }
 
   it("creates terminals for multiple sessions using each session workspace cwd", async () => {
-    const rootA = await mkdtemp(join(tmpdir(), "kimi-server-v2-term-a-"));
-    const rootB = await mkdtemp(join(tmpdir(), "kimi-server-v2-term-b-"));
+    const rootA = await mkdtemp(join(tmpdir(), "dimi-server-v2-term-a-"));
+    const rootB = await mkdtemp(join(tmpdir(), "dimi-server-v2-term-b-"));
     try {
       const sidA = await createSession(rootA);
       const sidB = await createSession(rootB);

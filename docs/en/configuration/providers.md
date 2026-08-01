@@ -1,6 +1,6 @@
 # Providers and models
 
-Kimi Code CLI has one provider runtime for built-in services, locally configured endpoints, and SDK-supplied providers. It resolves the selected model's protocol, credentials, request headers, Thinking mode, context limits, streaming, and recovery behavior from the same model definition. A model reference is always `provider/model`.
+Dimi CLI has one provider runtime for built-in services, locally configured endpoints, and SDK-supplied providers. It resolves the selected model's protocol, credentials, request headers, Thinking mode, context limits, streaming, and recovery behavior from the same model definition. A model reference is always `provider/model`.
 
 Built-in metadata is a generated snapshot. It provides model limits and capabilities before a provider is connected; a provider's own catalog may replace that snapshot when it returns complete metadata. A bare remote model ID never invents a context window, output limit, or Thinking capability.
 
@@ -19,7 +19,7 @@ vp run dev:cli -- login anthropic --method api-key
 vp run dev:cli -- login openai --method api-key
 ```
 
-Saved API keys and OAuth credentials are stored in `$KIMI_CODE_HOME/auth.json`, not `config.toml`. A saved key takes priority over the equivalent shell variable. OAuth tokens refresh automatically when needed. `/logout` removes the saved credential for one provider; it does not unset a shell environment variable.
+Saved API keys and OAuth credentials are stored in `$DIMI_CODE_HOME/auth.json`, not `config.toml`. A saved key takes priority over the equivalent shell variable. OAuth tokens refresh automatically when needed. `/logout` removes the saved credential for one provider; it does not unset a shell environment variable.
 
 Some cloud providers use their normal credential chain instead of a single API key:
 
@@ -47,7 +47,7 @@ The current generated catalog contains these provider IDs. The authentication co
 | `google-vertex` | Google Vertex AI | API key, ADC, or service account |
 | `groq` | Groq | API key |
 | `huggingface` | Hugging Face | API key |
-| `kimi-coding` | Kimi Code subscription | OAuth or API key |
+| `kimi-coding` | Dimi subscription | OAuth or API key |
 | `minimax`, `minimax-cn` | MiniMax | API key |
 | `mistral` | Mistral | API key |
 | `moonshotai`, `moonshotai-cn` | Moonshot AI | API key |
@@ -64,7 +64,7 @@ The current generated catalog contains these provider IDs. The authentication co
 | `xiaomi`, `xiaomi-token-plan-ams`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-sgp` | Xiaomi | API key |
 | `zai`, `zai-coding-cn` | Z.AI | API key |
 
-`kimi-coding` is the Kimi Code platform at `https://api.kimi.com/coding/…`. `moonshotai` and `moonshotai-cn` are separate Moonshot AI Open Platform endpoints. Do not substitute one platform URL or credential for the other.
+`kimi-coding` is the Dimi platform at `https://api.kimi.com/coding/…`. `moonshotai` and `moonshotai-cn` are separate Moonshot AI Open Platform endpoints. Do not substitute one platform URL or credential for the other.
 
 ## Browse and refresh models
 
@@ -80,13 +80,13 @@ vp run dev:cli -- provider refresh
 
 `provider list` shows built-in and configured providers with their connection state. `provider models` shows models currently available to authenticated providers, including the authoritative context window and capabilities. `provider refresh` fetches every authenticated provider that has a remote model endpoint; a failed provider is reported without discarding the other successful refreshes.
 
-The cache is `$KIMI_CODE_HOME/models-store.json`. It records freshness and ETags, supports conditional requests, and is used while offline only when its metadata is at least as new as the bundled catalog. The TUI `/model` picker and `/provider refresh` use the same refresh path. When a model changes, its visible Thinking choices and context limit change with the model metadata rather than being inferred from its name.
+The cache is `$DIMI_CODE_HOME/models-store.json`. It records freshness and ETags, supports conditional requests, and is used while offline only when its metadata is at least as new as the bundled catalog. The TUI `/model` picker and `/provider refresh` use the same refresh path. When a model changes, its visible Thinking choices and context limit change with the model metadata rather than being inferred from its name.
 
 ## Add or overlay a provider with `models.json`
 
-`$KIMI_CODE_HOME/models.json` is the user-owned provider layer. It is JSONC: comments and trailing commas are accepted. Its root must be `{ "providers": { … } }`; each key is the provider ID, so do not repeat an `id` field inside the entry. The runtime reloads this file before catalog reads, refreshes, and model selection, so an external edit takes effect without restarting Kimi Code.
+`$DIMI_CODE_HOME/models.json` is the user-owned provider layer. It is JSONC: comments and trailing commas are accepted. Its root must be `{ "providers": { … } }`; each key is the provider ID, so do not repeat an `id` field inside the entry. The runtime reloads this file before catalog reads, refreshes, and model selection, so an external edit takes effect without restarting Dimi.
 
-A provider entry has optional fields. With the ID of a built-in provider (or an SDK-provided provider), it overlays that provider: its omitted models, authentication behavior, catalog, and stream adapter remain in place. With a new ID, it defines a complete provider and must give each new model an explicit `contextWindow` and `maxTokens`; Kimi Code never guesses those limits.
+A provider entry has optional fields. With the ID of a built-in provider (or an SDK-provided provider), it overlays that provider: its omitted models, authentication behavior, catalog, and stream adapter remain in place. With a new ID, it defines a complete provider and must give each new model an explicit `contextWindow` and `maxTokens`; Dimi never guesses those limits.
 
 ```jsonc
 {
@@ -98,7 +98,7 @@ A provider entry has optional fields. With the ID of a built-in provider (or an 
       "api": "openai-completions",
       "apiKey": "$EXAMPLE_GATEWAY_API_KEY",
       "headers": {
-        "X-Client": "kimi-code"
+        "X-Client": "dimi"
       },
       "models": [
         {
@@ -176,4 +176,4 @@ Provider failures preserve their category. A 401 for OAuth may refresh once befo
 - [Configuration files](./config-files.md) — select defaults and Thinking behavior
 - [Environment variables](./env-vars.md) — built-in credentials and cloud identity
 - [Data locations](./data-locations.md) — the credentials, model cache, and `models.json` files
-- [`kimi` command](../reference/kimi-command.md) — full provider and login command reference
+- [`dimi` command](../reference/dimi-command.md) — full provider and login command reference

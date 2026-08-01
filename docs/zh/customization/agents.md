@@ -1,12 +1,12 @@
 # Agent 与子 Agent
 
-Kimi Code CLI 中的每次会话都由一个**主 Agent** 驱动。主 Agent 理解用户意图、规划步骤、调用工具，并在需要时向外派发**子 Agent** 处理更聚焦的子任务——例如探索一个陌生代码库、并行审阅多处实现、或在不触碰主上下文的情况下规划一次大型重构。
+Dimi CLI 中的每次会话都由一个**主 Agent** 驱动。主 Agent 理解用户意图、规划步骤、调用工具，并在需要时向外派发**子 Agent** 处理更聚焦的子任务——例如探索一个陌生代码库、并行审阅多处实现、或在不触碰主上下文的情况下规划一次大型重构。
 
 子 Agent 接受主 Agent 给出的任务描述，在自己的独立上下文里工作，最后把结论返回。它不会与用户直接对话，中间的思考和工具调用记录也不会混入主 Agent 的历史。
 
 ## 内置子 Agent
 
-Kimi Code CLI 内置三种子 Agent，开箱即用，分别面向不同任务形态：
+Dimi CLI 内置三种子 Agent，开箱即用，分别面向不同任务形态：
 
 - **`coder`**：默认子 Agent，通用软件工程助手，可以读写文件、执行命令、搜索代码并落地具体改动。
 - **`explore`**：代码库探索专用，只做只读操作，不修改任何文件。适合在不改动文件的前提下快速搜索、阅读和总结仓库。
@@ -45,18 +45,18 @@ Kimi Code CLI 内置三种子 Agent，开箱即用，分别面向不同任务形
 
 ### Agent 目录
 
-Kimi Code CLI 按作用域发现 Agent 文件，作用域越具体，优先级越高：**显式（`--agent-file`）> 项目 > 额外 > 用户 > Plugin > 内置**。两个文件定义了相同的 `name` 时，高优先级作用域胜出。每个目录都会递归扫描 `.md` 文件。
+Dimi CLI 按作用域发现 Agent 文件，作用域越具体，优先级越高：**显式（`--agent-file`）> 项目 > 额外 > 用户 > Plugin > 内置**。两个文件定义了相同的 `name` 时，高优先级作用域胜出。每个目录都会递归扫描 `.md` 文件。
 
 **用户级**（对所有项目生效）：
 
-- `$KIMI_CODE_HOME/agents/`（默认：`~/.kimi-code/agents/`）
+- `$DIMI_CODE_HOME/agents/`（默认：`~/.dimi/agents/`）
 - `~/.agents/agents/`
 
-Kimi 专属的用户 Agent 目录随 `KIMI_CODE_HOME` 移动，通用的 `~/.agents/agents/` 目录留在真实用户目录下，便于跨工具共享。
+Dimi 专属的用户 Agent 目录随 `DIMI_CODE_HOME` 移动，通用的 `~/.agents/agents/` 目录留在真实用户目录下，便于跨工具共享。
 
 **项目级**（项目根目录 = 从工作目录向上查找、最近的包含 `.git` 的目录）：
 
-- `.kimi-code/agents/`
+- `.dimi/agents/`
 - `.agents/agents/`
 
 **额外目录**：在 `config.toml` 顶层通过 `extra_agent_dirs` 声明：
@@ -67,10 +67,10 @@ extra_agent_dirs = ["~/team-agents", ".agents/team-agents"]
 
 **Plugin 级**：已启用 plugin 在其 manifest 的 `agents` 字段中声明的目录（省略时自动采用 plugin 根下的 `agents/` 目录），见[插件 Agent](./plugins.md#插件-agent)。Plugin Agent 优先级仅高于内置 Agent。
 
-**内置 Agent** 随 CLI 分发，优先级最低。目录中发现的文件不会仅凭同名覆盖内置 Agent；如确需替换，必须在 Frontmatter 中声明 `override: true`。通过 `--agent-file` 加载的文件视为显式启动意图，可以覆盖同名内置 Agent，优先级高于所有目录作用域，且仅对本次启动生效。另外，`$KIMI_CODE_HOME/SYSTEM.md` 可永久覆盖默认主 Agent 的系统提示词（它不参与 Agent 文件发现），其优先级交互见下文 SYSTEM.md 小节。
+**内置 Agent** 随 CLI 分发，优先级最低。目录中发现的文件不会仅凭同名覆盖内置 Agent；如确需替换，必须在 Frontmatter 中声明 `override: true`。通过 `--agent-file` 加载的文件视为显式启动意图，可以覆盖同名内置 Agent，优先级高于所有目录作用域，且仅对本次启动生效。另外，`$DIMI_CODE_HOME/SYSTEM.md` 可永久覆盖默认主 Agent 的系统提示词（它不参与 Agent 文件发现），其优先级交互见下文 SYSTEM.md 小节。
 
 ::: warning 信任模型
-Agent 文件属于提示词配置，而项目级文件来自仓库本身 —— 包括你刚刚 clone、尚不可信的仓库。项目作用域的文件可以完全接管内置 Agent：命名为 `agent.md` 并声明 `override: true` 会替换**默认主 Agent 的整个系统提示词**，`coder.md` 加 `override: true` 则会替换默认子 Agent 类型。与 `AGENTS.md` 内容（作为参考资料注入提示词）不同，override 文件**就是**系统提示词本身，且不写 `tools` 的文件保留全部工具。在不熟悉的仓库中运行 Kimi Code 之前，请以对待脚本同样的谨慎检查其中的 `.kimi-code/agents/` 与 `.agents/agents/` 目录。
+Agent 文件属于提示词配置，而项目级文件来自仓库本身 —— 包括你刚刚 clone、尚不可信的仓库。项目作用域的文件可以完全接管内置 Agent：命名为 `agent.md` 并声明 `override: true` 会替换**默认主 Agent 的整个系统提示词**，`coder.md` 加 `override: true` 则会替换默认子 Agent 类型。与 `AGENTS.md` 内容（作为参考资料注入提示词）不同，override 文件**就是**系统提示词本身，且不写 `tools` 的文件保留全部工具。在不熟悉的仓库中运行 Dimi 之前，请以对待脚本同样的谨慎检查其中的 `.dimi/agents/` 与 `.agents/agents/` 目录。
 :::
 
 ### Agent 文件格式
@@ -113,7 +113,7 @@ disallowedTools:
 
 未知字段会被忽略，新版本写的文件在旧版本上仍可读取。其他 Agent 工具的字段（如 Claude Code 的 `model`、OpenCode 的 `mode`）同样会被忽略；加上 `tools` 的逗号分隔写法和 `name` 缺省回退到文件名，Claude Code 与 OpenCode 风格的 Agent 文件一般可直接加载 —— 只含 `description` 和正文的最小文件可跨工具通用。
 
-`model_preference` 仅在次主力模型实验功能启用时对新启动的子 Agent 生效——设置 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`，或 master `KIMI_CODE_EXPERIMENTAL_FLAG=1`。它在包括交互式 TUI 在内的所有启动方式下生效。该字段不用于填写具体的供应商/模型引用，已恢复的子 Agent 也会保持原模型。主 Agent 会在 profile 描述中看到这项偏好，因此仍可在某项任务需要不同选择时显式传入 `model`。
+`model_preference` 仅在次主力模型实验功能启用时对新启动的子 Agent 生效——设置 `DIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`，或 master `DIMI_CODE_EXPERIMENTAL_FLAG=1`。它在包括交互式 TUI 在内的所有启动方式下生效。该字段不用于填写具体的供应商/模型引用，已恢复的子 Agent 也会保持原模型。主 Agent 会在 profile 描述中看到这项偏好，因此仍可在某项任务需要不同选择时显式传入 `model`。
 
 目录中发现的非法文件会被跳过并告警，不影响其他文件。通过 `--agent-file` 显式传入的文件必须合法 —— 否则 CLI 会报错并退出。
 
@@ -125,7 +125,7 @@ disallowedTools:
 
 ### 选择主 Agent
 
-两个 CLI flag 用于选择驱动新会话的 Agent，在 print 模式（`kimi -p`）和交互式 TUI 中均可使用：
+两个 CLI flag 用于选择驱动新会话的 Agent，在 print 模式（`dimi -p`）和交互式 TUI 中均可使用：
 
 - **`--agent <name>`**：以指定 Agent 作为主 Agent 启动会话。名称可以指向内置 Agent 或任何已发现的文件；名称不存在时会报错，并列出可用的 Agent。
 - **`--agent-file <path>`**：以最高优先级加载一个 Agent 文件（仅本次启动）并以其启动。该 flag 只接受一个文件：不可重复传入，也不能与 `--agent` 同时使用。
@@ -135,8 +135,8 @@ disallowedTools:
 例如：
 
 ```sh
-kimi --agent reviewer
-kimi -p --agent reviewer "审查这个分支上的改动"
+dimi --agent reviewer
+dimi -p --agent reviewer "审查这个分支上的改动"
 ```
 
 绑定的 Agent 即会话的身份：在会话首次绑定后即固定，之后不可切换。在 TUI 中，这些 flag 只绑定启动时的会话；之后在同一进程内新建的会话（例如通过 `/new`）使用默认 Agent。
@@ -145,7 +145,7 @@ kimi -p --agent reviewer "审查这个分支上的改动"
 
 ### 用 SYSTEM.md 覆盖主 Agent 的系统提示词
 
-希望永久覆盖主 Agent 的系统提示词、而不必每次启动都传入 `--agent` 或 `--agent-file` 时，可以写一份 `$KIMI_CODE_HOME/SYSTEM.md`（默认：`~/.kimi-code/SYSTEM.md`，随 `KIMI_CODE_HOME` 移动）。文件存在且非空期间，它整体替换内置默认主 Agent 的系统提示词——但只替换提示词，描述、工具集与允许委派的子 Agent 列表仍沿用内置默认值。SYSTEM.md 在包括交互式 TUI 会话在内的所有启动方式下生效。
+希望永久覆盖主 Agent 的系统提示词、而不必每次启动都传入 `--agent` 或 `--agent-file` 时，可以写一份 `$DIMI_CODE_HOME/SYSTEM.md`（默认：`~/.dimi/SYSTEM.md`，随 `DIMI_CODE_HOME` 移动）。文件存在且非空期间，它整体替换内置默认主 Agent 的系统提示词——但只替换提示词，描述、工具集与允许委派的子 Agent 列表仍沿用内置默认值。SYSTEM.md 在包括交互式 TUI 会话在内的所有启动方式下生效。
 
 SYSTEM.md 是纯 Markdown 正文，不需要也不读取 Frontmatter。文件缺失或为空时不生效；读取失败时会告警并回退到内置提示词。优先级上，显式意图仍然胜出：项目作用域中声明了 `override: true` 的同名 Agent 文件、通过 `--agent-file` 传入的文件都排在 SYSTEM.md 之前，用 `--agent` 选择其他 Agent 时 SYSTEM.md 也不会生效；而在用户作用域内部，SYSTEM.md 优先于 `agents/` 目录中扫描到的同名文件。
 
@@ -167,7 +167,7 @@ SYSTEM.md 是纯 Markdown 正文，不需要也不读取 Frontmatter。文件缺
 未知变量原样保留，单独的 `$` 没有特殊含义；上下文中缺失的变量渲染为空字符串。另有四个预组合块——`${windows_notes}`、`${additional_dirs_section}`、`${skills_section}`、`${plugin_sections}`——渲染对应的内置提示词段落，不适用时为空字符串。内置默认提示词已经包含 `${plugin_sections}`；当 `${base_prompt}` 已展开为该提示词时，不要再重复加入此变量。利用这些变量可以重建内置提示词的骨架，例如：
 
 ```markdown
-You are Kimi, running at ${cwd} on ${os}.
+You are Dimi, running at ${cwd} on ${os}.
 
 ${agents_md}
 
@@ -178,7 +178,7 @@ ${plugin_sections}
 
 ## 指令文件
 
-全局 Kimi 专属指令可放在 `$KIMI_CODE_HOME/AGENTS.md`（默认：`~/.kimi-code/AGENTS.md`）。当你用 `KIMI_CODE_HOME` 移动数据根时，这份全局指令文件也会一起移动。跨工具通用指令仍可放在真实 OS home 下的 `~/.agents/AGENTS.md`，项目级指令仍放在项目目录中，例如 `.kimi-code/AGENTS.md` 或 `AGENTS.md`。
+全局 Dimi 专属指令可放在 `$DIMI_CODE_HOME/AGENTS.md`（默认：`~/.dimi/AGENTS.md`）。当你用 `DIMI_CODE_HOME` 移动数据根时，这份全局指令文件也会一起移动。跨工具通用指令仍可放在真实 OS home 下的 `~/.agents/AGENTS.md`，项目级指令仍放在项目目录中，例如 `.dimi/AGENTS.md` 或 `AGENTS.md`。
 
 ## 会话目录中的存储位置
 

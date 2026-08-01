@@ -1,4 +1,4 @@
-# @moonshot-ai/kimi-code-oauth
+# @dimi-agent/dimi-oauth
 
 OAuth toolkit for Dimi managed authentication.
 

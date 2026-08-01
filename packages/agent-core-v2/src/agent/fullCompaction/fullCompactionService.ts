@@ -69,7 +69,7 @@ import {
   Error2,
   isCodedError,
   isError2,
-  toKimiErrorPayload,
+  toDimiErrorPayload,
   unwrapErrorCause,
 } from "#/errors";
 import { IWireService } from "#/wire/wire";
@@ -586,7 +586,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }
       this.eventBus.publish({
         type: "error",
-        ...toKimiErrorPayload(error),
+        ...toDimiErrorPayload(error),
       });
       throw error;
     } finally {

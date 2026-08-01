@@ -61,24 +61,24 @@ describe("resolveSwarmMaxConcurrency", () => {
 
   it("returns undefined for empty or whitespace-only values", () => {
     expect(
-      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "" }),
+      resolveSwarmMaxConcurrency({ DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "" }),
     ).toBeUndefined();
     expect(
-      resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "   " }),
+      resolveSwarmMaxConcurrency({ DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "   " }),
     ).toBeUndefined();
   });
 
   it("throws for non-positive, non-integer, or non-numeric values", () => {
     for (const raw of ["0", "-1", "2.5", "abc"]) {
       expect(() =>
-        resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: raw }),
-      ).toThrow(/KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY.*positive integer/);
+        resolveSwarmMaxConcurrency({ DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: raw }),
+      ).toThrow(/DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY.*positive integer/);
     }
   });
 
   it("returns the integer for a positive integer value", () => {
-    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "3" })).toBe(3);
-    expect(resolveSwarmMaxConcurrency({ KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: " 8 " })).toBe(8);
+    expect(resolveSwarmMaxConcurrency({ DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: "3" })).toBe(3);
+    expect(resolveSwarmMaxConcurrency({ DIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: " 8 " })).toBe(8);
   });
 });
 
@@ -875,7 +875,7 @@ describe("SessionSwarmService metadata compatibility", () => {
       makeSessionContext({
         sessionId: "s1",
         workspaceId: "w1",
-        sessionDir: "/tmp/kimi/s1",
+        sessionDir: "/tmp/dimi/s1",
         sessionScope: "sessions/w1/s1",
         cwd: "/repo",
       }),
@@ -1013,7 +1013,7 @@ describe("SessionSwarmService metadata compatibility", () => {
       expect.objectContaining({
         binding: {
           profile: "coder",
-          model: "kimi-test",
+          model: "dimi-test",
           thinking: "medium",
           cwd: "/repo",
         },
@@ -1043,7 +1043,7 @@ describe("SessionSwarmService metadata compatibility", () => {
         eventBus,
         {
           profileName: opts.binding?.profile ?? "coder",
-          modelAlias: opts.binding?.model ?? "kimi-test",
+          modelAlias: opts.binding?.model ?? "dimi-test",
           thinkingLevel: opts.binding?.thinking ?? "medium",
           cwd: opts.binding?.cwd ?? "/repo",
         },
@@ -1155,7 +1155,7 @@ describe("SessionSwarmService metadata compatibility", () => {
       {
         status: "failed",
         error: expect.stringContaining(
-          "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+          "comes from [secondary_model].provider + model / DIMI_SECONDARY_MODEL",
         ),
       },
     ]);
@@ -1313,7 +1313,7 @@ function lifecycleStub(
       const id = opts.agentId ?? "agent-new";
       const handle = agentHandle(id, lifecycle as IAgentLifecycleService, eventBus, {
         profileName: opts.binding?.profile ?? "coder",
-        modelAlias: opts.binding?.model ?? "kimi-test",
+        modelAlias: opts.binding?.model ?? "dimi-test",
         thinkingLevel: opts.binding?.thinking ?? "medium",
         cwd: opts.binding?.cwd ?? "/repo",
       });
@@ -1354,7 +1354,7 @@ function agentHandle(
 ): IAgentScopeHandle {
   const profile = profileService({
     cwd: "/repo",
-    modelAlias: "kimi-test",
+    modelAlias: "dimi-test",
     modelCapabilities: {} as never,
     profileName: "agent",
     thinkingLevel: "medium",

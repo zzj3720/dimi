@@ -6,10 +6,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Kaos } from "@moonshot-ai/kaos";
+import type { Kaos } from "@dimi-agent/kaos";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createKimiHarness, KimiHarness, type KimiError } from "#/index";
+import { createDimiHarness, DimiHarness, type DimiError } from "#/index";
 import { SDKRpcClientBase } from "#/rpc";
 import type { ResumeSessionInput, ResumedSessionSummary } from "#/types";
 import { recordingTelemetry, type TelemetryRecord } from "./telemetry";
@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "kimi-sdk-create-"));
+  const dir = await mkdtemp(join(tmpdir(), "dimi-sdk-create-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -88,10 +88,10 @@ class StubRpc extends SDKRpcClientBase {
   }
 }
 
-describe("KimiHarness session lifecycle", () => {
+describe("DimiHarness session lifecycle", () => {
   it("attributes created and resumed sessions to the host", async () => {
     const records: TelemetryRecord[] = [];
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       identity: TEST_IDENTITY,
       homeDir: await makeTempDir(),
       uiMode: "print",
@@ -109,7 +109,7 @@ describe("KimiHarness session lifecycle", () => {
         event: "session_started",
         sessionId: session.id,
         properties: expect.objectContaining({
-          client_name: "kimi-code-cli",
+          client_name: "dimi-cli",
           client_version: "0.0.0-test",
           ui_mode: "print",
           resumed: false,
@@ -130,7 +130,7 @@ describe("KimiHarness session lifecycle", () => {
   });
 
   it("creates, lists, closes, and resumes one stable session identity", async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     try {
       const created = await harness.createSession({ id: "ses_lifecycle", workDir });
@@ -150,7 +150,7 @@ describe("KimiHarness session lifecycle", () => {
   });
 
   it("applies caller MCP servers when creating and resuming sessions", async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     try {
       const created = await harness.createSession({
@@ -182,7 +182,7 @@ describe("KimiHarness session lifecycle", () => {
   it("uses a configured provider/model and explicit runtime options", async () => {
     const homeDir = await makeTempDir();
     await writeTestModelConfig(homeDir);
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       identity: TEST_IDENTITY,
       homeDir,
       providerRuntime: createTestProviderRuntime({
@@ -210,7 +210,7 @@ describe("KimiHarness session lifecycle", () => {
   });
 
   it("does not require provider credentials until a model request is made", async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     try {
       const session = await harness.createSession({
         id: "ses_empty_config",
@@ -232,7 +232,7 @@ default_model = "retired-model"
 `,
       "utf-8",
     );
-    const harness = createKimiHarness({
+    const harness = createDimiHarness({
       identity: TEST_IDENTITY,
       homeDir,
       providerRuntime: createTestProviderRuntime({
@@ -254,18 +254,18 @@ default_model = "retired-model"
   });
 
   it("requires a non-empty workspace path", async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     try {
       await expect(
         harness.createSession({ id: "ses_missing_workdir" } as never),
       ).rejects.toMatchObject({
         code: "request.work_dir_required",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
       await expect(
         harness.createSession({ id: "ses_blank_workdir", workDir: "   " }),
       ).rejects.toMatchObject({
         code: "request.work_dir_required",
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }
@@ -273,7 +273,7 @@ default_model = "retired-model"
 
   it("rebinds an active session when resume receives a new Kaos", async () => {
     const rpc = new StubRpc();
-    const harness = new KimiHarness(rpc, {
+    const harness = new DimiHarness(rpc, {
       homeDir: "/tmp/home",
       configPath: "/tmp/config.toml",
       auth: { status: async () => ({ providers: [] }) } as never,

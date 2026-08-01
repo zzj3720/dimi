@@ -8,7 +8,7 @@ import { LifecycleScope, ScopeActivation, _clearScopedRegistryForTests, register
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ClusterDb } from '@moonshot-ai/minidb/cluster';
+import { ClusterDb } from '@dimi-agent/minidb/cluster';
 import { MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
@@ -134,7 +134,7 @@ describe('MiniDbQueryStore', () => {
 
   it('shares the store with a second cluster instance instead of locking it out', async () => {
     const storeDir = join(homeDir, 'cache', 'query-store');
-    // A peer instance stands in for another kimi process: it has its own
+    // A peer instance stands in for another dimi process: it has its own
     // lock pool, so write locks are genuinely contended between the two.
     const peer = await ClusterDb.open({ dir: storeDir, shardCount: 16, valueCodec: 'json' });
     try {

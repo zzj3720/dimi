@@ -3,11 +3,11 @@
  *
  * Owns the `[task]` configuration section (task limits and lifecycle tuning).
  * `maxRunningTasks` also accepts the
- * `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` environment override
+ * `DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` environment override
  * (applied live by the config env overlay; while a field's env var is set,
  * `stripEnvBoundFields` restores its env-free raw value before persistence, so
  * env values never leak into `config.toml`). Also owns the
- * `kimi -p` print-mode background policy (`printBackgroundMode` /
+ * `dimi -p` print-mode background policy (`printBackgroundMode` /
  * `printWaitCeilingS` / `printMaxTurns`), resolved by
  * `resolvePrintBackgroundMode`. Self-registered
  * at module load via `registerConfigSection`, so the `config` domain never
@@ -50,7 +50,7 @@ export function resolvePrintBackgroundMode(config: IConfigService): PrintBackgro
   return resolveAgentTaskConfig(config)?.printBackgroundMode ?? 'steer';
 }
 
-export const MAX_RUNNING_TASKS_ENV = 'KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS';
+export const MAX_RUNNING_TASKS_ENV = 'DIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS';
 
 function parsePositiveInt(raw: string): number | undefined {
   const value = raw.trim();

@@ -107,7 +107,7 @@ describe('background task id format', () => {
   });
 
   it('rejects malformed ids at the persistence path boundary', () => {
-    const persistence = createAgentTaskPersistence('/tmp/kimi-bg-id-test');
+    const persistence = createAgentTaskPersistence('/tmp/dimi-bg-id-test');
     const rejected = [
       '',
       'x',

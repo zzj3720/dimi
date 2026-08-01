@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createKimiConfigRpc, createKimiHarness, KimiError } from "#/index";
+import { createDimiConfigRpc, createDimiHarness, DimiError } from "#/index";
 
 import { TEST_IDENTITY } from "./test-identity";
 
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "kimi-sdk-config-"));
+  const dir = await mkdtemp(join(tmpdir(), "dimi-sdk-config-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -71,7 +71,7 @@ effort = "high"
 describe("SDK config TOML", () => {
   it("resolves config paths through the config RPC wrapper", async () => {
     const dir = await makeTempDir();
-    const rpc = createKimiConfigRpc();
+    const rpc = createDimiConfigRpc();
 
     await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(
       toPosix(join(dir, "config.toml")),
@@ -79,7 +79,7 @@ describe("SDK config TOML", () => {
   });
 
   it("returns structured validation issues through the config RPC wrapper", async () => {
-    const rpc = createKimiConfigRpc();
+    const rpc = createDimiConfigRpc();
 
     await expect(
       rpc.validateConfigToml({
@@ -101,13 +101,13 @@ refresh_interval_ms = "often"
   });
 });
 
-describe("KimiHarness config API", () => {
+describe("DimiHarness config API", () => {
   it("loads default config when missing and deep-merges setConfig patches from disk", async () => {
     const homeDir = await makeTempDir();
     const configPath = join(homeDir, "config.toml");
     await writeFile(configPath, COMPLETE_TOML, "utf-8");
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     await harness.setConfig({
       services: {
@@ -130,23 +130,23 @@ describe("KimiHarness config API", () => {
     await writeFile(configPath, COMPLETE_TOML, "utf-8");
     const before = await readFile(configPath, "utf-8");
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     const setInvalidConfig = harness.setConfig({
       thinking: { enabled: "yes" },
     } as never);
 
-    await expect(setInvalidConfig).rejects.toBeInstanceOf(KimiError);
+    await expect(setInvalidConfig).rejects.toBeInstanceOf(DimiError);
     await expect(setInvalidConfig).rejects.toMatchObject({
       code: "config.invalid",
-    } satisfies Partial<KimiError>);
+    } satisfies Partial<DimiError>);
 
     await expect(readFile(configPath, "utf-8")).resolves.toBe(before);
   });
 
   it("uses default config when the config file is absent", async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.getConfig()).resolves.toMatchObject({
       services: {},
@@ -154,9 +154,9 @@ describe("KimiHarness config API", () => {
   });
 
   it("returns experimental feature metadata through the harness", async () => {
-    vi.stubEnv("KIMI_CODE_EXPERIMENTAL_FLAG", "0");
+    vi.stubEnv("DIMI_CODE_EXPERIMENTAL_FLAG", "0");
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     const features = await harness.getExperimentalFeatures();
     expect(features.map((feature) => feature.id)).toEqual(
@@ -168,12 +168,12 @@ describe("KimiHarness config API", () => {
   it("can create the default config scaffold without selecting a model", async () => {
     const homeDir = await makeTempDir();
     const configPath = join(homeDir, "config.toml");
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     await harness.ensureConfigFile();
 
     const text = await readFile(configPath, "utf-8");
-    expect(text).toContain("Kimi Code runtime settings.");
+    expect(text).toContain("Dimi runtime settings.");
     expect(text).not.toMatch(/^default_thinking =/m);
     expect(text).not.toMatch(/^default_model =/m);
 
@@ -188,7 +188,7 @@ describe("KimiHarness config API", () => {
     const configPath = join(homeDir, "config.toml");
     await writeFile(configPath, COMPLETE_TOML, "utf-8");
     await mkdir(workDir, { recursive: true });
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
     const session = await harness.createSession({
       id: "session-sdk-reload",
       workDir,
@@ -211,7 +211,7 @@ describe("KimiHarness config API", () => {
     const configPath = join(homeDir, "config.toml");
     await writeFile(configPath, COMPLETE_TOML, "utf-8");
     await mkdir(workDir, { recursive: true });
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
     const session = await harness.createSession({
       id: "session-sdk-reload-forward",
       workDir,

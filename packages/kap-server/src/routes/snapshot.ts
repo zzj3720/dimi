@@ -4,7 +4,7 @@
  * Delegates to `ISnapshotReader`, which reads `state.json` and
  * `agents/main/wire.jsonl` directly without materializing the session scope.
  *
- * **Timeout**: the auto path races against a hard `KIMI_SNAPSHOT_TIMEOUT_MS`
+ * **Timeout**: the auto path races against a hard `DIMI_SNAPSHOT_TIMEOUT_MS`
  * ceiling (default 4000ms, under traefik's 5s cut-off). Timeout returns 50001
  * with a structured `snapshot.timeout` log line so the gateway never sees a 499.
  *
@@ -12,7 +12,7 @@
  * 50001; everything else falls through to the global error handler (→ 50001).
  */
 
-import { ILogService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { ILogService, type Scope } from '@dimi-agent/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
 import { sessionSnapshotResponseSchema, type SessionSnapshotResponse } from '../protocol/rest-snapshot';
 import { z } from 'zod';

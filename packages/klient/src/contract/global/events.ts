@@ -8,8 +8,8 @@
 
 import { z } from "zod";
 
-import type { ConfigChangedEvent } from "@moonshot-ai/agent-core-v2/app/config/config";
-import type { ReloadSummary } from "@moonshot-ai/agent-core-v2/app/plugin/types";
+import type { ConfigChangedEvent } from "@dimi-agent/agent-core-v2/app/config/config";
+import type { ReloadSummary } from "@dimi-agent/agent-core-v2/app/plugin/types";
 
 import type { EventRegistration } from "../types.js";
 

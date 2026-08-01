@@ -1,6 +1,6 @@
 // bench/session-store.ts
 //
-// Schema + query layer for the kimi-code session store, built on minidb.
+// Schema + query layer for the dimi session store, built on minidb.
 //
 // Two logical "tables" via key prefixes in one db:
 //   ws:<workspaceId>    -> WorkspaceDoc
@@ -18,7 +18,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { MiniDb } from '../src/index.js';
-import { listKimiSessions, loadKimiWorkspaces } from './kimi-sessions.js';
+import { listDimiSessions, loadDimiWorkspaces } from './dimi-sessions.js';
 
 export interface WorkspaceDoc {
   name: string;
@@ -113,8 +113,8 @@ export class SessionStore {
 
   // ---- ingest -------------------------------------------------------------
 
-  async ingestKimiCode(homeDir: string): Promise<{ workspaces: number; sessions: number; textBytes: number }> {
-    const workspaces = loadKimiWorkspaces(homeDir);
+  async ingestDimiCode(homeDir: string): Promise<{ workspaces: number; sessions: number; textBytes: number }> {
+    const workspaces = loadDimiWorkspaces(homeDir);
 
     let wsCount = 0;
     let sessCount = 0;
@@ -136,7 +136,7 @@ export class SessionStore {
     }
 
     // sessions
-    for (const meta of listKimiSessions(homeDir)) {
+    for (const meta of listDimiSessions(homeDir)) {
       const wirePath = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');
       if (!existsSync(wirePath)) continue;
 

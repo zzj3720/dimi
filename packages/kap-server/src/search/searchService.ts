@@ -44,9 +44,9 @@ import {
   ScopeActivation,
   registerScopedService,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
-import { LockError, MiniDb, normalizeLiteral, tokenize, type BatchInputOp } from '@moonshot-ai/minidb';
-import type { TranscriptStore } from '@moonshot-ai/transcript';
+} from '@dimi-agent/agent-core-v2';
+import { LockError, MiniDb, normalizeLiteral, tokenize, type BatchInputOp } from '@dimi-agent/minidb';
+import type { TranscriptStore } from '@dimi-agent/transcript';
 
 import type {
   GlobalSearchHit,

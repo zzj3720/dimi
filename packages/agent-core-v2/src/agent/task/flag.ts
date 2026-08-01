@@ -1,7 +1,7 @@
 import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
 
 export const BACKGROUND_BASH_STDIN_FLAG_ID = 'background-bash-stdin';
-export const BACKGROUND_BASH_STDIN_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_BACKGROUND_BASH_STDIN';
+export const BACKGROUND_BASH_STDIN_FLAG_ENV = 'DIMI_CODE_EXPERIMENTAL_BACKGROUND_BASH_STDIN';
 
 registerFlagDefinition({
   id: BACKGROUND_BASH_STDIN_FLAG_ID,

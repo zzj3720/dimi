@@ -41,9 +41,9 @@ import type {
   ReloadSummary,
 } from "./types";
 
-const KIMI_CODE_BASE_URL_ENV = "KIMI_CODE_BASE_URL";
-const KIMI_CODE_OAUTH_HOST_ENV = "KIMI_CODE_OAUTH_HOST";
-const KIMI_OAUTH_HOST_ENV = "KIMI_OAUTH_HOST";
+const DIMI_CODE_BASE_URL_ENV = "DIMI_CODE_BASE_URL";
+const DIMI_CODE_OAUTH_HOST_ENV = "DIMI_CODE_OAUTH_HOST";
+const DIMI_OAUTH_HOST_ENV = "DIMI_OAUTH_HOST";
 
 export class PluginService extends Disposable implements IPluginService {
   declare readonly _serviceBrand: undefined;
@@ -67,11 +67,11 @@ export class PluginService extends Disposable implements IPluginService {
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
-    this.envBaseUrl = bootstrap.getEnv(KIMI_CODE_BASE_URL_ENV);
+    this.envBaseUrl = bootstrap.getEnv(DIMI_CODE_BASE_URL_ENV);
     this.envOAuthHost =
-      bootstrap.getEnv(KIMI_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(KIMI_OAUTH_HOST_ENV);
+      bootstrap.getEnv(DIMI_CODE_OAUTH_HOST_ENV) ?? bootstrap.getEnv(DIMI_OAUTH_HOST_ENV);
     this.manager = new PluginManager({
-      kimiHomeDir: this.homeDir,
+      dimiHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
     });
   }
@@ -120,7 +120,7 @@ export class PluginService extends Disposable implements IPluginService {
         throw new Error2(
           PluginErrors.codes.PLUGIN_LOAD_FAILED,
           `Failed to reload plugins: ${this.loadError.message}`,
-          { cause: this.loadError, details: { kimiHomeDir: this.homeDir } },
+          { cause: this.loadError, details: { dimiHomeDir: this.homeDir } },
         );
       }
     });
@@ -175,8 +175,8 @@ export class PluginService extends Disposable implements IPluginService {
       if (!Object.values(pluginServers).some((server) => server.transport === "stdio")) {
         return pluginServers;
       }
-      const managedEnv = await this.managedKimiCodeEnvForPlugins();
-      return withManagedKimiPluginEnv(pluginServers, managedEnv);
+      const managedEnv = await this.managedDimiCodeEnvForPlugins();
+      return withManagedDimiPluginEnv(pluginServers, managedEnv);
     });
   }
 
@@ -241,24 +241,24 @@ export class PluginService extends Disposable implements IPluginService {
       PluginErrors.codes.PLUGIN_LOAD_FAILED,
       `Plugin state failed to load: ${this.loadError.message}. ` +
         `Fix the file at ${this.homeDir}/plugins/installed.json and run /plugins reload.`,
-      { cause: this.loadError, details: { kimiHomeDir: this.homeDir } },
+      { cause: this.loadError, details: { dimiHomeDir: this.homeDir } },
     );
   }
 
-  private async managedKimiCodeEnvForPlugins(): Promise<Record<string, string>> {
+  private async managedDimiCodeEnvForPlugins(): Promise<Record<string, string>> {
     await this.providers.ready;
     const model = this.providers.getModels("kimi-coding")[0];
     const envBaseUrl = this.envBaseUrl;
     const envOAuthHost = this.envOAuthHost;
     const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, "") : model?.baseUrl;
     const env: Record<string, string> = {};
-    if (baseUrl !== undefined) env[KIMI_CODE_BASE_URL_ENV] = baseUrl;
-    if (envOAuthHost !== undefined) env[KIMI_CODE_OAUTH_HOST_ENV] = envOAuthHost;
+    if (baseUrl !== undefined) env[DIMI_CODE_BASE_URL_ENV] = baseUrl;
+    if (envOAuthHost !== undefined) env[DIMI_CODE_OAUTH_HOST_ENV] = envOAuthHost;
     return env;
   }
 }
 
-function withManagedKimiPluginEnv(
+function withManagedDimiPluginEnv(
   pluginServers: Record<string, McpServerConfig>,
   managedEnv: Record<string, string>,
 ): Record<string, McpServerConfig> {

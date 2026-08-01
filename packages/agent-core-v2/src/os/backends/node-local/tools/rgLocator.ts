@@ -3,7 +3,7 @@
  *
  * Resolves the `rg` command used by Glob and Grep, preferring a file found on
  * PATH, then the vendor hook, then the app cache, and finally bootstrapping a
- * pinned ripgrep archive into `<KIMI_CODE_HOME|~/.kimi-code>/bin` when the
+ * pinned ripgrep archive into `<DIMI_CODE_HOME|~/.dimi>/bin` when the
  * caller permits it. File lookup intentionally avoids spawning `rg --version`
  * so tool resolution has the same observable shape as v1.
  */
@@ -22,7 +22,7 @@ import { basename, join } from 'pathe';
 import { abortable } from '#/_base/utils/abort';
 
 const RG_VERSION = '15.0.0';
-const RG_BASE_URL = 'https://code.kimi.com/kimi-code/rg';
+const RG_BASE_URL = 'https://github.com/zzj3720/dimi/releases/latest/download/rg';
 const DOWNLOAD_TIMEOUT_MS = 600_000;
 const RG_ARCHIVE_SHA256: Record<string, string> = {
   'ripgrep-15.0.0-aarch64-apple-darwin.tar.gz':
@@ -65,9 +65,9 @@ function rgBinaryName(): string {
 }
 
 function getShareDir(): string {
-  const override = process.env['KIMI_CODE_HOME'];
+  const override = process.env['DIMI_CODE_HOME'];
   if (override !== undefined && override !== '') return override;
-  return join(homedir(), '.kimi-code');
+  return join(homedir(), '.dimi');
 }
 
 export function getShareBinRgPath(): string {
@@ -199,7 +199,7 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
   await mkdir(binDir, { recursive: true });
   const destination = join(binDir, rgBinaryName());
 
-  const tmp = await mkdtemp(join(tmpdir(), 'kimi-rg-'));
+  const tmp = await mkdtemp(join(tmpdir(), 'dimi-rg-'));
   try {
     const archivePath = join(tmp, archiveName);
 

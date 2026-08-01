@@ -1,4 +1,4 @@
-import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '@moonshot-ai/agent-core-v2';
+import { MAX_IMAGE_EDGE_PX, READ_IMAGE_BYTE_BUDGET } from '@dimi-agent/agent-core-v2';
 
 export interface ImageLimitsConfig {
   readonly maxEdgePx?: number;
@@ -16,12 +16,12 @@ export class ImageLimits {
   }
 
   maxEdgePx(): number {
-    return positiveInt(this.env['KIMI_IMAGE_MAX_EDGE_PX']) ?? this.config?.maxEdgePx ?? MAX_IMAGE_EDGE_PX;
+    return positiveInt(this.env['DIMI_IMAGE_MAX_EDGE_PX']) ?? this.config?.maxEdgePx ?? MAX_IMAGE_EDGE_PX;
   }
 
   readByteBudget(): number {
     return (
-      positiveInt(this.env['KIMI_IMAGE_READ_BYTE_BUDGET']) ??
+      positiveInt(this.env['DIMI_IMAGE_READ_BYTE_BUDGET']) ??
       this.config?.readByteBudget ??
       READ_IMAGE_BYTE_BUDGET
     );

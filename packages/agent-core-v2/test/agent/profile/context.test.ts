@@ -18,8 +18,8 @@ let workDir: string;
 let extraDirs: string[];
 
 beforeEach(async () => {
-  homeDir = await mkdtemp(join(tmpdir(), 'kimi-agents-home-'));
-  workDir = await mkdtemp(join(tmpdir(), 'kimi-agents-work-'));
+  homeDir = await mkdtemp(join(tmpdir(), 'dimi-agents-home-'));
+  workDir = await mkdtemp(join(tmpdir(), 'dimi-agents-work-'));
   extraDirs = [];
   fs = createFs();
 });
@@ -32,8 +32,8 @@ afterEach(async () => {
 
 describe('loadAgentsMd user-level discovery', () => {
   it('loads user-level branded and generic files before project-level', async () => {
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await writeFile(join(homeDir, '.kimi-code', 'AGENTS.md'), 'user branded', 'utf-8');
+    await mkdir(join(homeDir, '.dimi'), { recursive: true });
+    await writeFile(join(homeDir, '.dimi', 'AGENTS.md'), 'user branded', 'utf-8');
     await mkdir(join(homeDir, '.agents'), { recursive: true });
     await writeFile(join(homeDir, '.agents', 'AGENTS.md'), 'user generic', 'utf-8');
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
@@ -66,8 +66,8 @@ describe('loadAgentsMd user-level discovery', () => {
   });
 
   it('does not load the same file twice when the work dir is the home dir', async () => {
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await writeFile(join(homeDir, '.kimi-code', 'AGENTS.md'), 'home branded', 'utf-8');
+    await mkdir(join(homeDir, '.dimi'), { recursive: true });
+    await writeFile(join(homeDir, '.dimi', 'AGENTS.md'), 'home branded', 'utf-8');
 
     const result = await loadAgentsMd({ fs, homeDir }, homeDir);
 
@@ -77,15 +77,15 @@ describe('loadAgentsMd user-level discovery', () => {
 
 describe('loadAgentsMd symlinked files', () => {
   it('follows symlinks when loading user-level and project-level AGENTS.md', async () => {
-    const targetDir = await mkdtemp(join(tmpdir(), 'kimi-agents-target-'));
+    const targetDir = await mkdtemp(join(tmpdir(), 'dimi-agents-target-'));
     extraDirs.push(targetDir);
     const brandTarget = join(targetDir, 'brand-AGENTS.md');
     const projectTarget = join(targetDir, 'project-AGENTS.md');
     await writeFile(brandTarget, 'brand via symlink', 'utf-8');
     await writeFile(projectTarget, 'project via symlink', 'utf-8');
 
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await symlink(brandTarget, join(homeDir, '.kimi-code', 'AGENTS.md'));
+    await mkdir(join(homeDir, '.dimi'), { recursive: true });
+    await symlink(brandTarget, join(homeDir, '.dimi', 'AGENTS.md'));
     await symlink(projectTarget, join(workDir, 'AGENTS.md'));
 
     const result = await loadAgentsMd({ fs, homeDir }, workDir);
@@ -97,7 +97,7 @@ describe('loadAgentsMd symlinked files', () => {
 
 describe('loadAgentsMd unreadable paths', () => {
   it('warns when an instruction file exists but is a dangling symlink', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
+    const brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-brand-'));
     extraDirs.push(brandHome);
     await symlink(join(workDir, 'missing-target.md'), join(workDir, 'AGENTS.md'));
 
@@ -109,11 +109,11 @@ describe('loadAgentsMd unreadable paths', () => {
   });
 });
 
-describe('loadAgentsMd brand home (KIMI_CODE_HOME)', () => {
+describe('loadAgentsMd brand home (DIMI_CODE_HOME)', () => {
   let brandHome: string;
 
   beforeEach(async () => {
-    brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
+    brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-brand-'));
   });
 
   afterEach(async () => {
@@ -131,10 +131,10 @@ describe('loadAgentsMd brand home (KIMI_CODE_HOME)', () => {
     expect(result).toContain('real home generic');
   });
 
-  it('ignores the real-home .kimi-code/AGENTS.md when the brand home is elsewhere', async () => {
+  it('ignores the real-home .dimi/AGENTS.md when the brand home is elsewhere', async () => {
     await writeFile(join(brandHome, 'AGENTS.md'), 'brand wins', 'utf-8');
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await writeFile(join(homeDir, '.kimi-code', 'AGENTS.md'), 'stale real-home brand', 'utf-8');
+    await mkdir(join(homeDir, '.dimi'), { recursive: true });
+    await writeFile(join(homeDir, '.dimi', 'AGENTS.md'), 'stale real-home brand', 'utf-8');
 
     const result = await loadAgentsMd({ fs, homeDir }, workDir, brandHome);
 
@@ -142,9 +142,9 @@ describe('loadAgentsMd brand home (KIMI_CODE_HOME)', () => {
     expect(result).not.toContain('stale real-home brand');
   });
 
-  it('falls back to the real-home .kimi-code/AGENTS.md when no brand home is given', async () => {
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await writeFile(join(homeDir, '.kimi-code', 'AGENTS.md'), 'fallback branded', 'utf-8');
+  it('falls back to the real-home .dimi/AGENTS.md when no brand home is given', async () => {
+    await mkdir(join(homeDir, '.dimi'), { recursive: true });
+    await writeFile(join(homeDir, '.dimi', 'AGENTS.md'), 'fallback branded', 'utf-8');
 
     const result = await loadAgentsMd({ fs, homeDir }, workDir);
 
@@ -154,7 +154,7 @@ describe('loadAgentsMd brand home (KIMI_CODE_HOME)', () => {
 
 describe('loadAgentsMd nested project hierarchy', () => {
   it('loads AGENTS.md from the project root down to the cwd in root→leaf order', async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), 'kimi-agents-project-'));
+    const projectRoot = await mkdtemp(join(tmpdir(), 'dimi-agents-project-'));
     extraDirs.push(projectRoot);
     const leaf = join(projectRoot, 'packages', 'app');
     await mkdir(leaf, { recursive: true });
@@ -187,7 +187,7 @@ describe('loadAgentsMd oversized content', () => {
 
 describe('prepareSystemPromptContext AGENTS.md size warning', () => {
   it('returns agentsMdWarning and keeps full content when oversized', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
+    const brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-brand-'));
     extraDirs.push(brandHome);
     const largeContent = 'x'.repeat(40 * 1024);
     await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
@@ -200,7 +200,7 @@ describe('prepareSystemPromptContext AGENTS.md size warning', () => {
   });
 
   it('does not return agentsMdWarning when within the recommended size', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
+    const brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-brand-'));
     extraDirs.push(brandHome);
     await writeFile(join(workDir, 'AGENTS.md'), 'small instructions', 'utf-8');
 
@@ -212,9 +212,9 @@ describe('prepareSystemPromptContext AGENTS.md size warning', () => {
 
 describe('prepareSystemPromptContext additional directories', () => {
   it('includes additional directory listings without loading their AGENTS.md', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-empty-brand-'));
+    const brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-empty-brand-'));
     extraDirs.push(brandHome);
-    const extraDir = await mkdtemp(join(tmpdir(), 'kimi-agents-extra-'));
+    const extraDir = await mkdtemp(join(tmpdir(), 'dimi-agents-extra-'));
     extraDirs.push(extraDir);
 
     await writeFile(join(workDir, 'AGENTS.md'), 'repo project instructions', 'utf-8');
@@ -236,10 +236,10 @@ describe('prepareSystemPromptContext additional directories', () => {
   });
 
   it('loads user-level AGENTS.md once and skips additional directory AGENTS.md', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-empty-brand-'));
+    const brandHome = await mkdtemp(join(tmpdir(), 'dimi-agents-empty-brand-'));
     extraDirs.push(brandHome);
-    const extraDirA = await mkdtemp(join(tmpdir(), 'kimi-agents-extra-a-'));
-    const extraDirB = await mkdtemp(join(tmpdir(), 'kimi-agents-extra-b-'));
+    const extraDirA = await mkdtemp(join(tmpdir(), 'dimi-agents-extra-a-'));
+    const extraDirB = await mkdtemp(join(tmpdir(), 'dimi-agents-extra-b-'));
     extraDirs.push(extraDirA, extraDirB);
 
     await mkdir(join(homeDir, '.agents'), { recursive: true });

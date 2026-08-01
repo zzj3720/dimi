@@ -1,11 +1,11 @@
 /**
- * Shared KimiHarness boundary stubs for ACP tests.
+ * Shared DimiHarness boundary stubs for ACP tests.
  *
  * The adapter reads authentication state and the live provider catalog from
  * `harness.auth`; config only owns the selected model and thinking defaults.
  */
 
-import type { ProviderModel } from '@moonshot-ai/kimi-code-sdk';
+import type { ProviderModel } from '@dimi-agent/dimi-sdk';
 
 /** Stub `auth.status()` payload for an authenticated harness. */
 export const AUTHED_STATUS = {
@@ -72,8 +72,8 @@ export function makeAuth(
   const models =
     options.models ??
     makeProviderModels([
-      { id: 'kimi-coder', name: 'Kimi Coder', thinkingSupported: true },
-      { id: 'kimi-plain', name: 'Kimi Plain' },
+      { id: 'dimir', name: 'Dimir', thinkingSupported: true },
+      { id: 'dimi-plain', name: 'Dimi Plain' },
     ]);
   return {
     status: async () => status,

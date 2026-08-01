@@ -62,7 +62,7 @@ import type {
   ISessionScopeHandle,
   Scope,
   SessionActivityState,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import {
   IAgentLifecycleService,
   IEventBus,
@@ -72,7 +72,7 @@ import {
   ISessionIndex,
   ISessionLifecycleService,
   MAIN_AGENT_ID,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import type { SessionCreatedEvent, SessionMetaUpdatedEvent, Event } from './events';
 import { isVolatileEventType } from './events';
 import type { SessionCursor } from '../../../protocol/ws-control';
@@ -90,7 +90,7 @@ import {
   type TranscriptOpsEvent,
   type TranscriptResetEvent,
   type TranscriptStore,
-} from '@moonshot-ai/transcript';
+} from '@dimi-agent/transcript';
 
 import { toWireApproval } from '../../../routes/approvals';
 import { toWireQuestion } from '../../../routes/questions';
@@ -841,7 +841,7 @@ export class SessionEventBroadcaster {
       // like `session.meta.updated` below. Without this, clients that didn't
       // issue the create never learn the session exists, so a later
       // `sessionStatusChanged` reducer is a no-op for the unknown session and
-      // kimi-web's Stop button (gated on session.status === 'running') never
+      // dimi-web's Stop button (gated on session.status === 'running') never
       // renders. Mirrors v1's `isGlobalSessionEvent` broadcast of creation.
       void this.dispatchSessionEvent(payload.sessionId, {
         type: 'event.session.created',

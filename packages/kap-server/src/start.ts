@@ -1,5 +1,5 @@
 /**
- * Server bootstrap — wires `@moonshot-ai/agent-core-v2` (DI × Scope engine) into
+ * Server bootstrap — wires `@dimi-agent/agent-core-v2` (DI × Scope engine) into
  * a Fastify HTTP server that speaks the same `/api/v1` interface as the v1
  * server.
  *
@@ -15,12 +15,12 @@ import {
   IWorkspaceService,
   logSeed,
   resolveConfigPath,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   skillCatalogRuntimeOptionsSeed,
   type Scope,
   type ScopeSeed,
-} from "@moonshot-ai/agent-core-v2";
+} from "@dimi-agent/agent-core-v2";
 import { createAsyncApiDocument } from "./protocol/asyncapi";
 import Fastify, { type FastifyInstance } from "fastify";
 
@@ -113,7 +113,7 @@ export interface ServerStartOptions {
    */
   readonly skillDirs?: readonly string[];
   /**
-   * Directory of the built Kimi web UI (`dist-web`). When set, `GET /` and the
+   * Directory of the built Dimi web UI (`dist-web`). When set, `GET /` and the
    * `/*` SPA fallback serve these assets (auth-exempt, matching v1). Omit to run
    * the API server without the web UI.
    */
@@ -126,11 +126,8 @@ export interface ServerStartOptions {
    */
   readonly version?: string;
   /**
-   * Opt-in cloud telemetry for the engine's `ITelemetryService` events: when
-   * true, a `CloudAppender` is attached at startup (still gated by the config
-   * `telemetry` toggle) and flushed on close. Defaults to false so tests and
-   * embedding hosts that wire their own telemetry never post to the real
-   * endpoint unintentionally; the CLI's `kimi web` host passes true.
+   * Accepted for backward compatibility. Dimi does not collect telemetry, so
+   * this option has no effect.
    */
   readonly telemetry?: boolean;
 }
@@ -151,10 +148,10 @@ const DEFAULT_PORT = 58627;
 export async function startServer(opts: ServerStartOptions = {}): Promise<RunningServer> {
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
-  const homeDir = resolveKimiHome(opts.homeDir);
+  const homeDir = resolveDimiHome(opts.homeDir);
   // Instance discovery: every server registers itself under
   // `<home>/server/instances/<serverId>.json`, so multiple servers can share
-  // one homeDir and consumers (the CLI's `server ps/kill`, `kimi web`, dev
+  // one homeDir and consumers (the CLI's `server ps/kill`, `dimi web`, dev
   // tooling) can discover the live instances. Port conflicts between siblings
   // are resolved by the `port + 1` retry below. The registration is released
   // on close and on any boot refusal below.
@@ -215,18 +212,15 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     ...logSeed(logging),
     // Default host identity so outbound requests (model, WebSearch, registry
     // refresh) carry a product User-Agent even when the embedding host did not
-    // seed its own headers. Hosts like the CLI pass full Kimi identity headers
+    // seed its own headers. Hosts like the CLI pass full Dimi identity headers
     // through `opts.seeds`, which override this entry (last seed wins).
-    ...hostRequestHeadersSeed({ "User-Agent": `kimi-code-cli/${hostVersion}` }),
+    ...hostRequestHeadersSeed({ "User-Agent": `dimi-cli/${hostVersion}` }),
     ...skillCatalogRuntimeOptionsSeed(opts.skillDirs),
     ...(opts.seeds ?? []),
   ]);
 
-  // Attach the cloud telemetry appender BEFORE any session is created:
-  // `session_started` / `session_load_failed` fire inside create()/resume(), so
-  // an appender wired later would drop them to the null appender. Opt-in via
-  // `opts.telemetry` (off by default so tests never post to the real endpoint);
-  // best-effort — telemetry must never block server boot.
+  // Dimi does not collect telemetry; `initializeServerTelemetry` is a no-op
+  // kept so the wiring shape survives a future first-party telemetry story.
   let telemetry: ServerTelemetry = {};
   if (opts.telemetry === true) {
     try {
@@ -247,7 +241,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     if (!passwordConfigured) {
       logger.warn(
         { host, exposureClass },
-        "binding non-loopback host with token-only auth (no KIMI_CODE_PASSWORD) — the bearer token printed in the startup banner is the only credential protecting this server",
+        "binding non-loopback host with token-only auth (no DIMI_CODE_PASSWORD) — the bearer token printed in the startup banner is the only credential protecting this server",
       );
     }
   }
@@ -367,9 +361,9 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     await app.register(swagger, {
       openapi: {
         info: {
-          title: "Kimi Code Server API",
+          title: "Dimi Server API",
           description:
-            "REST API for the Kimi Code local server. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.",
+            "REST API for the Dimi local server. All JSON responses are wrapped in a uniform envelope `{ code, msg, data, request_id }`.",
           version: serverVersion,
         },
         tags: [
@@ -547,7 +541,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   // Bind with port+1 retry on EADDRINUSE (mirrors v1). Port 0 (ephemeral) is
   // never retried.
   //
-  // There is no single-instance lock: a busy port may be a sibling kimi
+  // There is no single-instance lock: a busy port may be a sibling dimi
   // instance sharing this homeDir (each registers itself under
   // `<home>/server/instances/`), and the `port + 1` walk is exactly how the
   // second instance yields to 58628 (and so on) — the retry doubles as the
@@ -616,7 +610,7 @@ export interface ListenWithPortRetryOptions {
  *
  * Why this is the right layer: there is no single-instance lock — every
  * kap-server registers itself under `<home>/server/instances/` instead, so a
- * busy port may be a sibling kimi instance. The `port + 1` walk then serves
+ * busy port may be a sibling dimi instance. The `port + 1` walk then serves
  * as the multi-instance coexistence mechanism (the second instance lands on
  * the next free port), and a third-party listener gets the same "port busy ⇒
  * +1" policy as v1.

@@ -10,11 +10,11 @@ export const SECONDARY_MODEL_SECTION = "secondaryModel";
 export const MODEL_CATALOG_SECTION = "modelCatalog";
 export const MODEL_OVERRIDES_SECTION = "modelOverrides";
 
-export const DEFAULT_PROVIDER_ENV = "KIMI_MODEL_PROVIDER";
-export const DEFAULT_MODEL_ENV = "KIMI_MODEL_NAME";
-export const SECONDARY_MODEL_ENV = "KIMI_SECONDARY_MODEL";
-export const SECONDARY_MODEL_PROVIDER_ENV = "KIMI_SECONDARY_PROVIDER";
-export const SECONDARY_MODEL_EFFORT_ENV = "KIMI_SECONDARY_EFFORT";
+export const DEFAULT_PROVIDER_ENV = "DIMI_MODEL_PROVIDER";
+export const DEFAULT_MODEL_ENV = "DIMI_MODEL_NAME";
+export const SECONDARY_MODEL_ENV = "DIMI_SECONDARY_MODEL";
+export const SECONDARY_MODEL_PROVIDER_ENV = "DIMI_SECONDARY_PROVIDER";
+export const SECONDARY_MODEL_EFFORT_ENV = "DIMI_SECONDARY_EFFORT";
 
 const nonEmpty = (raw: string): string | undefined => {
   const value = raw.trim();
@@ -42,7 +42,7 @@ export const ThinkingConfigSchema = z.object({
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 
 const thinkingEnvBindings = envBindings(ThinkingConfigSchema, {
-  forcedEffort: "KIMI_MODEL_THINKING_EFFORT",
+  forcedEffort: "DIMI_MODEL_THINKING_EFFORT",
 });
 const stripThinkingEnv: ConfigStripEnv<ThinkingConfig> = (value) => {
   const result = { ...value };
@@ -91,19 +91,19 @@ export type ModelOverrides = z.infer<typeof ModelOverridesSchema>;
 
 const modelOverrideEnvBindings = envBindings(ModelOverridesSchema, {
   temperature: {
-    env: "KIMI_MODEL_TEMPERATURE",
+    env: "DIMI_MODEL_TEMPERATURE",
     parse: (raw) => finiteNumber(raw),
   },
   topP: {
-    env: "KIMI_MODEL_TOP_P",
+    env: "DIMI_MODEL_TOP_P",
     parse: (raw) => finiteNumber(raw),
   },
   thinkingKeep: {
-    env: "KIMI_MODEL_THINKING_KEEP",
+    env: "DIMI_MODEL_THINKING_KEEP",
     parse: nonEmpty,
   },
   maxCompletionTokens: {
-    env: "KIMI_MODEL_MAX_COMPLETION_TOKENS",
+    env: "DIMI_MODEL_MAX_COMPLETION_TOKENS",
     parse: (raw) => integer(raw),
   },
 });

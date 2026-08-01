@@ -4,7 +4,7 @@
  * Constructs `SnapshotReader` with stub core services and a real tmp `homeDir`,
  * writing `state.json` + `agents/main/wire.jsonl` directly — exercising the
  * disk read, the `context.*` reduction, the `(size, mtimeMs)` transcript cache,
- * current `state.json` schema, and `KIMI_SNAPSHOT_*` config parsing without
+ * current `state.json` schema, and `DIMI_SNAPSHOT_*` config parsing without
  * booting a Fastify daemon.
  */
 
@@ -22,7 +22,7 @@ import {
   ISessionLifecycleService,
   type ContextMessage,
   type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -60,7 +60,7 @@ interface Fixture {
 const tmpDirs: string[] = [];
 
 async function makeFixtureAsync(opts?: { cacheLimit?: number }): Promise<Fixture> {
-  const homeDir = await mkdtemp(join(tmpdir(), 'kimi-snapshot-reader-'));
+  const homeDir = await mkdtemp(join(tmpdir(), 'dimi-snapshot-reader-'));
   tmpDirs.push(homeDir);
   const workspaceId = 'wd_unittest_012345abcdef';
   const index = new Map<string, SessionSummary>();
@@ -472,7 +472,7 @@ describe('SnapshotReader.read', () => {
 
 describe('readWireRecords', () => {
   it('drops a torn final line but throws on mid-file corruption', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kimi-wire-'));
+    const dir = await mkdtemp(join(tmpdir(), 'dimi-wire-'));
     tmpDirs.push(dir);
     const p = join(dir, 'wire.jsonl');
     await writeFile(
@@ -497,15 +497,15 @@ describe('loadSnapshotConfig', () => {
 
   it('parses integer knobs with floors', () => {
     const c = loadSnapshotConfig({
-      KIMI_SNAPSHOT_TIMEOUT_MS: '2500',
-      KIMI_SNAPSHOT_CACHE_LIMIT: '0', // below min → default
+      DIMI_SNAPSHOT_TIMEOUT_MS: '2500',
+      DIMI_SNAPSHOT_CACHE_LIMIT: '0', // below min → default
     });
     expect(c.timeoutMs).toBe(2500);
     expect(c.cacheLimit).toBe(32);
   });
 
   it('falls back on non-numeric / sub-minimum timeout', () => {
-    expect(loadSnapshotConfig({ KIMI_SNAPSHOT_TIMEOUT_MS: 'abc' }).timeoutMs).toBe(4000);
-    expect(loadSnapshotConfig({ KIMI_SNAPSHOT_TIMEOUT_MS: '50' }).timeoutMs).toBe(4000);
+    expect(loadSnapshotConfig({ DIMI_SNAPSHOT_TIMEOUT_MS: 'abc' }).timeoutMs).toBe(4000);
+    expect(loadSnapshotConfig({ DIMI_SNAPSHOT_TIMEOUT_MS: '50' }).timeoutMs).toBe(4000);
   });
 });

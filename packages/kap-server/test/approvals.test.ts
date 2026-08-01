@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ISessionApprovalService, ISessionLifecycleService } from '@moonshot-ai/agent-core-v2';
+import { ISessionApprovalService, ISessionLifecycleService } from '@dimi-agent/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -43,7 +43,7 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-approvals-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-approvals-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

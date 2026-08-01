@@ -16,7 +16,7 @@ const SESSION = {
   updated_at: TS,
   busy: true,
   metadata: { cwd: '/tmp/demo' },
-  agent_config: { model: 'kimi' },
+  agent_config: { model: 'dimi' },
   usage: {
     input_tokens: 0,
     output_tokens: 0,

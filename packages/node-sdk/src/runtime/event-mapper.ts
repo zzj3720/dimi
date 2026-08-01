@@ -13,8 +13,8 @@
  * `IEventService` (`session.meta.updated`) is unwrapped from its
  * `{type, payload}` envelope.
  */
-import type { Event } from '@moonshot-ai/protocol';
-import type { DomainEvent } from '@moonshot-ai/agent-core-v2';
+import type { Event } from '@dimi-agent/protocol';
+import type { DomainEvent } from '@dimi-agent/agent-core-v2';
 
 /**
  * DomainEvent types the public SDK event stream never carries:

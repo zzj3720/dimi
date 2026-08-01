@@ -2,13 +2,13 @@
   "version": "1",
   "plugins": [
     {
-      "id": "kimi-datasource",
+      "id": "dimi-datasource",
       "tier": "official",
-      "displayName": "Kimi Datasource",
+      "displayName": "Dimi Datasource",
       "version": "3.3.0",
       "description": "Official datasource workflows.",
       "keywords": ["data", "mcp"],
-      "source": "./official/kimi-datasource"
+      "source": "./official/dimi-datasource"
     },
     {
       "id": "superpowers",

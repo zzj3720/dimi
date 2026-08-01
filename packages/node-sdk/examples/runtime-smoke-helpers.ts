@@ -1,18 +1,18 @@
-import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
-import { type KimiHarness, type Session, type Event } from '@moonshot-ai/kimi-code-sdk';
+import type { DimiHostIdentity } from '@dimi-agent/dimi-oauth';
+import { type DimiHarness, type Session, type Event } from '@dimi-agent/dimi-sdk';
 
-export function smokeIdentityFromEnv(): KimiHostIdentity {
-  const version = process.env['KIMI_CODE_SMOKE_VERSION'];
+export function smokeIdentityFromEnv(): DimiHostIdentity {
+  const version = process.env['DIMI_CODE_SMOKE_VERSION'];
   if (version === undefined || version.trim().length === 0) {
-    throw new Error('KIMI_CODE_SMOKE_VERSION is required for Kimi SDK smoke examples.');
+    throw new Error('DIMI_CODE_SMOKE_VERSION is required for Dimi SDK smoke examples.');
   }
   return {
-    userAgentProduct: 'kimi-code-cli',
+    userAgentProduct: 'dimi-cli',
     version,
   };
 }
 
-export async function createConfiguredSession(harness: KimiHarness): Promise<Session> {
+export async function createConfiguredSession(harness: DimiHarness): Promise<Session> {
   const config = await harness.getConfig();
   const model = config.defaultModel;
   if (model === undefined) {

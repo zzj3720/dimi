@@ -60,7 +60,7 @@ const COMPAT_SCHEMA = z.object({
   supportsStrictMode: z.boolean().optional(),
   supportsOpenAIGrammarTools: z.boolean().optional(),
   cacheControlFormat: z.literal("anthropic").optional(),
-  deferredToolsMode: z.literal("kimi").optional(),
+  deferredToolsMode: z.literal("dimi").optional(),
   supportsLongCacheRetention: z.boolean().optional(),
   sendSessionAffinityHeaders: z.boolean().optional(),
   sessionAffinityFormat: z.enum(["openai", "openai-nosession", "openrouter"]).optional(),

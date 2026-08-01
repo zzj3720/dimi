@@ -1,10 +1,10 @@
 # Plugins
 
-Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元——可以添加 [Agent Skills](./skills.md)、自定义 [Agent](./agents.md)、在会话启动时自动加载指定 Skill、提供系统提示词指令，也可以声明 MCP servers 来提供真实工具能力。适合把工作流共享给团队、连接外部服务，或从官方 marketplace 安装扩展。
+Plugins 把可复用的 Dimi CLI 能力打包成可安装单元——可以添加 [Agent Skills](./skills.md)、自定义 [Agent](./agents.md)、在会话启动时自动加载指定 Skill、提供系统提示词指令，也可以声明 MCP servers 来提供真实工具能力。适合把工作流共享给团队、连接外部服务，或从官方 marketplace 安装扩展。
 
 ## 安装与管理
 
-在 TUI 中运行 `/plugins` 打开 plugin 管理器。它是一个面板，有四个 tab：**Installed**（管理已装的）、**Official**（Kimi 官方 marketplace plugin）、**Third-party**（第三方 marketplace plugin）、**Custom**（从 URL 安装），用 `Tab` / `Shift-Tab` 切换。常用按键：
+在 TUI 中运行 `/plugins` 打开 plugin 管理器。它是一个面板，有四个 tab：**Installed**（管理已装的）、**Official**（Dimi 官方 marketplace plugin）、**Third-party**（第三方 marketplace plugin）、**Custom**（从 URL 安装），用 `Tab` / `Shift-Tab` 切换。常用按键：
 
 | 按键 | 操作 |
 | --- | --- |
@@ -33,7 +33,7 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元——可以
 | `/plugins mcp enable <id> <server>` | 启用 plugin 声明的 MCP server |
 | `/plugins mcp disable <id> <server>` | 禁用 plugin 声明的 MCP server |
 
-**Installed** tab 列出已安装的 plugin，并在 marketplace 有更新版本时显示更新徽章。当一个使用了过时 plugin（其 MCP 工具或 `/<plugin>:<command>` 斜杠命令）的 turn 结束后，也会出现一次性提示，引导你到 `/plugins` 更新；每个新的 marketplace 版本只提醒一次。**Official** 和 **Third-party** tab 按 tier 列出 marketplace plugin；**Custom** tab 从 URL 安装。marketplace 目录会在需要时自动加载。每个安装会显示信任徽章：`kimi-official`（来自官方地址）、`curated`（来自精选地址）、`third-party`（其他所有情况）。安装第三方 plugin（任何非官方地址的 plugin，包括 Custom 安装）会先显示一个默认「取消」的确认提示，只有在你选择信任该来源后才会继续安装。
+**Installed** tab 列出已安装的 plugin，并在 marketplace 有更新版本时显示更新徽章。当一个使用了过时 plugin（其 MCP 工具或 `/<plugin>:<command>` 斜杠命令）的 turn 结束后，也会出现一次性提示，引导你到 `/plugins` 更新；每个新的 marketplace 版本只提醒一次。**Official** 和 **Third-party** tab 按 tier 列出 marketplace plugin；**Custom** tab 从 URL 安装。marketplace 目录会在需要时自动加载。每个安装会显示信任徽章：`dimi-official`（来自官方地址）、`curated`（来自精选地址）、`third-party`（其他所有情况）。安装第三方 plugin（任何非官方地址的 plugin，包括 Custom 安装）会先显示一个默认「取消」的确认提示，只有在你选择信任该来源后才会继续安装。
 
 ### 从 GitHub 安装
 
@@ -49,13 +49,13 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元——可以
 ### 注意事项
 
 - Plugin 变更需要通过 `/reload` 或新会话生效。安装、启用/禁用、移除后，运行 `/reload` 或 `/new`；当前会话不会更新。
-- 本地安装会被拷贝到 `$KIMI_CODE_HOME/plugins/managed/<id>/`，CLI 始终从这份托管副本运行。安装后编辑原始源目录不会生效，需重新安装。
+- 本地安装会被拷贝到 `$DIMI_CODE_HOME/plugins/managed/<id>/`，CLI 始终从这份托管副本运行。安装后编辑原始源目录不会生效，需重新安装。
 - 移除 plugin 只会删除安装记录，托管副本和原始源文件仍保留在磁盘上。
 - Plugin 目前按用户安装，对所有项目生效，暂不支持项目级安装范围。
 
 ### 自定义 marketplace JSON
 
-浏览自定义目录时，把 JSON 路径或 URL 传给 `/plugins marketplace <source>`；或通过 [`KIMI_CODE_PLUGIN_MARKETPLACE_URL`](../configuration/env-vars.md) 覆盖默认 marketplace。`plugins` 数组中每个条目需要 `id` 和 `source`（本地路径、zip URL 或 GitHub URL）：
+浏览自定义目录时，把 JSON 路径或 URL 传给 `/plugins marketplace <source>`；或通过 [`DIMI_CODE_PLUGIN_MARKETPLACE_URL`](../configuration/env-vars.md) 覆盖默认 marketplace。`plugins` 数组中每个条目需要 `id` 和 `source`（本地路径、zip URL 或 GitHub URL）：
 
 ```json
 {
@@ -70,23 +70,23 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元——可以
 }
 ```
 
-## Kimi Datasource
+## Dimi Datasource
 
-Kimi Datasource 是 Kimi Code 官方数据插件，让你通过自然语言直接查询金融行情、宏观经济、企业工商、学术文献和中国法律法规，并接入 Wind、IMF、恒生聚源、SEC EDGAR、S&P Capital IQ 等专业金融数据源，无需手动调用接口或申请任何数据账号。
+Dimi Datasource 是 Dimi 官方数据插件，让你通过自然语言直接查询金融行情、宏观经济、企业工商、学术文献和中国法律法规，并接入 Wind、IMF、恒生聚源、SEC EDGAR、S&P Capital IQ 等专业金融数据源，无需手动调用接口或申请任何数据账号。
 
 ### 安装
 
-需先通过 `/login` 完成 Kimi Code 账号 OAuth 登录，插件依赖本地凭据访问数据服务。
+需先通过 `/login` 完成 Dimi 账号 OAuth 登录，插件依赖本地凭据访问数据服务。
 
 1. 运行 `/plugins`，选择 **Official**
-2. 找到 **Kimi Datasource**，按 `Enter` 安装
+2. 找到 **Dimi Datasource**，按 `Enter` 安装
 3. 安装完成后运行 `/reload` 或 `/new` 激活 plugin
 
-使用 Kimi Datasource 会消耗你的 Kimi Code 套餐额度，安装结果中会提示这一点。当前最新版本为 v3.3.0。插件安装后不会自动更新，如需升级到新版本，重新执行上述安装步骤即可。
+使用 Dimi Datasource 会消耗你的 Dimi 套餐额度，安装结果中会提示这一点。当前最新版本为 v3.3.0。插件安装后不会自动更新，如需升级到新版本，重新执行上述安装步骤即可。
 
 ### 使用方式
 
-安装完成后，直接用自然语言描述你的需求，Kimi Code 会自动调用数据能力；也可以通过 `/skill:kimi-datasource` 明确触发数据查询 Skill。
+安装完成后，直接用自然语言描述你的需求，Dimi 会自动调用数据能力；也可以通过 `/skill:dimi-datasource` 明确触发数据查询 Skill。
 
 ### 能做什么
 
@@ -119,7 +119,7 @@ Kimi Datasource 是 Kimi Code 官方数据插件，让你通过自然语言直�
 
 ### 计费与限制
 
-- 数据查询按次计费，消耗 Kimi Code 账号额度
+- 数据查询按次计费，消耗 Dimi 账号额度
 - 插件为只读查询，不提供任何写入或交易功能
 - 技术指标（MACD、KDJ 等）及实时行情仅在交易时段内可用
 - AI 输出内容仅供参考，不构成任何投资或商业决策建议
@@ -129,26 +129,26 @@ Kimi Datasource 是 Kimi Code 官方数据插件，让你通过自然语言直�
 Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以下任一位置：
 
 ```text
-<plugin_root>/kimi.plugin.json
-<plugin_root>/.kimi-plugin/plugin.json
+<plugin_root>/dimi.plugin.json
+<plugin_root>/.dimi-plugin/plugin.json
 ```
 
-两个文件同时存在时，以 `kimi.plugin.json` 为准。
+两个文件同时存在时，以 `dimi.plugin.json` 为准。
 
 示例：
 
 ```json
 {
-  "name": "kimi-finance",
+  "name": "dimi-finance",
   "version": "1.0.0",
-  "description": "Finance data and analysis workflows for Kimi Code CLI",
+  "description": "Finance data and analysis workflows for Dimi CLI",
   "skills": "./skills/",
   "systemPromptPath": "./SYSTEM.md",
   "sessionStart": {
     "skill": "using-finance"
   },
   "interface": {
-    "displayName": "Kimi Finance",
+    "displayName": "Dimi Finance",
     "shortDescription": "Market data and financial analysis workflows"
   }
 }
@@ -184,7 +184,7 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 }
 ```
 
-系统提示词贡献在两个 Agent 引擎上都生效：交互式 TUI 与 `kimi -p`（v1 引擎）、`kimi web`，以及 `KIMI_CODE_EXPERIMENTAL_FLAG=1` 时的所有 CLI 界面（v2 引擎）。
+系统提示词贡献在两个 Agent 引擎上都生效：交互式 TUI 与 `dimi -p`（v1 引擎）、`dimi web`，以及 `DIMI_CODE_EXPERIMENTAL_FLAG=1` 时的所有 CLI 界面（v2 引擎）。
 
 `systemPrompt` 字段与 `systemPromptPath` 文件各限制为 32 KB（UTF-8 字节）：超限内容会被忽略，并显示在 plugin 的 diagnostics 中。一次提示词构建最多注入所有已启用 plugin 合计 64 KB 的指令；超出预算的贡献会被跳过并给出警告——单个 plugin 的内联文本与文件合计超过该预算时同样整体跳过。
 
@@ -199,17 +199,17 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 下面是一个最小完整例子，插件目录结构：
 
 ```text
-kimi-finance/
-  kimi.plugin.json
+dimi-finance/
+  dimi.plugin.json
   commands/
     report.md
 ```
 
-manifest（`kimi.plugin.json`）用 `commands` 字段指出命令文件的位置：
+manifest（`dimi.plugin.json`）用 `commands` 字段指出命令文件的位置：
 
 ```json
 {
-  "name": "kimi-finance",
+  "name": "dimi-finance",
   "version": "1.0.0",
   "commands": "./commands/"
 }
@@ -228,10 +228,10 @@ description: 拉取指定股票的财报并总结
 装好并启用后，在对话里输入：
 
 ```text
-/kimi-finance:report TSLA
+/dimi-finance:report TSLA
 ```
 
-Kimi 会把正文里的 `$ARGUMENTS` 替换成 `TSLA`，再执行这段提示词。三处细节分述如下。
+Dimi 会把正文里的 `$ARGUMENTS` 替换成 `TSLA`，再执行这段提示词。三处细节分述如下。
 
 ### 声明命令（`commands` 字段）
 
@@ -250,7 +250,7 @@ Kimi 会把正文里的 `$ARGUMENTS` 替换成 `TSLA`，再执行这段提示词
 
 ### 调用命令与传参
 
-命令自动以插件 id 作前缀（即命名空间），注册成 `<插件名>:<命令名>`，所以上面的命令实际叫 `/kimi-finance:report`，不同插件的同名命令因此不会冲突。
+命令自动以插件 id 作前缀（即命名空间），注册成 `<插件名>:<命令名>`，所以上面的命令实际叫 `/dimi-finance:report`，不同插件的同名命令因此不会冲突。
 
 命令后输入的文字会替换正文里的 `$ARGUMENTS`（上例中 `TSLA` 替换掉 `$ARGUMENTS`）。若正文没写 `$ARGUMENTS` 却传了参数，参数不会丢弃，而是以 `ARGUMENTS: <你输入的内容>` 追加到正文末尾。
 
@@ -260,7 +260,7 @@ Plugin Skills 使用与普通 [Agent Skills](./skills.md) 相同的 `SKILL.md` �
 
 ```text
 my-plugin/
-  kimi.plugin.json
+  dimi.plugin.json
   skills/
     using-my-plugin/
       SKILL.md
@@ -268,7 +268,7 @@ my-plugin/
       SKILL.md
 ```
 
-`sessionStart.skill` 在会话启动时把一个 plugin Skill 加载到主 Agent，适合放置初始化说明、工作流规则，或把其他工具中的术语映射到 Kimi Code CLI。它只注入文本，不执行代码。
+`sessionStart.skill` 在会话启动时把一个 plugin Skill 加载到主 Agent，适合放置初始化说明、工作流规则，或把其他工具中的术语映射到 Dimi CLI。它只注入文本，不执行代码。
 
 无论 Skill 通过哪种方式加载（`sessionStart.skill`、`/skill:<name>` 或模型自动调用），`skillInstructions` 都会随该 plugin 的 Skill 一起出现。
 
@@ -278,7 +278,7 @@ Plugin 可以携带自定义 Agent：在 manifest 的 `agents` 字段里声明�
 
 ```text
 my-plugin/
-  kimi.plugin.json
+  dimi.plugin.json
   agents/
     reviewer.md
 ```
@@ -296,7 +296,7 @@ Stdio server（本地命令）：
   "mcpServers": {
     "finance": {
       "command": "uvx",
-      "args": ["kimi-finance-mcp"]
+      "args": ["dimi-finance-mcp"]
     }
   }
 }
@@ -319,10 +319,10 @@ HTTP server（远程服务）：
 Plugin MCP servers 会在 `/reload` 后或新会话中启动。启用或禁用某个 server：
 
 ```sh
-/plugins mcp disable kimi-finance finance
+/plugins mcp disable dimi-finance finance
 /reload
 
-/plugins mcp enable kimi-finance finance
+/plugins mcp enable dimi-finance finance
 /reload
 ```
 
@@ -347,7 +347,7 @@ plugin hooks 复用与全局 hooks 相同的机制——事件列表、stdin JSO
 
 - plugin 的 hooks 仅在 plugin **启用**期间生效；禁用 plugin 后其 hooks 停止运行。
 - 每条 hook 的工作目录为 plugin 根目录，因此 `command` 可以使用 plugin 内的 `./` 路径。
-- hook 进程会额外收到两个环境变量：`KIMI_CODE_HOME` 和 `KIMI_PLUGIN_ROOT`（plugin 根目录）。
+- hook 进程会额外收到两个环境变量：`DIMI_CODE_HOME` 和 `DIMI_PLUGIN_ROOT`（plugin 根目录）。
 
 仅安装 plugin 本身不会运行其 hooks——它们只在 plugin 启用期间、匹配的事件触发时运行。
 

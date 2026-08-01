@@ -700,7 +700,7 @@ describe("IExternalHooksRunnerService integration", () => {
       {
         event: "Notification",
         matcher: "permission_prompt",
-        command: "notify-send Kimi",
+        command: "notify-send Dimi",
         timeout: 5,
       },
     ];

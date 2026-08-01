@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, KimiError, type Event } from '#/index';
+import { createDimiHarness, DimiError, type Event } from '#/index';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -16,14 +16,14 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-rename-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-sdk-rename-'));
   tempDirs.push(dir);
   return dir;
 }
 
-describe('KimiHarness.renameSession', () => {
+describe('DimiHarness.renameSession', () => {
   it('persists a title and emits an event for an active session', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     try {
       const session = await harness.createSession({ id: 'ses_harness_rename', workDir });
@@ -46,7 +46,7 @@ describe('KimiHarness.renameSession', () => {
   });
 
   it('renames a persisted session after its active wrapper closes', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     const workDir = await makeTempDir();
     try {
       const session = await harness.createSession({ id: 'ses_inactive_rename', workDir });
@@ -60,14 +60,14 @@ describe('KimiHarness.renameSession', () => {
   });
 
   it('rejects missing session ids', async () => {
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
+    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir: await makeTempDir() });
     try {
       const rename = harness.renameSession({ id: 'ses_missing', title: 'Missing Title' });
-      await expect(rename).rejects.toBeInstanceOf(KimiError);
+      await expect(rename).rejects.toBeInstanceOf(DimiError);
       await expect(rename).rejects.toMatchObject({
         code: 'session.not_found',
         details: { sessionId: 'ses_missing' },
-      } satisfies Partial<KimiError>);
+      } satisfies Partial<DimiError>);
     } finally {
       await harness.close();
     }

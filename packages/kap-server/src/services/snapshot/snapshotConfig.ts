@@ -1,8 +1,8 @@
 /**
  * Env-driven knobs for the snapshot read path. Read once at route registration.
  *
- *   KIMI_SNAPSHOT_TIMEOUT_MS   integer ms hard ceiling (default 4000)
- *   KIMI_SNAPSHOT_CACHE_LIMIT  transcript LRU entries (default 32)
+ *   DIMI_SNAPSHOT_TIMEOUT_MS   integer ms hard ceiling (default 4000)
+ *   DIMI_SNAPSHOT_CACHE_LIMIT  transcript LRU entries (default 32)
  */
 
 export interface SnapshotConfig {
@@ -22,7 +22,7 @@ function parseInteger(value: string | undefined, fallback: number, min: number):
 
 export function loadSnapshotConfig(env: NodeJS.ProcessEnv = process.env): SnapshotConfig {
   return {
-    timeoutMs: parseInteger(env['KIMI_SNAPSHOT_TIMEOUT_MS'], DEFAULT_TIMEOUT_MS, 100),
-    cacheLimit: parseInteger(env['KIMI_SNAPSHOT_CACHE_LIMIT'], DEFAULT_CACHE_LIMIT, 1),
+    timeoutMs: parseInteger(env['DIMI_SNAPSHOT_TIMEOUT_MS'], DEFAULT_TIMEOUT_MS, 100),
+    cacheLimit: parseInteger(env['DIMI_SNAPSHOT_CACHE_LIMIT'], DEFAULT_CACHE_LIMIT, 1),
   };
 }

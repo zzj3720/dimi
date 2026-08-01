@@ -60,7 +60,7 @@ export class APIStatusError extends ChatProviderError {
   readonly statusCode: number;
   readonly requestId: string | null;
   readonly retryAfterMs: number | null;
-  /** Trace id from the `x-trace-id` response header (Kimi only; `null` otherwise). */
+  /** Trace id from the `x-trace-id` response header (Dimi only; `null` otherwise). */
   readonly traceId: string | null;
 
   constructor(
@@ -337,7 +337,7 @@ function appendThinkingEffortConfigHint(statusCode: number, message: string): st
   if (message.includes(THINKING_EFFORT_CONFIG_DOCS_URL)) return message;
   return `${message}
 
-The provider rejected the configured thinking effort. Non-Kimi providers receive effort strings without client-side mapping; choose an effort supported by the selected model. For Kimi models, check support_efforts and default_effort. See ${THINKING_EFFORT_CONFIG_DOCS_URL}`;
+The provider rejected the configured thinking effort. Non-Dimi providers receive effort strings without client-side mapping; choose an effort supported by the selected model. For Dimi models, check support_efforts and default_effort. See ${THINKING_EFFORT_CONFIG_DOCS_URL}`;
 }
 
 export function isContextOverflowErrorCode(code: string | null | undefined): boolean {

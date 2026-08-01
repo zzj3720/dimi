@@ -1,13 +1,13 @@
 {
-  "name": "@moonshot-ai/kimi-code-oauth",
+  "name": "@dimi-agent/dimi-oauth",
   "version": "0.1.0",
   "private": true,
-  "description": "Kimi identity and OAuth protocol utilities",
+  "description": "Dimi identity and OAuth protocol utilities",
   "keywords": [
     "auth",
     "authentication",
     "cli",
-    "kimi",
+    "dimi",
     "oauth"
   ],
   "homepage": "https://github.com/zzj3720/dimi/tree/main/packages/oauth#readme",

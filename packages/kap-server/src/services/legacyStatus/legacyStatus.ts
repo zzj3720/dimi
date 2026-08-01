@@ -22,10 +22,10 @@ import {
   IWireService,
   type IAgentScopeHandle,
   type UsageStatus,
-} from "@moonshot-ai/agent-core-v2";
-import { ContextSizeModel } from "@moonshot-ai/agent-core-v2";
-import type { AgentActivityState } from "@moonshot-ai/agent-core-v2";
-import type { TurnEndReason } from "@moonshot-ai/agent-core-v2/agent/loop/turnEvents";
+} from "@dimi-agent/agent-core-v2";
+import { ContextSizeModel } from "@dimi-agent/agent-core-v2";
+import type { AgentActivityState } from "@dimi-agent/agent-core-v2";
+import type { TurnEndReason } from "@dimi-agent/agent-core-v2/agent/loop/turnEvents";
 
 /**
  * The v1 `phase` field of the combined `agent.status.updated` payload — a

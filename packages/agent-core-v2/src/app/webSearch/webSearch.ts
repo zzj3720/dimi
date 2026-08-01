@@ -7,7 +7,7 @@
  * exposes the configured `WebSearchProvider` (or `undefined` when search is not
  * configured, in which case the `WebSearch` tool is not registered). The
  * default `WebSearchProviderService` builds the backend itself from the managed
- * Kimi OAuth provider's `oauth` ref (resolved through `IOAuthService`); tests
+ * Dimi OAuth provider's `oauth` ref (resolved through `IOAuthService`); tests
  * and hosts that need a custom backend bind `IWebSearchProviderService`
  * directly. Bound at App scope.
  */

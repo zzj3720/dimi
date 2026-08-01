@@ -1,4 +1,4 @@
-# @moonshot-ai/kimi-code-sdk
+# @dimi-agent/dimi-sdk
 
 The TypeScript SDK for Dimi
 

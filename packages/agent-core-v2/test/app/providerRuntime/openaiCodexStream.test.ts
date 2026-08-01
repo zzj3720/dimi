@@ -153,7 +153,7 @@ describe("OpenAI Codex Responses streaming", () => {
     expect(fetch).toHaveBeenCalledOnce();
     expect(capturedHeaders?.get("authorization")).toBe(`Bearer ${token()}`);
     expect(capturedHeaders?.get("chatgpt-account-id")).toBe("account-test");
-    expect(capturedHeaders?.get("originator")).toBe("kimi-code");
+    expect(capturedHeaders?.get("originator")).toBe("dimi");
     expect(capturedHeaders?.get("openai-beta")).toBe("responses=experimental");
     expect(capturedHeaders?.get("session-id")).toBe("x".repeat(64));
     expect(capturedHeaders?.get("x-client-request-id")).toBe("x".repeat(64));

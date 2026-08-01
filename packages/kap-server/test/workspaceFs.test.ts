@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { IProviderRuntime } from "@moonshot-ai/agent-core-v2";
+import { IProviderRuntime } from "@dimi-agent/agent-core-v2";
 
 import { type RunningServer, startServer } from "../src/start";
 import { createTestProviderRuntime } from "../../../test/fixtures/provider-runtime";
@@ -41,10 +41,10 @@ describe("server-v2 /api/v1 fs folder picker", () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "kimi-server-v2-fs-"));
+    home = await mkdtemp(join(tmpdir(), "dimi-server-v2-fs-"));
     // Keep the instance registry OUTSIDE the browsed homeDir so the folder
     // picker only sees the test fixtures.
-    instancesDir = await mkdtemp(join(tmpdir(), "kimi-server-v2-fs-instances-"));
+    instancesDir = await mkdtemp(join(tmpdir(), "dimi-server-v2-fs-instances-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -191,8 +191,8 @@ describe("server-v2 /api/v1 fs:mkdir", () => {
   let base: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "kimi-server-v2-fsmkdir-"));
-    instancesDir = await mkdtemp(join(tmpdir(), "kimi-server-v2-fsmkdir-instances-"));
+    dir = await mkdtemp(join(tmpdir(), "dimi-server-v2-fsmkdir-"));
+    instancesDir = await mkdtemp(join(tmpdir(), "dimi-server-v2-fsmkdir-instances-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,
@@ -292,8 +292,8 @@ describe("server-v2 /api/v1 fs:content", () => {
   let base: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "kimi-server-v2-fscontent-"));
-    instancesDir = await mkdtemp(join(tmpdir(), "kimi-server-v2-fscontent-instances-"));
+    dir = await mkdtemp(join(tmpdir(), "dimi-server-v2-fscontent-"));
+    instancesDir = await mkdtemp(join(tmpdir(), "dimi-server-v2-fscontent-instances-"));
     server = await startServer({
       host: "127.0.0.1",
       port: 0,

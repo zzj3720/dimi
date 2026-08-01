@@ -3,7 +3,7 @@
  *
  * Verifies persisted plugin capabilities and skill counts against the real
  * filesystem discovery path. Network download boundaries are stubbed locally.
- * Run with `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run with `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/app/plugin/manager-consumption.test.ts`.
  */
 
@@ -20,17 +20,17 @@ import { PluginManager } from '#/app/plugin/manager';
 import { stubSkill } from '../skillCatalog/stubs';
 
 async function isolatedTmpdir(): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'dimi-isolated-tmp-'));
   vi.stubEnv('TMPDIR', dir);
   return dir;
 }
 
 async function zipTempLeftovers(dir: string): Promise<readonly string[]> {
-  return (await readdir(dir)).filter((entry) => entry.startsWith('kimi-plugin-zip-'));
+  return (await readdir(dir)).filter((entry) => entry.startsWith('dimi-plugin-zip-'));
 }
 
-async function makeKimiHome(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), 'kimi-home-'));
+async function makeDimiHome(): Promise<string> {
+  return mkdtemp(path.join(tmpdir(), 'dimi-home-'));
 }
 
 async function managedPluginRoot(manager: PluginManager, id: string): Promise<string> {
@@ -101,7 +101,7 @@ async function makePlugin(
       await writeFile(filePath, body, 'utf8');
     }
   }
-  await writeFile(path.join(root, 'kimi.plugin.json'), JSON.stringify(manifest), 'utf8');
+  await writeFile(path.join(root, 'dimi.plugin.json'), JSON.stringify(manifest), 'utf8');
   return realpath(root);
 }
 
@@ -167,10 +167,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('pluginSkillRoots() returns only enabled plugins skills paths', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const a = await makePlugin('a', { skills: true });
     const b = await makePlugin('b', { skills: true });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(a);
     await manager.install(b);
@@ -190,10 +190,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('pluginAgentRoots() returns only enabled plugins agents paths', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const a = await makePlugin('a', { agents: true });
     const b = await makePlugin('b', { agents: true });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(a);
     await manager.install(b);
@@ -211,13 +211,13 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('pluginSkillRoots() excludes plugins in error state', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo');
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     await writeFile(
-      path.join(await managedPluginRoot(manager, 'demo'), 'kimi.plugin.json'),
+      path.join(await managedPluginRoot(manager, 'demo'), 'dimi.plugin.json'),
       '{ not json',
       'utf8',
     );
@@ -227,11 +227,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('summaries count discovered skills inside plugin skill roots', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('superpowers', {
       skillNames: ['brainstorming', 'systematic-debugging', 'writing-plans'],
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.summaries()).toContainEqual(
@@ -241,12 +241,12 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('reports the provided discovery result when skill counting is overridden', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('custom-discovery', {
       skillNames: ['first', 'second'],
     });
     const manager = new PluginManager({
-      kimiHomeDir: home,
+      dimiHomeDir: home,
       discoverSkills: async () => ({
         skills: [stubSkill('provided')],
         skipped: [],
@@ -259,21 +259,21 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('counts a SKILL.md at the plugin root fallback', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('root-skill-plugin');
     await writeFile(
       path.join(root, 'SKILL.md'),
       '---\nname: root-skill\ndescription: at root\n---\nbody',
       'utf8',
     );
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.info('root-skill-plugin')?.skillCount).toBe(1);
   });
 
   it('counts nested sub-skills discovered through has-sub-skill bundles', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('nested', { skillNames: ['parent'] });
     await writeFile(
       path.join(root, 'skills', 'parent', 'SKILL.md'),
@@ -286,28 +286,28 @@ describe('PluginManager consumption plane', () => {
       '---\nname: child\ndescription: c\n---\nbody',
       'utf8',
     );
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.info('nested')?.skillCount).toBe(2);
   });
 
   it('does not count skills whose SKILL.md has invalid frontmatter', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('invalid-fm', { skillNames: ['good'] });
     await mkdir(path.join(root, 'skills', 'bad'), { recursive: true });
     await writeFile(path.join(root, 'skills', 'bad', 'SKILL.md'), 'no frontmatter at all', 'utf8');
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.info('invalid-fm')?.skillCount).toBe(1);
   });
 
   it('dedupes same-named skills across multiple plugin skill roots', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await mkdtemp(path.join(tmpdir(), 'plugin-multiroot-'));
     await writeFile(
-      path.join(root, 'kimi.plugin.json'),
+      path.join(root, 'dimi.plugin.json'),
       JSON.stringify({ name: 'multiroot', skills: ['./a/', './b/'] }),
       'utf8',
     );
@@ -325,7 +325,7 @@ describe('PluginManager consumption plane', () => {
       '---\nname: unique\ndescription: u\n---\nbody',
       'utf8',
     );
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(await realpath(root));
     expect(manager.info('multiroot')?.skillCount).toBe(2);
@@ -333,10 +333,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('removes the zip temp dir when extraction of a corrupt zip fails', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const isolated = await isolatedTmpdir();
     const url = await serveOnce(Buffer.from('this is not a zip archive'));
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await expect(manager.install(url)).rejects.toThrow();
     expect(await zipTempLeftovers(isolated)).toEqual([]);
@@ -344,12 +344,12 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('removes the zip temp dir and reports the original source when a zip plugin has no manifest', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
     const isolated = await isolatedTmpdir();
     const url = await serveOnce(await zipDir(sourceRoot));
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
 
     let message = '';
@@ -358,20 +358,20 @@ describe('PluginManager consumption plane', () => {
     });
 
     expect(message).toContain(url);
-    expect(message).not.toContain('kimi-plugin-zip');
+    expect(message).not.toContain('dimi-plugin-zip');
     expect(await zipTempLeftovers(isolated)).toEqual([]);
     await rm(sourceRoot, { recursive: true, force: true });
     await rm(isolated, { recursive: true, force: true });
   });
 
   it('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
     const isolated = await isolatedTmpdir();
     const source = 'https://github.com/example/no-manifest-plugin';
     mockGithubFetch({ releaseTag: 'v1.0.0', tarball: await zipDir(sourceRoot) });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
 
     let message = '';
@@ -380,20 +380,20 @@ describe('PluginManager consumption plane', () => {
     });
 
     expect(message).toContain(`Cannot install plugin from ${source}:`);
-    expect(message).not.toContain('kimi-plugin-zip');
+    expect(message).not.toContain('dimi-plugin-zip');
     await rm(home, { recursive: true, force: true });
     await rm(sourceRoot, { recursive: true, force: true });
     await rm(isolated, { recursive: true, force: true });
   });
 
   it('removes the zip temp dir when a GitHub plugin tarball has no manifest', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-no-manifest-'));
     await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
     const isolated = await isolatedTmpdir();
     const source = 'https://github.com/example/no-manifest-plugin';
     mockGithubFetch({ releaseTag: 'v1.0.0', tarball: await zipDir(sourceRoot) });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
 
     await expect(manager.install(source)).rejects.toThrow();
@@ -405,9 +405,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('reports the real local path when a local-path plugin has no manifest', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
 
     let message = '';
@@ -420,11 +420,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('removes the zip temp dir after a successful zip install', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('zip-demo');
     const isolated = await isolatedTmpdir();
     const url = await serveOnce(await zipDir(root));
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(url);
     expect(manager.get('zip-demo')?.state).toBe('ok');
@@ -433,9 +433,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledSessionStarts() returns only enabled plugin sessionStart declarations', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', { skills: true, sessionStartSkill: 'demo-skill' });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.enabledSessionStarts()).toEqual([{ pluginId: 'demo', skillName: 'demo-skill' }]);
@@ -444,10 +444,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledSystemPrompts() returns only enabled plugin systemPrompt declarations', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const withPrompt = await makePlugin('prompted', { systemPrompt: 'Always cite sources.' });
     const withoutPrompt = await makePlugin('plain', { skills: true });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(withPrompt);
     await manager.install(withoutPrompt);
@@ -459,7 +459,7 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('setMcpServerEnabled() persists explicit MCP server state with cwd + env + runtime name', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', {
       mcpServers: {
         finance: { command: 'finance-mcp' },
@@ -467,7 +467,7 @@ describe('PluginManager consumption plane', () => {
         events: { transport: 'sse', url: 'https://example.com/sse' },
       },
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     const managedRoot = await managedPluginRoot(manager, 'demo');
@@ -497,7 +497,7 @@ describe('PluginManager consumption plane', () => {
         'plugin-demo:finance': expect.objectContaining({
           command: 'finance-mcp',
           cwd: managedRoot,
-          env: expect.objectContaining({ KIMI_CODE_HOME: home, KIMI_PLUGIN_ROOT: managedRoot }),
+          env: expect.objectContaining({ DIMI_CODE_HOME: home, DIMI_PLUGIN_ROOT: managedRoot }),
         }),
         'plugin-demo:docs': expect.objectContaining({ url: 'https://example.com/mcp' }),
         'plugin-demo:events': expect.objectContaining({
@@ -513,7 +513,7 @@ describe('PluginManager consumption plane', () => {
       expect.objectContaining({ mcpServerCount: 3, enabledMcpServerCount: 2 }),
     );
 
-    const reloaded = new PluginManager({ kimiHomeDir: home });
+    const reloaded = new PluginManager({ dimiHomeDir: home });
     await reloaded.load();
     expect(reloaded.info('demo')?.mcpServers).toContainEqual(
       expect.objectContaining({ name: 'finance', enabled: false }),
@@ -521,11 +521,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('merges manifest MCP enabled defaults with explicit user state', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', {
       mcpServers: { finance: { command: 'finance-mcp', enabled: false } },
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     expect(manager.info('demo')?.mcpServers).toContainEqual(
@@ -543,7 +543,7 @@ describe('PluginManager consumption plane', () => {
       }),
     );
 
-    const reloaded = new PluginManager({ kimiHomeDir: home });
+    const reloaded = new PluginManager({ dimiHomeDir: home });
     await reloaded.load();
     expect(reloaded.info('demo')?.mcpServers).toContainEqual(
       expect.objectContaining({ name: 'finance', enabled: true }),
@@ -552,10 +552,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('uses unambiguous runtime names for plugin MCP servers', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const first = await makePlugin('a-b', { mcpServers: { c: { command: 'first-mcp' } } });
     const second = await makePlugin('a', { mcpServers: { 'b-c': { command: 'second-mcp' } } });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(first);
     await manager.install(second);
@@ -576,9 +576,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledMcpServers() excludes disabled plugins', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', { mcpServers: { finance: { command: 'finance-mcp' } } });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     await manager.setMcpServerEnabled('demo', 'finance', true);
@@ -587,9 +587,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('setMcpServerEnabled() rejects unknown MCP servers', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo');
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     await expect(manager.setMcpServerEnabled('demo', 'missing', true)).rejects.toThrow(
@@ -598,14 +598,14 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('reload() picks up edits to the managed plugin copy', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo');
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     const managedRoot = await managedPluginRoot(manager, 'demo');
     await writeFile(
-      path.join(managedRoot, 'kimi.plugin.json'),
+      path.join(managedRoot, 'dimi.plugin.json'),
       JSON.stringify({ name: 'demo', version: '2.0.0' }),
       'utf8',
     );
@@ -615,9 +615,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('remove() clears the entry but does not delete the source directory', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', { skills: true });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     await manager.remove('demo');
@@ -626,11 +626,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledHooks() returns hooks from enabled plugins with cwd and env injected', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', {
       hooks: [{ event: 'PreToolUse', command: './hooks/guard.sh', timeout: 10 }],
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     const installedRoot = await managedPluginRoot(manager, 'demo');
@@ -640,15 +640,15 @@ describe('PluginManager consumption plane', () => {
         command: './hooks/guard.sh',
         timeout: 10,
         cwd: installedRoot,
-        env: { KIMI_CODE_HOME: home, KIMI_PLUGIN_ROOT: installedRoot },
+        env: { DIMI_CODE_HOME: home, DIMI_PLUGIN_ROOT: installedRoot },
       },
     ]);
   });
 
   it('enabledHooks() excludes disabled plugins', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', { hooks: [{ event: 'PreToolUse', command: './x.sh' }] });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     await manager.setEnabled('demo', false);
@@ -656,10 +656,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('install() from /tree/<tag-shaped-ref> pins the resolved commit', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-tag-'));
     await writeFile(
-      path.join(sourceRoot, 'kimi.plugin.json'),
+      path.join(sourceRoot, 'dimi.plugin.json'),
       JSON.stringify({ name: 'pin-tag-demo', version: '5.1.0' }),
       'utf8',
     );
@@ -685,7 +685,7 @@ describe('PluginManager consumption plane', () => {
       }) as typeof fetch,
     );
 
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     const record = await manager.install('https://github.com/obra/superpowers/tree/v5.1.0');
     expect(codeloadPath).toBe(`/obra/superpowers/zip/${commitSha}`);
@@ -695,10 +695,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('install() from /releases/tag/<tag> pins the tag commit', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-release-'));
     await writeFile(
-      path.join(sourceRoot, 'kimi.plugin.json'),
+      path.join(sourceRoot, 'dimi.plugin.json'),
       JSON.stringify({ name: 'pin-tag-demo', version: '5.1.0' }),
       'utf8',
     );
@@ -724,7 +724,7 @@ describe('PluginManager consumption plane', () => {
       }) as typeof fetch,
     );
 
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     const record = await manager.install('https://github.com/obra/superpowers/releases/tag/v5.1.0');
     expect(codeloadPath).toBe(`/obra/superpowers/zip/${commitSha}`);
@@ -734,10 +734,10 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('install() from github /tree/<branch> bypasses the GitHub API', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-gh-branch-'));
     await writeFile(
-      path.join(sourceRoot, 'kimi.plugin.json'),
+      path.join(sourceRoot, 'dimi.plugin.json'),
       JSON.stringify({ name: 'gh-demo', version: '5.1.0' }),
       'utf8',
     );
@@ -746,7 +746,7 @@ describe('PluginManager consumption plane', () => {
     let releaseLookups = 0;
     mockGithubFetch({ tarball: zipBuffer, onReleaseLookup: () => releaseLookups++ });
 
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     const record = await manager.install('https://github.com/wbxl2000/superpowers/tree/main');
     expect(releaseLookups).toBe(0);
@@ -756,9 +756,9 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('install() ignores forged marketplace context from legacy callers', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('rando', { version: '1.0.0' });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     const record = await (manager.install as (source: string, options?: unknown) => Promise<unknown>)(
       root,
@@ -768,17 +768,17 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
 
     const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));
     await writeFile(
-      path.join(cdnSource, 'kimi.plugin.json'),
+      path.join(cdnSource, 'dimi.plugin.json'),
       JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
       'utf8',
     );
     const cdnUrl = await serveOnce(await zipDir(cdnSource));
 
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     const first = await manager.install(cdnUrl);
     expect(first.source).toBe('zip-url');
@@ -786,7 +786,7 @@ describe('PluginManager consumption plane', () => {
 
     const ghSource = await mkdtemp(path.join(tmpdir(), 'plugin-gh-migrate-'));
     await writeFile(
-      path.join(ghSource, 'kimi.plugin.json'),
+      path.join(ghSource, 'dimi.plugin.json'),
       JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
       'utf8',
     );
@@ -806,11 +806,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledMcpServers() runs stdio node plugins via the bundled Electron Node under an Electron host', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', {
       mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
     const managedRoot = await managedPluginRoot(manager, 'demo');
@@ -825,8 +825,8 @@ describe('PluginManager consumption plane', () => {
           args: ['./bin/data.mjs'],
           cwd: managedRoot,
           env: expect.objectContaining({
-            KIMI_CODE_HOME: home,
-            KIMI_PLUGIN_ROOT: managedRoot,
+            DIMI_CODE_HOME: home,
+            DIMI_PLUGIN_ROOT: managedRoot,
             ELECTRON_RUN_AS_NODE: '1',
           }),
         }),
@@ -841,11 +841,11 @@ describe('PluginManager consumption plane', () => {
   });
 
   it('enabledMcpServers() leaves stdio node plugins on system node outside Electron / CLI binary', async () => {
-    const home = await makeKimiHome();
+    const home = await makeDimiHome();
     const root = await makePlugin('demo', {
       mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
     });
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const manager = new PluginManager({ dimiHomeDir: home });
     await manager.load();
     await manager.install(root);
 

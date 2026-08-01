@@ -18,10 +18,10 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   Event,
-  KimiHarness,
+  DimiHarness,
   Session,
   ToolInputDisplay,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@dimi-agent/dimi-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -289,7 +289,7 @@ describe('AcpSession ↔ requestPermission bridge (selectedLabel end-to-end)', (
     const harness = {
       auth: makeAuth(),
       createSession: async () => handle.session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

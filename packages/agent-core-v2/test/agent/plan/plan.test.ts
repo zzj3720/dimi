@@ -181,7 +181,7 @@ describe("Plan service", () => {
     it("enters plan mode without starting a model turn and prepares the plan directory", async () => {
       const mkdir = vi.fn().mockResolvedValue(undefined);
       const writeText = vi.fn().mockResolvedValue(0);
-      const cwd = await makeTempDir("kimi-plan-entry-");
+      const cwd = await makeTempDir("dimi-plan-entry-");
       useFakes(createPlanFakes({ mkdir, writeText }));
       profile.update({ cwd });
 
@@ -198,7 +198,7 @@ describe("Plan service", () => {
     });
 
     it("derives the plan path from the agent homedir on enter and restore", async () => {
-      const cwd = await makeTempDir("kimi-plan-path-");
+      const cwd = await makeTempDir("dimi-plan-path-");
       useFakes(
         createPlanFakes({
           writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
@@ -243,7 +243,7 @@ describe("Plan service", () => {
     });
 
     it("enters plan mode through the EnterPlanMode tool and reminds the next step", async () => {
-      const cwd = await makeTempDir("kimi-plan-tool-entry-");
+      const cwd = await makeTempDir("dimi-plan-tool-entry-");
       const { fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["EnterPlanMode"]);
@@ -270,7 +270,7 @@ describe("Plan service", () => {
 
   describe("plan clear", () => {
     it("empties the current plan file without leaving plan mode", async () => {
-      const cwd = await makeTempDir("kimi-plan-clear-");
+      const cwd = await makeTempDir("dimi-plan-clear-");
       const { files, writeText, fakes } = createPlanFileFakes();
       useFakes(fakes);
       profile.update({ cwd });
@@ -317,7 +317,7 @@ describe("Plan service", () => {
     });
 
     it("snapshots the current plan file into a versioned blob with a reference record", async () => {
-      const cwd = await makeTempDir("kimi-plan-revision-");
+      const cwd = await makeTempDir("dimi-plan-revision-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       profile.update({ cwd });
@@ -343,7 +343,7 @@ describe("Plan service", () => {
     });
 
     it("increments the version on every recording and keeps earlier blobs", async () => {
-      const cwd = await makeTempDir("kimi-plan-revision-twice-");
+      const cwd = await makeTempDir("dimi-plan-revision-twice-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       profile.update({ cwd });
@@ -361,7 +361,7 @@ describe("Plan service", () => {
     });
 
     it("mints the next version from the replayed counter", async () => {
-      const cwd = await makeTempDir("kimi-plan-revision-restore-");
+      const cwd = await makeTempDir("dimi-plan-revision-restore-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       profile.update({ cwd });
@@ -389,7 +389,7 @@ describe("Plan service", () => {
     });
 
     it("records a revision when ExitPlanMode submits the plan", async () => {
-      const cwd = await makeTempDir("kimi-plan-submit-revision-");
+      const cwd = await makeTempDir("dimi-plan-submit-revision-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -418,7 +418,7 @@ describe("Plan service", () => {
     });
 
     it("records the next version when a revised plan is resubmitted", async () => {
-      const cwd = await makeTempDir("kimi-plan-revise-revision-");
+      const cwd = await makeTempDir("dimi-plan-revise-revision-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -462,7 +462,7 @@ describe("Plan service", () => {
     });
 
     it("does not record a revision on clear or on plan file writes", async () => {
-      const cwd = await makeTempDir("kimi-plan-no-revision-");
+      const cwd = await makeTempDir("dimi-plan-no-revision-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       profile.update({ cwd });
@@ -480,7 +480,7 @@ describe("Plan service", () => {
 
   describe("plan exit tool", () => {
     it("reads the current plan file and exits plan mode directly in auto mode", async () => {
-      const cwd = await makeTempDir("kimi-plan-exit-");
+      const cwd = await makeTempDir("dimi-plan-exit-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -512,7 +512,7 @@ describe("Plan service", () => {
     });
 
     it("stops the turn and stays in plan mode when the user rejects the plan", async () => {
-      const cwd = await makeTempDir("kimi-plan-reject-exit-");
+      const cwd = await makeTempDir("dimi-plan-reject-exit-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -546,7 +546,7 @@ describe("Plan service", () => {
       const exec = vi.fn(() => {
         throw new Error("Bash should not execute after plan rejection");
       });
-      const cwd = await makeTempDir("kimi-plan-reject-skip-tool-");
+      const cwd = await makeTempDir("dimi-plan-reject-skip-tool-");
       const { files, fakes: baseFakes } = createPlanFileFakes(undefined);
       const fakes: PlanFakes = {
         fs: baseFakes.fs,
@@ -594,7 +594,7 @@ describe("Plan service", () => {
     });
 
     it("refuses to exit when the current plan file is empty", async () => {
-      const cwd = await makeTempDir("kimi-plan-empty-exit-");
+      const cwd = await makeTempDir("dimi-plan-empty-exit-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -626,7 +626,7 @@ describe("Plan service", () => {
 
   describe("plan exit tool options", () => {
     it("keeps options for approval when an option omits the optional description", async () => {
-      const cwd = await makeTempDir("kimi-plan-options-exit-");
+      const cwd = await makeTempDir("dimi-plan-options-exit-");
       const { files, fakes } = createPlanFileFakes();
       useFakes(fakes);
       useTools(["ExitPlanMode"]);
@@ -677,7 +677,7 @@ describe("Plan service", () => {
           files.set(path, content);
         });
         useFakes(createPlanFakes({ readText, writeText }));
-        const cwd = await makeTempDir("kimi-plan-write-tool-");
+        const cwd = await makeTempDir("dimi-plan-write-tool-");
         useTools([toolName]);
         profile.update({ cwd });
         await plan.enter("test-plan", false);
@@ -720,7 +720,7 @@ describe("Plan service", () => {
         files.set(path, content);
       });
       useFakes(createPlanFakes({ writeText }));
-      const cwd = await makeTempDir("kimi-plan-deny-write-");
+      const cwd = await makeTempDir("dimi-plan-deny-write-");
       useTools(["Write"]);
       profile.update({ cwd });
       permissionRules.addRules([

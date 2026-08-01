@@ -2,7 +2,7 @@
  * ACP `AgentSideConnection` wrapper.
  *
  * Phase 3 implements `initialize`, `session/new`, and `session/cancel`
- * against {@link KimiHarness}. `prompt` is wired in step 3.4. `initialize`
+ * against {@link DimiHarness}. `prompt` is wired in step 3.4. `initialize`
  * advertises the terminal-auth method (see {@link TERMINAL_AUTH_METHOD}).
  */
 
@@ -44,9 +44,9 @@ import {
   type SetSessionModelResponse,
   type Stream,
 } from "@agentclientprotocol/sdk";
-import type { KimiHarness, Session, SessionSummary } from "@moonshot-ai/kimi-code-sdk";
-import { log } from "@moonshot-ai/kimi-code-sdk";
-import { LocalKaos, type Kaos } from "@moonshot-ai/kaos";
+import type { DimiHarness, Session, SessionSummary } from "@dimi-agent/dimi-sdk";
+import { log } from "@dimi-agent/dimi-sdk";
+import { LocalKaos, type Kaos } from "@dimi-agent/kaos";
 
 import { TERMINAL_AUTH_METHOD, buildTerminalAuthMethod } from "./auth-methods";
 import { redirectConsoleToStderr } from "./log-guard";
@@ -105,12 +105,12 @@ function toResolvedSlashCommands(
 }
 
 /**
- * Inline auth gate — moved out of `KimiAuthFacade.hasUsableToken()` so
+ * Inline auth gate — moved out of `DimiAuthFacade.hasUsableToken()` so
  * the SDK doesn't have to carry an ACP-specific convenience method.
  * Any provider authenticated through the runtime counts as available,
  * regardless of whether its credential came from OAuth, storage, or env.
  */
-async function harnessIsAuthed(harness: KimiHarness): Promise<boolean> {
+async function harnessIsAuthed(harness: DimiHarness): Promise<boolean> {
   const status = await harness.auth.status();
   return status.providers.some((entry) => entry.hasToken);
 }
@@ -123,7 +123,7 @@ function effortStringOrUndefined(effort: unknown): string | undefined {
 
 /**
  * Agent-side ACP handler. Routes `initialize` + `session/new` + `session/cancel`
- * into {@link KimiHarness}; refuses methods that are not yet wired with a
+ * into {@link DimiHarness}; refuses methods that are not yet wired with a
  * JSON-RPC "method not found" error so clients see a structured failure
  * rather than a silent hang.
  *
@@ -150,15 +150,15 @@ export class AcpServer implements Agent {
   private innerKaos: Kaos | undefined = undefined;
 
   constructor(
-    private readonly harness: KimiHarness,
+    private readonly harness: DimiHarness,
     private readonly conn?: AgentSideConnection | undefined,
     opts?: {
       agentInfo?: Implementation;
       /**
-       * Env vars to advertise in `authMethods[0].env` so the `kimi login`
+       * Env vars to advertise in `authMethods[0].env` so the `dimi login`
        * subprocess the client spawns (via `terminal-auth`) lands its
        * token under the same data root the ACP server uses. Intended for
-       * sandboxed test setups (e.g. `{ KIMI_CODE_HOME: '/tmp/...' }`);
+       * sandboxed test setups (e.g. `{ DIMI_CODE_HOME: '/tmp/...' }`);
        * leave undefined in production so the advertised env stays empty.
        */
       terminalAuthEnv?: Readonly<Record<string, string>>;
@@ -185,7 +185,7 @@ export class AcpServer implements Agent {
        * them to {@link Session.activateSkill} instead of forwarding the
        * raw slash text — matching the TUI's slash-command behavior so
        * skill activations don't fall back to model-driven Bash
-       * exploration of `~/.kimi-code/skills/`.
+       * exploration of `~/.dimi/skills/`.
        */
       slashCommands?: SlashCommandsResolver;
     },
@@ -302,7 +302,7 @@ export class AcpServer implements Agent {
     // Phase 14 (PLAN D11) advertises both the model and mode pickers as
     // a unified `configOptions: SessionConfigOption[]` surface. The
     // dedicated Phase 12 `modes:` field is gone — see
-    // `docs/{zh,en}/reference/kimi-acp.md` and the changeset for the
+    // `docs/{zh,en}/reference/dimi-acp.md` and the changeset for the
     // pre-release breaking note. `currentModeId` always starts at
     // `default` (PLAN D9); `currentModelId` is resolved from the harness
     // config (`defaultModel` if set, else the first listed alias) so
@@ -540,10 +540,10 @@ export class AcpServer implements Agent {
    * Re-check whether the on-disk token is usable; does NOT trigger an
    * actual OAuth flow. The stdio JSON-RPC channel has no TTY to render
    * the device-code prompt — clients are expected to spawn
-   * `kimi login` themselves via the terminal-auth method advertised in
+   * `dimi login` themselves via the terminal-auth method advertised in
    * `initialize.authMethods` (`args:['login']`, see {@link TERMINAL_AUTH_METHOD})
    * and then re-invoke `authenticate('login')` to confirm the token
-   * landed on disk. Mirrors kimi-cli `acp/server.py:374-398` semantics
+   * landed on disk. Mirrors dimi-cli `acp/server.py:374-398` semantics
    * (plan G3, lines 68-104).
    */
   async authenticate(params: AuthenticateRequest): Promise<AuthenticateResponse | void> {
@@ -699,7 +699,7 @@ export class AcpServer implements Agent {
 
   /**
    * Handle ACP `session/list`. Forwards to
-   * {@link KimiHarness.listSessions} (optionally filtered by `cwd` —
+   * {@link DimiHarness.listSessions} (optionally filtered by `cwd` —
    * the SDK calls it `workDir`) and projects each
    * {@link SessionSummary} into an ACP {@link SessionInfo}.
    *
@@ -731,7 +731,7 @@ export class AcpServer implements Agent {
    *
    * Future work (PLAN D9): route slash-command bridge / model-list /
    * mode-list extensions through here once the adapter has access to
-   * the kimi-code app's registry. Phase 11 keeps it as a no-op stub.
+   * the dimi app's registry. Phase 11 keeps it as a no-op stub.
    */
   async extMethod(
     method: string,
@@ -764,7 +764,7 @@ export class AcpServer implements Agent {
    *
    * Tolerant to partial-stub harnesses (`getConfig` missing or
    * throwing) — adapter-level unit tests routinely construct minimal
-   * `KimiHarness` shapes that only stub `auth.status` + `createSession`.
+   * `DimiHarness` shapes that only stub `auth.status` + `createSession`.
    * Production callers always supply a real harness with both methods;
    * the swallow-and-fallback path exists purely for test ergonomics.
    *
@@ -930,7 +930,7 @@ export class AcpServer implements Agent {
  * in-memory pair instead of process stdio.
  */
 export async function runAcpServerWithStream(
-  harness: KimiHarness,
+  harness: DimiHarness,
   stream: Stream,
   opts?: {
     agentInfo?: Implementation;
@@ -950,7 +950,7 @@ export async function runAcpServerWithStream(
  * is bridged through `Readable.toWeb` / `Writable.toWeb`.
  *
  * Phase 11.1 wires SIGINT / SIGTERM to a single-shot cleanup that calls
- * {@link KimiHarness.close} so an editor terminating the agent process
+ * {@link DimiHarness.close} so an editor terminating the agent process
  * (Zed closing the panel, JetBrains stopping the run config, the user
  * pressing Ctrl-C) drains in-flight sessions before the OS reaps the
  * process. The handlers are installed via `.once(...)` and explicitly
@@ -964,7 +964,7 @@ export async function runAcpServerWithStream(
  * handlers (which vitest itself relies on).
  */
 export async function runAcpServer(
-  harness: KimiHarness,
+  harness: DimiHarness,
   opts?: {
     input?: NodeJS.ReadableStream;
     output?: NodeJS.WritableStream;
@@ -972,11 +972,11 @@ export async function runAcpServer(
      * Optional agent identity metadata advertised in the `initialize`
      * response (`InitializeResponse.agentInfo`). When omitted, the
      * field is left out of the response rather than serialized as
-     * `null`, matching the kimi-cli reference implementation.
+     * `null`, matching the dimi-cli reference implementation.
      */
     agentInfo?: Implementation;
     /**
-     * Env vars to forward to the `kimi login` subprocess clients spawn
+     * Env vars to forward to the `dimi login` subprocess clients spawn
      * via `terminal-auth`. See {@link AcpServer} ctor for the use case.
      */
     terminalAuthEnv?: Readonly<Record<string, string>>;
@@ -1060,7 +1060,7 @@ export async function runAcpServer(
 }
 
 /**
- * Project a Kimi SDK {@link SessionSummary} into the ACP
+ * Project a Dimi SDK {@link SessionSummary} into the ACP
  * {@link SessionInfo} shape used by `session/list`.
  *
  * Field mapping (mirrors the Python reference at

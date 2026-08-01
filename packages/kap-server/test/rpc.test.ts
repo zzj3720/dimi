@@ -15,8 +15,8 @@ import {
   ISessionLifecycleService,
   ISessionMetadata,
   IWorkspaceService,
-} from '@moonshot-ai/agent-core-v2';
-import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
+import type { ServiceIdentifier } from '@dimi-agent/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -75,7 +75,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-rpc-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-rpc-'));
     server = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent', debugEndpoints: true });
     base = `http://127.0.0.1:${server.port}`;
   });
@@ -486,7 +486,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     try {
       await writeFile(join(pluginRoot, 'deploy.md'), '---\ndescription: Deploy\n---\n\nDeploy body', 'utf8');
       await writeFile(
-        join(pluginRoot, 'kimi.plugin.json'),
+        join(pluginRoot, 'dimi.plugin.json'),
         JSON.stringify({ name: 'rpc-plugin', commands: ['./deploy.md'] }),
         'utf8',
       );
@@ -621,7 +621,7 @@ describe('server-v2 /api/v1/debug RPC auth', () => {
   const token = 'test-secret-token';
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-rpc-auth-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-rpc-auth-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,
@@ -688,7 +688,7 @@ describe('server-v2 /api/v1/debug RPC (dev-only, whitelist-free)', () => {
   let base: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-debug-rpc-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-debug-rpc-'));
     server = await startServer({
       host: '127.0.0.1',
       port: 0,

@@ -1,15 +1,15 @@
 export {
   ErrorCodes,
-  Error2 as KimiError,
+  Error2 as DimiError,
   errorInfo,
-  fromErrorPayload as fromKimiErrorPayload,
-  isError2 as isKimiError,
+  fromErrorPayload as fromDimiErrorPayload,
+  isError2 as isDimiError,
   makeErrorPayload,
-  toErrorPayload as toKimiErrorPayload,
-  type ErrorInfo as KimiErrorInfo,
-  type ErrorPayload as KimiErrorPayload,
-} from '@moonshot-ai/agent-core-v2';
+  toErrorPayload as toDimiErrorPayload,
+  type ErrorInfo as DimiErrorInfo,
+  type ErrorPayload as DimiErrorPayload,
+} from '@dimi-agent/agent-core-v2';
 export type {
-  Error2Options as KimiErrorOptions,
-  ErrorCode as KimiErrorCode,
-} from '@moonshot-ai/agent-core-v2';
+  Error2Options as DimiErrorOptions,
+  ErrorCode as DimiErrorCode,
+} from '@dimi-agent/agent-core-v2';

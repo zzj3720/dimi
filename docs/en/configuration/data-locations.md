@@ -1,40 +1,40 @@
 # Data locations
 
-Kimi Code CLI stores all runtime data — the config file, session history, login credentials, and diagnostic logs — under `~/.kimi-code/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed.
+Dimi CLI stores all runtime data — the config file, session history, login credentials, and diagnostic logs — under `~/.dimi/`. This page helps you understand where each type of data lives, what it is for, and how to clean up or relocate it when needed.
 
 ## Data root directory
 
-The default data root is `~/.kimi-code/`. The actual path varies by platform:
+The default data root is `~/.dimi/`. The actual path varies by platform:
 
-- macOS: `/Users/<name>/.kimi-code`
-- Linux: `/home/<name>/.kimi-code`
-- Windows: `C:\Users\<name>\.kimi-code`
+- macOS: `/Users/<name>/.dimi`
+- Linux: `/home/<name>/.dimi`
+- Windows: `C:\Users\<name>\.dimi`
 
-If you need to move the data directory elsewhere (for example, to isolate configs for different projects with independent environments), set `KIMI_CODE_HOME`:
+If you need to move the data directory elsewhere (for example, to isolate configs for different projects with independent environments), set `DIMI_CODE_HOME`:
 
 ```sh
-export KIMI_CODE_HOME="$HOME/.config/kimi-code"
+export DIMI_CODE_HOME="$HOME/.config/dimi"
 ```
 
-Once set, **all** Kimi Code data — config, sessions, logs, OAuth credentials, Kimi-specific user Skills, global `AGENTS.md`, and more — lands under the new path. For the full reference on `KIMI_CODE_HOME`, see [Environment variables](./env-vars.md).
+Once set, **all** Dimi data — config, sessions, logs, OAuth credentials, Dimi-specific user Skills, global `AGENTS.md`, and more — lands under the new path. For the full reference on `DIMI_CODE_HOME`, see [Environment variables](./env-vars.md).
 
 ::: tip Note
 
-**Generic `.agents` resources** stay under the real OS home so they can be shared across tools. For example, user-level generic Skills remain at `~/.agents/skills/`, while Kimi-specific user Skills move with `KIMI_CODE_HOME` as `$KIMI_CODE_HOME/skills/`.
+**Generic `.agents` resources** stay under the real OS home so they can be shared across tools. For example, user-level generic Skills remain at `~/.agents/skills/`, while Dimi-specific user Skills move with `DIMI_CODE_HOME` as `$DIMI_CODE_HOME/skills/`.
 :::
 
 ## Directory layout
 
 ```
-$KIMI_CODE_HOME  (default: ~/.kimi-code)
+$DIMI_CODE_HOME  (default: ~/.dimi)
 ├── config.toml             # User configuration
 ├── tui.toml                # Terminal UI preferences (including auto-update toggle)
 ├── auth.json               # Saved provider OAuth/API-key credentials (file 0600)
 ├── models.json             # User-owned JSONC provider definitions and overlays (file 0600)
 ├── models-store.json       # Dynamic provider model catalog cache
-├── AGENTS.md               # Global Kimi-specific agent instructions (optional)
+├── AGENTS.md               # Global Dimi-specific agent instructions (optional)
 ├── mcp.json                # User-level MCP server declarations (optional)
-├── skills/                 # Kimi-specific user-level Skills (optional)
+├── skills/                 # Dimi-specific user-level Skills (optional)
 ├── plugins/
 │   ├── installed.json      # Installed plugin records and enabled state
 │   └── managed/            # Plugin copies installed from zip/local paths
@@ -53,7 +53,7 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
 │   └── fd                  # managed fd binary for file references (fd.exe on Windows)
 ├── logs/
-│   └── kimi-code.log       # Global diagnostic log
+│   └── dimi.log       # Global diagnostic log
 ├── updates/
 │   ├── latest.json
 │   ├── install.json
@@ -72,9 +72,9 @@ Each top-level file under the data root serves a specific purpose; most are mana
 - **`auth.json`**: provider OAuth tokens and API keys saved by `vp run dev:cli -- login`. The runtime writes the file atomically with mode `0o600`; edit it only through `vp run dev:cli -- login` and `vp run dev:cli -- logout`.
 - **`models.json`**: user-owned JSONC provider layer (`{ "providers": { … } }`). It can add a complete provider or overlay a built-in/SDK provider, and accepts comments and trailing commas. The runtime reloads it before model selection and catalog reads. Prefer `$ENVIRONMENT_VARIABLE` or `!command` for `apiKey` values; do not store a production secret as a literal. See [Providers and models](./providers.md#add-or-overlay-a-provider-with-modelsjson).
 - **`models-store.json`**: cached dynamic model catalogs returned by authenticated providers, including freshness and ETag metadata. `vp run dev:cli -- provider refresh` updates it; offline use requires a cache that is at least as new as the bundled catalog metadata.
-- **`AGENTS.md`**: global Kimi-specific agent instructions. This file moves with `KIMI_CODE_HOME`; generic cross-tool instructions can still live under `~/.agents/AGENTS.md`.
-- **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.kimi-code/mcp.json` on startup. See [MCP](../customization/mcp.md).
-- **`skills/`**: Kimi-specific user-level Skills. This directory moves with `KIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
+- **`AGENTS.md`**: global Dimi-specific agent instructions. This file moves with `DIMI_CODE_HOME`; generic cross-tool instructions can still live under `~/.agents/AGENTS.md`.
+- **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.dimi/mcp.json` on startup. See [MCP](../customization/mcp.md).
+- **`skills/`**: Dimi-specific user-level Skills. This directory moves with `DIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
 - **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
 - **`workspaces.json`**: maps stable workspace IDs to their root directories and display names. Session directories use these IDs instead of path-derived buckets.
 - **`credentials/mcp/`**: MCP server OAuth credentials. Provider credentials do not use this directory.
@@ -93,7 +93,7 @@ Inside each session directory:
 - **`agents/<agentId>/plan/<id>/v<N>.md`**: immutable submitted plan revisions referenced by the wire log.
 - **`agents/<agentId>/tasks/<taskId>.json`**: persisted background and asynchronous tool task state.
 - **`agents/<agentId>/tasks/<taskId>/output.log`**: persisted task output.
-- **`logs/kimi-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
+- **`logs/dimi.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
 
 Scheduled tasks are stored separately at `cron/<workspaceId>/<taskId>.json` so they are available independently of a live session. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 
@@ -103,10 +103,10 @@ The first time the `Grep` tool needs ripgrep, the CLI can automatically download
 
 ## Logs and update state
 
-- **`logs/kimi-code.log`** (global): records startup, login, export, and other cross-session events.
-- **`<sessionDir>/logs/kimi-code.log`** (session-level): records diagnostic events within a single session.
+- **`logs/dimi.log`** (global): records startup, login, export, and other cross-session events.
+- **`<sessionDir>/logs/dimi.log`** (session-level): records diagnostic events within a single session.
 
-When reporting a bug, prefer exporting the relevant session with `kimi export` (see [kimi command](../reference/kimi-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
+When reporting a bug, prefer exporting the relevant session with `dimi export` (see [dimi command](../reference/dimi-command.md)); the session log is included in the export by default. Add `--no-include-global-log` if you do not want to share the global log.
 
 The `updates/` directory may contain data left by another distribution. This source build does not read it or contact an update service; update the checkout with `git pull --ff-only` instead.
 
@@ -116,27 +116,27 @@ Terminal input history is saved separately per working directory, at `user-histo
 
 ## Clearing data
 
-Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
+Deleting the data root directory (`~/.dimi/` or the path set by `DIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
 
 | Goal                                          | Action                                                                               |
 | --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Reset configuration                           | Delete `~/.kimi-code/config.toml`                                                    |
-| Reset terminal UI preferences                 | Delete `~/.kimi-code/tui.toml`                                                       |
-| Clear all sessions                            | Delete `~/.kimi-code/sessions/`                                                      |
-| Clear diagnostic logs                         | Delete `~/.kimi-code/logs/`                                                          |
-| Clear input history                           | Delete `~/.kimi-code/user-history/`                                                  |
-| Force re-download of managed `rg` and `fd`    | Delete `~/.kimi-code/bin/`                                                           |
+| Reset configuration                           | Delete `~/.dimi/config.toml`                                                    |
+| Reset terminal UI preferences                 | Delete `~/.dimi/tui.toml`                                                       |
+| Clear all sessions                            | Delete `~/.dimi/sessions/`                                                      |
+| Clear diagnostic logs                         | Delete `~/.dimi/logs/`                                                          |
+| Clear input history                           | Delete `~/.dimi/user-history/`                                                  |
+| Force re-download of managed `rg` and `fd`    | Delete `~/.dimi/bin/`                                                           |
 | Clear one provider login                      | Run `vp run dev:cli -- logout <provider>` or TUI `/logout`                                        |
-| Clear all saved provider credentials          | Delete `$KIMI_CODE_HOME/auth.json`                                                   |
-| Remove custom providers and local overlays    | Delete `$KIMI_CODE_HOME/models.json`                                                 |
-| Clear the dynamic model cache                 | Delete `$KIMI_CODE_HOME/models-store.json`; refresh or startup recreates it          |
+| Clear all saved provider credentials          | Delete `$DIMI_CODE_HOME/auth.json`                                                   |
+| Remove custom providers and local overlays    | Delete `$DIMI_CODE_HOME/models.json`                                                 |
+| Clear the dynamic model cache                 | Delete `$DIMI_CODE_HOME/models-store.json`; refresh or startup recreates it          |
 | Clear MCP server OAuth login state            | Delete `credentials/mcp/` (provider logout does not clear MCP credentials)           |
-| Remove user-level MCP declarations            | Delete `$KIMI_CODE_HOME/mcp.json` (default `~/.kimi-code/mcp.json`)                  |
-| Clear global Kimi-specific agent instructions | Delete `$KIMI_CODE_HOME/AGENTS.md` (default `~/.kimi-code/AGENTS.md`)                |
-| Clear plugin install records                  | Delete `$KIMI_CODE_HOME/plugins/` (local plugin source directories are not affected) |
-| Clear Kimi-specific user-level Skills         | Delete `$KIMI_CODE_HOME/skills/` (default `~/.kimi-code/skills/`)                    |
+| Remove user-level MCP declarations            | Delete `$DIMI_CODE_HOME/mcp.json` (default `~/.dimi/mcp.json`)                  |
+| Clear global Dimi-specific agent instructions | Delete `$DIMI_CODE_HOME/AGENTS.md` (default `~/.dimi/AGENTS.md`)                |
+| Clear plugin install records                  | Delete `$DIMI_CODE_HOME/plugins/` (local plugin source directories are not affected) |
+| Clear Dimi-specific user-level Skills         | Delete `$DIMI_CODE_HOME/skills/` (default `~/.dimi/skills/`)                    |
 
 ## Next steps
 
 - [Configuration files](./config-files.md) — full reference for `config.toml` fields
-- [Environment variables](./env-vars.md) — detailed usage of `KIMI_CODE_HOME` and related path variables
+- [Environment variables](./env-vars.md) — detailed usage of `DIMI_CODE_HOME` and related path variables

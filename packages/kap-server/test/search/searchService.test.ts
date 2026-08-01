@@ -7,8 +7,8 @@ import type {
   ILogService,
   ISessionIndex,
   SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
-import { TranscriptStore, type TranscriptOperation } from '@moonshot-ai/transcript';
+} from '@dimi-agent/agent-core-v2';
+import { TranscriptStore, type TranscriptOperation } from '@dimi-agent/transcript';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -127,7 +127,7 @@ describe('GlobalSearchService', () => {
   const services: GlobalSearchService[] = [];
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-kap-search-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-kap-search-'));
   });
 
   afterEach(async () => {

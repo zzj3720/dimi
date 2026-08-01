@@ -8,8 +8,8 @@
  */
 import { z } from "zod";
 
-import { isoDateTimeSchema } from "@moonshot-ai/agent-core-v2/_base/utils/isoDateTime";
-import type { TurnEndReason } from "@moonshot-ai/agent-core-v2/agent/loop/turnEvents";
+import { isoDateTimeSchema } from "@dimi-agent/agent-core-v2/_base/utils/isoDateTime";
+import type { TurnEndReason } from "@dimi-agent/agent-core-v2/agent/loop/turnEvents";
 import type {
   CompactionSummaryOrigin,
   CronJobOrigin,
@@ -24,16 +24,16 @@ import type {
   SystemTriggerOrigin,
   TaskOrigin,
   UserPromptOrigin,
-} from "@moonshot-ai/agent-core-v2/agent/contextMemory/types";
-import { messageContentSchema } from "@moonshot-ai/agent-core-v2/agent/contextMemory/protocolMessage";
-import type { HookResultEvent } from "@moonshot-ai/agent-core-v2/agent/externalHooks/externalHooksService";
+} from "@dimi-agent/agent-core-v2/agent/contextMemory/types";
+import { messageContentSchema } from "@dimi-agent/agent-core-v2/agent/contextMemory/protocolMessage";
+import type { HookResultEvent } from "@dimi-agent/agent-core-v2/agent/externalHooks/externalHooksService";
 import type {
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
-} from "@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps";
-import type { CompactionResult } from "@moonshot-ai/agent-core-v2/agent/fullCompaction/types";
+} from "@dimi-agent/agent-core-v2/agent/fullCompaction/compactionOps";
+import type { CompactionResult } from "@dimi-agent/agent-core-v2/agent/fullCompaction/types";
 import type {
   GoalActor,
   GoalBudgetLimits,
@@ -44,7 +44,7 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from "@moonshot-ai/agent-core-v2/agent/goal/types";
+} from "@dimi-agent/agent-core-v2/agent/goal/types";
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
@@ -52,41 +52,41 @@ import type {
   TurnStepCompletedEvent,
   TurnStepInterruptedEvent,
   TurnStepStartedEvent,
-} from "@moonshot-ai/agent-core-v2/agent/loop/turnEvents";
+} from "@dimi-agent/agent-core-v2/agent/loop/turnEvents";
 import type {
   McpServerStatusEvent,
   McpServerStatusPayload,
   ToolListUpdatedEvent,
   ToolListUpdatedReason,
-} from "@moonshot-ai/agent-core-v2/agent/mcp/mcpService";
-import type { McpOAuthAuthorizationUrlUpdateData } from "@moonshot-ai/agent-core-v2/agent/mcp/tools/auth";
-import type { PermissionMode } from "@moonshot-ai/agent-core-v2/agent/permissionPolicy/types";
-import type { WarningEvent } from "@moonshot-ai/agent-core-v2/agent/profile/profileService";
-import type { PluginCommandActivatedEvent } from "@moonshot-ai/agent-core-v2/agent/rpc/rpcService";
+} from "@dimi-agent/agent-core-v2/agent/mcp/mcpService";
+import type { McpOAuthAuthorizationUrlUpdateData } from "@dimi-agent/agent-core-v2/agent/mcp/tools/auth";
+import type { PermissionMode } from "@dimi-agent/agent-core-v2/agent/permissionPolicy/types";
+import type { WarningEvent } from "@dimi-agent/agent-core-v2/agent/profile/profileService";
+import type { PluginCommandActivatedEvent } from "@dimi-agent/agent-core-v2/agent/rpc/rpcService";
 import type {
   ShellCompletedEvent,
   ShellOutputEvent,
   ShellStartedEvent,
-} from "@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommandService";
+} from "@dimi-agent/agent-core-v2/agent/shellCommand/shellCommandService";
 
-import type { TurnStepRetryingEvent } from "@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService";
-import type { AgentTaskStatus } from "@moonshot-ai/agent-core-v2/agent/task/types";
+import type { TurnStepRetryingEvent } from "@dimi-agent/agent-core-v2/agent/stepRetry/stepRetryService";
+import type { AgentTaskStatus } from "@dimi-agent/agent-core-v2/agent/task/types";
 import type {
   ToolCallStartedEvent,
   ToolProgressEvent,
   ToolResultEvent,
-} from "@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents";
-import type { UsageStatus } from "@moonshot-ai/agent-core-v2/agent/usage/usage";
-import type { FinishReason } from "@moonshot-ai/agent-core-v2/llmProtocol/provider";
-import type { TokenUsage } from "@moonshot-ai/agent-core-v2/llmProtocol/usage";
+} from "@dimi-agent/agent-core-v2/agent/toolExecutor/toolExecutorEvents";
+import type { UsageStatus } from "@dimi-agent/agent-core-v2/agent/usage/usage";
+import type { FinishReason } from "@dimi-agent/agent-core-v2/llmProtocol/provider";
+import type { TokenUsage } from "@dimi-agent/agent-core-v2/llmProtocol/usage";
 import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
   SubagentSpawnedEvent,
   SubagentStartedEvent,
-} from "@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun";
-import type { SubagentSuspendedEvent } from "@moonshot-ai/agent-core-v2/session/swarm/sessionSwarmService";
-import type { ToolUpdate } from "@moonshot-ai/agent-core-v2/tool/toolContract";
+} from "@dimi-agent/agent-core-v2/session/subagent/mirrorAgentRun";
+import type { SubagentSuspendedEvent } from "@dimi-agent/agent-core-v2/session/swarm/sessionSwarmService";
+import type { ToolUpdate } from "@dimi-agent/agent-core-v2/tool/toolContract";
 
 import { ToolInputDisplaySchema } from "./display";
 import { configResponseSchema } from "./rest-config";
@@ -296,7 +296,7 @@ export const goalChangeSchema = z.object({
   actor: goalActorSchema.optional(),
 }) satisfies z.ZodType<GoalChange>;
 
-export const kimiErrorCodeSchema = z.enum([
+export const dimiErrorCodeSchema = z.enum([
   "config.invalid",
   "session.not_found",
   "session.already_exists",
@@ -395,17 +395,17 @@ export const kimiErrorCodeSchema = z.enum([
   "internal",
 ]);
 
-export const kimiErrorPayloadSchema: z.ZodType<unknown> = z.lazy(
-  () => kimiErrorPayloadObjectSchema,
+export const dimiErrorPayloadSchema: z.ZodType<unknown> = z.lazy(
+  () => dimiErrorPayloadObjectSchema,
 );
 
-const kimiErrorPayloadObjectSchema = z.object({
-  code: kimiErrorCodeSchema,
+const dimiErrorPayloadObjectSchema = z.object({
+  code: dimiErrorCodeSchema,
   message: z.string(),
   name: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
   retryable: z.boolean(),
-  cause: kimiErrorPayloadSchema.optional(),
+  cause: dimiErrorPayloadSchema.optional(),
 });
 
 export const taskInfoBaseSchema = z.object({
@@ -651,7 +651,7 @@ export const pluginCommandActivatedEventSchema = z.object({
   trigger: z.literal("user-slash"),
 }) satisfies z.ZodType<PluginCommandActivatedEvent>;
 
-export const errorEventSchema = kimiErrorPayloadObjectSchema.extend({
+export const errorEventSchema = dimiErrorPayloadObjectSchema.extend({
   type: z.literal("error"),
 });
 
@@ -672,7 +672,7 @@ export const turnEndedEventSchema = z.object({
   type: z.literal("turn.ended"),
   turnId: z.number(),
   reason: turnEndReasonSchema,
-  error: kimiErrorPayloadSchema.optional(),
+  error: dimiErrorPayloadSchema.optional(),
   durationMs: z.number().optional(),
 });
 

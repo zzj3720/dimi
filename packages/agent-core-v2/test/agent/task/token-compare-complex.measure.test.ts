@@ -8,7 +8,7 @@
  *
  * Metrics: per-LLM-call system/tools/history via estimateTokens, plus live context size.
  *
- *   MEASURE_LABEL=worktree pnpm --filter @moonshot-ai/agent-core-v2 \
+ *   MEASURE_LABEL=worktree pnpm --filter @dimi-agent/agent-core-v2 \
  *     exec vitest run test/agent/task/token-compare-complex.measure.test.ts
  */
 /* eslint-disable jest/expect-expect -- measurement scenarios emit structured output */

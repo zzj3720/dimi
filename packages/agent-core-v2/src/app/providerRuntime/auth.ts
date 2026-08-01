@@ -1,9 +1,9 @@
 import {
-  KIMI_CODE_FLOW_CONFIG,
+  DIMI_CODE_FLOW_CONFIG,
   pollDeviceToken,
   refreshAccessToken,
   requestDeviceAuthorization,
-} from "@moonshot-ai/kimi-code-oauth";
+} from "@dimi-agent/dimi-oauth";
 import { createServer, type Server, type ServerResponse } from "node:http";
 
 import type { ApiKeyAuth, AuthInteraction, OAuthAuth, OAuthCredential } from "./types";
@@ -244,11 +244,11 @@ function materializeCloudflareUrl(template: string, env: Record<string, string>)
     .replaceAll(`{${CLOUDFLARE_GATEWAY_ID}}`, env[CLOUDFLARE_GATEWAY_ID] ?? `{${CLOUDFLARE_GATEWAY_ID}}`);
 }
 
-export const kimiCodingOAuth: OAuthAuth = {
-  name: "Kimi Code (subscription)",
-  loginLabel: "Sign in with Kimi Code",
+export const dimiCodingOAuth: OAuthAuth = {
+  name: "Dimi (subscription)",
+  loginLabel: "Sign in with Dimi",
   login: async (interaction) => {
-    const device = await requestDeviceAuthorization(KIMI_CODE_FLOW_CONFIG, {});
+    const device = await requestDeviceAuthorization(DIMI_CODE_FLOW_CONFIG, {});
     interaction.notify({
       type: "device_code",
       userCode: device.userCode,
@@ -261,7 +261,7 @@ export const kimiCodingOAuth: OAuthAuth = {
     while (Date.now() < deadline) {
       interaction.signal?.throwIfAborted();
       await abortableSleep(interval, interaction.signal);
-      const result = await pollDeviceToken(KIMI_CODE_FLOW_CONFIG, device.deviceCode, {});
+      const result = await pollDeviceToken(DIMI_CODE_FLOW_CONFIG, device.deviceCode, {});
       if (result.kind === "success") {
         return {
           type: "oauth",
@@ -270,14 +270,14 @@ export const kimiCodingOAuth: OAuthAuth = {
           expires: result.token.expiresAt * 1_000,
         };
       }
-      if (result.kind === "expired") throw new Error("Kimi device code expired");
-      if (result.kind === "denied") throw new Error(result.description || "Kimi login denied");
+      if (result.kind === "expired") throw new Error("Dimi device code expired");
+      if (result.kind === "denied") throw new Error(result.description || "Dimi login denied");
       if (result.errorCode === "slow_down") interval += 5_000;
     }
-    throw new Error("Kimi device login timed out");
+    throw new Error("Dimi device login timed out");
   },
   refresh: async (credential) => {
-    const token = await refreshAccessToken(KIMI_CODE_FLOW_CONFIG, credential.refresh, {});
+    const token = await refreshAccessToken(DIMI_CODE_FLOW_CONFIG, credential.refresh, {});
     return {
       type: "oauth",
       access: token.accessToken,
@@ -301,7 +301,7 @@ export const xaiOAuth: OAuthAuth = {
   login: async (interaction) => {
     const deviceResponse = await postForm(
       XAI_DEVICE_CODE_URL,
-      { client_id: XAI_CLIENT_ID, scope: XAI_SCOPE, referrer: "kimi-code" },
+      { client_id: XAI_CLIENT_ID, scope: XAI_SCOPE, referrer: "dimi" },
       interaction.signal,
     );
     if (!deviceResponse.ok) throw oauthFailure("xAI device authorization", deviceResponse);
@@ -806,7 +806,7 @@ function anthropicOAuthHeaders(access: string): Record<string, string> {
   return {
     Authorization: `Bearer ${access}`,
     "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
-    "user-agent": "kimi-code",
+    "user-agent": "dimi",
     "x-app": "cli",
   };
 }

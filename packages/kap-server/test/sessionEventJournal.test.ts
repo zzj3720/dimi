@@ -27,7 +27,7 @@ describe('SessionEventJournal', () => {
   let filePath: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'kimi-journal-test-'));
+    dir = await mkdtemp(join(tmpdir(), 'dimi-journal-test-'));
     filePath = join(dir, 'sess_1.jsonl');
   });
 

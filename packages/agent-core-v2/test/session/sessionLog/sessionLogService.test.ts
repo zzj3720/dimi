@@ -53,7 +53,7 @@ afterEach(async () => {
 function buildHost() {
   const cfg = resolveLoggingConfig({
     homeDir,
-    env: { KIMI_LOG_LEVEL: 'debug', KIMI_LOG_SESSION_MAX_BYTES: '1024', KIMI_LOG_SESSION_FILES: '2' },
+    env: { DIMI_LOG_LEVEL: 'debug', DIMI_LOG_SESSION_MAX_BYTES: '1024', DIMI_LOG_SESSION_FILES: '2' },
   });
   return createScopedTestHost(logSeed(cfg));
 }

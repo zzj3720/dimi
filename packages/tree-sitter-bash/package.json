@@ -1,5 +1,5 @@
 {
-  "name": "@moonshot-ai/tree-sitter-bash",
+  "name": "@dimi-agent/tree-sitter-bash",
   "version": "0.1.0",
   "private": true,
   "description": "A pure-TypeScript bash parser producing a syntax tree whose named node types match tree-sitter-bash one-to-one.",
@@ -15,7 +15,7 @@
     "url": "https://github.com/zzj3720/dimi/issues"
   },
   "keywords": [
-    "kimi",
+    "dimi",
     "bash",
     "shell",
     "parser",

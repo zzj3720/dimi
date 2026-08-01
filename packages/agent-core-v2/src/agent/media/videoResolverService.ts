@@ -2,13 +2,13 @@ import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/
 import type { ContentPart, Message } from "#/llmProtocol/message";
 import type { ModelRequester } from "#/app/modelCatalog/modelRequester";
 
-import { type KimiFileRef, isKimiFileUrl, parseKimiFileUrl } from "./kimiFileUrl";
+import { type DimiFileRef, isDimiFileUrl, parseDimiFileUrl } from "./dimiFileUrl";
 import { IAgentVideoResolverService } from "./videoResolver";
 
 const VIDEO_UNAVAILABLE_TEXT = "[video omitted: the uploaded file is no longer available]";
 
 /**
- * The provider contract accepts text and images. Legacy Kimi video handles
+ * The provider contract accepts text and images. Legacy Dimi video handles
  * are therefore projected to a textual file reference before model dispatch.
  */
 export class AgentVideoResolverService implements IAgentVideoResolverService {
@@ -21,8 +21,8 @@ export class AgentVideoResolverService implements IAgentVideoResolverService {
   ): Promise<readonly Message[]> {
     return messages.map((message) => {
       const content = message.content.map((part) => {
-        if (part.type !== "video_url" || !isKimiFileUrl(part.videoUrl.url)) return part;
-        const ref = parseKimiFileUrl(part.videoUrl.url);
+        if (part.type !== "video_url" || !isDimiFileUrl(part.videoUrl.url)) return part;
+        const ref = parseDimiFileUrl(part.videoUrl.url);
         return ref === undefined ? part : tag(ref);
       });
       return { ...message, content };
@@ -30,7 +30,7 @@ export class AgentVideoResolverService implements IAgentVideoResolverService {
   }
 }
 
-function tag(ref: KimiFileRef): ContentPart {
+function tag(ref: DimiFileRef): ContentPart {
   if (ref.path === undefined || ref.path.length === 0) {
     return { type: "text", text: VIDEO_UNAVAILABLE_TEXT };
   }

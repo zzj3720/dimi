@@ -1,4 +1,4 @@
-import { IConfigService, IProviderRuntime, type Scope } from "@moonshot-ai/agent-core-v2";
+import { IConfigService, IProviderRuntime, type Scope } from "@dimi-agent/agent-core-v2";
 import { z } from "zod";
 
 import { okEnvelope } from "../envelope";

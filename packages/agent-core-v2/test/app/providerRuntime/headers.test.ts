@@ -21,7 +21,7 @@ import type {
 } from "#/app/providerRuntime/types";
 
 const hostHeaders = {
-  "User-Agent": "kimi-code-cli/1.2.3",
+  "User-Agent": "dimi-cli/1.2.3",
   "X-Msh-Platform": "kimi_code_cli",
   "X-Msh-Device-Id": "device-test",
 };
@@ -132,16 +132,16 @@ afterEach(() => {
 });
 
 describe("provider runtime request headers", () => {
-  it("keeps the host-provided Kimi Code CLI user agent as the runtime identity source", () => {
+  it("keeps the host-provided Dimi CLI user agent as the runtime identity source", () => {
     const host = new HostRequestHeaders(hostHeaders);
 
-    expect(host.headers["User-Agent"]).toBe("kimi-code-cli/1.2.3");
+    expect(host.headers["User-Agent"]).toBe("dimi-cli/1.2.3");
     expect(host.headers["User-Agent"]).not.toContain("pi/");
   });
 
-  it("isolates catalog host headers to first-party Kimi and Moonshot endpoints", async () => {
+  it("isolates catalog host headers to first-party Dimi and Moonshot endpoints", async () => {
     const credentials = new MemoryCredentials();
-    await credentials.modify("kimi-coding", async () => ({ type: "api_key", key: "kimi-key" }));
+    await credentials.modify("kimi-coding", async () => ({ type: "api_key", key: "dimi-key" }));
     await credentials.modify("moonshotai", async () => ({ type: "api_key", key: "moonshot-key" }));
     await credentials.modify("openai", async () => ({ type: "api_key", key: "openai-key" }));
     const captured = new Map<string, Headers>();
@@ -162,20 +162,20 @@ describe("provider runtime request headers", () => {
     await models.refresh({ provider: "moonshotai", force: true });
     await models.refresh({ provider: "openai", force: true });
 
-    const kimi = captured.get("https://api.kimi.com/coding/v1/models")!;
+    const dimi = captured.get("https://api.kimi.com/coding/v1/models")!;
     const moonshot = captured.get("https://api.moonshot.ai/v1/models")!;
     const openai = captured.get("https://api.openai.com/v1/models")!;
-    for (const firstParty of [kimi, moonshot]) {
-      expect(firstParty.get("user-agent")).toBe("kimi-code-cli/1.2.3");
+    for (const firstParty of [dimi, moonshot]) {
+      expect(firstParty.get("user-agent")).toBe("dimi-cli/1.2.3");
       expect(firstParty.get("x-msh-platform")).toBe("kimi_code_cli");
       expect(firstParty.get("x-msh-device-id")).toBe("device-test");
     }
-    expect(openai.get("user-agent")).toBe("kimi-code-cli/1.2.3");
+    expect(openai.get("user-agent")).toBe("dimi-cli/1.2.3");
     expect(openai.get("x-msh-platform")).toBeNull();
     expect(openai.get("x-msh-device-id")).toBeNull();
   });
 
-  it("applies the same host-header isolation to Kimi, Moonshot and third-party streams", async () => {
+  it("applies the same host-header isolation to Dimi, Moonshot and third-party streams", async () => {
     const captured = new Map<string, Headers>();
     vi.stubGlobal(
       "fetch",
@@ -188,21 +188,21 @@ describe("provider runtime request headers", () => {
 
     await consume(
       streamProvider(modelFor("kimi-coding"), context, {
-        auth: { headers: { Authorization: "Bearer kimi-token" } },
+        auth: { headers: { Authorization: "Bearer dimi-token" } },
       }),
     );
     await consume(streamProvider(modelFor("moonshotai"), context, auth()));
     await consume(streamProvider(modelFor("openai"), context, auth()));
 
-    const kimi = captured.get("https://api.kimi.com/coding/v1/messages")!;
+    const dimi = captured.get("https://api.kimi.com/coding/v1/messages")!;
     const moonshot = captured.get("https://api.moonshot.ai/v1/chat/completions")!;
     const openai = captured.get("https://api.openai.com/v1/responses")!;
-    for (const firstParty of [kimi, moonshot]) {
-      expect(firstParty.get("user-agent")).toBe("kimi-code-cli/1.2.3");
+    for (const firstParty of [dimi, moonshot]) {
+      expect(firstParty.get("user-agent")).toBe("dimi-cli/1.2.3");
       expect(firstParty.get("x-msh-platform")).toBe("kimi_code_cli");
       expect(firstParty.get("x-msh-device-id")).toBe("device-test");
     }
-    expect(openai.get("user-agent")).toBe("kimi-code-cli/1.2.3");
+    expect(openai.get("user-agent")).toBe("dimi-cli/1.2.3");
     expect(openai.get("x-msh-platform")).toBeNull();
     expect(openai.get("x-msh-device-id")).toBeNull();
   });
@@ -260,7 +260,7 @@ describe("provider runtime request headers", () => {
     expect(fetch).toHaveBeenCalledOnce();
     expect(captured?.get("authorization")).toBe(`Bearer ${token}`);
     expect(captured?.get("chatgpt-account-id")).toBe("account-test");
-    expect(captured?.get("originator")).toBe("kimi-code");
+    expect(captured?.get("originator")).toBe("dimi");
     expect(captured?.get("openai-beta")).toBe("responses=experimental");
     expect(captured?.get("session-id")).toBe("session-test");
     expect(captured?.get("x-client-request-id")).toBe("session-test");

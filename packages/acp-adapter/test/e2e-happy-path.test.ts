@@ -39,7 +39,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Event, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
+import type { Event, DimiHarness, Session } from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth, makeProviderModels } from './_helpers/harness-stubs';
@@ -119,9 +119,9 @@ function makeScriptedSession(
   return { session, unsubscribeCount: () => unsubCount };
 }
 
-function makeHarness(session: Session): KimiHarness {
+function makeHarness(session: Session): DimiHarness {
   const models = makeProviderModels([
-    { id: 'test/kimi-coder', name: 'Kimi Coder' },
+    { id: 'test/dimir', name: 'Dimir' },
   ]);
   return {
     auth: makeAuth({ models }),
@@ -129,10 +129,10 @@ function makeHarness(session: Session): KimiHarness {
     // Phase 14: server.newSession reads these for configOptions.
     getConfig: async () => ({
       providers: {},
-      defaultModel: 'test/kimi-coder',
+      defaultModel: 'test/dimir',
       models,
     }),
-  } as unknown as KimiHarness;
+  } as unknown as DimiHarness;
 }
 
 const textBlock = (text: string): ContentBlock => ({ type: 'text', text });
@@ -147,7 +147,7 @@ describe('AcpServer end-to-end happy path', () => {
       createSession: async () => {
         throw new Error('createSession should not be called from initialize-only test');
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

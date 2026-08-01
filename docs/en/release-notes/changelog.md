@@ -4,7 +4,7 @@ outline: 2
 
 # Changelog
 
-This page documents the changes in each Kimi Code CLI release.
+This page documents the changes in each Dimi CLI release.
 
 ## 0.30.0 (2026-07-29)
 
@@ -14,7 +14,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Polish
 
-- Show a quota note after installing official plugins that bill against plan quota (such as Kimi Datasource).
+- Show a quota note after installing official plugins that bill against plan quota (such as Dimi Datasource).
 - Show a notice when an official plugin used in the session has an update available — run /plugins to update.
 - Remove the 50 MB size limit on file uploads to the built-in server.
 
@@ -49,9 +49,9 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- web: Support defining agents in Markdown files, declaring system prompt, name, description, and tool permissions. [Details](https://moonshotai.github.io/kimi-code/en/customization/agents.html#agent-file-format)
-- web: Permanently override the main agent's system prompt with SYSTEM.md. [Details](https://moonshotai.github.io/kimi-code/en/customization/agents.html#overriding-the-main-agent-s-system-prompt-with-system-md)
-- web: Globally enable or disable tools across all sessions via config.toml. [Details](https://moonshotai.github.io/kimi-code/en/configuration/config-files.html#tools)
+- web: Support defining agents in Markdown files, declaring system prompt, name, description, and tool permissions. [Details](https://moonshotai.github.io/dimi/en/customization/agents.html#agent-file-format)
+- web: Permanently override the main agent's system prompt with SYSTEM.md. [Details](https://moonshotai.github.io/dimi/en/customization/agents.html#overriding-the-main-agent-s-system-prompt-with-system-md)
+- web: Globally enable or disable tools across all sessions via config.toml. [Details](https://moonshotai.github.io/dimi/en/configuration/config-files.html#tools)
 - Videos attached to a prompt now reach the model together with the prompt, with no extra tool round trip.
 - Support selecting a thinking effort level from ACP clients.
 - Add environment variable overrides for agent loop and background task limits.
@@ -74,7 +74,7 @@ This page documents the changes in each Kimi Code CLI release.
 - Fix ReadMediaFile failing on videos when the provider has no file upload channel.
 - Fix goal mode continuation prompts leaking into the transcript when resuming a session.
 - web: Show transparent images over a checkerboard canvas.
-- Remove references to the non-existent `kimi resume` command from the scheduled-task tool descriptions.
+- Remove references to the non-existent `dimi resume` command from the scheduled-task tool descriptions.
 
 ## 0.28.1 (2026-07-20)
 
@@ -84,7 +84,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Polish
 
-- Run web servers foreground-only end to end: the /web slash command now always starts a new server, and the `kimi web kill` / `kimi web ps` subcommands are removed — foreground servers stop with Ctrl+C. `kimi server kill` remains as a deprecated fallback that only stops servers started by a version before 0.28.0.
+- Run web servers foreground-only end to end: the /web slash command now always starts a new server, and the `dimi web kill` / `dimi web ps` subcommands are removed — foreground servers stop with Ctrl+C. `dimi server kill` remains as a deprecated fallback that only stops servers started by a version before 0.28.0.
 
 ### Bug Fixes
 
@@ -95,8 +95,8 @@ This page documents the changes in each Kimi Code CLI release.
 ### Features
 
 - **Breaking:**
-  - The `kimi server` command tree is deprecated; use `kimi web` instead.
-  - `kimi web` now runs in the foreground of the current terminal and opens the browser; stop it with Ctrl+C.
+  - The `dimi server` command tree is deprecated; use `dimi web` instead.
+  - `dimi web` now runs in the foreground of the current terminal and opens the browser; stop it with Ctrl+C.
 
 ### Polish
 
@@ -113,7 +113,7 @@ This page documents the changes in each Kimi Code CLI release.
 ### Features
 
 - Add the /copy slash command to copy the last assistant message to the clipboard.
-- Using an API key for Kimi coding models now also fetches the latest model list automatically.
+- Using an API key for Dimi coding models now also fetches the latest model list automatically.
 
 ### Polish
 
@@ -130,7 +130,7 @@ This page documents the changes in each Kimi Code CLI release.
 - Fix AGENTS.md files installed as symbolic links being ignored by the web backend.
 - Fix Esc and Ctrl+C cancelling compaction instead of closing an open /btw panel.
 - Fix whitespace-only thinking content rendering as a blank line in the transcript.
-- Fix `/export-debug-zip` and `kimi export` overwriting the previous ZIP on repeated runs for the same session; the default filename now includes a timestamp.
+- Fix `/export-debug-zip` and `dimi export` overwriting the previous ZIP on repeated runs for the same session; the default filename now includes a timestamp.
 
 ## 0.26.0 (2026-07-16) Say hi to the BIIIG DAY!
 
@@ -145,12 +145,12 @@ This page documents the changes in each Kimi Code CLI release.
 
 - Fix a resumed session being marked as just updated and jumping to the top of the session list without any new activity.
 - Fix the context size indicator under-reporting the model's actual context usage.
-- Fix Kimi-provider models routed through the Anthropic protocol incorrectly showing reasoning effort options.
+- Fix Dimi-provider models routed through the Anthropic protocol incorrectly showing reasoning effort options.
 - Honor an explicit thinking "off" on OpenAI-compatible (chat completions) providers.
 - Report when users stop tasks and preserve other stop reasons in model context.
 - Fix a race where resuming a background subagent right after it was manually stopped could fail with an "already running" error.
-- Replay empty thinking content verbatim instead of substituting a placeholder space on Anthropic-compatible and Kimi preserved-thinking endpoints.
-- Keep legacy migrations idempotent across multiple Kimi homes and report damaged or unmapped sessions instead of silently skipping them.
+- Replay empty thinking content verbatim instead of substituting a placeholder space on Anthropic-compatible and Dimi preserved-thinking endpoints.
+- Keep legacy migrations idempotent across multiple Dimi homes and report damaged or unmapped sessions instead of silently skipping them.
 - web: Fix the sidebar resize handle being covered by the chat composer background.
 
 ## 0.25.0 (2026-07-16)
@@ -183,17 +183,17 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add a builtin `/check-kimi-code-docs` skill that automatically answers Kimi Code product questions with official-docs sources.
+- Add a builtin `/check-dimi-docs` skill that automatically answers Dimi product questions with official-docs sources.
 
 ### Polish
 
-- Align `kimi -p` behavior across engines: `print_background_mode` and `print_max_turns` now apply, and `/goal` runs stay alive until the goal finishes.
-- `kimi -p` now stays alive by default while background tasks are pending, with no effective wait or turn limit, and feeds each completion back to the agent. Set `print_background_mode = "exit"` or `"drain"` to restore the old exit-after-one-turn behavior.
-- `kimi -p` background tasks and subagents no longer time out by default (interactive mode is unchanged); restore limits with `[background] bash_task_timeout_s` or `[subagent] timeout_ms`.
-- Subagent timeout now defaults to 2 hours everywhere; override with `[subagent] timeout_ms` or `KIMI_SUBAGENT_TIMEOUT_MS`.
+- Align `dimi -p` behavior across engines: `print_background_mode` and `print_max_turns` now apply, and `/goal` runs stay alive until the goal finishes.
+- `dimi -p` now stays alive by default while background tasks are pending, with no effective wait or turn limit, and feeds each completion back to the agent. Set `print_background_mode = "exit"` or `"drain"` to restore the old exit-after-one-turn behavior.
+- `dimi -p` background tasks and subagents no longer time out by default (interactive mode is unchanged); restore limits with `[background] bash_task_timeout_s` or `[subagent] timeout_ms`.
+- Subagent timeout now defaults to 2 hours everywhere; override with `[subagent] timeout_ms` or `DIMI_SUBAGENT_TIMEOUT_MS`.
 - The per-step LLM retry limit is raised from 3 to 10 attempts, so transient provider failures (429 / overload) are retried before a turn fails; tune with `loop_control.max_retries_per_step`.
 - Workspaces now stay in sync: new sessions register automatically, missing workspaces are restored at startup, and removed ones stay removed.
-- `kimi web` now logs failed requests and key operations so daemon issues are easier to diagnose.
+- `dimi web` now logs failed requests and key operations so daemon issues are easier to diagnose.
 - web: AgentSwarm cards now stay expanded while subagents are still running.
 - web: Minimized plan review and question cards now use an upward chevron for expand.
 
@@ -223,9 +223,9 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Bug Fixes
 
-- Fix Kimi sessions getting stuck when preserved-thinking history contains an empty reasoning step.
+- Fix Dimi sessions getting stuck when preserved-thinking history contains an empty reasoning step.
 - Fix built-in tools being unavailable when the model provider becomes ready after the session starts.
-- Fix Thinking effort routing: non-Kimi providers now preserve configured values, while Kimi models validate runtime selections and fall back safely during model resolution.
+- Fix Thinking effort routing: non-Dimi providers now preserve configured values, while Dimi models validate runtime selections and fall back safely during model resolution.
 - web: Align thinking-level handling with the CLI: submit the selected level verbatim instead of silently downgrading it, fall back to the model's own default when nothing was chosen or the model switches, and persist explicit picks as the default for new sessions.
 - Preserve goal completion summaries and show untyped LLM errors without an internal error-code prefix in step interruption events.
 
@@ -246,7 +246,7 @@ This page documents the changes in each Kimi Code CLI release.
 - On session close, background tasks are now asked to stop and given a grace period before being force-stopped.
 - Rewrite repeated-tool-call reminders to redirect the agent toward a different action instead of prohibiting the call.
 - Optimize the TaskOutput tool prompts to discourage blocking waits on background tasks.
-- Send the kimi-code-cli User-Agent on provider registry (api.json) and model catalog fetches, so registries can identify the client version.
+- Send the dimi-cli User-Agent on provider registry (api.json) and model catalog fetches, so registries can identify the client version.
 - Log a warning when a skill fails to parse instead of silently dropping it, and fix skill scan results not being reported.
 
 ### Bug Fixes
@@ -273,7 +273,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Refactors
 
-- `kimi web` now runs on the reworked agent engine by default.
+- `dimi web` now runs on the reworked agent engine by default.
 
 ## 0.23.6 (2026-07-12)
 
@@ -285,14 +285,14 @@ This page documents the changes in each Kimi Code CLI release.
 - web: Auto-enable the default thinking effort when switching to a model that supports effort levels in the web UI.
 - Recognize the `support_efforts` and `default_effort` fields when importing a custom registry, so thinking effort levels are available for those models.
 - Update the WebBridge install page link opened from the `/plugins` panel.
-- Add a `subagent.timeout_ms` config option (or the `KIMI_SUBAGENT_TIMEOUT_MS` env var) to control how long a single subagent may run before timing out; the default is raised from 30 minutes to 2 hours.
-- Add a print-mode background policy: set `[background].print_background_mode = "steer"` to keep `kimi -p` alive across background-task completions, so the main agent can be steered into follow-up turns.
+- Add a `subagent.timeout_ms` config option (or the `DIMI_SUBAGENT_TIMEOUT_MS` env var) to control how long a single subagent may run before timing out; the default is raised from 30 minutes to 2 hours.
+- Add a print-mode background policy: set `[background].print_background_mode = "steer"` to keep `dimi -p` alive across background-task completions, so the main agent can be steered into follow-up turns.
 
 ### Bug Fixes
 
 - web: Fix sessions getting stuck in a sending state after a reconnect; turns that finish while the connection is down now stop the spinner and let the next message send normally.
 - web: Fix the first visit after starting or updating the web UI bouncing to the login page when the initial auth check fails; the connecting screen now stays up, shows the connection error, and retries.
-- Keep `kimi -p` runs alive after a turn ends while a goal is still active or a cron task is pending, so goal continuations and cron fires run their turns instead of being cut off when the main turn finishes.
+- Keep `dimi -p` runs alive after a turn ends while a goal is still active or a cron task is pending, so goal continuations and cron fires run their turns instead of being cut off when the main turn finishes.
 - Treat a dismissed question prompt as the user choosing not to answer, instead of implicitly selecting the recommended option.
 - web: Fix ReadMediaFile results rendering as plain tool cards instead of images after resuming or reloading a session.
 - web: Fix the chat view jumping downward while scrolling through conversation history.
@@ -326,11 +326,11 @@ This page documents the changes in each Kimi Code CLI release.
 - web: Polish the chat UI with Inter typography, localized labels, and tighter composer and menu styling.
 - web: Polish the session sidebar layout, colors, icons, and typography.
 - Display the Extra Usage (fuel pack) balance in the `/usage` and `/status` commands.
-- Add a Kimi WebBridge entry to the Official tab of the `/plugins` panel that opens the WebBridge install page in your browser.
+- Add a Dimi WebBridge entry to the Official tab of the `/plugins` panel that opens the WebBridge install page in your browser.
 
 ### Bug Fixes
 
-- Keep image-heavy sessions within provider request-size limits: oversized images (model-read and pasted, including WebP) are downscaled and compressed, HEIC/HEIF reads are refused with a platform-matched conversion command instead of poisoning the session, and an HTTP 413 request-too-large now recovers automatically — the request and `/compact` retry with older media replaced by text markers. The limits are configurable via `[image]` in `config.toml` (or `KIMI_IMAGE_*` env vars), and each core keeps its own settings so reloading one client's config no longer changes another client's compression.
+- Keep image-heavy sessions within provider request-size limits: oversized images (model-read and pasted, including WebP) are downscaled and compressed, HEIC/HEIF reads are refused with a platform-matched conversion command instead of poisoning the session, and an HTTP 413 request-too-large now recovers automatically — the request and `/compact` retry with older media replaced by text markers. The limits are configurable via `[image]` in `config.toml` (or `DIMI_IMAGE_*` env vars), and each core keeps its own settings so reloading one client's config no longer changes another client's compression.
 - Fix resuming sessions whose original working directory no longer exists.
 - Fix prompt-mode goals so they run until completion and report invalid goal commands before sending prompts.
 - web: Fix an occasional "another turn is active" error when sending the first message of a new conversation, and show a starting state while it is being sent.
@@ -349,7 +349,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Bug Fixes
 
-- Fix `kimi -p` runs exiting with code 0 when a turn fails.
+- Fix `dimi -p` runs exiting with code 0 when a turn fails.
 - Prevent autonomous goals from being paused by model-reported status updates.
 - Count the turn that starts an autonomous goal toward its turn budget.
 - Raise the image downscale cap from 2000px to 3000px, and fix swapped width/height for EXIF-rotated (portrait) photos in compression captions and media read notes so region readback coordinates map correctly.
@@ -373,7 +373,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Bug Fixes
 
-- Fix `kimi -p` abandoning background subagents that start late or run long, so their results reach the main agent.
+- Fix `dimi -p` abandoning background subagents that start late or run long, so their results reach the main agent.
 - web: Recover chat streaming after a stale background-tab WebSocket instead of requiring a page refresh.
 - Fix some third-party models (e.g. Opus 4.8) falling back to the family default max output tokens; an unrecognized minor now reuses the nearest earlier known version's limit.
 - Honor explicit Anthropic `max_output_size` settings instead of clamping them to built-in ceilings.
@@ -387,7 +387,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Polish
 
-- Preserve prior turns' thinking by default on the Anthropic provider (Claude and Kimi's Anthropic-compatible mode), matching the Kimi default. Disable with `[thinking] keep = "off"` or `KIMI_MODEL_THINKING_KEEP=off`.
+- Preserve prior turns' thinking by default on the Anthropic provider (Claude and Dimi's Anthropic-compatible mode), matching the Dimi default. Disable with `[thinking] keep = "off"` or `DIMI_MODEL_THINKING_KEEP=off`.
 - Clarify the permission mode descriptions shown by `/permission`, `/auto`, and `/yolo`, and reorder `/auto` and `/yolo` in the command list.
 - Show long-running goal wall-clock budget reminders in hours.
 - Tighten goal-mode guidance so agents continue reasonable work across turns instead of ending goals prematurely.
@@ -427,24 +427,24 @@ This page documents the changes in each Kimi Code CLI release.
 - web: Render AskUserQuestion answers as a readable option list with the chosen option(s) highlighted, instead of raw JSON.
 - web: Show available skills in the composer before a session is created.
 - web: Add an Archived sessions entry to the mobile settings sheet and clarify the archive confirmation to mention restoring from Settings.
-- web: Show the Kimi icon and clearer titles in desktop notifications.
+- web: Show the Dimi icon and clearer titles in desktop notifications.
 - web: Align the markdown diff code block with the design system: code text keeps the normal ink colour while the sign and a soft row background carry the change, matching the `~/diff` panel.
 - web: Prevent chat text from hyphenating at line breaks and render code without font ligatures.
 - web: Drop the stray left indent in the tool-call card body so expanded content aligns with the header.
 - Feed AskUserQuestion answers back to the model as question text and option labels instead of positional ids, so the model no longer has to map them back. Question texts must now be unique per call and option labels unique per question; existing clients keep answering with option ids, so no client change is required.
-- Keep prior reasoning across turns for Kimi models by default when Thinking is on. Set `[thinking] keep = "off"` to disable.
+- Keep prior reasoning across turns for Dimi models by default when Thinking is on. Set `[thinking] keep = "off"` to disable.
 
 ## 0.22.3 (2026-07-04)
 
 ### Bug Fixes
 
-- Wait for background subagents to finish and respond to their results before exiting in `kimi -p`, instead of ending the turn early.
+- Wait for background subagents to finish and respond to their results before exiting in `dimi -p`, instead of ending the turn early.
 - web: Fix uploaded videos failing to play in the web chat.
 - Revert the recent TUI transcript rendering changes to the original upstream behavior and fix related rendering issues.
 
 ### Polish
 
-- Add `--dangerous-bypass-auth` and `--keep-alive` flags to `kimi server run`, so the server can run without a token on trusted networks and stay alive past the idle timeout.
+- Add `--dangerous-bypass-auth` and `--keep-alive` flags to `dimi server run`, so the server can run without a token on trusted networks and stay alive past the idle timeout.
 - web: Add click-to-enlarge for images uploaded in the web chat. Click an image in a message to open it.
 
 ## 0.22.2 (2026-07-03)
@@ -453,7 +453,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 - Fix sessions silently dropping later user messages after a turn was interrupted between a tool call and its result.
 - Fix requests being rejected by strict providers when the model emits duplicate tool call ids.
-- Fix `kimi upgrade` failing on Windows with a spawn error when installing the new version.
+- Fix `dimi upgrade` failing on Windows with a spawn error when installing the new version.
 - Fix duplicated transcript content appearing in scrollback during streaming.
 - Fix compressed-image prompts leaking an internal `<system>` compression note into the visible message and the session title.
 - Keep automatic background updates from flashing a console window on Windows.
@@ -461,11 +461,11 @@ This page documents the changes in each Kimi Code CLI release.
 ### Polish
 
 - Have context-compaction notes capture a forward plan for the remaining work — upcoming steps, settled decisions, and foreseeable obstacles — instead of only the immediate next step, so the agent continues more coherently after auto-compaction.
-- Enrich PATH from the user's login shell at startup, so shell commands find user-installed tools (e.g. Homebrew's `gh`) even when kimi-code was launched without the full profile PATH.
+- Enrich PATH from the user's login shell at startup, so shell commands find user-installed tools (e.g. Homebrew's `gh`) even when dimi was launched without the full profile PATH.
 - Promote the language-matching rule to a dedicated section in the system prompt, so replies and reasoning consistently follow the user's language through long English tool output, while repository artifacts keep project conventions.
 - Add a TUI preference to keep rapid multi-line pastes from submitting line by line when bracketed paste is unavailable. Set `disable_paste_burst = true` in `tui.toml` to turn it off.
 - Keep subagent cards at a stable height and show a live status spinner with a compact two-row activity window.
-- In `kimi -p` runs, wait for background subagents to finish before exiting when `background.keep_alive_on_exit` is enabled. Set `keep_alive_on_exit = true` to let concurrent background subagents complete.
+- In `dimi -p` runs, wait for background subagents to finish before exiting when `background.keep_alive_on_exit` is enabled. Set `keep_alive_on_exit = true` to let concurrent background subagents complete.
 
 ### Refactors
 
@@ -549,7 +549,7 @@ This page documents the changes in each Kimi Code CLI release.
 ### Bug Fixes
 
 - Stop a malformed message history from permanently bricking a session on strict providers (Anthropic). The request is repaired before sending — orphaned tool calls are closed and empty/whitespace-only text blocks dropped — and if the provider still rejects its structure, it is resent once with a wire-compliant rebuild.
-- Force-exit headless runs (`kimi -p`) so a stray ref'd handle left over from the run can't keep a completed run alive until an external timeout, and bound prompt cleanup so a wedged shutdown step can't hang shutdown.
+- Force-exit headless runs (`dimi -p`) so a stray ref'd handle left over from the run can't keep a completed run alive until an external timeout, and bound prompt cleanup so a wedged shutdown step can't hang shutdown.
 - Fix @ file mentions not opening when typed inside a slash command argument.
 - Fix adding a workspace by path in the web UI failing silently when the daemon rejects the path; it now shows an error instead of a broken workspace.
 - Fix duplicate workspaces showing in the web sidebar when the same folder is registered more than once.
@@ -591,9 +591,9 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Support the Anthropic-compatible protocol for Kimi Code, including video input.
+- Support the Anthropic-compatible protocol for Dimi, including video input.
 - Add a completion sound and question notifications to the web UI, with separate Settings toggles for completion notifications, question notifications, and sound. Question notifications default off so question text only reaches your desktop after you opt in.
-- Add `KIMI_CODE_CUSTOM_HEADERS` for custom outbound LLM request headers, and send the `User-Agent` header to non-Kimi providers. Set `KIMI_CODE_CUSTOM_HEADERS` to newline-separated `Name: Value` lines.
+- Add `DIMI_CODE_CUSTOM_HEADERS` for custom outbound LLM request headers, and send the `User-Agent` header to non-Dimi providers. Set `DIMI_CODE_CUSTOM_HEADERS` to newline-separated `Name: Value` lines.
 - Add an optional `exclude_empty` parameter to the session list API to omit sessions that have no messages.
 
 ### Bug Fixes
@@ -622,7 +622,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Refactors
 
-- Route Kimi Code models on the Anthropic-compatible protocol through the beta Messages API.
+- Route Dimi models on the Anthropic-compatible protocol through the beta Messages API.
 - Upgrade web markdown renderer dependencies (katex, markstream-vue, shiki) for bug fixes and performance improvements.
 - Add provider type and protocol attributes to turn and API error telemetry.
 
@@ -630,14 +630,14 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Plugins now support declaring lifecycle hooks in `kimi.plugin.json` to run scripts at specific stages. See [Hooks in Plugins](../customization/plugins.md#hooks-in-plugins).
+- Plugins now support declaring lifecycle hooks in `dimi.plugin.json` to run scripts at specific stages. See [Hooks in Plugins](../customization/plugins.md#hooks-in-plugins).
 - `/feedback` now supports attaching diagnostic logs and codebase context.
-- Add the `kimi update` command, equivalent to `kimi upgrade`, for upgrading to the latest version.
-- `kimi web` adds the `--allowed-host <host>` option to add a specified Host to the DNS-rebinding allowlist; 403 errors now explain how to allow it via `--allowed-host` or `KIMI_CODE_ALLOWED_HOSTS`, e.g. `kimi web --allowed-host example.com`.
+- Add the `dimi update` command, equivalent to `dimi upgrade`, for upgrading to the latest version.
+- `dimi web` adds the `--allowed-host <host>` option to add a specified Host to the DNS-rebinding allowlist; 403 errors now explain how to allow it via `--allowed-host` or `DIMI_CODE_ALLOWED_HOSTS`, e.g. `dimi web --allowed-host example.com`.
 
 ### Bug Fixes
 
-- Fix kimi server failing to start on Windows after the first run.
+- Fix dimi server failing to start on Windows after the first run.
 - Fix the Web UI opened by the `/web` command not signing in automatically; the terminal now prints the access token.
 - Cap chat-completions providers' `max_tokens` to the remaining context window, avoiding context overflow and invalid parameter errors.
 
@@ -654,13 +654,13 @@ This page documents the changes in each Kimi Code CLI release.
 ### Features
 
 - Add shell mode to the TUI. Type `!` in the input box to enable it. For long-running commands, press Ctrl+B to move them to the background. For example, you can run `!gh auth login` to sign in to the GitHub CLI without opening a new terminal.
-- Add a `--host` CLI option so `kimi web --host` can expose the server to the internet, with hardened token authentication, rate limiting, and other security measures.
+- Add a `--host` CLI option so `dimi web --host` can expose the server to the internet, with hardened token authentication, rate limiting, and other security measures.
 - Render LaTeX display math (`$$…$$`) in the web UI.
 
 ### Bug Fixes
 
 - Fix a startup crash on Linux caused by an unhandled native clipboard error.
-- Fix `kimi web` and `/web` failing to start the background server daemon on Windows with `spawn EFTYPE` when the CLI is installed via npm/pnpm or run from source. The official single-binary install script was not affected.
+- Fix `dimi web` and `/web` failing to start the background server daemon on Windows with `spawn EFTYPE` when the CLI is installed via npm/pnpm or run from source. The official single-binary install script was not affected.
 - Fix the terminal window repeatedly losing focus on Linux Wayland, which broke IME input.
 - Stop auto-dismissing questions in the web UI after 60 seconds so they wait for the user's answer.
 - Fix explore subagents silently losing git context when git commands time out or the directory is not a repository.
@@ -671,7 +671,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Polish
 
-- Redesign `/plugins` as a single tabbed panel: **Installed** (manage installed plugins — toggle, remove, MCP, details, reload), **Official** (Kimi-maintained marketplace plugins), **Third-party** (marketplace plugins from other publishers), and **Custom** (install straight from a GitHub URL, zip URL, or local path). Use `Tab` / `Shift-Tab` to switch tabs.
+- Redesign `/plugins` as a single tabbed panel: **Installed** (manage installed plugins — toggle, remove, MCP, details, reload), **Official** (Dimi-maintained marketplace plugins), **Third-party** (marketplace plugins from other publishers), and **Custom** (install straight from a GitHub URL, zip URL, or local path). Use `Tab` / `Shift-Tab` to switch tabs.
 - Show a line-by-line diff when the agent edits or writes a file in the web chat.
 - Show the plan body and approach choices in the plan review card when exiting plan mode in the web UI.
 - Show the full accumulated progress of a subagent in its detail panel, with concise tool-call summaries instead of raw JSON.
@@ -749,8 +749,8 @@ This page documents the changes in each Kimi Code CLI release.
 
 - Added the ability to add extra workspace directories:
   - Use the `/add-dir <path>` command to add extra working directories to the current session, or remember them for the project.
-  - Use `kimi --add-dir <path>` to add them on startup.
-  - Project-level local config is now managed in `.kimi-code/local.toml`; we recommend adding it to your `.gitignore`.
+  - Use `dimi --add-dir <path>` to add them on startup.
+  - Project-level local config is now managed in `.dimi/local.toml`; we recommend adding it to your `.gitignore`.
 - Allow long-running foreground commands and subagents to be moved into background tasks with `Ctrl+B`, and inspect them via the `/tasks` panel.
 
 ### Bug Fixes
@@ -800,7 +800,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Bug Fixes
 
-- Fix the `kimi web` command failing to start in the background.
+- Fix the `dimi web` command failing to start in the background.
 - Stop the background local server from locking the directory it was started in.
 - Prevent the web login dialog from closing when clicking the backdrop.
 
@@ -812,7 +812,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add Kimi Code Web mode, which you can start with `kimi web` or `/web` in the CLI, and continue sessions in a browser chat interface.
+- Add Dimi Web mode, which you can start with `dimi web` or `/web` in the CLI, and continue sessions in a browser chat interface.
 
 ### Bug Fixes
 
@@ -827,7 +827,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add a built-in `kimi vis` command that launches the session visualizer in your browser, pointed at your local sessions. Supports `--port`/`--host`, `--no-open`, and `kimi vis <sessionId>` deep-links.
+- Add a built-in `dimi vis` command that launches the session visualizer in your browser, pointed at your local sessions. Supports `--port`/`--host`, `--no-open`, and `dimi vis <sessionId>` deep-links.
 
 ### Bug Fixes
 
@@ -939,7 +939,7 @@ This page documents the changes in each Kimi Code CLI release.
 ### Bug Fixes
 
 - Prevent forking sessions during active turns and consolidate wire protocol definitions into a shared internal package.
-- Fix Kimi Datasource to use the matching OAuth credentials and service endpoint for the active Kimi Code environment.
+- Fix Dimi Datasource to use the matching OAuth credentials and service endpoint for the active Dimi environment.
 - Fix goal marker text overflowing terminal width.
 
 ### Polish
@@ -954,7 +954,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add custom color themes. Define your own palette as a JSON file in `~/.kimi-code/themes/`, or generate one with the built-in `/custom-theme` skill command.
+- Add custom color themes. Define your own palette as a JSON file in `~/.dimi/themes/`, or generate one with the built-in `/custom-theme` skill command.
 - Add `/import-from-cc-codex` to import selected Claude Code and Codex instructions, Skills, and MCP settings.
 - Show available plugin updates in the marketplace.
 
@@ -1003,18 +1003,18 @@ This page documents the changes in each Kimi Code CLI release.
 - Show full plan cards directly and remove the Plan card keyboard shortcut.
 - Wrap long single-line shell commands in approval prompts so the full command remains visible.
 - Rework file reference completion in the TUI.
-- Load Kimi-specific user Skills and global agent instructions from `KIMI_CODE_HOME` when it is set.
+- Load Dimi-specific user Skills and global agent instructions from `DIMI_CODE_HOME` when it is set.
 
 ## 0.11.0 (2026-06-05)
 
 ### Features
 
-- Add experimental sub-skill discovery gated by the `KIMI_CODE_EXPERIMENTAL_SUB_SKILL` environment variable. Ships the `sub-skill` builtin bundle (`sub-skill.review`, `sub-skill.consolidate`) for inventorying and consolidating skills into hierarchical groups.
+- Add experimental sub-skill discovery gated by the `DIMI_CODE_EXPERIMENTAL_SUB_SKILL` environment variable. Ships the `sub-skill` builtin bundle (`sub-skill.review`, `sub-skill.consolidate`) for inventorying and consolidating skills into hierarchical groups.
 - Add the following environment variables:
 
-  - `KIMI_MODEL_TEMPERATURE`, `KIMI_MODEL_TOP_P` — sampling parameters applied globally to any `kimi` provider (not tied to `KIMI_MODEL_NAME`).
-  - `KIMI_MODEL_THINKING_KEEP` — Moonshot preserved-thinking passthrough (`thinking.keep`), injected only while Thinking is on.
-  - `KIMI_CODE_NO_AUTO_UPDATE` (legacy alias `KIMI_CLI_NO_AUTO_UPDATE`) — fully disables the update preflight (no check, background install, or prompt).
+  - `DIMI_MODEL_TEMPERATURE`, `DIMI_MODEL_TOP_P` — sampling parameters applied globally to any `dimi` provider (not tied to `DIMI_MODEL_NAME`).
+  - `DIMI_MODEL_THINKING_KEEP` — Moonshot preserved-thinking passthrough (`thinking.keep`), injected only while Thinking is on.
+  - `DIMI_CODE_NO_AUTO_UPDATE` (legacy alias `DIMI_CLI_NO_AUTO_UPDATE`) — fully disables the update preflight (no check, background install, or prompt).
 - Show built-in skills as direct slash commands and group them ahead of external skill commands.
 
 ### Bug Fixes
@@ -1048,10 +1048,10 @@ This page documents the changes in each Kimi Code CLI release.
 ### Features
 
 - Users now can prepare several goals for the agent to work on sequentially. The agent will pick up the next goal from the queue once the current goal is completed. Use `/goal next <objective>` to queue a goal and `/goal next manage` to review and change the queue interactively.
-- Add the built-in `update-config` skill — you can now have Kimi edit its own config files.
+- Add the built-in `update-config` skill — you can now have Dimi edit its own config files.
 - Add persistent experimental feature toggles and a TUI panel that applies confirmed changes by reloading the current session.
 - Add `/reload` to reload the current session and apply updated config files, plus `/reload-tui` to reload only TUI preferences.
-- Add a doctor command for validating Kimi Code configuration files.
+- Add a doctor command for validating Dimi configuration files.
 
 ### Bug Fixes
 
@@ -1066,7 +1066,7 @@ This page documents the changes in each Kimi Code CLI release.
 ### Polish
 
 - Start automatic background updates as soon as startup's fresh update check finds a newer version.
-- Set the CLI process title to kimi-code during startup.
+- Set the CLI process title to dimi during startup.
 - Lowercase the stale file content message in edit tool errors.
 
 ### Refactors
@@ -1081,7 +1081,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add the `kimi acp` subcommand: kimi-code now speaks [Agent Client Protocol 0.23](https://agentclientprotocol.com/) over stdio so IDEs (Zed, JetBrains AI Chat, custom clients) can drive sessions directly — coverage matrix, Zed configuration and breaking pre-release notes are in [kimi acp Subcommand Page](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp.html).
+- Add the `dimi acp` subcommand: dimi now speaks [Agent Client Protocol 0.23](https://agentclientprotocol.com/) over stdio so IDEs (Zed, JetBrains AI Chat, custom clients) can drive sessions directly — coverage matrix, Zed configuration and breaking pre-release notes are in [dimi acp Subcommand Page](https://moonshotai.github.io/dimi/en/reference/dimi-acp.html).
 - Add `/btw` for side-channel conversations without steering the active main turn, and allow `/btw` to open the side-channel panel before entering a question.
 
 ### Bug Fixes
@@ -1105,20 +1105,20 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Add experimental goal mode for longer tasks that need more than one turn. Turn it on with `KIMI_CODE_EXPERIMENTAL_GOAL_COMMAND=1` before you start Kimi.
+- Add experimental goal mode for longer tasks that need more than one turn. Turn it on with `DIMI_CODE_EXPERIMENTAL_GOAL_COMMAND=1` before you start Dimi.
 
-  Use `/goal <objective>` in the TUI when you want Kimi to keep working on one task across turns. For example:
+  Use `/goal <objective>` in the TUI when you want Dimi to keep working on one task across turns. For example:
 
   ```text
   /goal Fix the failing checkout test
   ```
 
-  Kimi shows the goal in the TUI and keeps progress visible while it works. Use `/goal status`, `/goal pause`, `/goal resume`, `/goal cancel`, and `/goal replace <objective>` to manage the goal. This feature is still experimental. Try it and tell us what would make it more useful.
-- Add `kimi provider` CLI subcommand with `add`, `remove`, `list`, and `catalog list` / `catalog add` actions, so providers from a custom registry (api.json) or the public models.dev catalog can be imported and managed without launching the TUI.
+  Dimi shows the goal in the TUI and keeps progress visible while it works. Use `/goal status`, `/goal pause`, `/goal resume`, `/goal cancel`, and `/goal replace <objective>` to manage the goal. This feature is still experimental. Try it and tell us what would make it more useful.
+- Add `dimi provider` CLI subcommand with `add`, `remove`, `list`, and `catalog list` / `catalog add` actions, so providers from a custom registry (api.json) or the public models.dev catalog can be imported and managed without launching the TUI.
 - Add background structured questions so agents can continue while waiting for user answers.
 - Add background automatic upgrades, which can be disabled in tui.toml.
 - Add `/undo` slash command to withdraw the last prompt from conversation history, and keep replay records in sync when a prompt is undone.
-- Add a `kimi upgrade` command for manually checking and upgrade Kimi Code CLI.
+- Add a `dimi upgrade` command for manually checking and upgrade Dimi CLI.
 - Add approval lifecycle hook events for observing pending and completed permission prompts.
 - Allow subagents to use custom tools registered on their parent agent.
 - Allow glob searches to target explicit absolute paths outside the workspace.
@@ -1153,7 +1153,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 - Add `/provider` command for managing AI providers, support custom registry imports, and introduce a tabbed model selector. It replaces the deprecated `/connect` command — use `/provider` instead.
 - Render scheduled reminders distinctly in the TUI, expose cron fired events to SDK clients, and report cron fire times with local timezone offsets.
-- Add `KIMI_MODEL_ADAPTIVE_THINKING` (and a matching `adaptive_thinking` model-alias field) to force adaptive thinking (`thinking: { type: 'adaptive' }`) on or off, overriding the Anthropic model-name version inference. This lets custom-named compatible endpoints that back an adaptive-capable model opt in even when the model name does not encode a parseable Claude version.
+- Add `DIMI_MODEL_ADAPTIVE_THINKING` (and a matching `adaptive_thinking` model-alias field) to force adaptive thinking (`thinking: { type: 'adaptive' }`) on or off, overriding the Anthropic model-name version inference. This lets custom-named compatible endpoints that back an adaptive-capable model opt in even when the model name does not encode a parseable Claude version.
 
 ### Bug Fixes
 
@@ -1162,15 +1162,15 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Polish
 
-- Clarify Kimi Platform API key login labels and prompt details.
+- Clarify Dimi Platform API key login labels and prompt details.
 - Polish a small TUI visual interaction.
 
 ## 0.6.0 (2026-05-29)
 
 ### Features
 
-- Add a `KIMI_MODEL_*` environment-variable channel that lets you run Kimi Code against a specific model (provider type, base URL, API key, context size, capabilities, and thinking settings) without editing `config.toml`.
-- Install plugins directly from GitHub repository URLs, and surface each install's origin and trust level (kimi-official, curated, third-party) in the plugin manager.
+- Add a `DIMI_MODEL_*` environment-variable channel that lets you run Dimi against a specific model (provider type, base URL, API key, context size, capabilities, and thinking settings) without editing `config.toml`.
+- Install plugins directly from GitHub repository URLs, and surface each install's origin and trust level (dimi-official, curated, third-party) in the plugin manager.
 
 ### Bug Fixes
 
@@ -1191,7 +1191,7 @@ This page documents the changes in each Kimi Code CLI release.
 - Support querying sessions by sessionId or workDir in listSessions, and show a helpful cd command when resuming a session from a different working directory.
 - Expand the footer's rotating tips to surface more commands and shortcuts, featuring newer and important ones more prominently.
 - Improve the usage information display in the TUI.
-- Restrict plugin trust badges to Kimi-hosted plugin CDN URL patterns.
+- Restrict plugin trust badges to Dimi-hosted plugin CDN URL patterns.
 - Clarify subagent and background task stop messages as user-initiated.
 - Align the datasource plugin with the generic two-tool workflow.
 
@@ -1261,7 +1261,7 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Other
 
-- Enhance `kimi export` to include more diagnostic information in the manifest.
+- Enhance `dimi export` to include more diagnostic information in the manifest.
 
 ## 0.3.0 (2026-05-26)
 
@@ -1280,7 +1280,7 @@ This page documents the changes in each Kimi Code CLI release.
 - Hide the todo panel on resume when all todos are already completed.
 - Always emit a paired tool result when a tool returns a malformed or missing result, preventing the next request from failing with a missing tool_call_id error.
 - Fix Plan mode session resets so new sessions no longer fail after plan review rejection and continue receiving events after setup errors.
-- Exit promptly when the controlling terminal goes away. The TUI now handles `SIGHUP` / `SIGTERM` and stdout/stderr `EIO` / `EPIPE` / `ENOTCONN` errors, preventing leftover `kimi` processes that pin a CPU core after the parent shell or multiplexer dies unexpectedly.
+- Exit promptly when the controlling terminal goes away. The TUI now handles `SIGHUP` / `SIGTERM` and stdout/stderr `EIO` / `EPIPE` / `ENOTCONN` errors, preventing leftover `dimi` processes that pin a CPU core after the parent shell or multiplexer dies unexpectedly.
 - Avoid overly small local completion caps that can truncate reasoning before summaries are produced.
 
 ### Refactors
@@ -1299,7 +1299,7 @@ This page documents the changes in each Kimi Code CLI release.
 - The `/connect` provider and model pickers now support type-to-search filtering, and long lists are paginated. The `/model` picker is also paginated when many models are configured.
 - Add `Ctrl-J` as an additional shortcut for inserting new lines in the TUI prompt.
 - Add wire record migration handling during session replay.
-- Migrate user skills from `~/.kimi/skills/` to `~/.kimi-code/skills/` during the first-launch migration; existing target skills are kept.
+- Migrate user skills from `~/.dimi/skills/` to `~/.dimi/skills/` during the first-launch migration; existing target skills are kept.
 - Emit session resume hint as a structured meta message in stream-json output format.
 
 ### Bug Fixes
@@ -1315,7 +1315,7 @@ This page documents the changes in each Kimi Code CLI release.
 - Avoid CPU spikes from large streamed tool arguments and coalesce high-frequency streaming UI updates.
 - Resume sessions with a newer wire protocol version instead of failing. A warning is now shown in the TUI and records are replayed without migration.
 - Warn tmux users when extended key settings may prevent modified Enter shortcuts from working.
-- Let Kimi requests use the remaining context window for completion tokens by default while keeping explicit environment limits as hard caps.
+- Let Dimi requests use the remaining context window for completion tokens by default while keeping explicit environment limits as hard caps.
 
 ### Refactors
 
@@ -1324,4 +1324,4 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Other
 
-- When no models are configured, `/model` and the welcome panel now point users to `/login` (for Kimi) and `/connect` (for other providers).
+- When no models are configured, `/model` and the welcome panel now point users to `/login` (for Dimi) and `/connect` (for other providers).

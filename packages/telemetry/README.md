@@ -1,4 +1,4 @@
-# @moonshot-ai/kimi-telemetry
+# @dimi-agent/dimi-telemetry
 
 Shared telemetry infrastructure for Dimi.
 

@@ -65,7 +65,7 @@ const pluginCommandEntrySchema = z.object({
   name: z.string(),
 });
 
-const pluginManifestKindSchema = z.enum(['kimi-plugin-root', 'kimi-plugin-dir']);
+const pluginManifestKindSchema = z.enum(['dimi-plugin-root', 'dimi-plugin-dir']);
 
 const pluginSourceSchema = z.enum(['local-path', 'zip-url', 'github']);
 

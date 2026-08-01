@@ -26,8 +26,8 @@ runtime/**
 artifacts/**
 
 # Never package generated test/debug state
-**/.kimi/**
-**/.kimi-code/**
+**/.dimi/**
+**/.dimi/**
 **/cache/**
 **/caches/**
 **/credentials/**

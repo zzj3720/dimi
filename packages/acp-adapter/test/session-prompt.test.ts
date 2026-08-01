@@ -14,7 +14,7 @@ import {
   type WriteTextFileRequest,
   type WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
-import type { Event, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
+import type { Event, DimiHarness, Session } from '@dimi-agent/dimi-sdk';
 
 import { AcpServer } from '../src/server';
 import { makeAuth } from './_helpers/harness-stubs';
@@ -108,7 +108,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -156,7 +156,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -180,7 +180,7 @@ describe('AcpServer session/prompt', () => {
       createSession: async () => {
         throw new Error('createSession should not be called for unknown-id test');
       },
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -213,7 +213,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -243,7 +243,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -316,7 +316,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);
@@ -384,7 +384,7 @@ describe('AcpServer session/prompt', () => {
     const harness = {
       auth: makeAuth(),
       createSession: async () => session,
-    } as unknown as KimiHarness;
+    } as unknown as DimiHarness;
 
     const { agentStream, clientStream } = makeInMemoryStreamPair();
     new AgentSideConnection((c) => new AcpServer(harness, c), agentStream);

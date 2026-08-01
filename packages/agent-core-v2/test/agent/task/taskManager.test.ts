@@ -673,7 +673,7 @@ describe('AgentTaskService', () => {
   });
 
   it('stops appending persisted foreground output once the output limit trips', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-limit-fg-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'dimi-bg-limit-fg-'));
     try {
       const { manager } = createAgentTaskService({ sessionDir });
       const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
@@ -699,7 +699,7 @@ describe('AgentTaskService', () => {
   });
 
   it('stops appending persisted output once the output limit trips for a detached process task', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-limit-bg-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'dimi-bg-limit-bg-'));
     try {
       const { manager } = createAgentTaskService({ sessionDir });
       const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
@@ -725,7 +725,7 @@ describe('AgentTaskService', () => {
   });
 
   it('does not cap a detached subagent result larger than the process output limit', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-limit-agent-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'dimi-bg-limit-agent-'));
     try {
       const { manager } = createAgentTaskService({ sessionDir });
       const result = 'y'.repeat(20 * MiB);
@@ -1070,7 +1070,7 @@ describe('AgentTaskService', () => {
   });
 
   it('persists graceful process shutdown as killed when stop was requested', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-stop-race-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'dimi-bg-stop-race-'));
     try {
       const writer = createAgentTaskService({ sessionDir }).manager;
       const { proc, resolve } = manuallyResolvedProcess();
@@ -1276,7 +1276,7 @@ describe('AgentTaskService', () => {
   });
 
   it('getTask on an unknown id does not create persisted state', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-mgr-missing-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'dimi-bg-mgr-missing-'));
     try {
       const { manager, persistence } = createAgentTaskService({ sessionDir });
 

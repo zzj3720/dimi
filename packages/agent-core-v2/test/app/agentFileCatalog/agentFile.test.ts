@@ -4,7 +4,7 @@
  * `${base_prompt}`, `${plugin_sections}`, tool pass-through, explicit override
  * intent).
  * Pure-function level, no IO.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
+ * Run: `pnpm --filter @dimi-agent/agent-core-v2 exec vitest run
  * test/app/agentFileCatalog/agentFile.test.ts`.
  */
 

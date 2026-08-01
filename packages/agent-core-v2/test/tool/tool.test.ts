@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Readable, type Writable } from "node:stream";
 
 import { LifecycleScope, type IAgentScopeHandle } from "#/_base/di/scope";
-import { Event, type Event as KimiEvent } from "#/_base/event";
+import { Event, type Event as DimiEvent } from "#/_base/event";
 import { ILogService } from "#/_base/log/log";
 import { IFlagService } from "#/app/flag/flag";
 import { MASTER_ENV } from "#/app/flag/flagService";
@@ -337,9 +337,9 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     hooks: {
       onWillStartAgentTask: hookSlot(),
     },
-    onDidStopAgentTask: Event.None as KimiEvent<AgentTaskStopHookContext>,
-    onDidCreate: Event.None as KimiEvent<IAgentScopeHandle>,
-    onDidDispose: Event.None as KimiEvent<string>,
+    onDidStopAgentTask: Event.None as DimiEvent<AgentTaskStopHookContext>,
+    onDidCreate: Event.None as DimiEvent<IAgentScopeHandle>,
+    onDidDispose: Event.None as DimiEvent<string>,
     create: vi.fn(async (input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
@@ -1125,7 +1125,7 @@ describe("Agent tool execution contract", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain('Model "provider/bad" is not configured in config.toml.');
     expect(result.output).toContain(
-      "comes from [secondary_model].provider + model / KIMI_SECONDARY_MODEL",
+      "comes from [secondary_model].provider + model / DIMI_SECONDARY_MODEL",
     );
     expect(lifecycle.create).not.toHaveBeenCalled();
   });
@@ -1146,7 +1146,7 @@ describe("Agent tool execution contract", () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("MCP server failed to start");
-    expect(result.output).not.toContain("KIMI_SECONDARY_MODEL");
+    expect(result.output).not.toContain("DIMI_SECONDARY_MODEL");
   });
 
   it("mirrors v1-compatible subagent lifecycle event fields", async () => {

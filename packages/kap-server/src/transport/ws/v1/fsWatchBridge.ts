@@ -32,8 +32,8 @@ import {
   ISessionLifecycleService,
   ISessionWorkspaceContext,
   type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import type { FsChangeEntry, FsChangeEvent } from '@moonshot-ai/agent-core-v2/session/sessionFs/fsWatch';
+} from '@dimi-agent/agent-core-v2';
+import type { FsChangeEntry, FsChangeEvent } from '@dimi-agent/agent-core-v2/session/sessionFs/fsWatch';
 
 import type { EventEnvelope, JournalLogger } from './sessionEventJournal';
 

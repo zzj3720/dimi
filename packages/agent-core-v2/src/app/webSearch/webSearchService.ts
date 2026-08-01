@@ -4,11 +4,11 @@
  * Resolves the `WebSearch` backend from two sources, in precedence order:
  * (1) an explicit `[services.moonshot_search]` config section (read through
  * `config`, mirroring v1 where that section is the single authoritative
- * web-search source) — built with its API key and the active Kimi credential;
+ * web-search source) — built with its API key and the active Dimi credential;
  * and (2) the authenticated `kimi-coding` provider, whose base URL is derived
  * from the runtime model catalog. The explicit config wins. Both use the
- * host's Kimi identity headers (`IHostRequestHeaders`,
- * mirroring v1's `kimiRequestHeaders`) as default headers. When neither source
+ * host's Dimi identity headers (`IHostRequestHeaders`,
+ * mirroring v1's `dimiRequestHeaders`) as default headers. When neither source
  * is configured it yields `undefined` so the contributed `WebSearch` tool
  * stays hidden. Owns no tool registration — the `WebSearch` tool contributes
  * itself via `registerAgentToolService(...)` and reads this service from the
@@ -73,7 +73,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
           Object.entries(auth?.headers ?? {})
             .find(([name]) => name.toLowerCase() === "authorization")?.[1]
             ?.match(/^Bearer\s+(.+)$/iu)?.[1];
-        if (token === undefined) throw new Error("Kimi provider is not authenticated.");
+        if (token === undefined) throw new Error("Dimi provider is not authenticated.");
         return token;
       },
     };

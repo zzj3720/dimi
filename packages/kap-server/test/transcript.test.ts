@@ -24,7 +24,7 @@ import {
   type ContextMessage,
   type DomainEvent,
   type ScopeSeed,
-} from '@moonshot-ai/agent-core-v2';
+} from '@dimi-agent/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -123,7 +123,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
   let seeds: ScopeSeed | undefined;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-transcript-'));
+    home = await mkdtemp(join(tmpdir(), 'dimi-server-v2-transcript-'));
     // Seed a stub IModelCatalog so the agent scope can instantiate if a
     // transitive service needs it; the transcript route itself does not.
     const modelCatalog: IModelCatalog = {

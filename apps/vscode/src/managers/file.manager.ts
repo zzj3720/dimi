@@ -73,7 +73,7 @@ export class FileManager {
 
     const refresh = (uri: vscode.Uri) => {
       void this.onFileChange(uri).catch((error) => {
-        console.error("[kimi-vscode] Unable to refresh file changes", error);
+        console.error("[dimi-vscode] Unable to refresh file changes", error);
       });
     };
     watcher.onDidChange(refresh);

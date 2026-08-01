@@ -3,7 +3,7 @@
  *
  * Implements `/api/v1/config` on top of `agent-core-v2`'s
  * section-registry `IConfigService`:
- *   GET  /config   — global Kimi configuration, secrets redacted
+ *   GET  /config   — global Dimi configuration, secrets redacted
  *   POST /config   — update global configuration (merge semantics)
  *
  * The config service is a per-domain registry (`get(domain)` /
@@ -21,7 +21,7 @@
  * response (the schema contract) is unaffected.
  */
 
-import { IConfigService, IEventService, type Scope } from "@moonshot-ai/agent-core-v2";
+import { IConfigService, IEventService, type Scope } from "@dimi-agent/agent-core-v2";
 
 import { errEnvelope, okEnvelope } from "../envelope";
 import { requestLog } from "../lib/requestLog";
@@ -52,7 +52,7 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       method: "GET",
       path: "/config",
       success: { data: configResponseSchema },
-      description: "Get the global Kimi configuration (secrets redacted)",
+      description: "Get the global Dimi configuration (secrets redacted)",
       tags: ["config"],
     },
     async (req, reply) => {
@@ -76,7 +76,7 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
       },
-      description: "Update the global Kimi configuration (merge semantics)",
+      description: "Update the global Dimi configuration (merge semantics)",
       tags: ["config"],
     },
     async (req, reply) => {

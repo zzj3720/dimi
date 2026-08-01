@@ -14,7 +14,7 @@ import {
 
 describe("model catalog schemas", () => {
   const model: ModelCatalogItem = {
-    provider: "kimi",
+    provider: "dimi",
     model: "k2",
     display_name: "Kimi K2",
     max_context_size: 131072,
@@ -22,8 +22,8 @@ describe("model catalog schemas", () => {
   };
 
   const provider: ProviderCatalogItem = {
-    id: "kimi",
-    name: "Kimi",
+    id: "dimi",
+    name: "Dimi",
     base_url: "https://api.example.test/v1",
     default_model: "k2",
     auth_methods: ["oauth", "api_key"],

@@ -1,4 +1,4 @@
-import { KimiMascot } from "./KimiMascot";
+import { DimiMascot } from "./DimiMascot";
 import { useWelcomeHint } from "@/hooks/useWelcomeHint";
 
 export function WelcomeScreen() {
@@ -6,7 +6,7 @@ export function WelcomeScreen() {
 
   return (
     <div className="flex flex-col items-center gap-3 px-4">
-      <KimiMascot className="h-12" />
+      <DimiMascot className="h-12" />
       {hint.component ? (
         hint.component
       ) : (

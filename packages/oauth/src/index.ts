@@ -13,27 +13,27 @@ export type { DevicePollResult, RefreshOptions } from "./oauth";
 export { pollDeviceToken, refreshAccessToken, requestDeviceAuthorization } from "./oauth";
 
 export {
-  assertKimiHostIdentity,
-  createKimiDefaultHeaders,
-  createKimiDeviceHeaders,
-  createKimiDeviceId,
-  createKimiUserAgent,
-  KIMI_CODE_CUSTOM_HEADERS_ENV,
-  KIMI_CODE_PLATFORM,
-  parseKimiCodeCustomHeaders,
-  readKimiDeviceId,
+  assertDimiHostIdentity,
+  createDimiDefaultHeaders,
+  createDimiDeviceHeaders,
+  createDimiDeviceId,
+  createDimiUserAgent,
+  DIMI_CODE_CUSTOM_HEADERS_ENV,
+  DIMI_CODE_PLATFORM,
+  parseDimiCodeCustomHeaders,
+  readDimiDeviceId,
 } from "./identity";
-export type { KimiHostIdentity, KimiIdentityOptions } from "./identity";
+export type { DimiHostIdentity, DimiIdentityOptions } from "./identity";
 
-export { KIMI_CODE_FLOW_CONFIG } from "./constants";
+export { DIMI_CODE_FLOW_CONFIG } from "./constants";
 
-export { KIMI_CODE_OAUTH_KEY, resolveKimiCodeOAuthKey } from "./credential-key";
+export { DIMI_CODE_OAUTH_KEY, resolveDimiCodeOAuthKey } from "./credential-key";
 
 export {
   fetchManagedUsage,
   formatDuration,
-  kimiCodeBaseUrl,
-  kimiCodeUsageUrl,
+  dimiCodeBaseUrl,
+  dimiCodeUsageUrl,
   parseManagedUsagePayload,
 } from "./managed-usage";
 export type {
@@ -44,7 +44,7 @@ export type {
   UsageWindow,
 } from "./managed-usage";
 
-export { fetchSubmitFeedback, kimiCodeFeedbackUrl } from "./managed-feedback";
+export { fetchSubmitFeedback, dimiCodeFeedbackUrl } from "./managed-feedback";
 export type {
   FetchSubmitFeedbackError,
   FetchSubmitFeedbackOk,
@@ -55,8 +55,8 @@ export type {
 export {
   fetchCompleteFeedbackUpload,
   fetchCreateFeedbackUploadUrl,
-  kimiCodeFeedbackUploadCompleteUrl,
-  kimiCodeFeedbackUploadUrl,
+  dimiCodeFeedbackUploadCompleteUrl,
+  dimiCodeFeedbackUploadUrl,
 } from "./managed-feedback-upload";
 export type {
   CompleteFeedbackUploadBody,

@@ -22,13 +22,13 @@ describe('skillRoots', () => {
   }
 
   describe('projectRoots', () => {
-    it('resolves the brand .kimi-code/skills directory at the .git root', async () => {
+    it('resolves the brand .dimi/skills directory at the .git root', async () => {
       await markGitRoot();
-      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
+      await mkdir(join(root, '.dimi/skills/commit'), { recursive: true });
 
       const roots = await projectRoots(root);
 
-      expect(roots.some((r) => r.path.endsWith('.kimi-code/skills') && r.source === 'project')).toBe(
+      expect(roots.some((r) => r.path.endsWith('.dimi/skills') && r.source === 'project')).toBe(
         true,
       );
     });
@@ -42,27 +42,27 @@ describe('skillRoots', () => {
       expect(roots.some((r) => r.path.endsWith('.agents/skills') && r.source === 'project')).toBe(
         true,
       );
-      expect(roots.some((r) => r.path.endsWith('.kimi-code/skills'))).toBe(false);
+      expect(roots.some((r) => r.path.endsWith('.dimi/skills'))).toBe(false);
     });
 
     it('walks up from a child directory to the .git root', async () => {
       await markGitRoot();
-      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
+      await mkdir(join(root, '.dimi/skills/commit'), { recursive: true });
       const child = join(root, 'src/pkg');
       await mkdir(child, { recursive: true });
 
       const roots = await projectRoots(child);
 
-      expect(roots.some((r) => r.path.endsWith('.kimi-code/skills'))).toBe(true);
+      expect(roots.some((r) => r.path.endsWith('.dimi/skills'))).toBe(true);
     });
 
     it('orders the brand directory before the generic directory', async () => {
       await markGitRoot();
-      await mkdir(join(root, '.kimi-code/skills'), { recursive: true });
+      await mkdir(join(root, '.dimi/skills'), { recursive: true });
       await mkdir(join(root, '.agents/skills'), { recursive: true });
 
       const roots = await projectRoots(root);
-      const brandIdx = roots.findIndex((r) => r.path.endsWith('.kimi-code/skills'));
+      const brandIdx = roots.findIndex((r) => r.path.endsWith('.dimi/skills'));
       const genericIdx = roots.findIndex((r) => r.path.endsWith('.agents/skills'));
 
       expect(brandIdx).toBeGreaterThanOrEqual(0);

@@ -14,25 +14,25 @@ import {
   nullTelemetryAppender,
   type AgentContextData,
   type ExperimentalFeatureState,
-} from "@moonshot-ai/agent-core-v2";
-import { encodeWorkDirKey } from "@moonshot-ai/agent-core-v2/_base/utils/workdir-slug";
-import { MCP_SECTION, type McpSection } from "@moonshot-ai/agent-core-v2/agent/mcp/configSection";
-import { McpConnectionManager } from "@moonshot-ai/agent-core-v2/agent/mcp/connection-manager";
+} from "@dimi-agent/agent-core-v2";
+import { encodeWorkDirKey } from "@dimi-agent/agent-core-v2/_base/utils/workdir-slug";
+import { MCP_SECTION, type McpSection } from "@dimi-agent/agent-core-v2/agent/mcp/configSection";
+import { McpConnectionManager } from "@dimi-agent/agent-core-v2/agent/mcp/connection-manager";
 import {
   AlreadyAuthorizedError,
   McpOAuthService,
   type BeginAuthorizationResult,
-} from "@moonshot-ai/agent-core-v2/agent/mcp/oauth/service";
-import { createMcpOAuthStore } from "@moonshot-ai/agent-core-v2/agent/mcp/oauth/store";
-import { SECONDARY_MODEL_SECTION } from "@moonshot-ai/agent-core-v2/app/providerRuntime/configSection";
-import { IAtomicDocumentStore } from "@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore";
-import { wrapSubagentModelError } from "@moonshot-ai/agent-core-v2/session/subagent/configSection";
+} from "@dimi-agent/agent-core-v2/agent/mcp/oauth/service";
+import { createMcpOAuthStore } from "@dimi-agent/agent-core-v2/agent/mcp/oauth/store";
+import { SECONDARY_MODEL_SECTION } from "@dimi-agent/agent-core-v2/app/providerRuntime/configSection";
+import { IAtomicDocumentStore } from "@dimi-agent/agent-core-v2/persistence/interface/atomicDocumentStore";
+import { wrapSubagentModelError } from "@dimi-agent/agent-core-v2/session/subagent/configSection";
 import {
   applyPromptMetadataUpdate,
   bootstrap,
   BUILTIN_SKILLS,
   DEFAULT_AGENT_PROFILE_NAME,
-  ensureKimiHome,
+  ensureDimiHome,
   ensureMainAgent,
   IAgentActivityView,
   IAgentContextMemoryService,
@@ -86,7 +86,7 @@ import {
   promptMetadataTextFromSkill,
   resolveAgentTaskConfig,
   resolveConfigPath,
-  resolveKimiHome,
+  resolveDimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   skillCatalogRuntimeOptionsSeed,
@@ -98,15 +98,15 @@ import {
   type Scope,
   type SecondaryModelConfig,
   type ServicesAccessor,
-} from "@moonshot-ai/agent-core-v2";
-import type { AgentHandle, Klient } from "@moonshot-ai/klient";
-import { createKlient } from "@moonshot-ai/klient/memory";
-import { assertKimiHostIdentity, createKimiDefaultHeaders } from "@moonshot-ai/kimi-code-oauth";
+} from "@dimi-agent/agent-core-v2";
+import type { AgentHandle, Klient } from "@dimi-agent/klient";
+import { createKlient } from "@dimi-agent/klient/memory";
+import { assertDimiHostIdentity, createDimiDefaultHeaders } from "@dimi-agent/dimi-oauth";
 
 import { ProviderAuthFacade } from "#/auth";
-import { isKimiError, KimiError } from "#/errors";
+import { isDimiError, DimiError } from "#/errors";
 import { ImageLimits, type ImageLimitsConfig } from "#/image-limits";
-import { KimiHarness } from "#/kimi-harness";
+import { DimiHarness } from "#/dimi-harness";
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -141,10 +141,10 @@ import type {
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
-  KimiConfig,
-  KimiConfigPatch,
-  KimiHarnessOptions,
-  KimiHostIdentity,
+  DimiConfig,
+  DimiConfigPatch,
+  DimiHarnessOptions,
+  DimiHostIdentity,
   ListSessionsOptions,
   McpServerConfig,
   McpServerInfo,
@@ -169,7 +169,7 @@ import type {
 
 import {
   diagnosticsToConfigDiagnostics,
-  resolvedConfigToKimiConfig,
+  resolvedConfigToDimiConfig,
 } from "#/runtime/config-mapper";
 import { translateGlobalEvent } from "#/runtime/event-mapper";
 import { assertImportFits, buildImportContextMessage } from "#/runtime/import-context";
@@ -186,7 +186,7 @@ import { SessionEventWiring } from "#/runtime/session-wiring";
 export interface SDKRpcClientOptions {
   readonly homeDir?: string;
   readonly configPath?: string;
-  readonly identity?: KimiHostIdentity;
+  readonly identity?: DimiHostIdentity;
   /**
    * Explicit skill directories for this process (v1's SDK `skillDirs` /
    * the CLI's `--skills-dir`): when non-empty, default user / project skill
@@ -216,7 +216,7 @@ const DEFAULT_GLOBAL_MCP_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 export class SDKRpcClient extends SDKRpcClientBase {
   readonly homeDir: string;
   readonly configPath: string;
-  readonly identity: KimiHostIdentity | undefined;
+  readonly identity: DimiHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
   readonly auth: ProviderAuthFacade;
   readonly klient: Klient;
@@ -275,13 +275,13 @@ export class SDKRpcClient extends SDKRpcClientBase {
   constructor(options: SDKRpcClientOptions = {}) {
     super();
     this.identity =
-      options.identity === undefined ? undefined : assertKimiHostIdentity(options.identity);
-    this.homeDir = resolveKimiHome(options.homeDir);
+      options.identity === undefined ? undefined : assertDimiHostIdentity(options.identity);
+    this.homeDir = resolveDimiHome(options.homeDir);
     this.configPath = resolveConfigPath({
       homeDir: this.homeDir,
       configPath: options.configPath,
     });
-    ensureKimiHome(this.homeDir);
+    ensureDimiHome(this.homeDir);
     this.telemetry = options.telemetry ?? nullTelemetryAppender;
 
     const { app } = bootstrap(
@@ -295,7 +295,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
         ...hostRequestHeadersSeed(
           this.identity === undefined
             ? {}
-            : createKimiDefaultHeaders({ homeDir: this.homeDir, ...this.identity }),
+            : createDimiDefaultHeaders({ homeDir: this.homeDir, ...this.identity }),
         ),
         // `--skills-dir` (v1 parity): explicit skill dirs replace default
         // user / project discovery for every session this client hosts.
@@ -348,7 +348,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await open(this.configPath, "wx", 0o600);
-      await handle.writeFile("# Kimi Code runtime settings.\n", "utf-8");
+      await handle.writeFile("# Dimi runtime settings.\n", "utf-8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     } finally {
@@ -371,7 +371,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
 
   /**
    * Forward engine telemetry to the host-supplied client. Without this the
-   * client only served `KimiHarness`-level events and every engine-side event
+   * client only served `DimiHarness`-level events and every engine-side event
    * (`track2` facts from agent/session scopes) was dropped on the v2 route.
    * The `ITelemetryAppender` shape is a structural superset of the v1
    * `TelemetryClient`, so the client installs directly. The `telemetry`
@@ -448,18 +448,18 @@ export class SDKRpcClient extends SDKRpcClientBase {
   }
 
   /**
-   * v1 returns the whole config.toml document as one `KimiConfig`; v2
+   * v1 returns the whole config.toml document as one `DimiConfig`; v2
    * resolves the same file per config domain. `getAll()` is the effective
    * view (file + env overlays + section defaults), which matches v1's
-   * runtime config (`loadRuntimeConfigSafe` + the KIMI_MODEL_* overlay);
+   * runtime config (`loadRuntimeConfigSafe` + the DIMI_MODEL_* overlay);
    * `reload` mirrors v1's re-read-from-disk option.
    */
-  override async getConfig(options?: GetConfigOptions): Promise<KimiConfig> {
+  override async getConfig(options?: GetConfigOptions): Promise<DimiConfig> {
     await this.configReady;
     if (options?.reload) {
       await this.klient.global.config.reload();
     }
-    return resolvedConfigToKimiConfig(await this.klient.global.config.getAll());
+    return resolvedConfigToDimiConfig(await this.klient.global.config.getAll());
   }
 
   override async getConfigDiagnostics(): Promise<ConfigDiagnostics> {
@@ -474,7 +474,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
    * Unknown-to-v2 fields (`yolo`, `planMode`, `telemetry`, ...) persist as
    * unregistered pass-through domains, like v1's schema keeping them.
    */
-  override async setConfig(patch: KimiConfigPatch): Promise<KimiConfig> {
+  override async setConfig(patch: DimiConfigPatch): Promise<DimiConfig> {
     await this.configReady;
     try {
       for (const [domain, domainPatch] of Object.entries(patch)) {
@@ -482,8 +482,8 @@ export class SDKRpcClient extends SDKRpcClientBase {
         await this.klient.global.config.set({ domain, patch: domainPatch });
       }
     } catch (error) {
-      if (isKimiError(error)) throw error;
-      throw new KimiError(ErrorCodes.CONFIG_INVALID, "Invalid config patch", { cause: error });
+      if (isDimiError(error)) throw error;
+      throw new DimiError(ErrorCodes.CONFIG_INVALID, "Invalid config patch", { cause: error });
     }
     return this.getConfig();
   }
@@ -561,8 +561,8 @@ export class SDKRpcClient extends SDKRpcClientBase {
   }
 
   /** v1's `requireSession` / store lookup failure shape. */
-  private static sessionNotFound(sessionId: string): KimiError {
-    return new KimiError(ErrorCodes.SESSION_NOT_FOUND, `Session "${sessionId}" was not found`, {
+  private static sessionNotFound(sessionId: string): DimiError {
+    return new DimiError(ErrorCodes.SESSION_NOT_FOUND, `Session "${sessionId}" was not found`, {
       details: { sessionId },
     });
   }
@@ -788,7 +788,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
         this.sessionLifecycle.get(input.id) ??
         (await this.engineAccessor.get(ISessionIndex).get(input.id));
       if (existing !== undefined) {
-        throw new KimiError(
+        throw new DimiError(
           ErrorCodes.SESSION_ALREADY_EXISTS,
           `Session "${input.id}" already exists`,
         );
@@ -835,7 +835,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   override async renameSession(input: RenameSessionInput): Promise<void> {
     const title = input.title.trim();
     if (title.length === 0) {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, "Session title cannot be empty");
+      throw new DimiError(ErrorCodes.REQUEST_INVALID, "Session title cannot be empty");
     }
     if (this.sessionLifecycle.get(input.id) !== undefined) {
       await this.klient.session(input.id).setTitle(title);
@@ -913,7 +913,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     if (live !== undefined) {
       for (const agent of live.accessor.get(IAgentLifecycleService).list()) {
         if (agent.accessor.get(IAgentActivityView).state().turn !== undefined) {
-          throw new KimiError(
+          throw new DimiError(
             ErrorCodes.TURN_AGENT_BUSY,
             `Session "${sessionId}" cannot be reloaded while a turn is running`,
             { details: { sessionId } },
@@ -1067,7 +1067,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
     if (agentId === MAIN_AGENT_ID) return this.materializeMainAgent(session);
     const agent = session.accessor.get(IAgentLifecycleService).get(agentId);
     if (agent === undefined) {
-      throw new KimiError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" was not found`);
+      throw new DimiError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" was not found`);
     }
     return agent;
   }
@@ -1127,7 +1127,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
       .get(IConfigService)
       .get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION);
     if (secondary?.model === undefined) {
-      throw new KimiError(
+      throw new DimiError(
         ErrorCodes.CONFIG_INVALID,
         "Cannot set the secondary model: persist its recipe before applying it to a session.",
       );
@@ -1291,7 +1291,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
       agent.accessor.get(IAgentLoopService).status().state === "running" ||
       agent.accessor.get(IAgentFullCompactionService).compacting !== null
     ) {
-      throw new KimiError(
+      throw new DimiError(
         ErrorCodes.TURN_AGENT_BUSY,
         "Cannot import context while the agent is busy",
       );
@@ -1837,7 +1837,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
   ): Promise<void> {
     const active = this.globalMcpOAuthFlows.get(input.flowId);
     if (active === undefined) {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${input.flowId}`);
+      throw new DimiError(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${input.flowId}`);
     }
     try {
       await active.flow.complete({
@@ -1925,9 +1925,9 @@ export class SDKRpcClient extends SDKRpcClientBase {
   }
 }
 
-export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
+export function createDimiHarness(options: DimiHarnessOptions): DimiHarness {
   const rpc = new SDKRpcClient(options);
-  return new KimiHarness(rpc, {
+  return new DimiHarness(rpc, {
     identity: rpc.identity,
     uiMode: options.uiMode,
     homeDir: rpc.homeDir,
@@ -1944,7 +1944,7 @@ export function createKimiHarness(options: KimiHarnessOptions): KimiHarness {
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: string): string {
   if (typeof workDir !== "string" || workDir.trim() === "") {
-    throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
+    throw new DimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
   }
   return normalizeWorkDir(workDir);
 }

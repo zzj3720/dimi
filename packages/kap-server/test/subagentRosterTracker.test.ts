@@ -17,7 +17,7 @@ function spawn(subagentId: string, extra: Record<string, unknown> = {}): Event {
   return ev({
     type: 'subagent.spawned',
     subagentId,
-    subagentName: 'kimi-subagent',
+    subagentName: 'dimi-subagent',
     parentToolCallId: 'tc_swarm_1',
     description: `task ${subagentId}`,
     swarmIndex: 0,
@@ -39,7 +39,7 @@ describe('SubagentRosterTracker', () => {
         description: 'task agent-1',
         status: 'running',
         subagent_phase: 'queued',
-        subagent_type: 'kimi-subagent',
+        subagent_type: 'dimi-subagent',
         parent_tool_call_id: 'tc_swarm_1',
         swarm_index: 2,
         run_in_background: false,

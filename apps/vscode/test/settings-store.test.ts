@@ -152,7 +152,7 @@ describe("Webview model settings persistence", () => {
 describe("Webview model metadata", () => {
   it("keeps same-named models in separate provider groups", () => {
     const groups = groupModelsByProvider([
-      { id: "kimi/shared", name: "Shared", provider: "kimi-coding", capabilities: [] },
+      { id: "dimi/shared", name: "Shared", provider: "kimi-coding", capabilities: [] },
       { id: "proxy/shared", name: "Shared", provider: "company-proxy", capabilities: [] },
     ]);
 
@@ -164,7 +164,7 @@ describe("Webview model metadata", () => {
       })),
     ).toEqual([
       { provider: "company-proxy", label: "company-proxy", models: ["proxy/shared"] },
-      { provider: "kimi-coding", label: "Kimi Code", models: ["kimi/shared"] },
+      { provider: "kimi-coding", label: "Dimi", models: ["dimi/shared"] },
     ]);
   });
 
@@ -306,7 +306,7 @@ describe("Webview thinking mode parity with the TUI", () => {
     expect(getModelThinkingMode({ ...base, capabilities: ["always_thinking"] })).toBe("always");
     expect(getModelThinkingMode({ ...base, capabilities: ["thinking"] })).toBe("switch");
     expect(getModelThinkingMode({ ...base, adaptive_thinking: true })).toBe("switch");
-    expect(getModelThinkingMode({ ...base, name: "Kimi Thinking Pro" })).toBe("none");
+    expect(getModelThinkingMode({ ...base, name: "Dimi Thinking Pro" })).toBe("none");
     expect(getModelThinkingMode(base)).toBe("none");
   });
 });

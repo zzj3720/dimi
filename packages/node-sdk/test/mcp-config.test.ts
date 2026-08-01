@@ -2,7 +2,7 @@
  * Scenario: a host manages and checks user-global MCP servers without a session.
  * Responsibilities: global-only CRUD, safe malformed-file handling, standalone
  * connection checks, and host-driven OAuth URL/cancellation orchestration.
- * Wiring: real KimiHarness/Core/filesystem and stdio transport; only the OAuth
+ * Wiring: real DimiHarness/Core/filesystem and stdio transport; only the OAuth
  * RPC boundary is stubbed so no external authorization service is contacted.
  * Run: pnpm exec vitest run packages/node-sdk/test/mcp-config.test.ts
  */
@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  createKimiHarness,
-  KimiHarness,
+  createDimiHarness,
+  DimiHarness,
   SDKRpcClientBase,
 } from '#/index';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,7 +30,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-mcp-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimi-sdk-mcp-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -59,7 +59,7 @@ describe('global MCP configuration (persisted user entries)', () => {
       JSON.stringify({ mcpServers: { project: { command: 'project-command' } } }),
       'utf-8',
     );
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await expect(harness.listMcpServers()).resolves.toEqual([
@@ -76,7 +76,7 @@ describe('global MCP configuration (persisted user entries)', () => {
       custom: { keep: true },
       mcpServers: { existing: { command: 'existing-command' } },
     });
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.addMcpServer({
@@ -102,7 +102,7 @@ describe('global MCP configuration (persisted user entries)', () => {
     await writeMcpConfig(homeDir, {
       mcpServers: { docs: { command: 'old-command', args: ['old'] } },
     });
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.updateMcpServer({
@@ -131,7 +131,7 @@ describe('global MCP configuration (persisted user entries)', () => {
         keep: { command: 'keep-command' },
       },
     });
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.removeMcpServer('remove');
@@ -148,7 +148,7 @@ describe('global MCP configuration (persisted user entries)', () => {
     const homeDir = await makeTempDir();
     const malformed = '{ not valid json';
     await writeFile(join(homeDir, 'mcp.json'), malformed, 'utf-8');
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await expect(
@@ -168,7 +168,7 @@ describe('global MCP configuration (persisted user entries)', () => {
 describe('standalone MCP check (connection result)', () => {
   it('reports discovered tools when a stdio server connects', async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.addMcpServer({
@@ -189,7 +189,7 @@ describe('standalone MCP check (connection result)', () => {
 
   it('returns a failed result when the stdio executable is missing', async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.addMcpServer({
@@ -211,7 +211,7 @@ describe('standalone MCP check (connection result)', () => {
 describe('MCP OAuth facade (host-controlled browser flow)', () => {
   it('resets authorization for a configured remote server', async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.addMcpServer({
@@ -228,7 +228,7 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
 
   it('rejects authorization when the configured server uses stdio', async () => {
     const homeDir = await makeTempDir();
-    const harness = createKimiHarness({ homeDir });
+    const harness = createDimiHarness({ homeDir });
 
     try {
       await harness.addMcpServer({
@@ -314,10 +314,10 @@ class OAuthRpc extends SDKRpcClientBase {
   }
 }
 
-function oauthHarness(rpc: OAuthRpc): KimiHarness {
-  return new KimiHarness(rpc, {
-    homeDir: '/tmp/kimi-sdk-mcp-oauth-home',
-    configPath: '/tmp/kimi-sdk-mcp-oauth-home/config.toml',
+function oauthHarness(rpc: OAuthRpc): DimiHarness {
+  return new DimiHarness(rpc, {
+    homeDir: '/tmp/dimi-sdk-mcp-oauth-home',
+    configPath: '/tmp/dimi-sdk-mcp-oauth-home/config.toml',
     auth: {} as never,
     telemetry: { track: () => undefined },
     ensureConfigFile: async () => undefined,

@@ -160,7 +160,7 @@ describe("LLMRequester service migration coverage", () => {
       });
     });
 
-    it("records the resolved Kimi thinking keep default when thinking is enabled", async () => {
+    it("records the resolved Dimi thinking keep default when thinking is enabled", async () => {
       ctx.configure({
         modelCapabilities: {
           image_in: false,
@@ -183,9 +183,9 @@ describe("LLMRequester service migration coverage", () => {
       });
     });
 
-    it("records the env-forced Kimi effort used by the provider", async () => {
+    it("records the env-forced Dimi effort used by the provider", async () => {
       await ctx.dispose();
-      vi.stubEnv("KIMI_MODEL_THINKING_EFFORT", "max");
+      vi.stubEnv("DIMI_MODEL_THINKING_EFFORT", "max");
       ctx = createTestAgent();
       llmRequester = ctx.get(IAgentLLMRequesterService);
       ctx.configure({
@@ -638,7 +638,7 @@ describe("LLMRequester service migration coverage", () => {
     it("forwards the session id as the per-turn cache-key intent", async () => {
       // The engine half of the cache-key probe: the same session's id reaches
       // the composed provider as GenerateOptions.cacheKey. How each dialect
-      // encodes it (Kimi `prompt_cache_key`, Anthropic `metadata.user_id`) is
+      // encodes it (Dimi `prompt_cache_key`, Anthropic `metadata.user_id`) is
       // asserted at the provider runtime composition layer.
       await llmRequester.request();
 
