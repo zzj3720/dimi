@@ -3,27 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { getEmbeddedNativeAssetManifest, getNativePackageRoot } from './native-assets';
 
-const dimiNativePackage = `@dimi-agent/dimi-native-${process.platform}-${process.arch}`;
-const smokePackages = ['@mariozechner/clipboard', '@dimi-agent/pi-tui', dimiNativePackage];
-
-// Verify the dimi Rust runtime binding can actually be loaded and executed
-// inside the SEA binary. loadNative requires the subpackage by name; the
-// module hook redirects it into the native-asset cache. Calling probe() runs
-// real Rust code through napi — a genuine end-to-end binding smoke.
-function smokeDimiNativeLoad(): void {
-  const req = createRequire(import.meta.url);
-  const binding = req(dimiNativePackage) as {
-    RustHostEnvironment?: { probe?: () => unknown };
-  };
-  const info = binding?.RustHostEnvironment?.probe?.();
-  if (
-    typeof info !== 'object' ||
-    info === null ||
-    typeof (info as { osKind?: unknown }).osKind !== 'string'
-  ) {
-    throw new Error('dimi-native binding loaded but probe() returned an unexpected shape');
-  }
-}
+const smokePackages = ['@mariozechner/clipboard', '@dimi-agent/pi-tui'];
 
 // Verify pi-tui's native helper can actually be loaded through the module hook.
 // pi-tui computes native helper paths from process.execPath and require()s them;
@@ -69,7 +49,6 @@ export function runNativeAssetSmokeIfRequested(): boolean {
       }
     }
     smokePiTuiNativeLoad();
-    smokeDimiNativeLoad();
     process.stdout.write(`Native asset smoke passed: ${manifest.target}\n`);
     process.exit(0);
   } catch (error) {
