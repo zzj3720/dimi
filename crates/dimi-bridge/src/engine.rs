@@ -14,7 +14,7 @@
 
 use napi_derive::napi;
 
-use dimi_engine::aimux::{AimuxLlmClient, unimplemented_model};
+use dimi_engine::aimux::{AimuxLlmClient, openai_model};
 use dimi_engine::events::EngineEvent;
 use dimi_engine::llm::{LlmClient, LlmStreamEvent, ScriptedLlmClient};
 use dimi_engine::tool::{BashTool, ToolExecutor};
@@ -59,7 +59,7 @@ impl RustEngine {
                 Box::new(ScriptedLlmClient::new(segments))
             }
             None => Box::new(AimuxLlmClient {
-                model: Box::new(unimplemented_model()),
+                model: openai_model(&input.provider),
             }),
         };
         let tools: Box<dyn ToolExecutor> = Box::new(BashTool);

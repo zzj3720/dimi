@@ -88,27 +88,27 @@ function projectFields(events: EngineEventLike[]): EngineEventLike[] {
     const out: EngineEventLike = { type: event.type };
     switch (event.type) {
       case 'turn.started':
-        return { type: 'turn.started', turnId: event.turnId, prompt: event.prompt };
+        return { type: 'turn.started', turnId: event['turnId'], prompt: event['prompt'] };
       case 'turn.ended':
-        return { type: 'turn.ended', turnId: event.turnId, reason: event.reason };
+        return { type: 'turn.ended', turnId: event['turnId'], reason: event['reason'] };
       case 'turn.step.completed':
         return {
           type: 'turn.step.completed',
-          turnId: event.turnId,
-          step: event.step,
-          finishReason: event.finishReason,
+          turnId: event['turnId'],
+          step: event['step'],
+          finishReason: event['finishReason'],
         };
       case 'assistant.delta':
       case 'thinking.delta':
-        return { type: event.type, delta: event.delta };
+        return { type: event.type, delta: event['delta'] };
       case 'tool.result':
         // The tool executors differ (TS fake vs Rust Bash); the differential
         // is about orchestration, so normalize the output payload.
         return {
           type: 'tool.result',
-          toolCallId: event.toolCallId,
+          toolCallId: event['toolCallId'],
           output: '<tool-output>',
-          isError: event.isError === true,
+          isError: event['isError'] === true,
         };
       default:
         return out;

@@ -219,6 +219,18 @@ fn parse_reasoning_effort(value: &str) -> ReasoningEffort {
     }
 }
 
+/// Construct the production aimux model for an OpenAI-compatible provider
+/// (base URL + API key + model id from the engine input).
+pub fn openai_model(config: &crate::types::ProviderConfig) -> Box<dyn LanguageModel> {
+    let aimux_config = aimux_providers::OpenAIConfig {
+        api_key: config.api_key.clone(),
+        base_url: config.base_url.clone(),
+        ..aimux_providers::OpenAIConfig::new("")
+    };
+    let provider = aimux_providers::OpenAIProvider::new(aimux_config);
+    Box::new(provider.model(&config.model))
+}
+
 /// Placeholder model for the napi surface until the real aimux provider
 /// construction lands (slice-1 tail: LLM request implementation). Scripted
 /// segments drive the differential suite in the meantime.
