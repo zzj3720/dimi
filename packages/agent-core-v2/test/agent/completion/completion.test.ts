@@ -190,4 +190,17 @@ describe("intentional completion", () => {
 
     expect(ctx.llmCalls).toHaveLength(1);
   });
+
+  it("documents the waiting-state guidance in the AllDone description", () => {
+    const tool = new AllDoneTool({ list: () => [] });
+    const description = tool.description;
+
+    // Completion is for finished work, not for parking.
+    expect(description).toContain("proactively");
+    expect(description).toContain("work is done");
+    // Explicit waiting states must call WaitFor instead of replying or AllDone.
+    expect(description).toContain("WaitFor");
+    expect(description).toContain("waiting");
+    expect(description).toMatch(/do NOT keep replying|replies are noise/i);
+  });
 });
