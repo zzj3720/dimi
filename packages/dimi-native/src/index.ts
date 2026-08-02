@@ -618,6 +618,15 @@ export class RustTurnSession {
   async resume(decisionJson: string): Promise<string> {
     return this.#inner.resume(decisionJson);
   }
+
+  /** Register a TS-side tool; `completeToolCall` finishes each call. */
+  registerExternalTool(name: string, callback: (payloadJson: string) => void): void {
+    this.#inner.registerExternalTool(name, callback);
+  }
+
+  completeToolCall(requestId: string, resultJson: string): void {
+    this.#inner.completeToolCall(requestId, resultJson);
+  }
 }
 
 /** The napi `RustTurnSession` class. */
@@ -628,4 +637,6 @@ export interface RustTurnSessionConstructor {
 export interface RustTurnSessionHandle {
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
+  registerExternalTool(name: string, callback: (payloadJson: string) => void): void;
+  completeToolCall(requestId: string, resultJson: string): void;
 }

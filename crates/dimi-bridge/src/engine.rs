@@ -12,6 +12,8 @@
 //! scripted client for the differential suite; `null` selects the real
 //! OpenAI-compatible client (transport lands in the slice-1 tail).
 
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::{Status, Unknown};
 use napi_derive::napi;
 
 use dimi_engine::aimux::{AimuxLlmClient, openai_model};
@@ -95,12 +97,97 @@ impl RustEngine {
 /// `resume(decisionJson)` continues after the user's decision. The event
 /// batch JSON carries `progress`: `{status:"completed", outcome}` or
 /// `{status:"needsApproval", approval}`.
+type ToolCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
+
+/// A TS-registered tool: the engine calls the napi callback, the TS side
+/// executes the tool and completes the call via `completeToolCall`.
+struct BridgeExternalTool {
+    callback: ToolCallback,
+    pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    next_request_id: std::sync::atomic::AtomicU64,
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for BridgeExternalTool {
+    async fn execute(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        _ctx: &dimi_engine::tool::ToolContext,
+    ) -> dimi_engine::tool::ToolResult {
+        let request_id = format!(
+            "ext-{}",
+            self.next_request_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let payload = serde_json::to_string(&serde_json::json!({
+            "requestId": request_id,
+            "name": call.name,
+            "arguments": call.arguments,
+        }))
+        .unwrap_or_default();
+        let _ = self
+            .callback
+            .call(payload, ThreadsafeFunctionCallMode::NonBlocking);
+        // Poll for the TS side's completion.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            {
+                let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(result_json) = pending.remove(&request_id) {
+                    let parsed: dimi_engine::tool::ToolResult = serde_json::from_str(&result_json)
+                        .unwrap_or_else(|_| dimi_engine::tool::ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: format!("external tool returned invalid result: {result_json}"),
+                            is_error: true,
+                            stop_turn: false,
+                            updates: vec![],
+                        });
+                    return parsed;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return dimi_engine::tool::ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: format!(
+                        "Tool \"{}\" timed out waiting for the external result",
+                        call.name
+                    ),
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// `RustTurnSession` — an in-flight Rust-engine turn with approval support.
 #[napi]
 pub struct RustTurnSession {
     inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
     llm: std::sync::Arc<dyn LlmClient>,
-    tools: Box<dyn ToolExecutor>,
+    tools: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
     policy: PolicyConfig,
+    /// TS tool call completions keyed by request id.
+    pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+}
+
+/// Mutex-wrapped registry implementing ToolExecutor.
+struct LockedRegistry(std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>);
+
+#[async_trait::async_trait]
+impl ToolExecutor for LockedRegistry {
+    async fn execute(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        ctx: &dimi_engine::tool::ToolContext,
+    ) -> dimi_engine::tool::ToolResult {
+        let registry = self.0.lock().await;
+        registry.execute(call, ctx).await
+    }
 }
 
 fn progress_json(
@@ -168,12 +255,15 @@ impl RustTurnSession {
             }),
         );
         registry.register("WaitFor", Box::new(WaitForTool { tasks }));
-        let tools: Box<dyn ToolExecutor> = Box::new(registry);
+        let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
         Ok(Self {
             inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::new(input)),
             llm,
             tools,
             policy,
+            pending_external: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
         })
     }
 
@@ -186,13 +276,40 @@ impl RustTurnSession {
             inner
                 .run(
                     self.llm.as_ref(),
-                    self.tools.as_ref(),
+                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
                     &mut |event| events.push(event),
                 )
                 .await
         };
         progress_json(progress, events)
+    }
+
+    /// Register a TS-side tool: the engine routes `name` calls to the
+    /// callback; the callback's async execution completes via
+    /// `completeToolCall(requestId, resultJson)`.
+    #[napi]
+    pub fn register_external_tool(&self, name: String, callback: ToolCallback) -> napi::Result<()> {
+        let pending = std::sync::Arc::clone(&self.pending_external);
+        let tool = BridgeExternalTool {
+            callback,
+            pending,
+            next_request_id: std::sync::atomic::AtomicU64::new(0),
+        };
+        self.tools
+            .try_lock()
+            .map_err(|_| napi::Error::from_reason("session is busy"))
+            .map(|mut registry| registry.register(name, Box::new(tool)))?;
+        Ok(())
+    }
+
+    /// Complete a pending external tool call (called by the TS callback).
+    #[napi]
+    pub fn complete_tool_call(&self, request_id: String, result_json: String) {
+        self.pending_external
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(request_id, result_json);
     }
 
     /// Resume after the user's approval decision
@@ -208,7 +325,7 @@ impl RustTurnSession {
                 .resume(
                     decision,
                     self.llm.as_ref(),
-                    self.tools.as_ref(),
+                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
                     &mut |event| events.push(event),
                 )

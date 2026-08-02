@@ -38,7 +38,8 @@ pub struct ToolContext {
 }
 
 /// Tool result fed back to the LLM (and emitted as `tool.result`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolResult {
     pub tool_call_id: String,
     pub tool_name: String,
