@@ -1,0 +1,18 @@
+[package]
+name = "dimi-engine"
+description = "dimi turn orchestration core — the M3 swap-in socket for the TS loop domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+dimi-wire = { path = "../dimi-wire" }
+dimi-exec = { path = "../dimi-exec" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
