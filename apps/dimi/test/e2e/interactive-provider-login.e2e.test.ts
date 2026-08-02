@@ -361,9 +361,12 @@ describe('interactive provider login', () => {
         const beforePicker = restarted.read().length;
         await writeCommand(restarted.terminal, restarted.read, '/model');
         await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, 'Select a model');
-        // The picker rows render after the title on slow CI PTYs; wait for the
-        // custom provider row instead of asserting on a race-prone snapshot.
+        // The picker rows render progressively on loaded/parallel CI PTYs; wait
+        // for every asserted row before snapshotting (provider first, then the
+        // model row and the current-model marker).
         await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, 'tui-local');
+        await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, 'tui-chat');
+        await waitForPlainTextAfter(restarted.terminal, restarted.read, beforePicker, '← current');
         const pickerOutput = stripTerminalControls(restarted.read().slice(beforePicker));
         expect(pickerOutput).toContain('tui-local');
         expect(pickerOutput).toContain('tui-chat');
