@@ -104,3 +104,14 @@ Gotchas:
   - Agent working notes or handoff/summary documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`).
   - Throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`) at the repo root or under a `design/` folder. The only tracked `.html` files should be Vite `index.html` entrypoints.
     Before committing or opening a PR, run `git status` and `git diff --staged --stat` and remove anything matching these patterns. Put scratch work under `.tmp/` (gitignored) instead of the repo root or the source tree.
+
+## Long-Running Migration Workflow
+
+适用于 rustify 之类的多切片迁移：按切片推进，每片有独立 DoD，模块全部完成并经过最终 review 收敛后才向用户汇报；切片之间不中途打断用户。
+
+- **切片执行**：每个切片 = 实现（可委派 subagent，实现者不 review 自己的工作）→ 独立 review（subagent，只读，以权威目标/代码/diff/原始验证证据为输入）→ 修复 → 验证 → 提交推送。
+- **Review 问题的修复纪律**：review 发现的每个问题，修复前先写一个能复现该问题、当前会失败的测试（差分/E2E 优先，单元测试兜底），确认失败（先红）后再修复，修复后测试转绿。没有测试背书的修复不算完成。
+- **E2E 覆盖门禁**：所有真实用户/agent 可操作路径必须有正向 E2E 覆盖（差分测试或真实入口集成测试）；已出现故障的路径必须补能复现并防回归的 E2E。单元测试或接口直调不能替代。
+- **范围与简洁**：简洁度以最终系统为准，不以 diff 大小为准；不为单一用例预先泛化；新增抽象必须减少最终总代码量或实质复杂度。每片交付前报告 diff 统计与生产代码净变化。
+- **证据纪律**：review 输入只包括权威目标、代码、diff 与原始验证输出；不提供过程笔记、session 记录或自我辩护。review 意见按有效/已过时/已修/与目标冲突分类处理，不因 review 偷偷改变目标。
+- **最终 review**：模块全部切片完成后做一次整体 review（subagent），收敛所有 P0/P1（含明确排期且有触发条件的遗留项）后，向用户汇报完整结果与遗留清单。
