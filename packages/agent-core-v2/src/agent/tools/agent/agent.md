@@ -14,7 +14,7 @@ Writing the prompt:
 - Do not delegate understanding. If the task hinges on a file path or line number, find it yourself first and write it into the prompt.
 
 Usage notes:
-- When the task continues earlier work a subagent already did, prefer resuming that agent (pass its `resume` id) over spawning a fresh instance — the resumed agent keeps its prior context. The target must be idle (not still running); check with `AgentOutput` first if unsure.
+- When the task continues earlier work a subagent already did, prefer resuming that agent (pass its `resume` id) over spawning a fresh instance — the resumed agent keeps its prior context. `resume` works exactly like a human steering the agent: while the subagent is still running, your prompt is injected into its current turn immediately; when it is idle, it starts a normal turn. Use it to redirect, follow up, or send it new information.
 - A subagent's result is only visible to you, not to the user. When the user needs to see what a subagent produced, summarize the relevant parts yourself in your own reply.
 - Subagents use a fixed 2-hour timeout. If one times out, resume the same agent instead of starting over.
 

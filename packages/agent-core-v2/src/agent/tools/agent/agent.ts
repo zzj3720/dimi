@@ -48,7 +48,7 @@ export const SubagentToolInputSchema = z.preprocess(
       .string()
       .optional()
       .describe(
-        'Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected. The target subagent must be idle (not still running); check with AgentOutput first if unsure.',
+        'Agent ID to message or continue instead of creating a new instance. Messaging an existing subagent works exactly like a human steering the agent: if it is still running, the prompt is injected into its current turn immediately; if it is idle, it starts a normal turn. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected.',
       ),
     model: z
       .enum(['secondary', 'primary'])

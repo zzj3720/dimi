@@ -61,6 +61,7 @@ export class SessionSubagentService extends Disposable implements ISessionSubage
       summaryPolicy: opts.summaryPolicy ?? this.summaryPolicyFor(handle),
       signal: opts.signal,
       onReady: opts.onReady,
+      steer: opts.steer,
     });
   }
 

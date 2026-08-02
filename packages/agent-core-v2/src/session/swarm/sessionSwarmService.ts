@@ -27,7 +27,6 @@ import { linkAbortSignal } from "#/_base/utils/abort";
 import type { IAgentScopeHandle } from "#/_base/di/scope";
 import { IAgentProfileService } from "#/agent/profile/profile";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
-import { IAgentLoopService } from "#/agent/loop/loop";
 import { IAgentUserToolService } from "#/agent/userTool/userTool";
 import { IEventBus } from "#/app/event/eventBus";
 import { ISessionAgentProfileCatalog } from "#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog";
@@ -212,7 +211,6 @@ export class SessionSwarmService implements ISessionSwarmService {
     await this.requireOwnedSubagent(callerAgentId, agentId);
     const caller = this.requireHandle(callerAgentId, "Caller agent");
     const child = this.requireHandle(agentId, "Agent instance");
-    this.requireIdleSubagent(agentId, child);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
     if (!retryTurn) {
@@ -228,7 +226,7 @@ export class SessionSwarmService implements ISessionSwarmService {
     const request = retryTurn
       ? ({ kind: "retry" } as const)
       : ({ kind: "prompt", prompt: options.prompt } as const);
-    return this.observe(caller, child.id, profileName, request, options);
+    return this.observe(caller, child.id, profileName, request, options, !retryTurn);
   }
 
   private async observe(
@@ -237,10 +235,12 @@ export class SessionSwarmService implements ISessionSwarmService {
     profileName: string,
     request: { kind: "prompt"; prompt: string } | { kind: "retry" },
     options: AgentRunAttemptOptions,
+    steer = false,
   ): Promise<AgentRunAttemptHandle> {
     const run = await this.subagents.run(agentId, request, {
       signal: options.signal,
       onReady: options.onReady,
+      steer,
     });
     const mirrored = mirrorAgentRun(caller, run, {
       profileName,
@@ -259,12 +259,6 @@ export class SessionSwarmService implements ISessionSwarmService {
     const handle = this.lifecycle.get(agentId);
     if (handle === undefined) throw new Error(`${label} "${agentId}" does not exist`);
     return handle;
-  }
-
-  private requireIdleSubagent(agentId: string, child: IAgentScopeHandle): void {
-    if (child.accessor.get(IAgentLoopService).status().state === "running") {
-      throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
-    }
   }
 
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {

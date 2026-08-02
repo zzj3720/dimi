@@ -33,6 +33,12 @@ export interface RunAgentOptions {
   readonly summaryPolicy?: AgentProfileSummaryPolicy;
   /** Fires once the turn's first request is committed (used by swarm to fan out). */
   readonly onReady?: () => void;
+  /**
+   * Deliver the prompt like a human steering the agent: when the target has
+   * an active turn, the message is injected into it immediately instead of
+   * being queued behind it. Idle targets behave like a normal enqueue.
+   */
+  readonly steer?: boolean;
 }
 
 export interface AgentRunHandle {

@@ -42,7 +42,6 @@ import {
 import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
-import { IAgentLoopService } from "#/agent/loop/loop";
 import { IAgentUserToolService } from "#/agent/userTool/userTool";
 import {
   ToolAccesses,
@@ -227,7 +226,7 @@ export class SubagentTool implements ISubagentTool {
       if (target === undefined) {
         throw new Error(`Agent instance "${resumeAgentId}" does not exist`);
       }
-      await this.ensureOwnedIdleSubagent(resumeAgentId, target);
+      await this.ensureOwnedSubagent(resumeAgentId);
       agentId = target.id;
       profileName = target.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_LABEL;
     } else {
@@ -291,7 +290,13 @@ export class SubagentTool implements ISubagentTool {
     const run = await this.subagents.run(
       agentId,
       { kind: "prompt", prompt: promptText },
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        // Messaging an existing subagent behaves like a human steering the
+        // agent: the prompt is injected into its active turn when it is still
+        // working, and starts a normal turn when it is idle.
+        steer: isResume,
+      },
     );
     const mirrored = mirrorAgentRun(requester, run, {
       profileName,
@@ -308,16 +313,13 @@ export class SubagentTool implements ISubagentTool {
     };
   }
 
-  private async ensureOwnedIdleSubagent(agentId: string, target: IAgentScopeHandle): Promise<void> {
+  private async ensureOwnedSubagent(agentId: string): Promise<void> {
     const meta = (await this.sessionMetadata.read()).agents?.[agentId];
     if (!isSubagentMeta(meta)) {
       throw new Error(`Agent instance "${agentId}" is not a subagent`);
     }
     if (subagentParentAgentId(meta) !== this.callerAgentId) {
       throw new Error(`Agent instance "${agentId}" does not belong to this parent agent`);
-    }
-    if (target.accessor.get(IAgentLoopService).status().state === "running") {
-      throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
     }
   }
 
@@ -472,7 +474,7 @@ function formatAsyncAgentResult(
     "",
     "next_step: The subagent runs fully asynchronously — continue with other work. Its final result arrives later as a completion notification.",
     `progress_hint: To check on it, call AgentOutput(agent_id="${handle.agentId}") to read its recent output (assistant text, thinking, tool calls). If you have nothing else to do, call WaitFor with a reasonable timeout_seconds instead of polling, then check again with AgentOutput.`,
-    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. The target must be idle (not still running) — check with AgentOutput first if unsure. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+    `resume_hint: To continue, redirect, or send this subagent a message — like a human steering the agent — call Agent(resume="${handle.agentId}", prompt="..."). While it is still running the prompt is injected into its current turn immediately; when idle it starts a normal turn. The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
   ].join("\n");
 }
 

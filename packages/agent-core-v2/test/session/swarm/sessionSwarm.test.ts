@@ -1221,7 +1221,7 @@ describe("SessionSwarmService metadata compatibility", () => {
     }
   });
 
-  it("rejects resume of an already running child before launching or emitting spawned", async () => {
+  it("steers a running child on resume instead of rejecting it", async () => {
     agents["agent-existing"] = {
       labels: { parentAgentId: "main" },
     };
@@ -1257,14 +1257,13 @@ describe("SessionSwarmService metadata compatibility", () => {
       }),
     ).resolves.toMatchObject([
       {
-        status: "failed",
-        state: "not_started",
-        error: 'Agent instance "agent-existing" is already running and cannot run concurrently',
+        status: "completed",
       },
     ]);
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(eventBus.publish).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "subagent.spawned" }),
+    expect(runAgent).toHaveBeenCalledWith(
+      "agent-existing",
+      { kind: "prompt", prompt: expect.any(String) },
+      expect.objectContaining({ steer: true }),
     );
   });
 });

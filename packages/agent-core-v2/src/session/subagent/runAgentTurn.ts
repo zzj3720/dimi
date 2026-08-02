@@ -43,6 +43,12 @@ export interface RunAgentTurnOptions {
   readonly summaryPolicy?: AgentProfileSummaryPolicy;
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
+  /**
+   * Deliver the prompt like a human steering the agent: when the target has
+   * an active turn, the message is injected into it immediately instead of
+   * being queued behind it. Idle targets behave like a normal enqueue.
+   */
+  readonly steer?: boolean;
 }
 
 export async function runAgentTurn(
@@ -55,14 +61,23 @@ export async function runAgentTurn(
   const turn =
     request.kind === "prompt"
       ? await (
-          await promptService.enqueue({
-            message: {
-              role: "user",
-              content: [{ type: "text", text: request.prompt }],
-              toolCalls: [],
-              origin: AGENT_RUN_PROMPT_ORIGIN,
-            },
-          })
+          await (options.steer === true
+            ? promptService.enqueueOrSteer({
+                message: {
+                  role: "user",
+                  content: [{ type: "text", text: request.prompt }],
+                  toolCalls: [],
+                  origin: AGENT_RUN_PROMPT_ORIGIN,
+                },
+              })
+            : promptService.enqueue({
+                message: {
+                  role: "user",
+                  content: [{ type: "text", text: request.prompt }],
+                  toolCalls: [],
+                  origin: AGENT_RUN_PROMPT_ORIGIN,
+                },
+              }))
         ).launched
       : await promptService.retry();
   if (turn === undefined) throw new Error("Agent turn could not be started");
