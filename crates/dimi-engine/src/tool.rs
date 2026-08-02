@@ -6,11 +6,13 @@
 //! the exact result strings the TS implementation produces.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dimi_exec::{ShellSpec, SpawnOptions, spawn};
 
 use crate::events::ToolUpdate;
+use crate::llm::LlmClient;
 
 /// Default/max foreground timeout, seconds (bash.ts constants).
 pub const DEFAULT_TIMEOUT_S: u64 = 60;
@@ -49,8 +51,11 @@ pub struct ToolResult {
 }
 
 /// Tool effect boundary.
+#[async_trait::async_trait]
 pub trait ToolExecutor: Send + Sync {
-    fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult;
+    /// Execute one tool call. Async so tools can run nested turns
+    /// (subagents), MCP servers and other long-running work.
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult;
 }
 
 /// Output buffer mirroring `ToolResultBuilder`: 50k total chars, 2k per
@@ -151,8 +156,9 @@ pub struct BashArgs {
     pub timeout: u64,
 }
 
+#[async_trait::async_trait]
 impl ToolExecutor for BashTool {
-    fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
         let args = match BashTool::validate_args(&call.arguments) {
             Ok(args) => args,
             Err(message) => {
@@ -345,38 +351,42 @@ mod tests {
         );
     }
 
-    #[test]
-    fn bash_tool_runs_a_real_command() {
+    #[tokio::test]
+    async fn bash_tool_runs_a_real_command() {
         let tool = BashTool;
-        let result = tool.execute(
-            &ToolCall {
-                id: "call_1".to_string(),
-                name: "Bash".to_string(),
-                arguments: serde_json::json!({"command": "echo hello"}),
-            },
-            &ToolContext {
-                cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                shell: "/bin/sh".to_string(),
-            },
-        );
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_1".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "echo hello"}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
         assert!(!result.is_error, "output: {}", result.output);
         assert!(result.output.contains("hello"), "output: {}", result.output);
     }
 
-    #[test]
-    fn bash_tool_reports_nonzero_exit() {
+    #[tokio::test]
+    async fn bash_tool_reports_nonzero_exit() {
         let tool = BashTool;
-        let result = tool.execute(
-            &ToolCall {
-                id: "call_2".to_string(),
-                name: "Bash".to_string(),
-                arguments: serde_json::json!({"command": "exit 3"}),
-            },
-            &ToolContext {
-                cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                shell: "/bin/sh".to_string(),
-            },
-        );
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_2".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "exit 3"}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
         assert!(result.is_error);
         assert!(
             result.output.contains("Command failed with exit code: 3."),
@@ -385,25 +395,952 @@ mod tests {
         );
     }
 
-    #[test]
-    fn bash_tool_timeout_kills() {
+    #[tokio::test]
+    async fn bash_tool_timeout_kills() {
         let tool = BashTool;
-        let result = tool.execute(
-            &ToolCall {
-                id: "call_3".to_string(),
-                name: "Bash".to_string(),
-                arguments: serde_json::json!({"command": "sleep 30", "timeout": 1}),
-            },
-            &ToolContext {
-                cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                shell: "/bin/sh".to_string(),
-            },
-        );
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_3".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "sleep 30", "timeout": 1}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
         assert!(result.is_error);
         assert!(
             result.output.contains("Command killed by timeout"),
             "{}",
             result.output
         );
+    }
+}
+
+/// `AgentTool` — the Agent tool: runs a nested turn (subagent) and returns
+/// its final text as the tool result. Slice 4a: synchronous nested turn;
+/// the async task semantics (agent_id + AgentOutput/WaitFor) land in 4c.
+pub struct AgentTool {
+    pub llm: Box<dyn crate::llm::LlmClient>,
+    pub policy: crate::permission::PolicyConfig,
+    pub max_steps: Option<u32>,
+    pub shell: String,
+}
+
+impl std::fmt::Debug for AgentTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentTool")
+            .field("max_steps", &self.max_steps)
+            .field("shell", &self.shell)
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for AgentTool {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+        // args: { prompt: string, ... }
+        let prompt = call
+            .arguments
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if prompt.trim().is_empty() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: "Invalid args for tool \"Agent\": prompt is required".to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            };
+        }
+        let input = crate::types::EngineTurnInput {
+            turn_id: 0,
+            messages: vec![crate::types::LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(prompt),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            }],
+            tools: vec![],
+            provider: crate::types::ProviderConfig {
+                base_url: "http://nested".to_string(),
+                api_key: "nested".to_string(),
+                model: "nested".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: self.max_steps,
+            cwd: Some(ctx.cwd.clone()),
+            shell: Some(ctx.shell.clone()),
+            context_window: None,
+        };
+        let mut session = crate::engine::TurnSession::new(input);
+        let mut events: Vec<crate::events::EngineEvent> = Vec::new();
+        let progress = session
+            .run(self.llm.as_ref(), self, &self.policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        // The subagent's final assistant text is the tool result.
+        let text: Vec<String> = events
+            .iter()
+            .filter_map(|event| match event {
+                crate::events::EngineEvent::AssistantDelta { delta, .. } => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        let output = text.join("");
+        match progress {
+            crate::engine::TurnProgress::Completed(outcome)
+                if outcome.status == crate::types::TurnEndReason::Completed =>
+            {
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: if output.is_empty() {
+                        "Subagent completed with no text output.".to_string()
+                    } else {
+                        output
+                    },
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+            crate::engine::TurnProgress::Completed(outcome) => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: outcome
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Subagent failed.".to_string()),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+            crate::engine::TurnProgress::NeedsApproval(_) => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: "Subagent paused for approval (not supported in nested turns yet)."
+                    .to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod agent_tool_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
+
+    fn policy_auto() -> crate::permission::PolicyConfig {
+        crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_runs_a_nested_turn_and_returns_its_text() {
+        // The subagent's LLM answers directly (no tools).
+        let sub_llm = ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "subagent answer".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        let agent = AgentTool {
+            llm: Box::new(sub_llm),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_agent".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "do a thing" }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert_eq!(result.output, "subagent answer");
+    }
+
+    #[tokio::test]
+    async fn agent_nested_turn_can_use_bash() {
+        // The subagent asks for a Bash call, then answers.
+        let sub_llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "nested_call".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo nested-ok\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "ran it: nested-ok".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let agent = AgentTool {
+            llm: Box::new(sub_llm),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_agent".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "run bash" }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(result.output.contains("ran it"));
+    }
+
+    #[tokio::test]
+    async fn agent_requires_prompt() {
+        let agent = AgentTool {
+            llm: Box::new(ScriptedLlmClient::once(vec![])),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_agent".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(result.is_error);
+        assert!(result.output.contains("prompt is required"));
+    }
+}
+
+/// `AgentSwarmTool` — the AgentSwarm tool: runs one nested turn per item in
+/// parallel and returns the collected summaries.
+pub struct AgentSwarmTool {
+    pub llm: Box<dyn LlmClient>,
+    pub policy: crate::permission::PolicyConfig,
+    pub max_steps: Option<u32>,
+    pub shell: String,
+}
+
+impl std::fmt::Debug for AgentSwarmTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentSwarmTool")
+            .field("max_steps", &self.max_steps)
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for AgentSwarmTool {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+        let prompt_template = call
+            .arguments
+            .get("prompt_template")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let items = call
+            .arguments
+            .get("items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if prompt_template.trim().is_empty() || items.is_empty() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output:
+                    "Invalid args for tool \"AgentSwarm\": prompt_template and items are required"
+                        .to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            };
+        }
+
+        // One nested turn per item, in parallel (join_all — borrow-safe).
+        let futures = items.iter().enumerate().map(|(index, item)| {
+            let prompt = prompt_template.replace("{{item}}", &item.to_string());
+            let llm_ref = self.llm.as_ref();
+            let tool_ref = self as &dyn ToolExecutor;
+            let policy = self.policy.clone();
+            let max_steps = self.max_steps;
+            let shell = self.shell.clone();
+            let cwd = ctx.cwd.clone();
+            async move {
+                let input = crate::types::EngineTurnInput {
+                    turn_id: index as i64,
+                    messages: vec![crate::types::LlmMessage {
+                        role: "user".to_string(),
+                        content: serde_json::Value::String(prompt),
+                        name: None,
+                        tool_call_id: None,
+                        tool_calls: None,
+                        reasoning: None,
+                    }],
+                    tools: vec![],
+                    provider: crate::types::ProviderConfig {
+                        base_url: "http://nested".to_string(),
+                        api_key: "nested".to_string(),
+                        model: "nested".to_string(),
+                        thinking_effort: None,
+                    },
+                    max_steps_per_turn: max_steps,
+                    cwd: Some(cwd),
+                    shell: Some(shell),
+                    context_window: None,
+                };
+                let mut session = crate::engine::TurnSession::new(input);
+                let mut events: Vec<crate::events::EngineEvent> = Vec::new();
+                let progress = session
+                    .run(llm_ref, tool_ref, &policy, &mut |event| events.push(event))
+                    .await;
+                let text: String = events
+                    .iter()
+                    .filter_map(|event| match event {
+                        crate::events::EngineEvent::AssistantDelta { delta, .. } => {
+                            Some(delta.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                (progress, text)
+            }
+        });
+        let joined = futures::future::join_all(futures).await;
+        let mut results = Vec::with_capacity(joined.len());
+        for (progress, text) in joined {
+            let ok = matches!(
+                progress,
+                crate::engine::TurnProgress::Completed(outcome)
+                    if outcome.status == crate::types::TurnEndReason::Completed
+            );
+            results.push(serde_json::json!({
+                "ok": ok,
+                "summary": if text.is_empty() { "no output".to_string() } else { text },
+            }));
+        }
+
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            output: serde_json::to_string(&serde_json::json!({
+                "results": results,
+            }))
+            .unwrap_or_default(),
+            is_error: false,
+            stop_turn: false,
+            updates: vec![],
+        }
+    }
+}
+
+#[cfg(test)]
+mod swarm_tool_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
+
+    fn policy_auto() -> crate::permission::PolicyConfig {
+        crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn swarm_runs_one_turn_per_item() {
+        let sub_llm = ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "worker done".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        let swarm = AgentSwarmTool {
+            llm: Box::new(sub_llm),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+        };
+        let result = swarm
+            .execute(
+                &ToolCall {
+                    id: "call_swarm".to_string(),
+                    name: "AgentSwarm".to_string(),
+                    arguments: serde_json::json!({
+                        "prompt_template": "work on {{item}}",
+                        "items": ["a", "b", "c"],
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(parsed["results"].as_array().unwrap().len(), 3);
+        assert_eq!(parsed["results"][0]["summary"], "worker done");
+    }
+}
+
+/// `ToolRegistry` — routes tool calls by name to registered executors
+/// (the engine's tool set: Bash + Agent + AgentOutput + WaitFor + …).
+#[derive(Default)]
+pub struct ToolRegistry {
+    tools: std::collections::HashMap<String, Box<dyn ToolExecutor>>,
+}
+
+impl std::fmt::Debug for ToolRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolRegistry")
+            .field("tools", &self.names())
+            .finish()
+    }
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&mut self, name: impl Into<String>, tool: Box<dyn ToolExecutor>) {
+        self.tools.insert(name.into(), tool);
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for ToolRegistry {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+        match self.tools.get(&call.name) {
+            Some(tool) => tool.execute(call, ctx).await,
+            None => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("Tool \"{}\" not found", call.name),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        }
+    }
+}
+
+/// Shared subagent task registry (slice 4c async semantics).
+#[derive(Debug, Clone, Default)]
+pub struct AgentTasks {
+    inner: Arc<std::sync::Mutex<std::collections::HashMap<String, TaskState>>>,
+}
+
+/// One background subagent task.
+#[derive(Debug, Clone)]
+pub struct TaskState {
+    pub agent_id: String,
+    pub status: String, // running | completed | failed
+    pub output: String,
+    pub error: Option<String>,
+}
+
+impl AgentTasks {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&self, task_id: String, state: TaskState) {
+        let mut inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.insert(task_id, state);
+    }
+
+    pub fn update<F>(&self, task_id: &str, f: F)
+    where
+        F: FnOnce(&mut TaskState),
+    {
+        let mut inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(state) = inner.get_mut(task_id) {
+            f(state);
+        }
+    }
+
+    pub fn get(&self, task_id: &str) -> Option<TaskState> {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.get(task_id).cloned()
+    }
+
+    /// Look up by agent id (the wire key the tools receive).
+    pub fn find_by_agent_id(&self, agent_id: &str) -> Option<TaskState> {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner
+            .values()
+            .find(|state| state.agent_id == agent_id)
+            .cloned()
+    }
+}
+
+/// `AgentTool` (async) — launches the subagent in the background and returns
+/// immediately with `agent_id` / `task_id`; `AgentOutput` and `WaitFor` read
+/// the task state. Mirrors the async-subagent semantics on main.
+pub struct AsyncAgentTool {
+    pub llm: Arc<dyn LlmClient>,
+    pub tools: Arc<dyn ToolExecutor>,
+    pub policy: crate::permission::PolicyConfig,
+    pub max_steps: Option<u32>,
+    pub shell: String,
+    pub tasks: AgentTasks,
+}
+
+impl std::fmt::Debug for AsyncAgentTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncAgentTool")
+            .field("max_steps", &self.max_steps)
+            .finish()
+    }
+}
+
+async fn run_nested_turn(
+    prompt: String,
+    cwd: String,
+    shell: String,
+    llm: Arc<dyn LlmClient>,
+    tools: Arc<dyn ToolExecutor>,
+    policy: crate::permission::PolicyConfig,
+    max_steps: Option<u32>,
+) -> (String, String) {
+    let input = crate::types::EngineTurnInput {
+        turn_id: 0,
+        messages: vec![crate::types::LlmMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(prompt),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }],
+        tools: vec![],
+        provider: crate::types::ProviderConfig {
+            base_url: "http://nested".to_string(),
+            api_key: "nested".to_string(),
+            model: "nested".to_string(),
+            thinking_effort: None,
+        },
+        max_steps_per_turn: max_steps,
+        cwd: Some(cwd),
+        shell: Some(shell),
+        context_window: None,
+    };
+    let mut session = crate::engine::TurnSession::new(input);
+    let mut events: Vec<crate::events::EngineEvent> = Vec::new();
+    let progress = session
+        .run(llm.as_ref(), tools.as_ref(), &policy, &mut |event| {
+            events.push(event);
+        })
+        .await;
+    let text: String = events
+        .iter()
+        .filter_map(|event| match event {
+            crate::events::EngineEvent::AssistantDelta { delta, .. } => Some(delta.clone()),
+            _ => None,
+        })
+        .collect();
+    match progress {
+        crate::engine::TurnProgress::Completed(outcome)
+            if outcome.status == crate::types::TurnEndReason::Completed =>
+        {
+            (text, String::new())
+        }
+        crate::engine::TurnProgress::Completed(outcome) => (
+            String::new(),
+            outcome.error.unwrap_or_else(|| "failed".to_string()),
+        ),
+        crate::engine::TurnProgress::NeedsApproval(_) => {
+            (String::new(), "approval pending in nested turn".to_string())
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for AsyncAgentTool {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+        let prompt = call
+            .arguments
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if prompt.trim().is_empty() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: "Invalid args for tool \"Agent\": prompt is required".to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            };
+        }
+        let description = call
+            .arguments
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Running subagent")
+            .to_string();
+        let agent_id = format!("agent-{}", uuid_v4_short());
+        let task_id = format!("task-{}", uuid_v4_short());
+        self.tasks.insert(
+            task_id.clone(),
+            TaskState {
+                agent_id: agent_id.clone(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+            },
+        );
+
+        let tasks = self.tasks.clone();
+        let task_id_for_worker = task_id.clone();
+        let prompt_for_worker = prompt;
+        let cwd = ctx.cwd.clone();
+        let shell = self.shell.clone();
+        let llm = Arc::clone(&self.llm);
+        let tools = Arc::clone(&self.tools);
+        let policy = self.policy.clone();
+        let max_steps = self.max_steps;
+        tokio::spawn(async move {
+            let (output, error) =
+                run_nested_turn(prompt_for_worker, cwd, shell, llm, tools, policy, max_steps).await;
+            tasks.update(&task_id_for_worker, |state| {
+                if error.is_empty() {
+                    state.status = "completed".to_string();
+                    state.output = output;
+                } else {
+                    state.status = "failed".to_string();
+                    state.error = Some(error);
+                }
+            });
+        });
+
+        ToolResult {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            output: serde_json::to_string(&serde_json::json!({
+                "agent_id": agent_id,
+                "task_id": task_id,
+                "description": description,
+                "status": "running",
+                "automatic_notification": true,
+                "next_step": "Use WaitFor or AgentOutput to check on the subagent.",
+            }))
+            .unwrap_or_default(),
+            is_error: false,
+            stop_turn: true, // the turn yields while the subagent runs
+            updates: vec![],
+        }
+    }
+}
+
+fn uuid_v4_short() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:x}")
+}
+
+/// `AgentOutputTool` — read a background subagent's current output/status.
+pub struct AgentOutputTool {
+    pub tasks: AgentTasks,
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for AgentOutputTool {
+    async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+        let agent_id = call
+            .arguments
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let state = self
+            .tasks
+            .get(&agent_id)
+            .or_else(|| self.tasks.find_by_agent_id(&agent_id));
+        match state {
+            Some(state) => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: serde_json::to_string(&serde_json::json!({
+                    "agent_id": state.agent_id,
+                    "status": state.status,
+                    "output": state.output,
+                    "error": state.error,
+                }))
+                .unwrap_or_default(),
+                is_error: false,
+                stop_turn: false,
+                updates: vec![],
+            },
+            None => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("No subagent found for agent_id: {agent_id}"),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        }
+    }
+}
+
+/// `WaitForTool` — wait for a background subagent to finish (or timeout).
+pub struct WaitForTool {
+    pub tasks: AgentTasks,
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for WaitForTool {
+    async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+        let agent_id = call
+            .arguments
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let timeout = call
+            .arguments
+            .get("timeout_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(60);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
+        loop {
+            if let Some(state) = self
+                .tasks
+                .get(&agent_id)
+                .or_else(|| self.tasks.find_by_agent_id(&agent_id))
+            {
+                if state.status != "running" {
+                    return ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output: serde_json::to_string(&serde_json::json!({
+                            "agent_id": state.agent_id,
+                            "status": state.status,
+                            "output": state.output,
+                            "error": state.error,
+                        }))
+                        .unwrap_or_default(),
+                        is_error: false,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: format!("Wait expired for agent_id: {agent_id}"),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod async_agent_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
+
+    fn policy_auto() -> crate::permission::PolicyConfig {
+        crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    fn ctx() -> ToolContext {
+        ToolContext {
+            cwd: std::env::temp_dir().to_string_lossy().to_string(),
+            shell: "/bin/sh".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_returns_immediately_and_task_completes() {
+        let sub_llm = Arc::new(ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "background result".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: sub_llm,
+            tools: Arc::new(BashTool),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "background work" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+        assert_eq!(launch_json["status"], "running");
+        assert!(launch.stop_turn);
+
+        // WaitFor polls until the background turn completes.
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+        assert_eq!(waited_json["output"], "background result");
+    }
+
+    #[tokio::test]
+    async fn agent_output_reads_running_task() {
+        let sub_llm = Arc::new(ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "partial".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: sub_llm,
+            tools: Arc::new(BashTool),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "bg" }),
+                },
+                &ctx(),
+            )
+            .await;
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+        // Give the background turn a moment, then read its output.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let output = AgentOutputTool { tasks };
+        let read = output
+            .execute(
+                &ToolCall {
+                    id: "call_o".to_string(),
+                    name: "AgentOutput".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!read.is_error, "output: {}", read.output);
+        let read_json: serde_json::Value = serde_json::from_str(&read.output).unwrap();
+        assert_eq!(read_json["status"], "completed");
+        assert_eq!(read_json["output"], "partial");
+    }
+
+    #[tokio::test]
+    async fn waitfor_times_out_for_missing_task() {
+        let tasks = AgentTasks::new();
+        let wait = WaitForTool { tasks };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-missing", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error);
+        assert!(waited.output.contains("Wait expired"));
     }
 }

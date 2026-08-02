@@ -556,7 +556,7 @@ async fn execute_tool(
         args: Some(call.arguments.clone()),
         description: None,
     });
-    let result = tools.execute(&call, ctx);
+    let result = tools.execute(&call, ctx).await;
     for update in &result.updates {
         on_event(EngineEvent::ToolProgress {
             turn_id: 0,
