@@ -180,86 +180,6 @@ describe('applyPrintBackgroundPolicy', () => {
     ).rejects.toThrow(PrintSteeredTurnFailedError);
   });
 
-  it('waits for goal continuation turns before applying the mode', async () => {
-    let active = true;
-    let consumed = 0;
-    const drain = vi.fn(async () => {});
-    await applyPrintBackgroundPolicy({
-      mode: 'drain',
-      ceilingS: 60,
-      maxTurns: 50,
-      countPending: () => 0,
-      drain,
-      turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { consumed += 1; } },
-        {
-          event: ending(3),
-          apply: () => {
-            consumed += 1;
-            active = false;
-          },
-        },
-      ]),
-      skipTurnId: 1,
-      warn: () => {},
-      now: () => Date.now(),
-      goalActive: () => active,
-    });
-    // Both continuation turns ended before the mode ('drain') ran.
-    expect(consumed).toBe(2);
-    expect(drain).toHaveBeenCalledTimes(1);
-  });
-
-  it('warns and returns when the goal wait hits the ceiling', async () => {
-    let now = 0;
-    const warn = vi.fn();
-    await applyPrintBackgroundPolicy({
-      mode: 'exit',
-      ceilingS: 10,
-      maxTurns: 50,
-      countPending: () => 0,
-      drain: async () => {},
-      // No continuation turn ever ends; the poll interval elapses each time.
-      turnEndings: {
-        next: async () => {
-          now = 10_001;
-          return null;
-        },
-      },
-      skipTurnId: 1,
-      warn,
-      now: () => now,
-      goalActive: () => true,
-    });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('goal wait ceiling');
-  });
-
-  it('exits the goal wait promptly when the goal settles without a turn ending', async () => {
-    let active = true;
-    const warn = vi.fn();
-    await applyPrintBackgroundPolicy({
-      mode: 'exit',
-      ceilingS: 3600,
-      maxTurns: 50,
-      countPending: () => 0,
-      drain: async () => {},
-      // Poll interval elapses; the goal settles (paused/blocked) mid-wait
-      // without producing a turn.ended.
-      turnEndings: {
-        next: async () => {
-          active = false;
-          return null;
-        },
-      },
-      skipTurnId: 1,
-      warn,
-      now: () => Date.now(),
-      goalActive: () => active,
-    });
-    expect(warn).not.toHaveBeenCalled();
-  });
-
   it('keeps an exit-mode run alive until a pending cron fire steered a turn', async () => {
     let nextFire: number | null = 60_000;
     let fireTurnEnded = false;
@@ -387,44 +307,6 @@ describe('applyPrintBackgroundPolicy', () => {
     });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('cron');
-  });
-
-  it('finishes goal waiting before consulting the cron schedule', async () => {
-    let active = true;
-    let consumed = 0;
-    let nextFire: number | null = 60_000;
-    let cronFirstCallAtConsumed = -1;
-    const cronNextFireAt = vi.fn(() => {
-      if (cronFirstCallAtConsumed === -1) cronFirstCallAtConsumed = consumed;
-      return nextFire;
-    });
-    await applyPrintBackgroundPolicy({
-      mode: 'exit',
-      ceilingS: 3600,
-      maxTurns: 50,
-      countPending: () => 0,
-      drain: async () => {},
-      turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { consumed += 1; } },
-        {
-          event: ending(3),
-          apply: () => {
-            consumed += 1;
-            active = false;
-          },
-        },
-        // The pending cron fire steered this turn.
-        { event: ending(4), apply: () => { nextFire = null; } },
-      ]),
-      skipTurnId: 1,
-      warn: () => {},
-      now: () => 0,
-      goalActive: () => active,
-      cronNextFireAt,
-    });
-    // Both goal continuation turns ended before the cron schedule was read.
-    expect(cronFirstCallAtConsumed).toBe(2);
-    expect(cronNextFireAt).toHaveBeenCalled();
   });
 });
 

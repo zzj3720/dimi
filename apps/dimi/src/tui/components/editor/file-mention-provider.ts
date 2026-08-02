@@ -70,7 +70,7 @@ export class FileMentionProvider implements AutocompleteProvider {
 
     // `@` file / folder mentions take priority over the slash-command guards
     // below. Without this, typing `@` inside a slash command's argument text
-    // (e.g. `/goal Fix the @|checkout docs`) would be swallowed by
+    // (e.g. `/init @|AGENTS.md`) would be swallowed by
     // `shouldSuppressSlashArgumentCompletion` before the mention branch ever
     // runs, so the file list never opens.
     const atPrefix = extractAtPrefix(textBeforeCursor);

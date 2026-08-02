@@ -1,6 +1,4 @@
 import type {
-  GoalChange,
-  GoalSnapshot,
   ModelAlias,
   PermissionMode,
   ProviderAuthState,
@@ -79,8 +77,6 @@ export interface AppState {
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderAuthState>;
   sessionTitle: string | null;
-  /** Current goal snapshot for the footer badge; null/undefined when no active goal. */
-  goal?: GoalSnapshot | null;
   mcpServersSummary: string | null;
   /** Optional banner shown below the welcome panel; null means no banner to render. */
   banner?: BannerState | null;
@@ -158,10 +154,6 @@ export interface CronTranscriptData {
   readonly missedCount?: number;
 }
 
-export type GoalTranscriptData =
-  | { readonly kind: "created" }
-  | { readonly kind: "lifecycle"; readonly change: GoalChange };
-
 export type TranscriptEntryKind =
   | "welcome"
   | "user"
@@ -171,8 +163,7 @@ export type TranscriptEntryKind =
   | "status"
   | "skill_activation"
   | "plugin_command"
-  | "cron"
-  | "goal";
+  | "cron";
 
 export type SkillActivationTrigger = "user-slash" | "model-tool" | "nested-skill";
 
@@ -192,9 +183,8 @@ export interface TranscriptEntry {
   content: string;
   /**
    * True only for entries holding real model-authored text (created by the
-   * assistant stream). Derived cards — hook results, goal completions, goal
-   * reminders — share kind 'assistant' but are not replies, so /copy must
-   * skip them.
+   * assistant stream). Derived cards — hook results — share kind 'assistant'
+   * but are not replies, so /copy must skip them.
    */
   modelText?: boolean;
   color?: ColorToken;
@@ -205,7 +195,6 @@ export interface TranscriptEntry {
   backgroundAgentStatus?: BackgroundAgentStatusData;
   compactionData?: CompactionTranscriptData;
   cronData?: CronTranscriptData;
-  goalData?: GoalTranscriptData;
   imageAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;

@@ -35,19 +35,19 @@ function makeList(items: SelectItem[], maxVisible = 5): WrappingSelectList {
 describe('WrappingSelectList', () => {
   it('renders short descriptions on a single line', () => {
     const lines = makeList([
-      { value: 'goal', label: 'goal', description: 'First command' },
+      { value: 'help', label: 'help', description: 'First command' },
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(80);
 
     expect(lines).toEqual([
-      '[S]→ goal        First command',
+      '[S]→ help        First command',
       '  init[D]        Second command',
     ]);
   });
 
   it('wraps a long description onto a second indented line without an ellipsis', () => {
     const lines = makeList([
-      { value: 'goal', label: 'goal', description: 'First command' },
+      { value: 'help', label: 'help', description: 'First command' },
       {
         value: 'init',
         label: 'init',
@@ -57,7 +57,7 @@ describe('WrappingSelectList', () => {
     ]).render(80);
 
     expect(lines).toEqual([
-      '[S]→ goal        First command',
+      '[S]→ help        First command',
       '  init[D]        lorem ipsum dolor sit amet consectetur adipiscing elit sed do',
       `[D]${DESCRIPTION_INDENT}eiusmod tempor incididunt`,
     ]);
@@ -66,7 +66,7 @@ describe('WrappingSelectList', () => {
   it('caps descriptions at two lines and ellipsizes the overflow', () => {
     const description = 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(4).trim();
     const lines = makeList([
-      { value: 'goal', label: 'goal', description: 'First command' },
+      { value: 'help', label: 'help', description: 'First command' },
       { value: 'init', label: 'init', description },
     ]).render(80);
 
@@ -79,22 +79,22 @@ describe('WrappingSelectList', () => {
   it('paints every line of the selected item with the selected style', () => {
     const description = 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(4).trim();
     const lines = makeList([
-      { value: 'goal', label: 'goal', description },
+      { value: 'help', label: 'help', description },
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(80);
 
-    expect(lines[0]).toMatch(/^\[S\]→ goal {8}lorem ipsum/);
+    expect(lines[0]).toMatch(/^\[S\]→ help {8}lorem ipsum/);
     expect(lines[1]).toMatch(new RegExp(`^\\[S\\]${DESCRIPTION_INDENT}`));
     expect(lines[2]).toBe('  init[D]        Second command');
   });
 
   it('falls back to primary-only single lines on narrow widths', () => {
     const lines = makeList([
-      { value: 'goal', label: 'goal', description: 'First command' },
+      { value: 'help', label: 'help', description: 'First command' },
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(40);
 
-    expect(lines).toEqual(['[S]→ goal', '  init']);
+    expect(lines).toEqual(['[S]→ help', '  init']);
   });
 
   it('keeps the scroll indicator when items overflow maxVisible', () => {

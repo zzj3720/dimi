@@ -62,11 +62,6 @@ import {
 import { AssistantMessageComponent } from './components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from './components/messages/background-agent-status';
 import { CronMessageComponent } from './components/messages/cron-message';
-import { buildGoalMarker } from './components/messages/goal-markers';
-import {
-  GoalCompletionMessageComponent,
-  GoalSetMessageComponent,
-} from './components/messages/goal-panel';
 import { PluginCommandComponent } from './components/messages/plugin-command';
 import { ShellRunComponent } from './components/messages/shell-run';
 import { SkillActivationComponent } from './components/messages/skill-activation';
@@ -236,7 +231,6 @@ function createInitialAppState(input: DimiTUIStartupInput): AppState {
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
-    goal: null,
     mcpServersSummary: null,
     banner: undefined,
   };
@@ -1299,10 +1293,6 @@ export class DimiTUI {
     });
   }
 
-  requestQueuedGoalPromotion(): void {
-    this.sessionEventHandler.requestQueuedGoalPromotion();
-  }
-
   private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {
     const imageAttachmentIds =
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
@@ -1320,22 +1310,6 @@ export class DimiTUI {
     this.beginSessionRequest();
 
     const sdkInput = options?.parts ?? input;
-    // While a goal is being pursued the engine holds its active turn across the
-    // whole continuation loop, so a fresh prompt races the goal driver at every
-    // continuation boundary and is rejected with `turn.agent_busy`, dropping
-    // the message. Steer instead: the engine buffers it into the running goal
-    // turn, or launches a turn of its own if the loop just ended.
-    if (this.state.appState.goal?.status === 'active') {
-      void session.steer(sdkInput).catch((error: unknown) => {
-        const message = formatErrorMessage(error);
-        // Same reset as the prompt path: beginSessionRequest already moved the
-        // TUI to the waiting phase, and no turn events may follow a failed
-        // steer (e.g. the session is gone), which would leave the UI stuck
-        // queueing input behind a request that never completes.
-        this.failSessionRequest(`Failed to steer: ${message}`);
-      });
-      return;
-    }
     void session.prompt(sdkInput).catch((error: unknown) => {
       const message = formatErrorMessage(error);
       this.failSessionRequest(`Failed to send: ${message}`);
@@ -1526,7 +1500,6 @@ export class DimiTUI {
     this.updateActivityPane();
     if (busyChanged) {
       this.updateQueueDisplay();
-      this.sessionEventHandler.retryQueuedGoalPromotion();
     }
     if (additionalDirsChanged) this.setupAutocomplete();
     this.state.ui.requestRender();
@@ -1590,7 +1563,7 @@ export class DimiTUI {
   }
 
   async syncRuntimeState(session: Session = this.requireSession()): Promise<void> {
-    const [status, goalResult] = await Promise.all([session.getStatus(), session.getGoal()]);
+    const status = await session.getStatus();
     this.setAppState({
       sessionId: session.id,
       model: status.model ?? '',
@@ -1610,7 +1583,6 @@ export class DimiTUI {
           ? (this.state.appState.latestPromptUsage ?? null)
           : null),
       sessionTitle: session.summary?.title ?? null,
-      goal: goalResult.goal,
     });
     this.syncAdditionalDirs(session);
   }
@@ -1673,7 +1645,6 @@ export class DimiTUI {
     this.session = undefined;
     this.state.swarmModeEntry = undefined;
     this.harness.setTelemetryContext({ sessionId: null });
-    this.setAppState({ goal: null });
     return previous;
   }
 
@@ -1929,18 +1900,7 @@ export class DimiTUI {
       }
       case 'cron':
         return new CronMessageComponent(entry.content, entry.cronData ?? {});
-      case 'goal':
-        if (entry.goalData?.kind === 'created') {
-          return new GoalSetMessageComponent();
-        }
-        if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolDisplayMode === 'full');
-        }
-        return null;
       case 'assistant': {
-        if (entry.content.trimStart().startsWith('✓ Goal complete')) {
-          return new GoalCompletionMessageComponent(entry.content);
-        }
         const component = new AssistantMessageComponent();
         component.updateContent(entry.content);
         return component;
@@ -2005,8 +1965,7 @@ export class DimiTUI {
   ): void {
     if (
       request.toolName === 'ExitPlanMode' ||
-      request.display.kind === 'plan_review' ||
-      request.display.kind === 'goal_start'
+      request.display.kind === 'plan_review'
     )
       return;
     const parts: string[] = [];

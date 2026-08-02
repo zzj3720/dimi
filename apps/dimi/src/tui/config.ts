@@ -38,7 +38,7 @@ export const UpgradePreferencesSchema = z.object({
 export const BusyInputModeSchema = z.enum(['queue', 'steer']);
 export type BusyInputMode = z.infer<typeof BusyInputModeSchema>;
 
-export const STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git', 'tips'] as const;
+export const STATUS_LINE_ITEMS = ['mode', 'model', 'tasks', 'cwd', 'git', 'tips'] as const;
 export type StatusLineItem = (typeof STATUS_LINE_ITEMS)[number];
 
 export const StatusLineFileConfigSchema = z.object({

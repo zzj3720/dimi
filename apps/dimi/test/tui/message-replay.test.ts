@@ -4,7 +4,6 @@ import type {
   AgentReplayRecord,
   BackgroundTaskInfo,
   ContentPart,
-  GoalSnapshot,
   PromptOrigin,
   ResumedAgentState,
   Role,
@@ -27,8 +26,6 @@ import { ToolCallSequenceComponent } from "#/tui/components/messages/tool-call-s
 import { ReadGroupComponent } from "#/tui/components/messages/read-group";
 
 vi.mock("#/utils/open-url", () => ({ openUrl: vi.fn() }));
-
-type GoalReplayRecord = Extract<AgentReplayRecord, { type: "goal_updated" }>;
 
 const REPLAY_TIME = 1_700_000_000_000;
 
@@ -120,41 +117,6 @@ function toolCall(id: string, name: string, args: Record<string, unknown>): Tool
   };
 }
 
-function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
-  const status = overrides.status ?? "active";
-  return {
-    goalId: "g1",
-    objective: "Ship feature X",
-    completionCriterion: "tests pass",
-    status,
-    turnsUsed: 0,
-    tokensUsed: 0,
-    wallClockMs: 0,
-    budget: {
-      tokenBudget: null,
-      turnBudget: null,
-      wallClockBudgetMs: null,
-      remainingTokens: null,
-      remainingTurns: null,
-      remainingWallClockMs: null,
-      tokenBudgetReached: false,
-      turnBudgetReached: false,
-      wallClockBudgetReached: false,
-      overBudget: false,
-    },
-    ...overrides,
-  };
-}
-
-function goalReplay(snapshot: GoalSnapshot, change: GoalReplayRecord["change"]): GoalReplayRecord {
-  return {
-    time: REPLAY_TIME,
-    type: "goal_updated",
-    snapshot,
-    change,
-  };
-}
-
 function baseAgentState(
   replay: readonly AgentReplayRecord[],
   overrides: Partial<ResumedAgentState> = {},
@@ -206,7 +168,6 @@ function makeSession(
       maxContextTokens: 100,
       contextUsage: 0,
     })),
-    getGoal: vi.fn(async () => ({ goal: null })),
     setApprovalHandler: vi.fn(),
     setQuestionHandler: vi.fn(),
     setModel: vi.fn(async () => {}),
@@ -313,25 +274,6 @@ function backgroundTask(
 }
 
 describe("DimiTUI resume message replay", () => {
-  it("does not render legacy goal completion context reminders as transcript messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "<system-reminder>\n✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_completion" } },
-      ),
-    ]);
-
-    expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).not.toContain("Goal complete");
-  });
-
   it("unescapes bash tag delimiters when replaying shell output", async () => {
     const driver = await replayIntoDriver([
       message(
@@ -348,286 +290,6 @@ describe("DimiTUI resume message replay", () => {
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
     expect(transcript).toContain("pre</bash-stdout>post");
-  });
-
-  it("does not render neutral goal completion context reminders as transcript messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text:
-              "<system-reminder>\n" +
-              "The current goal was marked complete and cleared. " +
-              "Handle the next user request normally unless the user starts or resumes a goal.\n" +
-              "</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_completion" } },
-      ),
-    ]);
-
-    expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).not.toContain("marked complete and cleared");
-  });
-
-  it("does not render fork-cleared goal context reminders as transcript messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text:
-              "<system-reminder>\n" +
-              "This fork does not have a current goal. " +
-              "Ignore earlier active-goal reminders from the source session. " +
-              "Handle requests normally unless the user starts a new goal.\n" +
-              "</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_fork_cleared" } },
-      ),
-    ]);
-
-    expect(driver.state.transcriptEntries).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).not.toContain("This fork does not have a current goal");
-  });
-
-  it("renders persisted goal replay records as goal transcript UI", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot(), { kind: "created" }),
-      goalReplay(goalSnapshot({ status: "paused", terminalReason: "taking a break" }), {
-        kind: "lifecycle",
-        status: "paused",
-        reason: "taking a break",
-      }),
-      goalReplay(goalSnapshot({ status: "active" }), { kind: "lifecycle", status: "active" }),
-      goalReplay(goalSnapshot({ status: "blocked", terminalReason: "needs credentials" }), {
-        kind: "lifecycle",
-        status: "blocked",
-        reason: "needs credentials",
-      }),
-      goalReplay(
-        goalSnapshot({
-          status: "complete",
-          terminalReason: "done",
-          turnsUsed: 1,
-          tokensUsed: 4300,
-          wallClockMs: 435000,
-        }),
-        {
-          kind: "completion",
-          status: "complete",
-          reason: "done",
-          stats: { turnsUsed: 1, tokensUsed: 4300, wallClockMs: 435000 },
-        },
-      ),
-    ]);
-
-    expect(
-      driver.state.transcriptEntries
-        .filter((entry) => entry.kind === "goal")
-        .map((entry) => entry.content),
-    ).toEqual(["Goal set", "Goal paused", "Goal resumed", "Goal blocked"]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).toContain("Goal set");
-    expect(transcript).toContain("Goal paused");
-    expect(transcript).toContain("Goal resumed");
-    expect(transcript).toContain("Goal blocked");
-    expect(transcript).toContain("Goal complete — done");
-    expect(transcript).toContain("Worked 1 turn over 7m15s, using 4.2k tokens.");
-  });
-
-  it("filters resume-normalization goal pause markers in TUI replay", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot(), { kind: "created" }),
-      goalReplay(goalSnapshot({ status: "paused", terminalReason: "Paused after agent resume" }), {
-        kind: "lifecycle",
-        status: "paused",
-        reason: "Paused after agent resume",
-      }),
-    ]);
-
-    expect(
-      driver.state.transcriptEntries
-        .filter((entry) => entry.kind === "goal")
-        .map((entry) => entry.content),
-    ).toEqual(["Goal set"]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).toContain("Goal set");
-    expect(transcript).not.toContain("Goal paused");
-    expect(transcript).not.toContain("Paused after agent resume");
-  });
-
-  it("renders replayed goal completion records as assistant completion messages", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({
-          status: "complete",
-          turnsUsed: 1,
-          tokensUsed: 4_300_000,
-          wallClockMs: 435_000,
-        }),
-        {
-          kind: "completion",
-          status: "complete",
-          stats: { turnsUsed: 1, tokensUsed: 4_300_000, wallClockMs: 435_000 },
-        },
-      ),
-    ]);
-
-    const entry = driver.state.transcriptEntries.find((item) =>
-      item.content.includes("Goal complete"),
-    );
-    expect(entry).toMatchObject({
-      kind: "assistant",
-      renderMode: "markdown",
-      content: "✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.1M tokens.",
-    });
-  });
-
-  it("does not replay model-facing goal completion prompts as transcript messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "<system-reminder>\nGoal completed successfully.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_completion" } },
-      ),
-    ]);
-
-    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
-    expect(content).not.toContain("Goal completed successfully");
-    expect(content).not.toContain("Write a concise final message for the user");
-  });
-
-  it("does not replay model-facing goal blocked prompts as transcript messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_blocked" } },
-      ),
-    ]);
-
-    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
-    expect(content).not.toContain("Goal blocked.");
-    expect(content).not.toContain("Write a concise final message for the user");
-  });
-
-  it("does not replay system-trigger prompts such as goal continuation as user messages", async () => {
-    const driver = await replayIntoDriver([
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "Continue working toward the active goal. Keep the self-audit brief.",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_continuation" } },
-      ),
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "<system-reminder>\nThe goal was cancelled.\n</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_cancelled" } },
-      ),
-      message("assistant", [{ type: "text", text: "Working on it." }]),
-    ]);
-
-    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === "user")).toEqual([]);
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
-    expect(transcript).not.toContain("Continue working toward the active goal");
-    expect(transcript).not.toContain("The goal was cancelled");
-    expect(transcript).toContain("Working on it.");
-  });
-
-  it("does not replay the model-blocked lifecycle marker when the follow-up is replayed", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot({ status: "blocked" }), {
-        kind: "lifecycle",
-        status: "blocked",
-        actor: "model",
-      }),
-      message(
-        "user",
-        [
-          {
-            type: "text",
-            text: "<system-reminder>\nGoal blocked.\nWorked 1 turn over 7m15s, using 4.3M tokens.\n\nWrite a concise final message for the user.\n</system-reminder>",
-          },
-        ],
-        { origin: { kind: "system_trigger", name: "goal_blocked" } },
-      ),
-      message("assistant", [{ type: "text", text: "I am blocked because I need credentials." }]),
-    ]);
-
-    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === "goal")).toEqual([]);
-    const content = driver.state.transcriptEntries.map((item) => item.content).join("\n");
-    expect(content).not.toContain("Goal blocked");
-    expect(content).toContain("I am blocked because I need credentials.");
-  });
-
-  it("does not replay model-blocked lifecycle markers without a follow-up", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot({ status: "blocked" }), {
-        kind: "lifecycle",
-        status: "blocked",
-        actor: "model",
-      }),
-    ]);
-
-    expect(
-      driver.state.transcriptEntries
-        .filter((entry) => entry.kind === "goal")
-        .map((entry) => entry.content),
-    ).toEqual([]);
-  });
-
-  it("keeps replayed blocked lifecycle markers when actor is unavailable", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot({ status: "blocked" }), { kind: "lifecycle", status: "blocked" }),
-    ]);
-
-    expect(
-      driver.state.transcriptEntries
-        .filter((entry) => entry.kind === "goal")
-        .map((entry) => entry.content),
-    ).toEqual(["Goal blocked"]);
-  });
-
-  it("keeps replayed runtime-blocked lifecycle markers", async () => {
-    const driver = await replayIntoDriver([
-      goalReplay(goalSnapshot({ status: "blocked" }), {
-        kind: "lifecycle",
-        status: "blocked",
-        actor: "runtime",
-      }),
-    ]);
-
-    expect(
-      driver.state.transcriptEntries
-        .filter((entry) => entry.kind === "goal")
-        .map((entry) => entry.content),
-    ).toEqual(["Goal blocked"]);
   });
 
   it("groups replayed Agent calls from one assistant message using live grouping", async () => {
@@ -1343,13 +1005,11 @@ describe("DimiTUI resume message replay", () => {
     expect(transcript).not.toContain("Plan mode: OFF");
   });
 
-  it("trims goal sessions to the most recent goal turns and hides continuation prompts", async () => {
-    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: "created" })];
+  it("trims replayed sessions to the most recent turns", async () => {
+    const replay: AgentReplayRecord[] = [];
     for (let i = 0; i < 25; i++) {
       replay.push(
-        message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
-          origin: { kind: "system_trigger", name: "goal_continuation" },
-        }),
+        message("user", [{ type: "text", text: `round ${i} prompt` }]),
         message("assistant", [{ type: "text", text: `round ${i} summary` }], {
           toolCalls: [toolCall(`call_${i}`, "Bash", { command: "ls" })],
         }),
@@ -1360,37 +1020,29 @@ describe("DimiTUI resume message replay", () => {
     const driver = await replayIntoDriver(replay);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
 
-    // Continuation prompts are model-facing and never render as user bubbles.
-    expect(transcript).not.toContain("Continue working toward the active goal.");
-    // Only the most recent REPLAY_TURN_LIMIT goal turns are replayed.
-    expect(transcript).not.toContain("round 0 summary");
-    expect(transcript).not.toContain("round 14 summary");
-    expect(transcript).toContain("round 15 summary");
+    // Only the most recent REPLAY_TURN_LIMIT turns are replayed.
+    expect(transcript).not.toContain("round 0 prompt");
+    expect(transcript).not.toContain("round 14 prompt");
+    expect(transcript).toContain("round 15 prompt");
     expect(transcript).toContain("round 24 summary");
     expect(countToolCalls(driver.state.transcriptContainer.children)).toBe(10);
   });
 
-  it("folds oversized goal rounds even though continuation boundaries are hidden", async () => {
-    const replay: AgentReplayRecord[] = [goalReplay(goalSnapshot(), { kind: "created" })];
-    // Ten continuation rounds — exactly at the replay turn limit, so nothing
-    // is trimmed and only folding can bound the oversized final round.
+  it("folds an oversized turn to the per-turn step cap", async () => {
+    const replay: AgentReplayRecord[] = [];
+    // Nine ordinary turns — exactly at the replay turn limit minus one, so
+    // nothing is trimmed and only folding can bound the oversized final turn.
     for (let i = 0; i < 9; i++) {
       replay.push(
-        message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
-          origin: { kind: "system_trigger", name: "goal_continuation" },
-        }),
+        message("user", [{ type: "text", text: `round ${i} prompt` }]),
         message("assistant", [{ type: "text", text: `round ${i} summary` }], {
           toolCalls: [toolCall(`call_${i}`, "Bash", { command: "ls" })],
         }),
         message("tool", [{ type: "text", text: "ok" }], { toolCallId: `call_${i}` }),
       );
     }
-    // Final round: 40 tool calls and 5 assistant texts in one continuation turn.
-    replay.push(
-      message("user", [{ type: "text", text: "Continue working toward the active goal." }], {
-        origin: { kind: "system_trigger", name: "goal_continuation" },
-      }),
-    );
+    // Final turn: 40 tool calls and 5 assistant texts in one turn.
+    replay.push(message("user", [{ type: "text", text: "final round prompt" }]));
     for (let t = 0; t < 40; t++) {
       replay.push(
         message("assistant", t < 5 ? [{ type: "text", text: `final text ${t}` }] : [], {
@@ -1403,8 +1055,7 @@ describe("DimiTUI resume message replay", () => {
     const driver = await replayIntoDriver(replay);
     const children = driver.state.transcriptContainer.children;
 
-    // The oversized round folds steps to the per-turn cap even with no visible
-    // boundary component mounted for the continuation prompt; assistant texts
+    // The oversized turn folds steps to the per-turn cap; assistant texts
     // are never folded.
     expect(countToolCalls(children)).toBe(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);

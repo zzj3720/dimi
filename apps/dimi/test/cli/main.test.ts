@@ -301,7 +301,7 @@ describe('main entry command handling', () => {
     await waitForAssertion(() => {
       expect(mocks.finalizeHeadlessRun).toHaveBeenCalledTimes(1);
     });
-    // The exit code is resolved lazily so a goal turn that sets process.exitCode wins.
+    // The exit code is resolved lazily so a failed turn that sets process.exitCode wins.
     const forceExitArgs = mocks.finalizeHeadlessRun.mock.calls[0] as unknown as unknown[];
     expect(typeof forceExitArgs[2]).toBe('function');
   });

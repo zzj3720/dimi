@@ -18,7 +18,6 @@
 import { readFile } from "node:fs/promises";
 
 import {
-  IAgentGoalService,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -62,13 +61,6 @@ import {
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from "#/constant/app";
 
-import {
-  formatGoalSummaryText,
-  goalExitCode,
-  goalSummaryJson,
-  parseHeadlessGoalCreate,
-  type HeadlessGoalCreate,
-} from "./goal-prompt";
 import { createDimiCodeHostIdentity } from "./version";
 
 import { resolveOutputFormat } from "./options";
@@ -174,10 +166,7 @@ export function signalExitCode(signal: NodeJS.Signals): number {
   return 143;
 }
 
-/** Re-check `goalActive` at least this often while waiting for goal turns. */
-const GOAL_WAIT_POLL_MS = 250;
-/**
- * Slack on top of a scheduled cron fire time while waiting for the steered
+/** Slack on top of a scheduled cron fire time while waiting for the steered
  * turn: covers the 1s tick poll interval plus fire → inject → turn-launch
  * latency.
  */
@@ -273,29 +262,15 @@ export async function runPrint(
       telemetryService.track2("first_launch");
     }
 
-    const goalCreate = parseHeadlessGoalCreate(opts.prompt!);
-    if (goalCreate !== undefined) {
-      await runNativeGoal(
-        app,
-        resolved.session,
-        resolved.agent,
-        goalCreate,
-        resolved.goalModel,
-        outputFormat,
-        stdout,
-        stderr,
-      );
-    } else {
-      await runNativeTurn(
-        app,
-        resolved.session,
-        resolved.agent,
-        opts.prompt!,
-        outputFormat,
-        stdout,
-        stderr,
-      );
-    }
+    await runNativeTurn(
+      app,
+      resolved.session,
+      resolved.agent,
+      opts.prompt!,
+      outputFormat,
+      stdout,
+      stderr,
+    );
     writeResumeHint(resolved.session.id, outputFormat, stdout, stderr);
 
     telemetryService.withContext({ sessionId: resolved.session.id }).track2("exit", {
@@ -311,7 +286,6 @@ interface ResolvedNativeSession {
   readonly agent: IAgentScopeHandle;
   readonly restorePermission: () => Promise<void>;
   readonly telemetryModel: string | undefined;
-  readonly goalModel: string | undefined;
 }
 
 async function resolveNativeSession(
@@ -413,7 +387,6 @@ async function resolveNativeSession(
       agent,
       restorePermission,
       telemetryModel: configuredModel(opts.model, currentModel, defaultModel),
-      goalModel: configuredModel(opts.model, currentModel),
     };
   }
 
@@ -432,7 +405,6 @@ async function resolveNativeSession(
         agent,
         restorePermission,
         telemetryModel: configuredModel(opts.model, currentModel, defaultModel),
-        goalModel: configuredModel(opts.model, currentModel),
       };
     }
     stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
@@ -454,7 +426,6 @@ async function resolveNativeSession(
     agent,
     restorePermission: async () => {},
     telemetryModel: model,
-    goalModel: model,
   };
 }
 
@@ -510,7 +481,6 @@ async function runNativeTurn(
     if (result.type === "completed") {
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);
-      const goalService = agent.accessor.get(IAgentGoalService);
       const cronService = session.accessor.get(ISessionCronService);
       try {
         await applyPrintBackgroundPolicy({
@@ -523,7 +493,6 @@ async function runNativeTurn(
           skipTurnId: turn.id,
           warn: (message) => stderr.write(`Warning: ${message}\n`),
           now: () => Date.now(),
-          goalActive: () => goalService.getGoal().goal?.status === "active",
           cronNextFireAt: () => cronService.getNextFireTime(),
         });
       } catch (error) {
@@ -550,48 +519,6 @@ async function runNativeTurn(
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
     subscription.dispose();
-  }
-}
-
-async function runNativeGoal(
-  app: Scope,
-  session: ISessionScopeHandle,
-  agent: IAgentScopeHandle,
-  goal: HeadlessGoalCreate,
-  model: string | undefined,
-  outputFormat: PromptOutputFormat,
-  stdout: PromptOutput,
-  stderr: PromptOutput,
-): Promise<void> {
-  requireConfiguredModel(model);
-  const goalService = agent.accessor.get(IAgentGoalService);
-  await goalService.createGoal({
-    objective: goal.objective,
-    replace: goal.replace,
-  });
-  let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
-    if (
-      event.type === "goal.updated" &&
-      event.change?.kind === "completion" &&
-      event.snapshot !== null
-    ) {
-      completedSnapshot = event.snapshot;
-    }
-  });
-  try {
-    await runNativeTurn(app, session, agent, goal.objective, outputFormat, stdout, stderr);
-  } finally {
-    subscription.dispose();
-    const snapshot = completedSnapshot ?? goalService.getGoal().goal;
-    if (outputFormat === "stream-json") {
-      stdout.write(`${JSON.stringify(goalSummaryJson(snapshot))}\n`);
-    } else {
-      stderr.write(`${formatGoalSummaryText(snapshot)}\n`);
-    }
-    if (snapshot !== null && snapshot.status !== "complete") {
-      process.exitCode = goalExitCode(snapshot.status);
-    }
   }
 }
 
@@ -748,13 +675,6 @@ export interface PrintBackgroundPolicyInput {
   readonly warn: (message: string) => void;
   readonly now: () => number;
   /**
-   * Reports whether an agent goal is still `active`. Goal continuation uses
-   * new turns, so a `-p` goal
-   * run must stay alive until the goal leaves `active`, independent of the
-   * background policy.
-   */
-  readonly goalActive?: () => boolean;
-  /**
    * Reports the next scheduled cron fire time (epoch ms), or `null` when no
    * cron task has a future fire. While it returns non-null the policy keeps
    * the process alive — the cron tick timer itself is unref'd — waiting for
@@ -770,9 +690,6 @@ export interface PrintBackgroundPolicyInput {
  * Apply the print-mode (`dimi -p`) background-resource policy after the main
  * turn completes. A single loop re-evaluates the Session's live resources in
  * order on every round and stays alive while any of them is pending:
- *  - goal    : while a goal is `active`, keep waiting for its continuation
- *              turns (bounded by `ceilingS` as a safety net), regardless of
- *              the background mode; the goal summary drives the exit code.
  *  - cron    : while `cronNextFireAt` reports a future fire, keep waiting —
  *              the cron tick timer is unref'd, so the process must hold the
  *              event loop itself (independent of the mode). The
@@ -789,7 +706,7 @@ export interface PrintBackgroundPolicyInput {
  *              quiescent, or when the wall-clock ceiling (`ceilingS`) or the
  *              turn cap (`maxTurns`) is reached. A steered turn that does not
  *              complete fails the run.
- * The steer ceiling deadline is set once on entry, so goal/cron waiting
+ * The steer ceiling deadline is set once on entry, so cron waiting
  * consumes the same budget.
  */
 export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInput): Promise<void> {
@@ -800,24 +717,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
   let lastPastFireAt: number | undefined;
   let cronWedged = false;
   for (;;) {
-    // (a) goal: while a goal is `active`, keep waiting for its continuation
-    // turns. Also wake on a short poll: a goal can leave `active` without any
-    // further turn.ended (budget block at a turn boundary, or a pause after a
-    // continuation-launch failure), which would otherwise hang the run until
-    // the ceiling. A continuation turn that does not complete pauses/blocks
-    // the goal, so the condition exits on the next check.
-    while (input.goalActive?.() === true) {
-      const ended = await input.turnEndings.next(
-        Math.min(deadline - input.now(), GOAL_WAIT_POLL_MS),
-        input.skipTurnId,
-      );
-      if (ended === null && input.now() >= deadline) {
-        input.warn(`print goal wait ceiling reached (${input.ceilingS}s), finishing`);
-        return;
-      }
-    }
-
-    // (b) cron: keep the process alive until the pending fire steered a turn
+    // (a) cron: keep the process alive until the pending fire steered a turn
     // (one-shot tasks vanish after firing; recurring ones advance their next
     // fire), then re-evaluate from the top.
     if (!cronWedged && input.cronNextFireAt !== undefined) {
@@ -844,7 +744,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
       }
     }
 
-    // (c) background-task mode.
+    // (b) background-task mode.
     if (input.mode === "exit") return;
     if (input.mode === "drain") {
       await input.drain();

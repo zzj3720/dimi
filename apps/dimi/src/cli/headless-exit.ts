@@ -21,8 +21,8 @@ export interface ExitableProcess {
  * naturally before it fires (so behaviour is unchanged), and the timer itself
  * never keeps the loop alive. It only force-exits a run whose loop is already
  * wedged. The exit code is read lazily at fire time so callers may set
- * `process.exitCode` after scheduling (e.g. a goal turn mapping its terminal
- * status to a non-zero code).
+ * `process.exitCode` after scheduling (e.g. a failed headless run mapping its
+ * error status to a non-zero code).
  *
  * Returns the timer handle so callers/tests can `clearTimeout` it.
  */

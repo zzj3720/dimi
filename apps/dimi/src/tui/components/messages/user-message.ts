@@ -99,10 +99,10 @@ function isImageLine(line: string): boolean {
 
 /**
  * Invisible turn-boundary marker for replay. Some replayed records start a
- * new turn without anything to show — the goal driver's synthetic
- * continuation prompt is model-facing and never rendered live — but the
- * transcript still needs a mounted boundary component so step/assistant
- * folding (and window trimming) can find the turn edges. Renders zero lines.
+ * new turn without anything to show — e.g. a model-facing system-trigger
+ * message that is never rendered live — but the transcript still needs a
+ * mounted boundary component so step/assistant folding (and window
+ * trimming) can find the turn edges. Renders zero lines.
  */
 export class ReplayTurnBoundaryComponent implements Component {
   invalidate(): void {}

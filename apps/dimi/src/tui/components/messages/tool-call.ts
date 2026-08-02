@@ -34,7 +34,6 @@ import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
-import { buildGoalToolHeader } from './tool-renderers/goal';
 import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
 
 const MAX_ARG_LENGTH = 60;
@@ -1666,14 +1665,6 @@ export class ToolCallComponent extends Container {
       const chipStr = isFinished && result !== undefined ? this.buildHeaderChip(result) : '';
       return `${bullet}${currentTheme.boldFg(tone, label)}${chipStr}`;
     }
-
-    const goalHeader = buildGoalToolHeader({
-      toolCall,
-      result,
-      bullet,
-      chip: isFinished && result !== undefined ? this.buildHeaderChip(result) : '',
-    });
-    if (goalHeader !== undefined) return goalHeader;
 
     if (this.isSingleSubagentView()) {
       return this.buildSingleSubagentHeader();

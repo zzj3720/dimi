@@ -81,11 +81,11 @@ describe('findLastAssistantText', () => {
     expect(findLastAssistantText(entries)).toBe('visible reply');
   });
 
-  it('skips synthetic assistant cards like hook results and goal completions', () => {
+  it('skips synthetic assistant cards like hook results', () => {
     const entries = [
       assistantEntry('real reply'),
       entry('assistant', '*PostToolUse hook* ran something'),
-      entry('assistant', 'Goal completed: shipped the feature'),
+      entry('assistant', 'Hook result: shipped the feature'),
     ];
 
     expect(findLastAssistantText(entries)).toBe('real reply');

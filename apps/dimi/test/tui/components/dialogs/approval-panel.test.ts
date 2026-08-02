@@ -64,28 +64,28 @@ describe('ApprovalPanelComponent', () => {
   it('renders choice descriptions beneath the label when present', () => {
     const pending: PendingApproval = {
       data: {
-        id: 'approval_goal',
-        tool_call_id: 'tool_goal',
-        tool_name: 'CreateGoal',
-        action: 'Creating a goal',
+        id: 'approval_1',
+        tool_call_id: 'tool_1',
+        tool_name: 'Edit',
+        action: 'apply edit',
         description: '',
         display: [],
         choices: [
           {
-            label: 'Switch to Auto and start',
+            label: 'Approve once',
             response: 'approved',
-            selected_label: 'auto',
-            description: 'Tools are approved automatically, and questions are skipped.',
+            selected_label: 'approve',
+            description: 'Approves this action once.',
           },
-          { label: 'Do not start', response: 'cancelled', selected_label: 'cancel' },
+          { label: 'Reject', response: 'rejected', selected_label: 'reject' },
         ],
       },
     };
     const out = strip(new ApprovalPanelComponent(pending, () => {}).render(80).join('\n'));
-    expect(out).toContain('1. Switch to Auto and start');
-    expect(out).toContain('Tools are approved automatically, and questions are skipped.');
+    expect(out).toContain('1. Approve once');
+    expect(out).toContain('Approves this action once.');
     // A choice without a description stays label-only — no stray blank helper line.
-    expect(out).toContain('2. Do not start');
+    expect(out).toContain('2. Reject');
   });
 
   it('renders dangerous shell warnings with simple copy and no icon', () => {

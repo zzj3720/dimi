@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { log, type GoalSnapshot } from '@dimi-agent/dimi-sdk';
+import { log } from '@dimi-agent/dimi-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
@@ -119,35 +119,10 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     setThinking: vi.fn(async () => {}),
     setPermission: vi.fn(async () => {}),
     setPlanMode: vi.fn(async () => {}),
-    getGoal: vi.fn(async () => ({ goal: null })),
     onEvent: vi.fn(() => () => {}),
     getResumeState: vi.fn(() => null),
     listSkills: vi.fn(async () => []),
     close: vi.fn(async () => {}),
-    ...overrides,
-  };
-}
-
-function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
-  return {
-    goalId: 'goal-1',
-    objective: 'Ship feature X',
-    status: 'paused',
-    turnsUsed: 2,
-    tokensUsed: 100,
-    wallClockMs: 1000,
-    budget: {
-      tokenBudget: null,
-      turnBudget: null,
-      wallClockBudgetMs: null,
-      remainingTokens: null,
-      remainingTurns: null,
-      remainingWallClockMs: null,
-      tokenBudgetReached: false,
-      turnBudgetReached: false,
-      wallClockBudgetReached: false,
-      overBudget: false,
-    },
     ...overrides,
   };
 }
@@ -573,56 +548,6 @@ describe('DimiTUI startup', () => {
 
     expect(session.setPermission).toHaveBeenCalledWith('auto');
     expect(driver.state.appState.permissionMode).toBe('auto');
-  });
-
-  it('syncs a persisted goal when resuming a session', async () => {
-    const goal = goalSnapshot({ status: 'blocked', terminalReason: 'needs input' });
-    const session = makeSession({
-      id: 'ses-latest',
-      getGoal: vi.fn(async () => ({ goal })),
-    });
-    const harness = makeHarness(session, {
-      listSessions: vi.fn(async () => [{ id: 'ses-latest' }]),
-      getExperimentalFeatures: vi.fn(async () => [{ id: 'micro_compaction', enabled: true }]),
-    });
-    const driver = makeDriver(harness, makeStartupInput({ continue: true }));
-
-    await expect(driver.init()).resolves.toBe(true);
-
-    expect(session.getGoal).toHaveBeenCalledOnce();
-    expect(driver.state.appState.goal).toEqual(goal);
-  });
-
-  it('syncs goal state regardless of the goal flag', async () => {
-    const goal = goalSnapshot();
-    const session = makeSession({
-      getGoal: vi.fn(async () => ({ goal })),
-    });
-    const harness = makeHarness(session);
-    const driver = makeDriver(harness, makeStartupInput());
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    expect(session.getGoal).toHaveBeenCalledOnce();
-    expect(driver.state.appState.goal).toEqual(goal);
-  });
-
-  it('clears goal state when closing the current session', async () => {
-    const goal = goalSnapshot();
-    const session = makeSession({
-      getGoal: vi.fn(async () => ({ goal })),
-    });
-    const harness = makeHarness(session, {
-      getExperimentalFeatures: vi.fn(async () => [{ id: 'micro_compaction', enabled: true }]),
-    });
-    const driver = makeDriver(harness, makeStartupInput()) as unknown as RuntimeStateDriver;
-
-    await expect(driver.init()).resolves.toBe(false);
-    expect(driver.state.appState.goal).toEqual(goal);
-
-    await driver.closeSession('test close');
-
-    expect(driver.state.appState.goal).toBeNull();
   });
 
   it('passes the CLI model override when creating a fresh startup session', async () => {

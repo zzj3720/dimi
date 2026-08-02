@@ -8,7 +8,6 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   Event,
-  GoalSnapshot,
 } from '@dimi-agent/dimi-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -177,7 +176,6 @@ function makeSession(overrides: Record<string, unknown> = {}) {
       maxContextTokens: 100,
       contextUsage: 0,
     })),
-    getGoal: vi.fn(async () => ({ goal: null })),
     setApprovalHandler: vi.fn(),
     setQuestionHandler: vi.fn(),
     setModel: vi.fn(async (alias: string) => {
@@ -365,29 +363,6 @@ async function makeDriver(
   driver.persistInputHistory = vi.fn(async () => {});
   await driver.init();
   return { driver, session, harness };
-}
-
-function makeActiveGoalSnapshot(): GoalSnapshot {
-  return {
-    goalId: 'g1',
-    objective: 'Ship the feature',
-    status: 'active',
-    turnsUsed: 3,
-    tokensUsed: 100,
-    wallClockMs: 1000,
-    budget: {
-      tokenBudget: null,
-      turnBudget: null,
-      wallClockBudgetMs: null,
-      remainingTokens: null,
-      remainingTurns: null,
-      remainingWallClockMs: null,
-      tokenBudgetReached: false,
-      turnBudgetReached: false,
-      wallClockBudgetReached: false,
-      overBudget: false,
-    },
-  };
 }
 
 function renderTranscript(driver: MessageDriver): string {
@@ -1809,69 +1784,7 @@ command = "vim"
     expect(harness.track).toHaveBeenCalledWith('input_queue', undefined);
   });
 
-  it('steers fresh input while a goal is active even when the streaming phase is idle', async () => {
-    const { driver, session } = await makeDriver();
-    driver.state.appState.goal = makeActiveGoalSnapshot();
-
-    driver.handleUserInput('hello mid-goal');
-
-    expect(session.steer).toHaveBeenCalledWith('hello mid-goal');
-    expect(session.prompt).not.toHaveBeenCalled();
-    expect(driver.state.transcriptEntries).toEqual([
-      expect.objectContaining({
-        kind: 'user',
-        content: 'hello mid-goal',
-      }),
-    ]);
-  });
-
-  it('resets the streaming phase when steering mid-goal input fails', async () => {
-    const session = makeSession({
-      steer: vi.fn(async () => {
-        throw new Error('session closed');
-      }),
-    });
-    const { driver } = await makeDriver(session);
-    driver.state.appState.goal = makeActiveGoalSnapshot();
-
-    driver.handleUserInput('hello mid-goal');
-
-    expect(driver.state.appState.streamingPhase).toBe('waiting');
-    await vi.waitFor(() => {
-      expect(driver.state.appState.streamingPhase).toBe('idle');
-    });
-    expect(stripSgr(renderTranscript(driver))).toContain('Failed to steer: session closed');
-  });
-
-  it('steers a queued message at a turn boundary while a goal is active', async () => {
-    const { driver, session } = await makeDriver();
-    driver.state.appState.busyInputMode = 'queue';
-    driver.state.appState.goal = makeActiveGoalSnapshot();
-    driver.state.appState.streamingPhase = 'waiting';
-    driver.handleUserInput('mid-goal note');
-    expect(driver.state.queuedMessages).toEqual([{ text: 'mid-goal note', agentId: 'main' }]);
-
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'turn.ended',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 0,
-        reason: 'completed',
-      } as Event,
-      (item) => {
-        driver.sendQueuedMessage(session, item);
-      },
-    );
-
-    await vi.waitFor(() => {
-      expect(session.steer).toHaveBeenCalledWith('mid-goal note');
-    });
-    expect(session.prompt).not.toHaveBeenCalled();
-    expect(driver.state.queuedMessages).toEqual([]);
-  });
-
-  it('prompts the queued message as a new turn when no goal is active', async () => {
+  it('prompts the queued message as a new turn', async () => {
     const { driver, session } = await makeDriver();
     driver.state.appState.busyInputMode = 'queue';
     driver.state.appState.streamingPhase = 'waiting';

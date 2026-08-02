@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   IAgentCatalogRuntimeOptions,
-  IAgentGoalService,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -23,12 +22,10 @@ import {
   ISkillCatalogRuntimeOptions,
   ITelemetryService,
   type DomainEvent,
-  type GoalSnapshot,
   type ScopeSeed,
 } from "@dimi-agent/agent-core-v2";
 
 import { runPrint } from "../../src/cli/run-print";
-import { GOAL_EXIT_CODES } from "../../src/cli/goal-prompt";
 
 const mocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
@@ -123,30 +120,6 @@ function opts(overrides: Record<string, unknown> = {}) {
   } as const;
 }
 
-function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
-  return {
-    goalId: "goal-1",
-    objective: "Ship feature X",
-    status: "complete",
-    turnsUsed: 2,
-    tokensUsed: 120,
-    wallClockMs: 0,
-    budget: {
-      tokenBudget: null,
-      turnBudget: null,
-      wallClockBudgetMs: null,
-      remainingTokens: null,
-      remainingTurns: null,
-      remainingWallClockMs: null,
-      tokenBudgetReached: false,
-      turnBudgetReached: false,
-      wallClockBudgetReached: false,
-      overBudget: false,
-    },
-    ...overrides,
-  };
-}
-
 function makeFakeHarness() {
   // Native event listeners registered on the main agent's IEventBus; the turn
   // emits a streaming assistant delta before completing.
@@ -191,13 +164,6 @@ function makeFakeHarness() {
       },
     ],
     [IAgentTaskService, { list: vi.fn(() => []) }],
-    [
-      IAgentGoalService,
-      {
-        createGoal: vi.fn(async () => goalSnapshot({ status: "active" })),
-        getGoal: vi.fn(() => ({ goal: null })),
-      },
-    ],
   ]);
   const agent = fakeScope("main", agentServices);
 
@@ -526,121 +492,5 @@ describe("runPrint", () => {
     };
     expect(profile.bind).not.toHaveBeenCalled();
     expect(profile.setModel).toHaveBeenCalledWith("new-model");
-  });
-
-  it("runs a headless goal through the native goal and prompt services", async () => {
-    const stdout = writer();
-    const stderr = writer();
-    const { app, agent, agentServices, eventListeners } = makeFakeHarness();
-    const completed = goalSnapshot({ turnsUsed: 4, tokensUsed: 240 });
-    const goal = agentServices.get(IAgentGoalService) as {
-      createGoal: ReturnType<typeof vi.fn>;
-      getGoal: ReturnType<typeof vi.fn>;
-    };
-    goal.getGoal.mockReturnValue({ goal: null });
-    const prompt = agentServices.get(IAgentPromptService) as {
-      enqueue: ReturnType<typeof vi.fn>;
-    };
-    prompt.enqueue.mockImplementationOnce(() => {
-      for (const listener of eventListeners) {
-        listener({
-          type: "goal.updated",
-          snapshot: completed,
-          change: { kind: "completion", status: "complete" },
-        });
-      }
-      return {
-        launched: Promise.resolve({
-          id: 1,
-          result: Promise.resolve({ type: "completed" }),
-        }),
-      };
-    });
-    mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
-
-    await runPrint(
-      opts({ prompt: "/goal Ship feature X", outputFormat: "stream-json" }) as never,
-      "1.2.3-test",
-      { stdout, stderr },
-    );
-
-    expect(goal.createGoal).toHaveBeenCalledWith({
-      objective: "Ship feature X",
-      replace: false,
-    });
-    expect(stdout.text()).toContain('"type":"goal.summary"');
-    expect(stdout.text()).toContain('"turnsUsed":4');
-  });
-
-  it("sets the headless goal exit code from the final native snapshot", async () => {
-    const stdout = writer();
-    const stderr = writer();
-    const { app, agent, agentServices } = makeFakeHarness();
-    const goal = agentServices.get(IAgentGoalService) as {
-      getGoal: ReturnType<typeof vi.fn>;
-    };
-    goal.getGoal.mockReturnValue({ goal: goalSnapshot({ status: "blocked" }) });
-    mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
-
-    await runPrint(opts({ prompt: "/goal Ship feature X" }) as never, "1.2.3-test", {
-      stdout,
-      stderr,
-    });
-
-    expect(process.exitCode).toBe(GOAL_EXIT_CODES.blocked);
-    expect(stderr.text()).toContain("Goal [blocked]");
-  });
-
-  it("does not enqueue a malformed headless goal as a normal prompt", async () => {
-    const stdout = writer();
-    const stderr = writer();
-    const { app, agent, agentServices } = makeFakeHarness();
-    mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
-
-    await expect(
-      runPrint(opts({ prompt: `/goal ${"x".repeat(4001)}` }) as never, "1.2.3-test", {
-        stdout,
-        stderr,
-      }),
-    ).rejects.toThrow("Goal objective is too long");
-
-    expect(
-      (agentServices.get(IAgentGoalService) as { createGoal: ReturnType<typeof vi.fn> }).createGoal,
-    ).not.toHaveBeenCalled();
-    expect(
-      (agentServices.get(IAgentPromptService) as { enqueue: ReturnType<typeof vi.fn> }).enqueue,
-    ).not.toHaveBeenCalled();
-  });
-
-  it("validates a resumed session model before creating a headless goal", async () => {
-    const stdout = writer();
-    const stderr = writer();
-    const { app, agent, agentServices, appServices } = makeFakeHarness();
-    const index = appServices.get(ISessionIndex) as { list: ReturnType<typeof vi.fn> };
-    index.list.mockResolvedValue({ items: [{ id: "ses_runtime", cwd: process.cwd() }] });
-    const profile = agentServices.get(IAgentProfileService) as {
-      getModel: ReturnType<typeof vi.fn>;
-    };
-    profile.getModel.mockReturnValue("");
-    mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
-
-    await expect(
-      runPrint(
-        opts({ session: "ses_runtime", prompt: "/goal Ship feature X" }) as never,
-        "1.2.3-test",
-        {
-          stdout,
-          stderr,
-        },
-      ),
-    ).rejects.toThrow("No model configured");
-
-    expect(
-      (agentServices.get(IAgentGoalService) as { createGoal: ReturnType<typeof vi.fn> }).createGoal,
-    ).not.toHaveBeenCalled();
   });
 });

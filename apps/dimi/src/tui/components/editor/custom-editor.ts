@@ -579,7 +579,7 @@ export class CustomEditor extends Editor {
 
     // After accepting a slash command name via Tab, pi-tui inserts a trailing
     // space and closes the menu without triggering argument completion. Reopen
-    // it so subcommands (e.g. `/goal ` → status/pause/…) show immediately.
+    // it so subcommands (e.g. `/swarm ` → on/off) show immediately.
     // Skipped in bash mode: `/` is a path there, and force:false would let
     // pi-tui's own slash-command handling pop up subcommand completions.
     if (
@@ -595,7 +595,6 @@ export class CustomEditor extends Editor {
 
 /**
  * Return a copy of `line` with the first `/token` coloured using `hex`.
- * For `/goal next manage`, also colour the command-path tokens.
  * `line` may already contain SGR escapes (cursor inverse, etc.); we
  * locate `/` via visible-index math so ANSI pass-through survives.
  * Returns `undefined` if no token is found.
@@ -619,36 +618,9 @@ export function highlightFirstSlashToken(line: string, token: 'primary'): string
   const visibleToken = visible.slice(slashIdx, endVisible);
   if (visibleToken.slice(1).includes('/')) return undefined;
   const ranges = [{ start: slashIdx, end: endVisible }];
-  if (visibleToken === '/goal') {
-    ranges.push(...goalCommandPathRanges(visible, endVisible));
-  }
   return highlightVisibleRanges(line, ranges, token);
 }
 
-function goalCommandPathRanges(
-  visible: string,
-  commandEnd: number,
-): Array<{ start: number; end: number }> {
-  const nextRange = readTokenRange(visible, commandEnd);
-  if (nextRange === null || visible.slice(nextRange.start, nextRange.end) !== 'next') {
-    return [];
-  }
-  const ranges = [nextRange];
-  const manageRange = readTokenRange(visible, nextRange.end);
-  if (manageRange !== null && visible.slice(manageRange.start, manageRange.end) === 'manage') {
-    ranges.push(manageRange);
-  }
-  return ranges;
-}
-
-function readTokenRange(visible: string, start: number): { start: number; end: number } | null {
-  let tokenStart = start;
-  while (tokenStart < visible.length && isTokenSpace(visible[tokenStart])) tokenStart++;
-  if (tokenStart >= visible.length) return null;
-  let tokenEnd = tokenStart;
-  while (tokenEnd < visible.length && !isTokenSpace(visible[tokenEnd])) tokenEnd++;
-  return { start: tokenStart, end: tokenEnd };
-}
 
 function isTokenSpace(ch: string | undefined): boolean {
   return ch === ' ' || ch === '\t';

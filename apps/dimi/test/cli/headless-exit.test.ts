@@ -13,7 +13,7 @@ describe('scheduleHeadlessForceExit', () => {
     const exit = vi.fn();
     let code = 0;
     const handle = scheduleHeadlessForceExit({ exit }, () => code, 2000);
-    // The exit code can be set after scheduling (e.g. a goal turn maps its
+    // The exit code can be set after scheduling (e.g. a headless run maps its
     // terminal status to process.exitCode); it must be read at fire time.
     code = 7;
 

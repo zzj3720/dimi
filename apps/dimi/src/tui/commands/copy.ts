@@ -9,8 +9,7 @@ import type { SlashCommandHost } from './dispatch';
  * model context so it survives compaction and session resume: after
  * `/compact` the context keeps user messages plus a user-role summary only,
  * while the last reply is still on screen. Only entries tagged `modelText`
- * count — hook-result and goal-completion cards share kind 'assistant' but
- * are not replies.
+ * count — hook-result cards share kind 'assistant' but are not replies.
  */
 export function findLastAssistantText(entries: readonly TranscriptEntry[]): string {
   for (let i = entries.length - 1; i >= 0; i--) {

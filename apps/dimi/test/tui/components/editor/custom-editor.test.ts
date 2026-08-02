@@ -191,13 +191,13 @@ describe('CustomEditor slash command name Tab-accept', () => {
     const provider = new FileMentionProvider(
       [
         {
-          name: 'goal',
-          description: 'Manage goals',
+          name: 'swarm',
+          description: 'Manage swarm mode',
           getArgumentCompletions: (prefix) =>
             prefix === ''
               ? [
-                  { value: 'status', label: 'status' },
-                  { value: 'pause', label: 'pause' },
+                  { value: 'on', label: 'on' },
+                  { value: 'off', label: 'off' },
                 ]
               : null,
         },
@@ -207,7 +207,7 @@ describe('CustomEditor slash command name Tab-accept', () => {
     );
     editor.setAutocompleteProvider(provider);
 
-    for (const char of '/go') {
+    for (const char of '/sw') {
       editor.handleInput(char);
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -218,7 +218,7 @@ describe('CustomEditor slash command name Tab-accept', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await flushAutocomplete();
 
-    expect(editor.getText()).toBe('/goal ');
+    expect(editor.getText()).toBe('/swarm ');
     expect(editor.isShowingAutocomplete()).toBe(true);
   });
 

@@ -9,8 +9,6 @@ import type {
   CronFiredEvent,
   ErrorEvent,
   Event,
-  GoalChange,
-  GoalUpdatedEvent,
   HookResultEvent,
   Session,
   SessionMetaUpdatedEvent,
@@ -32,28 +30,19 @@ import type {
 } from '@dimi-agent/dimi-sdk';
 
 import { MoonLoader } from '../components/chrome/moon-loader';
-import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
 import { AUTH_LOGIN_REQUIRED_CODE, AUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/dimi-tui';
-import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   argsRecord,
   formatErrorPayload,
-  formatErrorMessage,
   isTodoItemShape,
   serializeToolResultOutput,
   stringValue,
 } from '../utils/event-payload';
-import {
-  readGoalQueue,
-  removeGoalQueueItem,
-  restoreGoalQueueItem,
-  type UpcomingGoal,
-} from '../goal-queue-store';
 import {
   formatBackgroundTaskTranscript,
   shouldShowBackgroundTaskTranscript,
@@ -86,7 +75,6 @@ import type {
   TranscriptEntry,
 } from '../types';
 import type { TUIState } from '../tui-state';
-import { createGoal as startGoalCommand } from '../commands/goal';
 
 export interface SessionEventHost {
   state: TUIState;
@@ -153,15 +141,8 @@ export class SessionEventHandler {
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
   mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
-  private goalCompletionAwaitingClear = false;
-  private goalCompletionTurnEnded = false;
-  private currentTurnHasAssistantText = false;
   private pluginCommandTurns: Map<string, string> = new Map();
   private pluginMcpToolsUsedInTurn: Set<string> = new Set();
-  private pendingModelBlockedFallback: GoalChange | undefined;
-  private queuedGoalPromotionPending = false;
-  private queuedGoalPromotionInFlight = false;
-  private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
 
   resetRuntimeState(): void {
     this.backgroundTasks.clear();
@@ -171,15 +152,8 @@ export class SessionEventHandler {
     this.renderedPluginCommandActivationIds.clear();
     this.renderedMcpServerStatusKeys.clear();
     this.mcpServers.clear();
-    this.goalCompletionAwaitingClear = false;
-    this.goalCompletionTurnEnded = false;
-    this.currentTurnHasAssistantText = false;
     this.pluginCommandTurns.clear();
     this.pluginMcpToolsUsedInTurn.clear();
-    this.pendingModelBlockedFallback = undefined;
-    this.queuedGoalPromotionPending = false;
-    this.queuedGoalPromotionInFlight = false;
-    this.clearQueuedGoalPromotionTimer();
     this.stopAllMcpServerStatusSpinners();
   }
 
@@ -308,9 +282,6 @@ export class SessionEventHandler {
       case 'session.meta.updated':
         this.handleSessionMetaChanged(event);
         break;
-      case 'goal.updated':
-        this.handleGoalUpdated(event);
-        break;
       case 'skill.activated':
         this.handleSkillActivated(event);
         break;
@@ -370,7 +341,6 @@ export class SessionEventHandler {
   // ---------------------------------------------------------------------------
 
   private handleTurnBegin(event: TurnStartedEvent): void {
-    this.currentTurnHasAssistantText = false;
     // A new turn means a pending WaitFor wait ended (user/notification wake or
     // timeout wake): freeze its count-up before resetToolUi tears down the
     // tool-call bookkeeping.
@@ -427,9 +397,6 @@ export class SessionEventHandler {
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
-    this.renderPendingModelBlockedFallback();
-    this.currentTurnHasAssistantText = false;
-    this.goalCompletionTurnEnded = true;
     // Plugin usage is reported once the whole turn's output has ended — but a
     // cancelled turn cut the output short, so skip the notice there.
     const reportPluginUsage = event.reason !== 'cancelled';
@@ -446,7 +413,6 @@ export class SessionEventHandler {
       }
     }
     this.pluginMcpToolsUsedInTurn.clear();
-    this.scheduleQueuedGoalPromotion();
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
@@ -561,10 +527,6 @@ export class SessionEventHandler {
       streamingUI.flushThinkingToTranscript('idle');
     }
 
-    if (event.delta.trim().length > 0) {
-      this.currentTurnHasAssistantText = true;
-      this.pendingModelBlockedFallback = undefined;
-    }
     streamingUI.appendAssistantDelta(event.delta);
 
     this.host.patchLivePane({
@@ -584,10 +546,6 @@ export class SessionEventHandler {
       this.host.streamingUI.flushThinkingToTranscript('idle');
     }
     this.host.streamingUI.finalizeAssistantStream();
-    if (event.content.trim().length > 0) {
-      this.currentTurnHasAssistantText = true;
-      this.pendingModelBlockedFallback = undefined;
-    }
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'assistant',
@@ -729,217 +687,6 @@ export class SessionEventHandler {
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {
     this.host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
     this.host.state.ui.requestRender();
-  }
-
-  private handleGoalUpdated(event: GoalUpdatedEvent): void {
-    this.host.setAppState({ goal: event.snapshot });
-    if (event.snapshot === null && this.goalCompletionAwaitingClear) {
-      this.goalCompletionAwaitingClear = false;
-      this.queuedGoalPromotionPending = true;
-      this.scheduleQueuedGoalPromotion();
-    }
-    if (event.snapshot === null) {
-      this.pendingModelBlockedFallback = undefined;
-    }
-    const change = event.change;
-    if (change === undefined) return;
-    const { state } = this.host;
-
-    // Completion -> the box disappears (snapshot cleared on the follow-up null
-    // update) and a deterministic completion message lands in the transcript.
-    // Resume renders the same text from the durable goal completion replay
-    // record, so live and replayed completion cards stay identical.
-    if (change.kind === 'completion' && event.snapshot !== null) {
-      this.pendingModelBlockedFallback = undefined;
-      this.goalCompletionAwaitingClear = true;
-      this.goalCompletionTurnEnded = false;
-      this.host.appendTranscriptEntry({
-        id: nextTranscriptId(),
-        kind: 'assistant',
-        renderMode: 'markdown',
-        content: buildGoalCompletionMessage(event.snapshot),
-      });
-      state.ui.requestRender();
-      return;
-    }
-
-    // Lifecycle change (pause / resume / blocked) -> a low-profile,
-    // ctrl+o-expandable marker.
-    if (change.kind === 'lifecycle' && change.status === 'blocked') {
-      void this.notifyQueuedGoalWaitingOnBlocked();
-      if (change.actor === 'model' || change.reason === undefined) {
-        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText ? undefined : change;
-        return;
-      }
-      this.pendingModelBlockedFallback = undefined;
-    } else if (change.kind === 'lifecycle') {
-      this.pendingModelBlockedFallback = undefined;
-    }
-    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', change.actor);
-    if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
-      state.ui.requestRender();
-    }
-  }
-
-  private renderPendingModelBlockedFallback(): void {
-    const change = this.pendingModelBlockedFallback;
-    if (change === undefined) return;
-    this.pendingModelBlockedFallback = undefined;
-    const { state } = this.host;
-    const marker = buildGoalMarker(change, state.toolDisplayMode === 'full', 'model');
-    if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
-      state.ui.requestRender();
-    }
-  }
-
-  private scheduleQueuedGoalPromotion(): void {
-    if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
-    if (this.queuedGoalPromotionInFlight) return;
-    if (this.queuedGoalPromotionTimer !== undefined) return;
-    this.queuedGoalPromotionTimer = setTimeout(() => {
-      this.queuedGoalPromotionTimer = undefined;
-      if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
-      if (this.queuedGoalPromotionInFlight) return;
-      if (!this.isReadyForQueuedGoalPromotion()) {
-        return;
-      }
-      this.queuedGoalPromotionInFlight = true;
-      void this.promoteNextQueuedGoal()
-        .then((complete) => {
-          if (complete) {
-            this.queuedGoalPromotionPending = false;
-            this.goalCompletionTurnEnded = false;
-            return;
-          }
-          this.goalCompletionTurnEnded = false;
-        })
-        .finally(() => {
-          this.queuedGoalPromotionInFlight = false;
-          this.scheduleQueuedGoalPromotion();
-        });
-    }, 0);
-  }
-
-  private clearQueuedGoalPromotionTimer(): void {
-    if (this.queuedGoalPromotionTimer === undefined) return;
-    clearTimeout(this.queuedGoalPromotionTimer);
-    this.queuedGoalPromotionTimer = undefined;
-  }
-
-  requestQueuedGoalPromotion(): void {
-    this.queuedGoalPromotionPending = true;
-    this.goalCompletionTurnEnded = true;
-    this.scheduleQueuedGoalPromotion();
-  }
-
-  retryQueuedGoalPromotion(): void {
-    this.scheduleQueuedGoalPromotion();
-  }
-
-  private isReadyForQueuedGoalPromotion(session?: Session): boolean {
-    return (
-      (session === undefined || this.host.session === session) &&
-      !this.host.aborted &&
-      this.host.state.appState.streamingPhase === 'idle' &&
-      this.host.state.queuedMessages.length === 0 &&
-      !this.host.state.queuedMessageDispatchPending
-    );
-  }
-
-  private async promoteNextQueuedGoal(): Promise<boolean> {
-    const { host } = this;
-    const session = host.session;
-    if (session === undefined || host.aborted) return true;
-
-    let queue;
-    try {
-      queue = await readGoalQueue(session);
-    } catch (error) {
-      host.showError(`Failed to read upcoming goals: ${formatErrorMessage(error)}`);
-      return false;
-    }
-    if (host.session !== session || host.aborted) return true;
-
-    const next = queue.goals[0];
-    if (next === undefined) return true;
-
-    if (!this.isReadyForQueuedGoalPromotion(session)) return false;
-
-    const started = await startGoalCommand(
-      host,
-      { kind: 'create', objective: next.objective, replace: false },
-      next.objective,
-      {
-        beforeSend: async () => {
-          if (!this.isReadyForQueuedGoalPromotion(session)) {
-            await this.cancelStartedQueuedGoal(session);
-            return false;
-          }
-          try {
-            await removeGoalQueueItem(session, { goalId: next.id });
-          } catch (error) {
-            host.showError(
-              `Queued goal started, but could not be removed from the queue: ${formatErrorMessage(
-                error,
-              )}`,
-            );
-            await this.cancelStartedQueuedGoal(session);
-            return false;
-          }
-          if (this.isReadyForQueuedGoalPromotion(session)) {
-            return true;
-          }
-          await this.restoreAndCancelStartedQueuedGoal(session, next);
-          return false;
-        },
-        sendInput: (objective) => {
-          host.sendQueuedMessage(session, { text: objective });
-        },
-      },
-    );
-    return started || host.session !== session || host.aborted;
-  }
-
-  private async restoreAndCancelStartedQueuedGoal(
-    session: Session,
-    goal: UpcomingGoal,
-  ): Promise<void> {
-    try {
-      await restoreGoalQueueItem(session, goal);
-    } catch (error) {
-      this.host.showError(`Queued goal could not be restored: ${formatErrorMessage(error)}`);
-    }
-    await this.cancelStartedQueuedGoal(session);
-  }
-
-  private async cancelStartedQueuedGoal(session: Session): Promise<void> {
-    try {
-      await session.cancelGoal();
-    } catch (error) {
-      this.host.showError(`Queued goal could not be cancelled: ${formatErrorMessage(error)}`);
-    }
-  }
-
-  private async notifyQueuedGoalWaitingOnBlocked(): Promise<void> {
-    const { host } = this;
-    const session = host.session;
-    if (session === undefined || host.aborted) return;
-
-    let hasQueuedGoal = false;
-    try {
-      const queue = await readGoalQueue(session);
-      hasQueuedGoal = queue.goals.length > 0;
-    } catch {
-      return;
-    }
-    if (!hasQueuedGoal || host.session !== session || host.aborted) return;
-
-    host.showNotice(
-      'Goal blocked.',
-      'The next queued goal will start only after this goal is complete.',
-    );
   }
 
   private handleSessionMetaChanged(event: SessionMetaUpdatedEvent): void {

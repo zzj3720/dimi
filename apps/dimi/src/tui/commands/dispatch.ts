@@ -37,7 +37,6 @@ import {
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
-import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
@@ -85,7 +84,6 @@ export { handleSwarmCommand } from './swarm';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
-export { handleGoalCommand } from './goal';
 export {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -126,7 +124,6 @@ export interface SlashCommandHost {
   beginSessionRequest(): void;
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
-  requestQueuedGoalPromotion?(): void;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
@@ -349,9 +346,6 @@ async function handleBuiltInSlashCommand(
       return;
     case 'compact':
       await handleCompactCommand(host, args);
-      return;
-    case 'goal':
-      await handleGoalCommand(host, args);
       return;
     case 'init':
       await handleInitCommand(host);

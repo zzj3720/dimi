@@ -1,7 +1,6 @@
 import type { ApprovalRequest, ApprovalResponse, ToolInputDisplay } from '@dimi-agent/dimi-sdk';
 
 import type { ApprovalPanelResponse } from '#/tui/components/dialogs/approval-panel';
-import { goalStartOptions } from '#/tui/components/dialogs/goal-start-permission-prompt';
 import type { ApprovalPanelChoice, ApprovalPanelData, DisplayBlock } from '#/tui/reverse-rpc/types';
 
 const DEFAULT_APPROVAL_CHOICES: ApprovalPanelChoice[] = [
@@ -179,8 +178,6 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
   switch (display.kind) {
     case 'plan_review':
       return '';
-    case 'goal_start':
-      return 'Start a goal?';
     case 'generic':
       if (typeof display.detail === 'string' && display.detail.length > 0) {
         return display.detail;
@@ -325,13 +322,6 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
       ];
     case 'plan_review':
       return [];
-    case 'goal_start': {
-      const lines = [`Start goal: ${display.objective}`];
-      if (typeof display.completionCriterion === 'string' && display.completionCriterion.length > 0) {
-        lines.push(`Done when: ${display.completionCriterion}`);
-      }
-      return [{ type: 'brief', text: lines.join('\n') }];
-    }
     case 'generic':
       return [];
     case 'todo_list':
@@ -347,34 +337,8 @@ function adaptChoices(toolName: string, display: ToolInputDisplay): ApprovalPane
   if (toolName === 'ExitPlanMode' || display.kind === 'plan_review') {
     return adaptPlanReviewChoices(display);
   }
-  if (display.kind === 'goal_start') {
-    return adaptGoalStartChoices(display);
-  }
 
   return DEFAULT_APPROVAL_CHOICES.map((choice) => cloneChoice(choice));
-}
-
-function adaptGoalStartChoices(
-  display: Extract<ToolInputDisplay, { kind: 'goal_start' }>,
-): ApprovalPanelChoice[] {
-  // Reuse the exact options the /goal start menu shows. Each mode option starts
-  // the goal under that permission mode (the policy reads selected_label); "Do
-  // not start" declines so no goal is created.
-  return goalStartOptions(display.mode).map((option) =>
-    option.value === 'cancel'
-      ? {
-          label: option.label,
-          response: 'cancelled',
-          selected_label: 'cancel',
-          description: option.description,
-        }
-      : {
-          label: option.label,
-          response: 'approved',
-          selected_label: option.value,
-          description: option.description,
-        },
-  );
 }
 
 function adaptPlanReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[] {

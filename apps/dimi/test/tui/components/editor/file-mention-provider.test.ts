@@ -23,15 +23,15 @@ function resolveFdPath(): string | null {
 
 const FD_PATH = resolveFdPath();
 const IS_FD_INSTALLED = Boolean(FD_PATH);
-const GOAL_COMMAND = {
-  name: 'goal',
-  description: 'Start or manage a goal',
+const SWARM_COMMAND = {
+  name: 'swarm',
+  description: 'Manage swarm mode',
   getArgumentCompletions: (prefix: string) =>
     prefix.length === 0
       ? [
           {
-            value: 'status',
-            label: 'status',
+            value: 'on',
+            label: 'on',
           },
         ]
       : null,
@@ -105,20 +105,20 @@ describe('FileMentionProvider', () => {
   });
 
   it('does not complete slash arguments before existing free text', async () => {
-    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
-    const line = '/goal Fix the checkout docs';
-    const result = await provider.getSuggestions([line], 0, '/goal '.length, { signal: ctrl() });
+    const provider = new FileMentionProvider([SWARM_COMMAND], workDir, NO_FD);
+    const line = '/swarm Fix the checkout docs';
+    const result = await provider.getSuggestions([line], 0, '/swarm '.length, { signal: ctrl() });
     expect(result).toBeNull();
   });
 
   it('opens @ file mention when typed in the middle of a slash command argument', async () => {
     writeFileSync(join(workDir, 'README.md'), 'readme');
-    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
-    // Cursor sits in the middle of the /goal argument text, right after a
+    const provider = new FileMentionProvider([SWARM_COMMAND], workDir, NO_FD);
+    // Cursor sits in the middle of the /swarm argument text, right after a
     // freshly typed `@`. The slash-argument guard must not suppress the @
     // file list here.
-    const line = '/goal Fix the @checkout docs';
-    const result = await provider.getSuggestions([line], 0, '/goal Fix the @'.length, {
+    const line = '/swarm Fix the @checkout docs';
+    const result = await provider.getSuggestions([line], 0, '/swarm Fix the @'.length, {
       signal: ctrl(),
     });
     expect(result).not.toBeNull();
@@ -127,12 +127,12 @@ describe('FileMentionProvider', () => {
   });
 
   it('still completes slash arguments at the end of an empty argument', async () => {
-    const provider = new FileMentionProvider([GOAL_COMMAND], workDir, NO_FD);
-    const line = '/goal ';
+    const provider = new FileMentionProvider([SWARM_COMMAND], workDir, NO_FD);
+    const line = '/swarm ';
     const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
     expect(result).not.toBeNull();
     expect(result!.prefix).toBe('');
-    expect(result!.items.map((item) => item.value)).toEqual(['status']);
+    expect(result!.items.map((item) => item.value)).toEqual(['on']);
   });
 
   it('opens add-dir directory completions after slash command completion and entering slash', async () => {
@@ -209,17 +209,17 @@ describe('FileMentionProvider', () => {
 
   it('includes the argument hint in the description like the inner provider does', async () => {
     const provider = new FileMentionProvider(
-      [{ name: 'goal', description: 'Start or manage a goal', argumentHint: '<objective>' }],
+      [{ name: 'init', description: 'Generate AGENTS.md', argumentHint: '<instruction>' }],
       workDir,
       NO_FD,
     );
 
-    const result = await provider.getSuggestions(['/go'], 0, 3, { signal: ctrl() });
+    const result = await provider.getSuggestions(['/in'], 0, 3, { signal: ctrl() });
 
     expect(result).not.toBeNull();
     expect(result!.items[0]).toMatchObject({
-      value: 'goal',
-      description: '<objective> — Start or manage a goal',
+      value: 'init',
+      description: '<instruction> — Generate AGENTS.md',
     });
   });
 

@@ -28,24 +28,6 @@ describe('highlightFirstSlashToken', () => {
     expectHighlighted(out!, '/help');
   });
 
-  it('colours next in /goal next', () => {
-    const out = highlightFirstSlashToken('/goal next Ship feature X', 'primary');
-    expect(out).toBeDefined();
-    expect(strip(out!)).toBe('/goal next Ship feature X');
-    expectHighlighted(out!, '/goal');
-    expectHighlighted(out!, 'next');
-    expect(out!).toContain(' Ship feature X');
-  });
-
-  it('colours manage in /goal next manage', () => {
-    const out = highlightFirstSlashToken('/goal next manage', 'primary');
-    expect(out).toBeDefined();
-    expect(strip(out!)).toBe('/goal next manage');
-    expectHighlighted(out!, '/goal');
-    expectHighlighted(out!, 'next');
-    expectHighlighted(out!, 'manage');
-  });
-
   it('returns undefined when the line has no slash', () => {
     expect(highlightFirstSlashToken('hello world', 'primary')).toBeUndefined();
   });

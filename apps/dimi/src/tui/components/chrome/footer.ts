@@ -37,10 +37,9 @@ import {
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'model', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
-const GOAL_TIMER_INTERVAL_MS = 1_000;
 
 // Toolbar tips — rotates every 10s. Most tips are short and pair up (two
 // joined by " | ") when space allows; tips flagged `solo` are long or
@@ -100,49 +99,6 @@ function tipsForIndex(index: number): { primary: string; pair: string | null } {
   const next = ROTATION[(offset + 1) % n]!;
   if (next.solo || next.text === current.text) return { primary: current.text, pair: null };
   return { primary: current.text, pair: current.text + TIP_SEPARATOR + next.text };
-}
-
-/**
- * Footer goal badge, e.g. `[goal ● active · 4m · 7 turns]`. Only shown for a
- * live (active/paused) goal; terminal/no goal -> no badge. Turn count is a raw
- * count unless an explicit turn budget is set, in which case it shows used/limit.
- */
-function formatGoalBadge(
-  goal: AppState['goal'],
-  colors: ColorPalette,
-  wallClockMs?: number,
-): string | null {
-  if (goal === null || goal === undefined) return null;
-  // Show the badge for every persisted, resumable status. `complete` clears the
-  // goal, so it never reaches here; only the unset case returns null.
-  if (goal.status !== 'active' && goal.status !== 'paused' && goal.status !== 'blocked') {
-    return null;
-  }
-  const dotColor =
-    goal.status === 'active'
-      ? colors.primary
-      : goal.status === 'blocked'
-        ? colors.warning
-        : colors.textMuted;
-  const turns =
-    goal.budget.turnBudget !== null
-      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
-      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : 'turns'}`;
-  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
-  return (
-    chalk.hex(colors.textMuted)('[goal ') +
-    chalk.hex(dotColor)('●') +
-    chalk.hex(colors.textMuted)(` ${label}]`)
-  );
-}
-
-function formatBadgeElapsed(ms: number): string {
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h${minutes % 60}m`;
 }
 
 function modelDisplayName(state: AppState): string {
@@ -208,9 +164,6 @@ export class FooterComponent implements Component {
   private gitCache: GitStatusCache;
   private gitCacheWorkDir: string;
   private transientHint: string | null = null;
-  private goalSnapshotKey: string | null = null;
-  private goalObservedAtMs = Date.now();
-  private goalTimer: ReturnType<typeof setInterval> | null = null;
   private statusLineRunner: StatusLineCommandRunner | null = null;
   /**
    * Non-terminal background-task counts split by kind so the footer can
@@ -227,8 +180,6 @@ export class FooterComponent implements Component {
     this.onRefresh = onRefresh;
     this.gitCacheWorkDir = state.workDir;
     this.gitCache = createGitStatusCache(state.workDir, { onChange: this.onRefresh });
-    this.syncGoalClock(state.goal);
-    this.syncGoalTimer(state.goal);
     this.syncStatusLineRunner(state);
   }
 
@@ -237,8 +188,6 @@ export class FooterComponent implements Component {
       this.gitCacheWorkDir = state.workDir;
       this.gitCache = createGitStatusCache(state.workDir, { onChange: this.onRefresh });
     }
-    this.syncGoalClock(state.goal);
-    this.syncGoalTimer(state.goal);
     this.syncStatusLineRunner(state);
     this.state = state;
   }
@@ -374,14 +323,13 @@ export class FooterComponent implements Component {
   }
 
   /**
-   * Rendered pieces per status-line slot. Empty-content slots (e.g. no goal,
-   * outside a git repo) yield an empty list so composition just skips them.
+   * Rendered pieces per status-line slot. Empty-content slots (e.g. outside a
+   * git repo) yield an empty list so composition just skips them.
    */
   private buildSlots(colors: ColorPalette): Record<string, string[]> {
     const state = this.state;
     const slots: Record<string, string[]> = {
       mode: [],
-      goal: [],
       model: [],
       tasks: [],
       cwd: [],
@@ -401,9 +349,6 @@ export class FooterComponent implements Component {
     if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
     if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
-
-    const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
-    if (goalBadge !== null) slots['goal'] = [goalBadge];
 
     const model = modelDisplayName(state);
     if (model) {
@@ -471,54 +416,5 @@ export class FooterComponent implements Component {
     };
   }
 
-  private syncGoalClock(goal: AppState['goal']): void {
-    const key = goalSnapshotKey(goal);
-    if (key === this.goalSnapshotKey) return;
-    this.goalSnapshotKey = key;
-    this.goalObservedAtMs = Date.now();
-  }
-
-  private syncGoalTimer(goal: AppState['goal']): void {
-    if (goal?.status === 'active') {
-      if (this.goalTimer !== null) return;
-      this.goalTimer = setInterval(() => {
-        this.onRefresh();
-      }, GOAL_TIMER_INTERVAL_MS);
-      this.goalTimer.unref?.();
-      return;
-    }
-
-    if (this.goalTimer !== null) {
-      clearInterval(this.goalTimer);
-      this.goalTimer = null;
-    }
-  }
-
-  dispose(): void {
-    if (this.goalTimer !== null) {
-      clearInterval(this.goalTimer);
-      this.goalTimer = null;
-    }
-  }
-
-  private goalWallClockMs(goal: AppState['goal']): number | undefined {
-    if (goal === null || goal === undefined) return undefined;
-    if (goal.status !== 'active') return goal.wallClockMs;
-    return goal.wallClockMs + Math.max(0, Date.now() - this.goalObservedAtMs);
-  }
-}
-
-function goalSnapshotKey(goal: AppState['goal']): string | null {
-  if (goal === null || goal === undefined) return null;
-  return [
-    goal.goalId,
-    goal.status,
-    goal.terminalReason ?? '',
-    String(goal.turnsUsed),
-    String(goal.tokensUsed),
-    String(goal.wallClockMs),
-    String(goal.budget.tokenBudget),
-    String(goal.budget.turnBudget),
-    String(goal.budget.wallClockBudgetMs),
-  ].join('\u0000');
+  dispose(): void {}
 }

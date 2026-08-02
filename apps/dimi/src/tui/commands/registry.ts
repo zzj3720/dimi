@@ -7,20 +7,6 @@ import type { AutocompleteItem } from '@dimi-agent/pi-tui';
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { DimiSlashCommand, SlashCommandAvailability } from './types';
 
-/** Subcommands offered when autocompleting `/goal <…>`. */
-const GOAL_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'status', description: 'Show the current goal' },
-  { value: 'pause', description: 'Pause the active goal' },
-  { value: 'resume', description: 'Resume a paused goal' },
-  { value: 'cancel', description: 'Cancel and remove the current goal' },
-  { value: 'replace', description: 'Replace the current goal with a new objective' },
-  { value: 'next', description: 'Queue an upcoming goal' },
-];
-
-const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'manage', description: 'Manage upcoming goals' },
-];
-
 const SWARM_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'on', description: 'Turn swarm mode on' },
   { value: 'off', description: 'Turn swarm mode off' },
@@ -41,8 +27,8 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
  *   effort, and system prompt per turn, so config writes never race an
  *   in-flight request and take effect from the next turn.
  * - `idle-only` — requires an idle agent: commands that rewrite conversation
- *   history (`/undo`, `/compact`), start or stop a turn (`/goal` creation,
- *   `/swarm <task>`, `/init`), or switch/rebuild the session (`/new`,
+ *   history (`/undo`, `/compact`), start or stop a turn (`/swarm <task>`,
+ *   `/init`), or switch/rebuild the session (`/new`,
  *   `/sessions`, `/fork`, `/reload`, `/experiments`, `/plan clear`).
  *
  * Commands without an explicit `availability` default to `idle-only` (see
@@ -50,20 +36,6 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
  * `always` command while busy — the apply layer has no business re-gating what
  * the registry already allowed (that was the old model-switch guard).
  */
-
-/** Argument autocompletion for the `/goal` command (subcommands). */
-export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  const nextMatch = argumentPrefix.match(/^next\s+(\S*)$/i);
-  if (nextMatch !== null) {
-    return (
-      completeLeadingArg(GOAL_NEXT_ARG_COMPLETIONS, nextMatch[1] ?? '')?.map((item) => ({
-        ...item,
-        value: `next ${item.value}`,
-      })) ?? null
-    );
-  }
-  return completeLeadingArg(GOAL_ARG_COMPLETIONS, argumentPrefix);
-}
 
 /** Argument autocompletion for the `/swarm` command (subcommands). */
 export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
@@ -328,23 +300,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Compact the conversation context',
     priority: 80,
     argumentHint: '<instruction>',
-  },
-  {
-    name: 'goal',
-    aliases: [],
-    description: 'Start or manage an autonomous goal',
-    priority: 80,
-    argumentHint: '[status|pause|resume|cancel|replace|next] | <objective>',
-    completeArgs: goalArgumentCompletions,
-    // status / pause / cancel are always available; creation, replacement, and
-    // resume start (or restart) a turn and so are idle-only.
-    availability: (args) => {
-      const trimmed = args.trim();
-      if (trimmed === 'next' || trimmed.startsWith('next ')) return 'always';
-      return trimmed === '' || trimmed === 'status' || trimmed === 'pause' || trimmed === 'cancel'
-        ? 'always'
-        : 'idle-only';
-    },
   },
   {
     name: 'init',

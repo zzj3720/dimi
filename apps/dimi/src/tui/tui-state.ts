@@ -56,8 +56,8 @@ export interface TUIState {
   /**
    * True while a queued user message has been shifted out of
    * {@link queuedMessages} but its deferred send has not run yet. The queue
-   * looks empty during this window, so queued-goal promotion must also check
-   * this flag to avoid starting a goal ahead of the user's earlier message.
+   * looks empty during this window, so promotion of a follow-up message must
+   * also check this flag to avoid racing the user's earlier message.
    */
   queuedMessageDispatchPending: boolean;
   swarmModeEntry: 'manual' | 'task' | undefined;

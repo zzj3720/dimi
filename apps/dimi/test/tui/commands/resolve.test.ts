@@ -268,41 +268,6 @@ describe('resolveSlashCommandInput', () => {
 
 });
 
-describe('goal command resolution', () => {
-  afterEach(() => {
-    setExperimentalFeatures([]);
-  });
-
-  it('resolves /goal to the builtin command without an experimental flag', () => {
-    expect(resolve('/goal Ship feature X')).toMatchObject({
-      kind: 'builtin',
-      name: 'goal',
-      args: 'Ship feature X',
-    });
-  });
-
-  it('blocks goal creation while streaming', () => {
-    expect(resolve('/goal Ship feature X', { isStreaming: true })).toEqual({
-      kind: 'blocked',
-      commandName: 'goal',
-      reason: 'streaming',
-    });
-  });
-
-  it('does not block status/pause/cancel/bare goal while streaming', () => {
-    for (const sub of ['status', 'pause', 'cancel']) {
-      expect(resolve(`/goal ${sub}`, { isStreaming: true })).toMatchObject({
-        kind: 'builtin',
-        name: 'goal',
-      });
-    }
-    expect(resolve('/goal', { isStreaming: true })).toMatchObject({
-      kind: 'builtin',
-      name: 'goal',
-    });
-  });
-});
-
 describe('slash command busy helpers', () => {
   it('resolves skill command aliases with and without skill prefix', () => {
     const map = new Map([

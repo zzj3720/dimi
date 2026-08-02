@@ -1,7 +1,6 @@
 import type {
   AgentReplayRecord,
   ContextMessage,
-  GoalChange,
   PermissionMode,
   ResumedAgentState,
   Session,
@@ -9,18 +8,15 @@ import type {
 } from '@dimi-agent/dimi-sdk';
 
 import { ToolCallComponent } from '../components/messages/tool-call';
-import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
 import { currentTheme } from '../theme';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type { AppState, ToolResultBlockData, TranscriptEntry } from '../types';
 import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
-import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   formatBackgroundTaskTranscript,
   shouldShowBackgroundTaskTranscript,
 } from '../utils/background-task-status';
 import { formatBashOutputForDisplay } from '../utils/shell-output';
-import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   collectReplayMessageContent,
@@ -45,9 +41,7 @@ import type { StreamingUIController } from './streaming-ui';
 import type { SessionEventHandler } from './session-event-handler';
 import type { TUIState } from '../tui-state';
 
-type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
-type GoalReplayLifecycleChange = GoalChange & { readonly kind: 'lifecycle' };
 
 export interface SessionReplayHost {
   state: TUIState;
@@ -195,9 +189,6 @@ export class SessionReplayRenderer {
       case 'compaction':
         this.renderCompaction(context, record);
         return;
-      case 'goal_updated':
-        this.renderGoalReplayRecord(context, record);
-        return;
       case 'plan_updated':
         this.flushAssistant(context);
         if (!record.enabled && context.suppressNextPlanModeOffNotice) {
@@ -301,20 +292,10 @@ export class SessionReplayRenderer {
       this.renderCronMissed(context, message);
       return;
     }
-    // System-trigger messages (goal continuation prompts, goal outcome
-    // reminders, stop-hook reasons, …) are model-facing only: the live event
-    // stream never renders them, so replay must not leak them either.
+    // System-trigger messages (wait timeouts, stop-hook reasons, loadable-tools
+    // reminders, …) are model-facing only: the live event stream never renders
+    // them, so replay must not leak them either.
     if (message.origin?.kind === 'system_trigger') {
-      if (message.origin.name === 'goal_continuation') {
-        // The goal driver's synthetic "continue" prompt starts a new replay
-        // turn even though nothing visible is mounted: advance the turn and
-        // mark an invisible boundary so each goal round groups under its own
-        // turn and step/assistant folding can find the turn edges.
-        this.advanceTurn(context);
-        const boundary = new ReplayTurnBoundaryComponent();
-        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
-        this.host.state.transcriptContainer.addChild(boundary);
-      }
       return;
     }
 
@@ -487,43 +468,6 @@ export class SessionReplayRenderer {
     });
   }
 
-  private renderGoalReplayRecord(context: ReplayRenderContext, record: GoalReplayRecord): void {
-    this.flushAssistant(context);
-    const { change } = record;
-    switch (change.kind) {
-      case 'created':
-        this.host.appendTranscriptEntry({
-          ...replayEntry(context, 'goal', 'Goal set', 'plain'),
-          goalData: { kind: 'created' },
-        });
-        return;
-      case 'completion':
-        this.host.appendTranscriptEntry(
-          replayEntry(context, 'assistant', buildGoalCompletionMessage(record.snapshot), 'markdown'),
-        );
-        return;
-      case 'lifecycle': {
-        const lifecycleChange: GoalReplayLifecycleChange = { ...change, kind: 'lifecycle' };
-        if (isResumeNormalizationGoalPause(lifecycleChange)) return;
-        if (isModelBlockedGoalLifecycle(lifecycleChange)) {
-          return;
-        }
-        this.appendGoalLifecycleReplayEntry(context, lifecycleChange);
-        return;
-      }
-    }
-  }
-
-  private appendGoalLifecycleReplayEntry(
-    context: ReplayRenderContext,
-    change: GoalReplayLifecycleChange,
-  ): void {
-    this.host.appendTranscriptEntry({
-      ...replayEntry(context, 'goal', goalLifecycleReplayContent(change), 'plain'),
-      goalData: { kind: 'lifecycle', change },
-    });
-  }
-
   private renderHookResult(context: ReplayRenderContext, message: ContextMessage): void {
     if (message.origin?.kind !== 'hook_result') return;
     this.flushAssistant(context);
@@ -667,37 +611,6 @@ export class SessionReplayRenderer {
     }
   }
 
-}
-
-const RESUME_NORMALIZATION_GOAL_PAUSE_REASONS = new Set([
-  'Paused after agent resume',
-  'Paused after session resume',
-]);
-
-function isResumeNormalizationGoalPause(change: GoalReplayLifecycleChange): boolean {
-  return (
-    change.status === 'paused' &&
-    change.reason !== undefined &&
-    RESUME_NORMALIZATION_GOAL_PAUSE_REASONS.has(change.reason)
-  );
-}
-
-function goalLifecycleReplayContent(change: GoalReplayLifecycleChange): string {
-  switch (change.status) {
-    case 'paused':
-      return 'Goal paused';
-    case 'active':
-      return 'Goal resumed';
-    case 'blocked':
-      return 'Goal blocked';
-    case 'complete':
-    case undefined:
-      return 'Goal updated';
-  }
-}
-
-function isModelBlockedGoalLifecycle(change: GoalReplayLifecycleChange): boolean {
-  return change.status === 'blocked' && change.actor === 'model';
 }
 
 function extractCronPrompt(text: string): string {

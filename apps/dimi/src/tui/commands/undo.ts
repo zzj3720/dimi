@@ -423,7 +423,6 @@ function isUndoContextEntry(entry: TranscriptEntry): boolean {
     case 'cron':
       return true;
     case 'status':
-    case 'goal':
       return entry.turnId !== undefined;
     case 'welcome':
       return false;
