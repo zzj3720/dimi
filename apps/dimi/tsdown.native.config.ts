@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { builtinModules } from "node:module";
+import { builtinModules, createRequire } from "node:module";
 import { join, resolve } from "node:path";
 
 import { defineConfig } from "tsdown";
