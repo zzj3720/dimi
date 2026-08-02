@@ -86,13 +86,24 @@ M6  切换与退役（删 TS、清历史、桥退役）
 - **验证**：vitest 差分测试——同一 JSON → zod 解析 vs serde 解析，接受/拒绝一致 + 字段值一致。
 - **风险**：napi-rs 与 Node 24 兼容（低，需实测）。
 
-### M1 — dimi-store（事件源存储）
+### M1 — dimi-store（事件源存储）✅ 已完成
 - **TS 对应物**：transcript 服务端（L1 store/L2 reducer/持久化）＋ kap-server TranscriptService 存储底座 ＋ persistence wire 记录。
 - **边界**：wire.jsonl 追加日志、冷重建、状态快照、增量读、op-batch 序列（transcriptSeqSchema：seq/watermark/since cursor）。
 - **验证**：同一 wire.jsonl → TS 冷重建 vs Rust 冷重建状态树对比；kap-server transcript 测试换底后全绿。
 - **换入**：kap-server TranscriptService 经桥用 dimi-store；开关 `DIMI_RUST_STORE=1`。
 - **风险**：wire 记录边角（migration v1.2、unknown record 跳过语义）。
 - **不迁移**：浏览器侧 reducer（dimi-web 用，保留 TS）。
+
+**M1 落地记录（rust/wire 分支）**：
+- 交付物：`crates/dimi-store`（state/apply/reduce/group/fold/wire/paginate，14 种 op reducer）、`crates/dimi-wire` 扩展（op/entity/snapshot/record/phase）、dimi-bridge 新增 `coldRebuild`/`paginateTurns`/`readWireRecords`/`RustAgentTranscript`、`packages/kap-server/src/services/transcript/rustTranscriptStore.ts`（Rust 适配器）。
+- 差分防线：dimi-native 17 测试（apply 6 场景 + pagination + 契约）+ kap-server `store-cold-differential.test.ts`（4 场景，TS 三阶段 vs Rust 冷重建，JSON 字节级对比）。
+- **架构决策（已定案）**：
+  1. **op-batch 序列（seq/watermark/journal）留在 TS** —— 协议层决策（会话级排序、bound journal 存活期与 live store 同生命周期），Rust 只管存储语义；journal 由 TranscriptService 的 `opsJournals` 持有，不迁移。
+  2. **接口抽象**：`@dimi-agent/transcript` 新增 `TranscriptStoreLike`/`AgentTranscriptLike`（TS 类带 `#private` 字段无法结构兼容，消费方必须面向接口）；kap-server 的 coreBinding/broadcaster/routes 已全部改为接口类型。
+  3. **适配器读方法从 snapshot() 派生**（getItems/getTurn/getTasks/…/listPendingInteractions），pendingInteractions 由 interactions 过滤派生（与 TS applyReset 同源）。
+  4. **AppliedOps.gap 省略而非 null**（TS 消费方判 `!== undefined`）；`RustAgentTranscriptAdapter.apply` 再归一化一次防御。
+- **换入验证**：`DIMI_RUST_STORE=1 pnpm --filter @dimi-agent/kap-server test` 745/746 绿（唯一失败为预存在的 boot auth provider 环境失败，与 transcript 无关），与默认模式结果一致。
+- 换入期间修掉的 parity bug：RecordTime 接受 string time、冷重建快照无 hasMoreOlder 键（live 有）、tool.call 事件字段是 `args` 非 `arguments`、纯 user turn 的 prompt 丢失（start_turn 签名）、tasks/interactions 保插入序、`Ended.phase.at` 可选、`plan_revision ?? {}` 语义。
 
 ### M2 — dimi-exec（执行层）
 - **TS 对应物**：os/ backends（hostFs/hostProcess/hostEnvironment）、ISessionProcessRunner + node-pty、execEnv helpers。
