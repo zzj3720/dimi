@@ -293,6 +293,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       .filter((part) => part.type === "text")
       .map((part) => (part as { text?: string }).text ?? "")
       .join("");
+    const media = message.content
+      .filter((part) => part.type === "image_url" || part.type === "audio_url" || part.type === "video_url")
+      .map((part) => {
+        const url = (part as { imageUrl?: { url?: string }; audioUrl?: { url?: string }; videoUrl?: { url?: string } }).imageUrl
+          ?.url ?? (part as { audioUrl?: { url?: string } }).audioUrl?.url ?? (part as { videoUrl?: { url?: string } }).videoUrl?.url;
+        return { type: "media_url", url };
+      })
+      .filter((part) => part.url !== undefined);
     const toolCalls = message.toolCalls.map((call) => ({
       id: call.id,
       type: "function",
@@ -300,7 +308,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     }));
     return {
       role: message.role,
-      content: text,
+      content: media.length > 0 ? [...media, ...(text.length > 0 ? [{ type: "text", text }] : [])] : text,
       ...(message.role === "assistant" && toolCalls.length > 0 ? { toolCalls } : {}),
       ...(message.role === "tool" && message.toolCallId !== undefined
         ? { toolCallId: message.toolCallId }

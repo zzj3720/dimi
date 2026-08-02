@@ -167,6 +167,20 @@ fn convert_messages(messages: &[LlmMessage]) -> LanguageModelPrompt {
                 for item in items {
                     if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
                         parts.push(ContentPart::text(text));
+                    } else if let Some(url) =
+                        item.get("url").and_then(|v| v.as_str()).or_else(|| {
+                            item.get("imageUrl")
+                                .and_then(|v| v.get("url"))
+                                .and_then(|v| v.as_str())
+                        })
+                    {
+                        if let Some((media_type, bytes)) = parse_data_url(url) {
+                            parts.push(ContentPart::Image {
+                                image: bytes,
+                                media_type,
+                                provider_options: None,
+                            });
+                        }
                     }
                 }
             }
@@ -262,4 +276,24 @@ pub fn unimplemented_model() -> impl LanguageModel {
         }
     }
     Unimplemented
+}
+
+/// Parse a `data:<media_type>;base64,<data>` URL into (mediaType, bytes).
+fn parse_data_url(url: &str) -> Option<(String, Vec<u8>)> {
+    let rest = url.strip_prefix("data:")?;
+    let (meta, data) = rest.split_once(',')?;
+    let media_type = meta
+        .split(';')
+        .next()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    if meta.contains(";base64") {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .ok()
+            .map(|bytes| (media_type, bytes))
+    } else {
+        Some((media_type, data.as_bytes().to_vec()))
+    }
 }
