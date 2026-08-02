@@ -1,6 +1,6 @@
 /**
  * `hostFs` domain (L1) — integration test for the Rust-backed
- * `RustHostFileSystem` (M2 slice 2 swap-in socket, `DIMI_RUST_FS=1`).
+ * `RustHostFileSystem` (M2 slice 2; the default backend since the legacy flip).
  *
  * Exercises the adapter contract through the real napi bridge: the shared
  * `toHostFsError` mapping (bridge errno symbol → `os.fs.*` code), the

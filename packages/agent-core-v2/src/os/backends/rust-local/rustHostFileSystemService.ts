@@ -2,7 +2,7 @@
  * `hostFs` domain (L1) — `IHostFileSystem` Rust-backed implementation
  * (M2, slice 2).
  *
- * Swap-in socket for `DIMI_RUST_FS=1`: every call goes through the
+ * Default backend since M2 (the CLI `--legacy` flag keeps node-local): every call goes through the
  * `dimi-exec` napi bridge (`RustFileSystem`) instead of `node:fs/promises`.
  * The bridge formats failures as `"{ERRNO} {op} failed: {message}"`; this
  * adapter extracts the leading errno symbol and reuses the shared

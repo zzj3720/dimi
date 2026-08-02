@@ -2,7 +2,7 @@
  * `hostProcess` domain (L1) — `IHostProcessService` Rust-backed
  * implementation (M2, slice 1).
  *
- * Swap-in socket for `DIMI_RUST_EXEC=1`: spawns through `dimi-exec` (the
+ * Default backend since M2 (the CLI `--legacy` flag keeps node-local): spawns through `dimi-exec` (the
  * napi bridge) instead of `node:child_process`. The bridge process handle
  * owns the pipes; this class adapts it to the `IHostProcess` contract —
  * stdout/stderr become `Readable` streams fed by the Rust pump callbacks,

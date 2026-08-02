@@ -2,7 +2,7 @@
  * `terminal` domain (L6) — `IHostTerminalService` Rust-backed
  * implementation (M2, slice 5).
  *
- * Swap-in socket for `DIMI_RUST_PTY=1`: spawns through `dimi-exec::pty`
+ * Default backend since M2 (the CLI `--legacy` flag keeps node-local): spawns through `dimi-exec::pty`
  * (portable-pty via the napi bridge) instead of node-pty. The bridge handle
  * streams output chunks through `setOnData` and the exit event through
  * `setOnExit`; `write`/`resize`/`kill` forward to the pty.

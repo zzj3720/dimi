@@ -27,9 +27,6 @@ import { toHostFsError } from '#/os/interface/hostFsErrors';
 
 const READ_CHUNK_SIZE = 64 * 1024;
 
-/** `DIMI_RUST_FS=1` swaps the fs backend to the Rust bridge (M2 slice 2). */
-const RUST_FS_ENABLED = process.env['DIMI_RUST_FS'] === '1';
-
 function isUtf8Encoding(encoding: BufferEncoding): boolean {
   return encoding === 'utf-8' || encoding === 'utf8';
 }
@@ -262,10 +259,17 @@ export class HostFileSystem implements IHostFileSystem {
   }
 }
 
+/**
+ * Default backend is the Rust fs layer (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * backend.
+ */
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
+
 registerScopedService(
   LifecycleScope.App,
   IHostFileSystem,
-  RUST_FS_ENABLED ? RustHostFileSystem : HostFileSystem,
+  LEGACY_TS ? HostFileSystem : RustHostFileSystem,
   ScopeActivation.OnScopeCreated,
   'hostFs',
 );

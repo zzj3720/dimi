@@ -2,7 +2,7 @@
  * `hostFsWatch` domain (L1) — `IHostFsWatchService` Rust-backed
  * implementation (M2, slice 4).
  *
- * Swap-in socket for `DIMI_RUST_WATCH=1`: watches through `dimi-exec`
+ * Default backend since M2 (the CLI `--legacy` flag keeps node-local): watches through `dimi-exec`
  * (`notify` via the napi bridge) instead of chokidar. The bridge handle
  * normalizes events to the chokidar surface (created/modified/deleted ×
  * file/directory), reports lexical absolute paths and filters `.git` path

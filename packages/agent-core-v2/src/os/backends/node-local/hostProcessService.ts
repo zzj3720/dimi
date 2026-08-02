@@ -199,17 +199,18 @@ export class HostProcessService implements IHostProcessService {
 }
 
 /**
- * M2 swap-in: `DIMI_RUST_EXEC=1` registers the Rust-backed spawner
- * (dimi-exec via the napi bridge); the node-local backend stays the default.
- * The bridge is loaded lazily inside `RustHostProcessService`, so this
- * registration only throws at spawn time when the native binding is absent.
+ * Default backend is the Rust exec layer (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * backend. The bridge is loaded lazily inside `RustHostProcessService`, so
+ * this registration only throws at spawn time when the native binding is
+ * absent.
  */
-const RUST_EXEC_ENABLED = process.env['DIMI_RUST_EXEC'] === '1';
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
 
 registerScopedService(
   LifecycleScope.App,
   IHostProcessService,
-  RUST_EXEC_ENABLED ? RustHostProcessService : HostProcessService,
+  LEGACY_TS ? HostProcessService : RustHostProcessService,
   ScopeActivation.OnScopeCreated,
   'hostProcess',
 );

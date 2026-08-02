@@ -94,18 +94,18 @@ function mapActionAndKind(
 }
 
 /**
- * M2 swap-in: `DIMI_RUST_WATCH=1` registers the Rust-backed watcher
- * (dimi-exec via the napi bridge); the node-local chokidar backend stays the
- * default. The bridge is loaded lazily inside `RustHostFsWatchService`, so
- * this registration only throws at watch time when the native binding is
- * absent.
+ * Default backend is the Rust watcher (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * chokidar backend. The bridge is loaded lazily inside
+ * `RustHostFsWatchService`, so this registration only throws at watch time
+ * when the native binding is absent.
  */
-const RUST_WATCH_ENABLED = process.env['DIMI_RUST_WATCH'] === '1';
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
 
 registerScopedService(
   LifecycleScope.App,
   IHostFsWatchService,
-  RUST_WATCH_ENABLED ? RustHostFsWatchService : HostFsWatchService,
+  LEGACY_TS ? HostFsWatchService : RustHostFsWatchService,
   ScopeActivation.OnScopeCreated,
   'hostFsWatch',
 );

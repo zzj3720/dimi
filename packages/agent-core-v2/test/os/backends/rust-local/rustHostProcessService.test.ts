@@ -1,6 +1,6 @@
 /**
  * `hostProcess` domain (L1) — integration test for the Rust-backed
- * `RustHostProcessService` (M2 slice 1 swap-in socket, `DIMI_RUST_EXEC=1`).
+ * `RustHostProcessService` (M2 slice 1; the default backend since the legacy flip).
  *
  * Exercises the adapter contract through the real napi bridge: stream
  * wiring (incl. `mergeStderr` aliasing), error wrapping, `wait()` caching

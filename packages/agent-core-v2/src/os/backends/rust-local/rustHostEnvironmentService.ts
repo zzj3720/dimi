@@ -2,7 +2,7 @@
  * `hostEnvironment` domain (L1) — `IHostEnvironment` Rust-backed
  * implementation (M2, slice 3).
  *
- * Swap-in socket for `DIMI_RUST_ENV=1`: the OS / shell / path-style probe
+ * Default backend since M2 (the CLI `--legacy` flag keeps node-local): the OS / shell / path-style probe
  * runs on the Rust side (`rustHostEnvironmentProbe`); the login-shell PATH
  * enrichment stays on the Node side (`applyLoginShellPathFromNode`) because
  * it mutates `process.env.PATH` — a Node-specific side effect. `ready`

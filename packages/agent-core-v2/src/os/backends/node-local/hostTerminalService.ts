@@ -58,18 +58,18 @@ export class HostTerminalService extends Disposable implements IHostTerminalServ
 }
 
 /**
- * M2 swap-in: `DIMI_RUST_PTY=1` registers the Rust-backed terminal spawner
- * (dimi-exec via the napi bridge); the node-local node-pty backend stays the
- * default. The bridge is loaded lazily inside `RustHostTerminalService`, so
- * this registration only throws at spawn time when the native binding is
- * absent.
+ * Default backend is the Rust pty terminal (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * node-pty backend. The bridge is loaded lazily inside
+ * `RustHostTerminalService`, so this registration only throws at spawn time
+ * when the native binding is absent.
  */
-const RUST_PTY_ENABLED = process.env['DIMI_RUST_PTY'] === '1';
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
 
 registerScopedService(
   LifecycleScope.App,
   IHostTerminalService,
-  RUST_PTY_ENABLED ? RustHostTerminalService : HostTerminalService,
+  LEGACY_TS ? HostTerminalService : RustHostTerminalService,
   ScopeActivation.OnScopeCreated,
   'terminal',
 );

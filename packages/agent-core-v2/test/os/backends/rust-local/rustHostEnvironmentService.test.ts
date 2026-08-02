@@ -1,7 +1,7 @@
 /**
  * `hostEnvironment` domain (L1) — integration test for the Rust-backed
  * `RustHostEnvironmentService` (M2 slice 3 swap-in socket,
- * `DIMI_RUST_ENV=1`).
+ * the default backend since the legacy flip).
  *
  * The probe is a pure function of the host; the assertions compare against
  * the Node facts (`process`/`os`) the node-local service would produce.
