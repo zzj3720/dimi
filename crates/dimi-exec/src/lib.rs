@@ -30,6 +30,7 @@
 pub mod env;
 pub mod fs;
 mod process;
+pub mod pty;
 pub mod watch;
 
 pub use env::HostEnvironmentInfo;
@@ -39,6 +40,7 @@ pub use fs::{
     realpath, remove, stat, write_bytes, write_text,
 };
 pub use process::{ExecProcess, ExecSpawnError, ShellSpec, SpawnOptions};
+pub use pty::{PtyProcess, PtySpawnOptions, spawn as pty_spawn};
 pub use watch::{FsChange, FsWatchHandle, watch};
 
 /// Spawn a child process. `command`/`args` follow Node `spawn` semantics;

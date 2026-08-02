@@ -42,6 +42,8 @@ export interface NativeBinding {
   RustFsWatch: RustFsWatchConstructor;
   /** Watch session handle class. */
   RustFsWatchHandle: RustFsWatchHandleConstructor;
+  /** Rust exec layer: terminal pty (M2) — the IHostTerminalService socket. */
+  RustTerminal: RustTerminalConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -434,5 +436,94 @@ export class RustHostEnvironment {
   /** `probeHostEnvironmentFromNode` — the immutable host snapshot. */
   static probe(): RustHostEnvironmentInfo {
     return rustHostEnvironmentProbe();
+  }
+}
+
+/** `TerminalSpawnOptions` mirror (terminal.ts). */
+export interface RustTerminalSpawnOptions {
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  /** Full process environment (the adapter passes `process.env`). */
+  env: Record<string, string>;
+}
+
+/** `onProcessExit` payload mirror (terminal.ts). */
+export interface RustTerminalExit {
+  /**
+   * `null` when the shell was killed by a signal. Note: the napi layer
+   * serializes the Rust `None` as `undefined` — consumers should normalize
+   * with `?? null`.
+   */
+  exitCode: number | null | undefined;
+}
+
+/** The napi `RustTerminalProcess` class — one pty session. */
+export interface RustTerminalProcessConstructor {
+  new (): RustTerminalProcessHandle;
+}
+
+/** Pty session: output/exit via callbacks; write/resize/kill methods. */
+export interface RustTerminalProcessHandle {
+  setOnData(onData: (data: string) => void): void;
+  setOnExit(onExit: (exit: RustTerminalExit) => void): void;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+}
+
+/** The napi `RustTerminal` class — stateless facade. */
+export interface RustTerminalConstructor {
+  spawn(options: RustTerminalSpawnOptions): RustTerminalProcessHandle;
+}
+
+/**
+ * `rustTerminalSpawn` — the M2 terminal socket. Mirrors node-pty's surface:
+ * output chunks via `setOnData`, exit via `setOnExit`, `write`/`resize`/
+ * `kill` forwards.
+ */
+export function rustTerminalSpawn(options: RustTerminalSpawnOptions): RustTerminalProcessHandle {
+  return loadNative().RustTerminal.spawn(options);
+}
+
+/**
+ * `RustTerminal` — TS-side mirror of the napi class (binding-contract parity).
+ */
+export class RustTerminal {
+  static spawn(options: RustTerminalSpawnOptions): RustTerminalProcessHandle {
+    return rustTerminalSpawn(options);
+  }
+}
+
+/**
+ * `RustTerminalProcess` — TS-side mirror of the napi class (binding-contract
+ * parity). Wraps a handle returned by `RustTerminal.spawn`.
+ */
+export class RustTerminalProcess {
+  readonly #inner: RustTerminalProcessHandle;
+
+  constructor(handle: RustTerminalProcessHandle) {
+    this.#inner = handle;
+  }
+
+  setOnData(onData: (data: string) => void): void {
+    this.#inner.setOnData(onData);
+  }
+
+  setOnExit(onExit: (exit: RustTerminalExit) => void): void {
+    this.#inner.setOnExit(onExit);
+  }
+
+  write(data: string): void {
+    this.#inner.write(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.#inner.resize(cols, rows);
+  }
+
+  kill(): void {
+    this.#inner.kill();
   }
 }

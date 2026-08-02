@@ -15,6 +15,7 @@ use napi_derive::napi;
 mod env;
 mod exec;
 mod fs;
+mod pty;
 mod watch;
 
 use dimi_store::AgentTranscript;

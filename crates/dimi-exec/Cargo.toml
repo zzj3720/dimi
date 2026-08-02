@@ -10,6 +10,8 @@ publish = false
 libc = "0.2"
 # Filesystem watch backend (chokidar mirror, M2 slice 4).
 notify = "7"
+# Interactive terminal backend (node-pty mirror, M2 slice 5).
+portable-pty = "0.9"
 
 # setsid/kill are plain libc calls; the workspace default `unsafe_code =
 # "forbid"` cannot apply (same carve-out as dimi-bridge).
