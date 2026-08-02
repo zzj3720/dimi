@@ -27,7 +27,8 @@
     "build:native": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "build": "node scripts/build.mjs"
   },
   "dependencies": {
     "@dimi-agent/transcript": "workspace:^"
