@@ -29,6 +29,8 @@ type EndCallback = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
 
 /// `HostProcessOptions` — `shell` is split into `shellDefault` (true) and
 /// `shellPath` (explicit binary) because napi has no `boolean | string`.
+/// `mergeStderr` is a TS-adapter wiring concern (the adapter aliases stderr
+/// to the stdout view), so it is not part of the bridge surface.
 #[napi(object)]
 #[derive(Default)]
 pub struct RustHostProcessOptions {
@@ -38,7 +40,6 @@ pub struct RustHostProcessOptions {
     pub shell_path: Option<String>,
     pub detached: Option<bool>,
     pub windows_hide: Option<bool>,
-    pub merge_stderr: Option<bool>,
 }
 
 #[napi]
@@ -69,7 +70,6 @@ impl RustHostProcess {
             shell,
             detached: options.detached,
             windows_hide: options.windows_hide.unwrap_or(true),
-            merge_stderr: options.merge_stderr.unwrap_or(false),
         };
         let inner = dimi_exec::spawn(&command, &args, &spawn_options).map_err(|error| {
             napi::Error::from_reason(format!(
@@ -106,13 +106,19 @@ impl RustHostProcess {
         on_stderr: ChunkCallback,
         on_stdout_end: EndCallback,
         on_stderr_end: EndCallback,
-    ) {
+    ) -> napi::Result<()> {
+        if !self.stream_threads.is_empty() {
+            return Err(napi::Error::from_reason(
+                "setStreamCallbacks may only be called once",
+            ));
+        }
         let stdout_thread =
             self.pump_thread("stdout", Arc::clone(&self.inner), on_stdout, on_stdout_end);
         let stderr_thread =
             self.pump_thread("stderr", Arc::clone(&self.inner), on_stderr, on_stderr_end);
         self.stream_threads.push(stdout_thread);
         self.stream_threads.push(stderr_thread);
+        Ok(())
     }
 
     fn pump_thread(

@@ -10,8 +10,9 @@
 //! - `detached` defaults to `!isWindows`: on Unix the child is put in its
 //!   own session/process group (`setsid`) so `kill(-pid)` terminates the
 //!   whole tree; on Windows `taskkill /T /F` does the same.
-//! - `mergeStderr` only affects the handle's stream wiring (the child still
-//!   gets two pipes); the bridge exposes one merged view.
+//! - `mergeStderr` is a TS-adapter wiring concern: the child always gets two
+//!   pipes here, and the adapter aliases the stderr view to stdout when the
+//!   option is set.
 //! - `timeout` is accepted in the options shape but NOT enforced — the TS
 //!   implementation declares it in the interface and never consumes it.
 //! - stdin/stdout/stderr are read continuously by background threads and

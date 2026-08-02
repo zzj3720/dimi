@@ -33,7 +33,6 @@ function toRustOptions(options: HostProcessOptions): {
   shellPath?: string;
   detached?: boolean;
   windowsHide?: boolean;
-  mergeStderr?: boolean;
 } {
   const rust: {
     cwd?: string;
@@ -42,13 +41,11 @@ function toRustOptions(options: HostProcessOptions): {
     shellPath?: string;
     detached?: boolean;
     windowsHide?: boolean;
-    mergeStderr?: boolean;
   } = {
     cwd: options.cwd,
     env: buildEnv(options.env),
     windowsHide: options.windowsHide,
     detached: options.detached,
-    mergeStderr: options.mergeStderr,
   };
   if (options.shell === true) rust.shellDefault = true;
   else if (typeof options.shell === 'string') rust.shellPath = options.shell;
@@ -169,10 +166,12 @@ export class RustHostProcessService implements IHostProcessService {
     try {
       handle = await rustHostProcessSpawn(command, args, toRustOptions(options));
     } catch (error) {
+      // The bridge message already carries the `Failed to spawn "<cmd>": …`
+      // prefix and the OS error text — do not re-wrap it.
       const err = error as NodeJS.ErrnoException;
       throw new HostProcessError(
         HostProcessErrorCode.SpawnFailed,
-        `Failed to spawn "${command}": ${(error as Error).message}`,
+        (error as Error).message,
         {
           details: { command, args: [...args], cwd: options.cwd, errno: err.code },
           cause: error,

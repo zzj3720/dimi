@@ -8,8 +8,6 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-const EXIT_NOT_SET: i32 = -1;
-
 /// `HostProcessOptions` (`hostProcess.ts` 19–29). `timeout` is accepted for
 /// shape parity and deliberately unused (the TS implementation never
 /// consumes it either).
@@ -29,8 +27,6 @@ pub struct SpawnOptions {
     /// `kill(-pid)`), a plain spawn on Windows.
     pub detached: Option<bool>,
     pub windows_hide: bool,
-    /// Only affects the handle wiring: `stderr` points at the stdout view.
-    pub merge_stderr: bool,
 }
 
 /// `shell: boolean | string`.
@@ -56,6 +52,11 @@ pub struct ExecProcess {
     stdout_rx: Mutex<Receiver<Vec<u8>>>,
     stderr_rx: Mutex<Receiver<Vec<u8>>>,
     exit_rx: Mutex<Receiver<i32>>,
+    /// Set once the exit code is known (waiter thread or `wait()`). Kept
+    /// separate from `exit_code` so `-1` stays a legitimate value: a process
+    /// killed by a signal reports `Some(-1)` (`code ?? -1` in TS), and a
+    /// concurrent `wait()` loser must never overwrite the winner's code.
+    exited: Arc<AtomicBool>,
     exit_code: Arc<AtomicI32>,
     disposed: AtomicBool,
 }
@@ -150,18 +151,23 @@ pub fn spawn(
     let (stdout_tx, stdout_rx) = channel::<Vec<u8>>();
     let (stderr_tx, stderr_rx) = channel::<Vec<u8>>();
     let (exit_tx, exit_rx) = channel::<i32>();
-    let exit_code = Arc::new(AtomicI32::new(EXIT_NOT_SET));
+    let exited = Arc::new(AtomicBool::new(false));
+    let exit_code = Arc::new(AtomicI32::new(0));
 
     let stdout_thread = reader_thread(stdout, stdout_tx, "stdout");
     let stderr_thread = reader_thread(stderr, stderr_tx, "stderr");
     let waiter_thread = {
+        let exited = Arc::clone(&exited);
         let exit_code = Arc::clone(&exit_code);
         std::thread::spawn(move || {
             let code = child
                 .wait()
-                .map(|status| status.code().unwrap_or(EXIT_NOT_SET))
-                .unwrap_or(EXIT_NOT_SET);
+                .map(|status| status.code().unwrap_or(-1))
+                .unwrap_or(-1);
+            // Store before sending: a `wait()` loser that re-reads the
+            // atomic after a disconnected recv is guaranteed to see it.
             exit_code.store(code, Ordering::Release);
+            exited.store(true, Ordering::Release);
             let _ = exit_tx.send(code);
         })
     };
@@ -176,6 +182,7 @@ pub fn spawn(
         stdout_rx: Mutex::new(stdout_rx),
         stderr_rx: Mutex::new(stderr_rx),
         exit_rx: Mutex::new(exit_rx),
+        exited,
         exit_code,
         disposed: AtomicBool::new(false),
     })
@@ -221,10 +228,10 @@ fn shell_command(
             }
             #[cfg(unix)]
             {
-                (
-                    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned()),
-                    "-c".to_owned(),
-                )
+                // Node: "Uses '/bin/sh' on UNIX" for `shell: true`. `$SHELL`
+                // would pick zsh on macOS and change glob/builtin/`$0`
+                // semantics vs the TS baseline.
+                ("/bin/sh".to_owned(), "-c".to_owned())
             }
         }
         ShellSpec::Explicit(path) => {
@@ -260,26 +267,33 @@ impl ExecProcess {
     }
 
     /// `exitCode` — the exit code once the process exited, `null` before
-    /// (TS `exitCode: number | null`).
+    /// (TS `exitCode: number | null`). A signal-killed process reports
+    /// `Some(-1)` (`code ?? -1`), so `-1` is a real value, not a sentinel.
     pub fn exit_code(&self) -> Option<i32> {
-        let code = self.exit_code.load(Ordering::Acquire);
-        (code != EXIT_NOT_SET).then_some(code)
+        self.exited
+            .load(Ordering::Acquire)
+            .then(|| self.exit_code.load(Ordering::Acquire))
     }
 
     /// `wait()` — block until exit; returns the exit code (`-1` when the
-    /// status carried no code, mirroring `code ?? -1`). Repeatable: once the
-    /// process has exited, later calls return the cached code.
+    /// status carried no code, mirroring `code ?? -1`). Repeatable and
+    /// concurrent-safe: once the process has exited, later calls return the
+    /// cached code, and racing callers both observe the winner's value.
     pub fn wait(&self) -> i32 {
-        if let Some(code) = self.exit_code() {
-            return code;
+        if self.exited.load(Ordering::Acquire) {
+            return self.exit_code.load(Ordering::Acquire);
         }
         let code = self
             .exit_rx
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .recv()
-            .unwrap_or(EXIT_NOT_SET);
+            // Concurrent-wait loser: the channel is already drained and
+            // disconnected. The waiter thread stores the code before
+            // sending it, so the atomic is guaranteed to be set here.
+            .unwrap_or_else(|_| self.exit_code.load(Ordering::Acquire));
         self.exit_code.store(code, Ordering::Release);
+        self.exited.store(true, Ordering::Release);
         code
     }
 
@@ -343,10 +357,9 @@ impl ExecProcess {
     /// `kill(signal)` — terminate the process group. Signal is the numeric
     /// Unix signal; on Windows the signal is ignored and the tree is killed
     /// via `taskkill /T /F` (mirroring `hostProcessService.kill`).
+    /// Deliberately NOT gated on `dispose()`: the TS baseline keeps `kill`
+    /// functional after `dispose` (which only closes stdin).
     pub fn kill(&self, signal: Option<i32>) -> Result<(), String> {
-        if self.disposed.load(Ordering::Acquire) {
-            return Ok(());
-        }
         #[cfg(unix)]
         {
             let signal = signal.unwrap_or(libc::SIGTERM);
@@ -514,6 +527,26 @@ mod tests {
         proc.kill(Some(libc::SIGTERM)).unwrap();
         // kill + wait: exit code is not 0 (terminated by signal → None code → -1).
         assert_eq!(proc.wait(), -1);
+        // `-1` is a real exit code, not the "not set" sentinel.
+        assert_eq!(proc.exit_code(), Some(-1));
+    }
+
+    #[test]
+    fn concurrent_wait_calls_agree() {
+        let proc = Arc::new(spawn_echo("hello dimi"));
+        let a = {
+            let proc = Arc::clone(&proc);
+            std::thread::spawn(move || proc.wait())
+        };
+        let b = {
+            let proc = Arc::clone(&proc);
+            std::thread::spawn(move || proc.wait())
+        };
+        assert_eq!(a.join().unwrap(), 0);
+        assert_eq!(b.join().unwrap(), 0);
+        // The loser must not have clobbered the winner's cached code.
+        assert_eq!(proc.exit_code(), Some(0));
+        assert_eq!(proc.wait(), 0);
     }
 
     #[test]

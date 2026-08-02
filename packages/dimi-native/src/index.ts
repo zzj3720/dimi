@@ -55,7 +55,6 @@ export interface RustHostProcessOptions {
   shellPath?: string;
   detached?: boolean;
   windowsHide?: boolean;
-  mergeStderr?: boolean;
 }
 
 export interface RustHostProcessConstructor {

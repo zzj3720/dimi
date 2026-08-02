@@ -112,7 +112,7 @@ M6  切换与退役（删 TS、清历史、桥退役）
 - **换入**：ISessionProcessRunner 换桥实现；开关 `DIMI_RUST_EXEC=1`。
 - **风险**：pty 语义（node-pty vs portable-pty）、Windows（parity 要求：TS 产品支持 Windows，Rust 版必须支持；实现顺序可后置，M6 前完成）。
 - **切片进度**（每片 = Rust crate/模块 + napi bridge + TS 适配器 + 差分测试 + `DIMI_RUST_EXEC` 相关测试换入验证）：
-  - [x] 切片 1（2026-08-02 完成，commit fd524e60）：`crates/dimi-exec` 进程 spawn（std-only，进程树 kill/detached/env/cwd/shell/stdin），bridge `RustHostProcess`（4 个 ThreadsafeFunction 位置参数，`CalleeHandled=false` 避免 error 槽位），`IHostProcessService` 换入（`DIMI_RUST_EXEC=1`）。差分 7 场景 + agent-core-v2 processRunner/gitService 双模式 9/9 通过。
+  - [x] 切片 1（2026-08-02 完成，commit fd524e60）：`crates/dimi-exec` 进程 spawn（std-only，进程树 kill/detached/env/cwd/shell/stdin），bridge `RustHostProcess`（4 个 ThreadsafeFunction 位置参数，`CalleeHandled=false` 避免 error 槽位），`IHostProcessService` 换入（`DIMI_RUST_EXEC=1`）。差分 7 场景 + agent-core-v2 processRunner/gitService 双模式 9/9 通过。Review 修复（2026-08-02，同分支后续 commit）：wait() 并发竞争 + `-1` 哨兵（拆 `exited`/`exit_code` 两个 atomic）、`shell:true` 固定 `/bin/sh`（Node 语义，不读 `$SHELL`）、删死字段 `merge_stderr`、dispose 后 kill 保持有效、`set_stream_callbacks` 重入守卫、spawn 错误去双前缀；补并发 wait 单测、stdin/kill 差分、`RustHostProcess` 类方法面契约、rust-local 适配器 6 用例。遗留：背压（三层无界缓冲）排入切片 2；Windows 三项（signal_to_number 编译、creation_flags 覆盖、shell /d /s）在 Windows 构建接入前处理。
   - [ ] 切片 2：IHostFileSystem（readText/writeText/appendText/readBytes/writeBytes/readLines/createExclusive/stat/lstat/readdir/mkdir/remove/realpath）→ std::fs + tokio（napi async）
   - [ ] 切片 3：IHostEnvironment（osKind/shellName/shellPath/pathClass/homeDir + login shell PATH 探测，Windows git exec-path）
   - [ ] 切片 4：IHostFsWatchService → notify crate

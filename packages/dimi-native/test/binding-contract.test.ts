@@ -78,6 +78,35 @@ suite('native binding ↔ Rust source ↔ TS wrapper', () => {
       expect(typeof wrapper[jsName as keyof typeof wrapper], `wrapper.${jsName}`).toBe('function');
     }
   });
+
+  test('RustHostProcess class surface matches the bridge class', () => {
+    // `napiFunctionNames` deliberately skips indented class methods, so pin
+    // the method surface explicitly here — a renamed/removed bridge method
+    // would otherwise only blow up at runtime in the adapter.
+    const binding = loadNative();
+    const proto = (
+      binding.RustHostProcess as unknown as { prototype: Record<string, unknown> }
+    ).prototype;
+    for (const method of [
+      'setStreamCallbacks',
+      'wait',
+      'kill',
+      'writeStdin',
+      'closeStdin',
+      'dispose',
+    ]) {
+      expect(typeof proto[method], `RustHostProcess.prototype.${method}`).toBe('function');
+    }
+    for (const getter of ['pid', 'exitCode']) {
+      expect(
+        typeof Object.getOwnPropertyDescriptor(proto, getter)?.get,
+        `RustHostProcess getter ${getter}`,
+      ).toBe('function');
+    }
+    expect(typeof (binding.RustHostProcess as unknown as { spawn: unknown }).spawn).toBe(
+      'function',
+    );
+  });
 });
 
 if (!nativeAvailable) {

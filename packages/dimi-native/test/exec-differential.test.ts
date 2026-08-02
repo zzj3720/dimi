@@ -37,6 +37,7 @@ function tsSpawn(
     env?: Record<string, string>;
     shell?: boolean | string;
     detached?: boolean;
+    input?: string | Buffer;
   } = {},
 ): Promise<TsResult> {
   return new Promise((resolve, reject) => {
@@ -56,10 +57,15 @@ function tsSpawn(
       resolve({
         stdout: Buffer.concat(stdout),
         stderr: Buffer.concat(stderr),
-        exitCode: code,
+        // `code ?? -1` — HostProcess semantics (signal-killed → -1).
+        exitCode: code ?? -1,
         pid: child.pid ?? -1,
       });
     });
+    if (options.input !== undefined) {
+      child.stdin.write(options.input);
+      child.stdin.end();
+    }
   });
 }
 
@@ -80,9 +86,16 @@ async function rustSpawn(
     shellDefault?: boolean;
     shellPath?: string;
     detached?: boolean;
+    input?: string | Buffer;
   } = {},
 ): Promise<RustResult> {
   const handle: RustHostProcessHandle = await rustHostProcessSpawn(command, args, options);
+  if (options.input !== undefined) {
+    // `new Uint8Array(string)` yields an EMPTY array in Node ≥22 (string is
+    // not an array-like); Buffer.from does the byte conversion.
+    handle.writeStdin(Buffer.from(options.input));
+    handle.closeStdin();
+  }
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   await new Promise<void>((resolve) => {
@@ -158,5 +171,40 @@ suite('exec: TS child_process vs Rust dimi-exec', () => {
     await expect(
       rustHostProcessSpawn('definitely-not-a-command-xyz', []),
     ).rejects.toThrow(/Failed to spawn/);
+  });
+
+  test('stdin roundtrip reaches the child', async () => {
+    const ts = await tsSpawn('cat', [], { input: 'ping\n' });
+    const rust = await rustSpawn('cat', [], { input: 'ping\n' });
+    expect(rust.stdout).toEqual(ts.stdout);
+    expect(rust.stdout.toString()).toBe('ping\n');
+    expect(rust.exitCode).toBe(ts.exitCode);
+    expect(rust.exitCode).toBe(0);
+  });
+
+  test('kill terminates the tree and resolves -1 on both sides', async () => {
+    // TS side: detached sleep, SIGTERM after 100ms → exit code null → -1.
+    const tsExit = await new Promise<number | null>((resolve, reject) => {
+      const child = nodeSpawn('sleep', ['30'], {
+        detached: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => resolve(code));
+      setTimeout(() => child.kill('SIGTERM'), 100);
+    });
+    // Rust side: same shape through the bridge.
+    const handle = await rustHostProcessSpawn('sleep', ['30']);
+    handle.setStreamCallbacks(
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+    );
+    setTimeout(() => handle.kill('SIGTERM'), 100);
+    const rustExit = await handle.wait();
+    expect(tsExit ?? -1).toBe(-1);
+    expect(rustExit).toBe(-1);
+    expect(handle.exitCode).toBe(-1);
   });
 });
