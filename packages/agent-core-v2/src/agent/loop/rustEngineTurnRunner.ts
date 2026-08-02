@@ -224,14 +224,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       }
     }
 
-    this.eventBus.publish({
-      type: "turn.ended",
-      turnId,
-      reason: batch.outcome.status,
-      error: batch.outcome.error,
-      durationMs: 0,
-    } as never);
-
     return { turnId };
   }
 
@@ -249,10 +241,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       role: message.role,
       content: text,
       ...(message.role === "assistant" && toolCalls.length > 0 ? { toolCalls } : {}),
-      ...(message.role === "tool"
-        ? {
-            toolCallId: (message.content[0] as { toolCallId?: string } | undefined)?.toolCallId,
-          }
+      ...(message.role === "tool" && message.toolCallId !== undefined
+        ? { toolCallId: message.toolCallId }
         : {}),
     };
   }
