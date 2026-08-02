@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
