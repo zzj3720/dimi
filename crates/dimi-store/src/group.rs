@@ -65,6 +65,8 @@ pub fn group_messages_into_snapshot(messages: &[HistoryMessage]) -> AgentTranscr
                             &mut items,
                             &mut next_ordinal,
                             map_origin(message),
+                            None,
+                            None,
                         );
                     }
                     continue;
@@ -93,10 +95,9 @@ pub fn group_messages_into_snapshot(messages: &[HistoryMessage]) -> AgentTranscr
                         &mut items,
                         &mut next_ordinal,
                         map_origin(message),
+                        Some(text_of(message)),
+                        None,
                     );
-                    if let Some(t) = turn.as_mut() {
-                        t.prompt = Some(text_of(message));
-                    }
                 }
                 continue;
             }
@@ -104,11 +105,14 @@ pub fn group_messages_into_snapshot(messages: &[HistoryMessage]) -> AgentTranscr
                 let ids = collect_attachments(message, &mut attachments);
                 (map_origin(message), ids)
             };
-            start_turn(&mut turn, &mut items, &mut next_ordinal, origin);
-            if let Some(t) = turn.as_mut() {
-                t.prompt = Some(text_of(message));
-                t.attachment_ids = attachment_ids;
-            }
+            start_turn(
+                &mut turn,
+                &mut items,
+                &mut next_ordinal,
+                origin,
+                Some(text_of(message)),
+                attachment_ids,
+            );
             continue;
         }
 
@@ -221,7 +225,7 @@ pub fn group_messages_into_snapshot(messages: &[HistoryMessage]) -> AgentTranscr
         todos: Vec::new(),
         prompts: Vec::new(),
         meta: TranscriptMeta::default(),
-        has_more_older: false,
+        has_more_older: None,
     }
 }
 
@@ -232,6 +236,8 @@ fn start_turn(
     items: &mut Vec<Item>,
     next_ordinal: &mut i64,
     origin: TurnOrigin,
+    prompt: Option<String>,
+    attachment_ids: Option<Vec<String>>,
 ) {
     let ordinal = *next_ordinal;
     *next_ordinal += 1;
@@ -239,8 +245,8 @@ fn start_turn(
         turn_id: format!("t{ordinal}"),
         ordinal,
         origin,
-        prompt: None,
-        attachment_ids: None,
+        prompt,
+        attachment_ids,
         steps: Vec::new(),
     };
     items.push(draft_to_turn_item(&draft));
@@ -258,6 +264,8 @@ fn ensure_turn<'a>(
             items,
             next_ordinal,
             TurnOrigin::Other { payload: None },
+            None,
+            None,
         );
     }
     turn.as_mut().expect("turn just ensured")

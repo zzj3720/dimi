@@ -122,7 +122,7 @@ impl AgentTranscript {
             todos: self.state.todos.values().cloned().collect(),
             prompts: self.state.prompts.values().cloned().collect(),
             meta: self.state.meta.clone(),
-            has_more_older,
+            has_more_older: Some(has_more_older),
         }
     }
 

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@dimi-agent/agent-core-v2": "workspace:^",
+    "@dimi-agent/dimi-native": "workspace:^",
     "@dimi-agent/dimi-oauth": "workspace:^",
     "@dimi-agent/protocol": "workspace:^",
     "@dimi-agent/transcript": "workspace:^",

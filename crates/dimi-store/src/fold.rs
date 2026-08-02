@@ -6,7 +6,7 @@
 //! at the end fold to `cancelled` (a process that died mid-request is a
 //! cancellation, never a ghost pending).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use dimi_wire::entity::{
@@ -39,8 +39,10 @@ pub fn fold_wire_record_facts(
     records: &[WireRecord],
     base: &AgentTranscriptSnapshot,
 ) -> AgentTranscriptSnapshot {
-    let mut tasks: HashMap<String, Task> = HashMap::new();
-    let mut interactions: HashMap<String, Interaction> = HashMap::new();
+    let mut tasks: Vec<Task> = Vec::new();
+    // Insertion-ordered like the TS `Map`s (foldFacts.ts) — fold output must
+    // not depend on hash order.
+    let mut interactions: Vec<Interaction> = Vec::new();
     let mut todo: Option<Todo> = None;
     let mut goal: Option<GoalMeta> = None;
     let mut goal_touched = false;
@@ -196,27 +198,28 @@ pub fn fold_wire_record_facts(
                     .and_then(|v| v.as_str())
                     .or(request_tool_call_id)
                     .map(str::to_owned);
-                interactions.insert(
-                    id.to_owned(),
-                    Interaction {
-                        interaction_id: id.to_owned(),
-                        interaction_kind: if kind == Some("question") {
-                            InteractionKind::Question
-                        } else {
-                            InteractionKind::Approval
-                        },
-                        tool_call_id,
-                        state: InteractionState::Pending,
-                        request: record.rest.get("request").cloned(),
-                        response: None,
+                interactions.push(Interaction {
+                    interaction_id: id.to_owned(),
+                    interaction_kind: if kind == Some("question") {
+                        InteractionKind::Question
+                    } else {
+                        InteractionKind::Approval
                     },
-                );
+                    tool_call_id,
+                    state: InteractionState::Pending,
+                    request: record.rest.get("request").cloned(),
+                    response: None,
+                });
             }
             "interaction.resolved" => {
                 let Some(id) = record.rest.get("id").and_then(|v| v.as_str()) else {
                     continue;
                 };
-                let Some(entity) = interactions.get(id) else {
+                let Some(entity) = interactions
+                    .iter()
+                    .find(|e| e.interaction_id == id)
+                    .cloned()
+                else {
                     continue;
                 };
                 let response = record.rest.get("response").cloned();
@@ -224,14 +227,16 @@ pub fn fold_wire_record_facts(
                 let mut next = entity.clone();
                 next.state = state;
                 next.response = response;
-                interactions.insert(id.to_owned(), next);
+                if let Some(existing) = interactions.iter_mut().find(|e| e.interaction_id == id) {
+                    *existing = next;
+                }
             }
             _ => {}
         }
     }
 
     // Pending → cancelled (crash == cancellation).
-    for entity in interactions.values_mut() {
+    for entity in interactions.iter_mut() {
         if entity.state == InteractionState::Pending {
             entity.state = InteractionState::Cancelled;
         }
@@ -275,8 +280,8 @@ pub fn fold_wire_record_facts(
             items.extend(appended);
             items
         },
-        tasks: tasks.into_values().collect(),
-        interactions: interactions.into_values().collect(),
+        tasks,
+        interactions,
         attachments: base.attachments.clone(),
         todos: match todo {
             Some(todo) => vec![todo],
@@ -293,8 +298,9 @@ pub fn fold_wire_record_facts(
 /// `recordTimeIso` (foldFacts.ts 137–142): finite epoch ms → ISO; ISO
 /// strings pass through; else undefined.
 fn record_time_iso(record: &WireRecord) -> Option<String> {
-    match record.time {
-        Some(ms) => epoch_ms_to_iso(ms),
+    match &record.time {
+        Some(dimi_wire::record::RecordTime::Iso(iso)) => Some(iso.clone()),
+        Some(other) => epoch_ms_to_iso(other.as_ms()?),
         None => None,
     }
 }
@@ -350,7 +356,7 @@ fn map_task_kind(kind: Option<&str>) -> TaskKind {
 /// `upsertTask` (foldFacts.ts 210–250).
 fn upsert_task(
     record: &WireRecord,
-    tasks: &mut HashMap<String, Task>,
+    tasks: &mut Vec<Task>,
     used_ref_ids: &mut HashSet<String>,
     appended: &mut Vec<Item>,
 ) {
@@ -360,7 +366,10 @@ fn upsert_task(
     let Some(task_id) = info.get("taskId").and_then(|v| v.as_str()) else {
         return;
     };
-    let prev = tasks.get(task_id).cloned();
+    let prev = tasks
+        .iter()
+        .find(|t| t.task_id.as_str() == task_id)
+        .cloned();
     let status = info.get("status").and_then(|v| v.as_str());
     let state = if status.is_some_and(|s| TASK_STATES.contains(&s)) {
         match status {
@@ -425,7 +434,11 @@ fn upsert_task(
         state_reason: None,
         usage: None,
     };
-    tasks.insert(task_id.to_owned(), task);
+    if let Some(existing) = tasks.iter_mut().find(|t| t.task_id.as_str() == task_id) {
+        *existing = task;
+    } else {
+        tasks.push(task);
+    }
 
     if record.r#type == "task.started" {
         let ref_id = format!("ref-{task_id}");

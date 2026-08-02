@@ -79,7 +79,7 @@ impl ContextTranscriptReducer {
                 let event = record.rest.get("event").ok_or_else(|| ReduceError {
                     message: "context.append_loop_event: missing event".into(),
                 })?;
-                self.apply_loop_event(event, record.time)?;
+                self.apply_loop_event(event, record.time.as_ref().and_then(|t| t.as_ms()))?;
             }
             "context.apply_compaction" => self.apply_compaction(record)?,
             "context.undo" => {
@@ -122,7 +122,7 @@ impl ContextTranscriptReducer {
             })?;
         Ok(MutableEntry {
             message,
-            time: record.time,
+            time: record.time.as_ref().and_then(|t| t.as_ms()),
         })
     }
 
@@ -196,8 +196,9 @@ impl ContextTranscriptReducer {
                         .to_owned();
                     // `arguments === undefined ? null : JSON.stringify(arguments)`
                     // — only a MISSING key is null; a JSON `null` value
-                    // stringifies to "null".
-                    let arguments = event.get("arguments").map(|v| v.to_string());
+                    // stringifies to "null". The event field is `args`
+                    // (contextTranscript.ts 126).
+                    let arguments = event.get("args").map(|v| v.to_string());
                     self.transcript[index]
                         .message
                         .tool_calls
@@ -405,7 +406,7 @@ impl ContextTranscriptReducer {
                     rest: Default::default(),
                 }),
             },
-            time: record.time,
+            time: record.time.as_ref().and_then(|t| t.as_ms()),
         });
         self.folded_length = kept_user_message_count + if kept_head_present { 2 } else { 1 };
         self.reset_open_state();
@@ -484,6 +485,7 @@ fn is_prompt_owned_injection(message: &HistoryMessage, anchor: &HistoryMessage) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dimi_wire::record::RecordTime;
 
     fn record(type_: &str, extra: serde_json::Value) -> WireRecord {
         let mut rest = serde_json::Map::new();
@@ -494,7 +496,7 @@ mod tests {
         }
         WireRecord {
             r#type: type_.into(),
-            time: Some(1),
+            time: Some(RecordTime::Ms(1)),
             rest,
         }
     }
@@ -526,7 +528,7 @@ mod tests {
             record(
                 "context.append_loop_event",
                 serde_json::json!({
-                    "event": {"type": "tool.call", "stepUuid": "s1", "toolCallId": "c1", "name": "bash", "arguments": {"cmd": "ls"}}
+                    "event": {"type": "tool.call", "stepUuid": "s1", "toolCallId": "c1", "name": "bash", "args": {"cmd": "ls"}}
                 }),
             ),
             record(

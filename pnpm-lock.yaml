@@ -533,6 +533,9 @@ importers:
       '@dimi-agent/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
+      '@dimi-agent/dimi-native':
+        specifier: workspace:^
+        version: link:../dimi-native
       '@dimi-agent/dimi-oauth':
         specifier: workspace:^
         version: link:../oauth

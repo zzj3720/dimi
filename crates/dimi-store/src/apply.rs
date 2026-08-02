@@ -107,7 +107,7 @@ fn apply_reset(
                 .collect(),
             meta: snapshot.meta.clone(),
             pending_interactions: pending,
-            has_more_older: snapshot.has_more_older,
+            has_more_older: snapshot.has_more_older.unwrap_or(false),
         },
         changed: true,
         gap: None,

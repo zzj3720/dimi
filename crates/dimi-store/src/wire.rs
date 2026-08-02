@@ -88,18 +88,20 @@ impl std::error::Error for WireReadError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dimi_wire::record::RecordTime;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Unique file per call: tests run in parallel threads, and two
+    /// `SystemTime::now()` calls can collide on the same nanosecond, which
+    /// made concurrent tests truncate each other's fixture files.
+    static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
     fn write_tmp(content: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("dimi-wire-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!(
-            "wire-{}.jsonl",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!("wire-{}-{seq}.jsonl", std::process::id()));
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(content.as_bytes()).unwrap();
         path
@@ -111,7 +113,7 @@ mod tests {
         let records = read_wire_records(&p).unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].r#type, "a");
-        assert_eq!(records[0].time, Some(1));
+        assert_eq!(records[0].time, Some(RecordTime::Ms(1)));
         assert_eq!(records[1].r#type, "b");
     }
 
