@@ -41,10 +41,10 @@ function makeHost(entries: TranscriptEntry[]) {
 }
 
 describe('copy slash command', () => {
-  it('is registered as an idle-only built-in', () => {
+  it('is registered as an always-available built-in', () => {
     const command = findBuiltInSlashCommand('copy');
     expect(command).toBeDefined();
-    expect(resolveSlashCommandAvailability(command!, '')).toBe('idle-only');
+    expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
 });
 

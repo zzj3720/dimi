@@ -515,17 +515,19 @@ async function rememberedEffortForModel(
   return rememberedEffortFromConfig(config, model);
 }
 
+/**
+ * Apply a model / thinking-effort switch. Safe while a turn is streaming or
+ * the context is compacting: the engine snapshots model, effort, and system
+ * prompt per turn, so the change takes effect from the next turn and never
+ * races an in-flight request. The registry marks both `/model` and `/effort`
+ * as `always`; this function must not re-gate them on busy state.
+ */
 export async function performModelSwitch(
   host: SlashCommandHost,
   alias: string,
   effort: ThinkingEffort,
   persist: boolean,
 ): Promise<void> {
-  if (host.state.appState.streamingPhase !== 'idle') {
-    host.showError('Cannot switch models while streaming — press Esc or Ctrl-C first.');
-    return;
-  }
-
   const prevModel = host.state.appState.model;
   const prevEffort = host.state.appState.thinkingEffort;
   const modelChanged = alias !== prevModel;

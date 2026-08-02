@@ -49,13 +49,30 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(plan!, 'clear')).toBe('idle-only');
   });
 
-  it('keeps swarm mode changes and swarm tasks idle-only', () => {
+  it('keeps swarm tasks idle-only while mode toggles are always available', () => {
     const swarm = findBuiltInSlashCommand('swarm');
     expect(swarm).toBeDefined();
     expect((swarm as DimiSlashCommand).experimentalFlag).toBeUndefined();
-    expect(resolveSlashCommandAvailability(swarm!, 'on')).toBe('idle-only');
-    expect(resolveSlashCommandAvailability(swarm!, 'off')).toBe('idle-only');
+    expect(resolveSlashCommandAvailability(swarm!, '')).toBe('always');
+    expect(resolveSlashCommandAvailability(swarm!, 'on')).toBe('always');
+    expect(resolveSlashCommandAvailability(swarm!, 'off')).toBe('always');
     expect(resolveSlashCommandAvailability(swarm!, 'Ship feature X')).toBe('idle-only');
+  });
+
+  it('keeps read-only and configuration commands always available', () => {
+    for (const name of [
+      'add-dir',
+      'copy',
+      'exit',
+      'export-md',
+      'export-debug-zip',
+      'login',
+      'logout',
+    ]) {
+      const command = findBuiltInSlashCommand(name);
+      expect(command).toBeDefined();
+      expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
+    }
   });
 
   it('offers swarm subcommand argument completions', () => {

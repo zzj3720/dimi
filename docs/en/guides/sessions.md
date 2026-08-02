@@ -58,7 +58,7 @@ dimi --session
 
 ## Switching sessions inside the TUI
 
-You can manage sessions without leaving the terminal. The following slash commands are available only when the agent is idle:
+You can manage sessions without leaving the terminal. The following slash commands manage sessions (`/title` is always available; the rest are available only when the agent is idle):
 
 - **`/new`** (alias `/clear`): switch to a new session, discarding the current context.
 - **`/sessions`** (alias `/resume`): browse and resume a previous session.

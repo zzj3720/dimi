@@ -30,6 +30,27 @@ const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
+/**
+ * Busy-state availability policy for built-in commands.
+ *
+ * A command is either:
+ * - `always` — usable while a turn is streaming or the context is compacting.
+ *   This covers read-only queries, pure UI commands, and session
+ *   *configuration* changes (permission, plan mode, model, thinking effort,
+ *   title, workspace dirs, auth…): the engine snapshots the model, thinking
+ *   effort, and system prompt per turn, so config writes never race an
+ *   in-flight request and take effect from the next turn.
+ * - `idle-only` — requires an idle agent: commands that rewrite conversation
+ *   history (`/undo`, `/compact`), start or stop a turn (`/goal` creation,
+ *   `/swarm <task>`, `/init`), or switch/rebuild the session (`/new`,
+ *   `/sessions`, `/fork`, `/reload`, `/experiments`, `/plan clear`).
+ *
+ * Commands without an explicit `availability` default to `idle-only` (see
+ * `resolveSlashCommandAvailability`). A command's handler must never block an
+ * `always` command while busy — the apply layer has no business re-gating what
+ * the registry already allowed (that was the old model-switch guard).
+ */
+
 /** Argument autocompletion for the `/goal` command (subcommands). */
 export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   const nextMatch = argumentPrefix.match(/^next\s+(\S*)$/i);
@@ -188,7 +209,11 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 100,
     argumentHint: '[on|off] | <task>',
     completeArgs: swarmArgumentCompletions,
-    availability: 'idle-only',
+    // Mode toggles are configuration; starting a task is a new turn.
+    availability: (args) => {
+      const sub = args.trim().toLowerCase();
+      return sub === '' || sub === 'on' || sub === 'off' ? 'always' : 'idle-only';
+    },
   },
   {
     name: 'model',
@@ -272,7 +297,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: [],
     description: 'Add or list an additional workspace directory',
     priority: 60,
-    availability: 'idle-only',
+    availability: 'always',
     argumentHint: '[list] | <path>',
     completeArgs: addDirArgumentCompletions,
   },
@@ -387,6 +412,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: ['disconnect'],
     description: 'Log out of a configured provider',
     priority: 40,
+    availability: 'always',
   },
   {
     name: 'login',
@@ -394,24 +420,28 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Connect an AI provider with an account or API key',
     priority: 40,
     argumentHint: '[provider]',
+    availability: 'always',
   },
   {
     name: 'export-md',
     aliases: ['export'],
     description: 'Export current session as a Markdown file',
     priority: 40,
+    availability: 'always',
   },
   {
     name: 'export-debug-zip',
     aliases: [],
     description: 'Export current session as a debug ZIP archive',
     priority: 40,
+    availability: 'always',
   },
   {
     name: 'copy',
     aliases: [],
     description: 'Copy the last assistant message to the clipboard',
     priority: 40,
+    availability: 'always',
   },
   {
     name: 'web',
@@ -425,6 +455,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: ['quit', 'q'],
     description: 'Exit the application',
     priority: 20,
+    availability: 'always',
   },
   {
     name: 'version',

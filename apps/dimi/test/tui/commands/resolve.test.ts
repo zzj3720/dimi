@@ -94,29 +94,19 @@ describe('resolveSlashCommandInput', () => {
       commandName: 'reload',
       reason: 'streaming',
     });
-    expect(resolve('/add-dir ../shared', { isStreaming: true })).toEqual({
-      kind: 'blocked',
-      commandName: 'add-dir',
-      reason: 'streaming',
-    });
     expect(resolve('/experiments', { isStreaming: true })).toEqual({
       kind: 'blocked',
       commandName: 'experiments',
       reason: 'streaming',
     });
-    expect(resolve('/swarm on', { isStreaming: true })).toEqual({
-      kind: 'blocked',
-      commandName: 'swarm',
-      reason: 'streaming',
-    });
-    expect(resolve('/swarm off', { isStreaming: true })).toEqual({
+    expect(resolve('/swarm Ship feature X', { isStreaming: true })).toEqual({
       kind: 'blocked',
       commandName: 'swarm',
       reason: 'streaming',
     });
   });
 
-  it('blocks model and session pickers while compacting', () => {
+  it('blocks idle-only built-ins while compacting', () => {
     expect(resolve('/sessions', { isCompacting: true })).toEqual({
       kind: 'blocked',
       commandName: 'sessions',
@@ -132,22 +122,12 @@ describe('resolveSlashCommandInput', () => {
       commandName: 'reload',
       reason: 'compacting',
     });
-    expect(resolve('/add-dir ../shared', { isCompacting: true })).toEqual({
-      kind: 'blocked',
-      commandName: 'add-dir',
-      reason: 'compacting',
-    });
     expect(resolve('/experiments', { isCompacting: true })).toEqual({
       kind: 'blocked',
       commandName: 'experiments',
       reason: 'compacting',
     });
-    expect(resolve('/swarm on', { isCompacting: true })).toEqual({
-      kind: 'blocked',
-      commandName: 'swarm',
-      reason: 'compacting',
-    });
-    expect(resolve('/swarm off', { isCompacting: true })).toEqual({
+    expect(resolve('/swarm Ship feature X', { isCompacting: true })).toEqual({
       kind: 'blocked',
       commandName: 'swarm',
       reason: 'compacting',
@@ -185,6 +165,39 @@ describe('resolveSlashCommandInput', () => {
       name: 'btw',
       args: 'side question',
     });
+    // Model / thinking-effort switches are session configuration: they apply
+    // from the next turn, so they must resolve while streaming.
+    expect(resolve('/model', { isStreaming: true })).toMatchObject({
+      kind: 'builtin',
+      name: 'model',
+      args: '',
+    });
+    expect(resolve('/effort high', { isStreaming: true })).toMatchObject({
+      kind: 'builtin',
+      name: 'effort',
+      args: 'high',
+    });
+    expect(resolve('/effort low', { isCompacting: true })).toMatchObject({
+      kind: 'builtin',
+      name: 'effort',
+      args: 'low',
+    });
+    // Read-only and configuration commands stay usable while busy.
+    for (const input of [
+      '/add-dir',
+      '/copy',
+      '/export-md',
+      '/export-debug-zip',
+      '/login',
+      '/logout',
+      '/exit',
+      '/swarm',
+      '/swarm on',
+      '/swarm off',
+    ]) {
+      expect(resolve(input, { isStreaming: true })).toMatchObject({ kind: 'builtin' });
+      expect(resolve(input, { isCompacting: true })).toMatchObject({ kind: 'builtin' });
+    }
   });
 
   it('blocks plan clear while compacting because it is idle-only', () => {
