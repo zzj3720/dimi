@@ -177,11 +177,12 @@ default_effort = "low"
 
 `loop_control` 控制 Agent 执行循环的步数上限、单步重试次数，以及触发上下文自动压缩的阈值。
 
-| 字段                    | 类型      | 默认值 | 说明                                                              |
-| ----------------------- | --------- | ------ | ----------------------------------------------------------------- |
-| `max_steps_per_turn`    | `integer` | —      | 单轮最大步数；不设或设为 `0` 则无上限                             |
-| `max_retries_per_step`  | `integer` | `10`   | 单步失败后的最大重试次数                                          |
-| `reserved_context_size` | `integer` | —      | 预留给模型输出的 token 数；上下文窗口剩余量低于此值时触发自动压缩 |
+| 字段                     | 类型      | 默认值 | 说明                                                                 |
+| ------------------------ | --------- | ------ | -------------------------------------------------------------------- |
+| `max_steps_per_turn`     | `integer` | —      | 单轮最大步数；不设或设为 `0` 则无上限                                |
+| `max_retries_per_step`   | `integer` | `10`   | 单步失败后的最大重试次数                                             |
+| `reserved_context_size`  | `integer` | —      | 预留给模型输出的 token 数；上下文窗口剩余量低于此值时触发自动压缩    |
+| `context_size_percent`   | `integer` | `100`  | 有效上下文窗口占模型默认窗口的百分比；按 5% 档位取值（5–100），最低保留 200k token。模型窗口本身低于 200k 时不可调整，保持原窗口。可在 TUI 设置（`/config` → Context size）中修改 |
 
 `max_steps_per_turn` 可被环境变量 `DIMI_LOOP_MAX_STEPS_PER_TURN` 覆盖，`max_retries_per_step` 可被 `DIMI_LOOP_MAX_RETRIES_PER_STEP` 覆盖，优先级均高于配置文件。
 

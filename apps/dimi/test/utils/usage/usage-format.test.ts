@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   cacheHitRatePercent,
   formatCacheHitRate,
+  formatDecimalTokenCount,
   formatTokenCount,
   promptTokenTotal,
   renderProgressBar,
@@ -46,6 +47,33 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(-1)).toBe('0');
     expect(formatTokenCount(Number.NaN)).toBe('0');
     expect(formatTokenCount(Number.POSITIVE_INFINITY)).toBe('0');
+  });
+});
+
+describe('formatDecimalTokenCount', () => {
+  it('passes small values through unchanged', () => {
+    expect(formatDecimalTokenCount(0)).toBe('0');
+    expect(formatDecimalTokenCount(1)).toBe('1');
+    expect(formatDecimalTokenCount(999)).toBe('999');
+  });
+
+  it('switches to k at 1000 with one trimmed decimal', () => {
+    expect(formatDecimalTokenCount(1_000)).toBe('1k');
+    expect(formatDecimalTokenCount(200_000)).toBe('200k');
+    expect(formatDecimalTokenCount(950_000)).toBe('950k');
+    expect(formatDecimalTokenCount(1_500)).toBe('1.5k');
+  });
+
+  it('switches to M at 1,000,000', () => {
+    expect(formatDecimalTokenCount(1_000_000)).toBe('1M');
+    expect(formatDecimalTokenCount(1_500_000)).toBe('1.5M');
+    expect(formatDecimalTokenCount(10_000_000)).toBe('10M');
+  });
+
+  it('clamps negatives and NaN to 0', () => {
+    expect(formatDecimalTokenCount(-1)).toBe('0');
+    expect(formatDecimalTokenCount(Number.NaN)).toBe('0');
+    expect(formatDecimalTokenCount(Number.POSITIVE_INFINITY)).toBe('0');
   });
 });
 

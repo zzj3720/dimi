@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
+import { ContextSizeSelectorComponent } from '#/tui/components/dialogs/context-size-selector';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
@@ -105,6 +106,21 @@ describe('ChoicePickerComponent', () => {
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
     expect(settingsOutput).toContain('    Turn automatic CLI updates on or off.');
+
+    const contextSize = new ContextSizeSelectorComponent({
+      contextWindow: 1_000_000,
+      percentOptions: [100, 95, 90],
+      currentPercent: 95,
+      onSelect,
+      onCancel,
+    });
+    const contextSizeOutput = contextSize.render(120).map(strip);
+    expect(contextSizeOutput).toContain(' Context size');
+    expect(contextSizeOutput).toContain(' Model window 1M · floor 200k');
+    expect(contextSizeOutput).toContain('    100% (default)');
+    expect(contextSizeOutput).toContain('    1M tokens');
+    expect(contextSizeOutput).toContain('  ❯ 95% ← current');
+    expect(contextSizeOutput).toContain('    950k tokens');
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
       currentValue: true,

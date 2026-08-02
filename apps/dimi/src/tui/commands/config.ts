@@ -8,6 +8,7 @@ import {
 } from '@dimi-agent/dimi-sdk';
 
 import { BusyInputModeSelectorComponent } from '../components/dialogs/busy-input-mode-selector';
+import { ContextSizeSelectorComponent } from '../components/dialogs/context-size-selector';
 import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
 import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
 import {
@@ -33,6 +34,12 @@ import {
   rememberedEffortFromConfig,
   thinkingEffortToConfig,
 } from '../utils/thinking-config';
+import {
+  CONTEXT_SIZE_FLOOR_TOKENS,
+  contextSizePercentOptions,
+  scaleContextTokens,
+} from '@dimi-agent/agent-core-v2';
+import { formatDecimalTokenCount } from '#/utils/usage/usage-format';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
 import type { SlashCommandHost } from './dispatch';
@@ -873,6 +880,78 @@ export function showBusyInputModePicker(host: SlashCommandHost): void {
   );
 }
 
+/** `[loop_control]` from a `getConfig()` result (untyped domain access). */
+function loopControlFromConfig(config: DimiConfig): { contextSizePercent?: number } | undefined {
+  return config['loopControl'] as { contextSizePercent?: number } | undefined;
+}
+
+/** The active model's default context window in tokens, or 0 when unknown. */
+function activeModelContextWindow(host: SlashCommandHost): number {
+  const alias = host.state.appState.model;
+  const model = alias === undefined ? undefined : host.state.appState.availableModels[alias];
+  return model?.maxContextSize ?? 0;
+}
+
+/**
+ * Open the context-size picker: 5% steps from the model's default window
+ * (100%) down while the scaled window stays at or above 200k. Models whose
+ * window is already below 200k are not adjustable — a notice explains why
+ * instead of opening a one-option picker.
+ */
+export function showContextSizePicker(host: SlashCommandHost): void {
+  const contextWindow = activeModelContextWindow(host);
+  if (contextWindow <= 0) {
+    host.showNotice('Context size unavailable', 'No model is active. Choose a model first.');
+    return;
+  }
+  const percentOptions = contextSizePercentOptions(contextWindow);
+  if (percentOptions.length <= 1) {
+    host.showNotice(
+      'Context size cannot be adjusted',
+      `This model's window (${formatDecimalTokenCount(contextWindow)}) is already at or below the ${formatDecimalTokenCount(CONTEXT_SIZE_FLOOR_TOKENS)} floor.`,
+    );
+    return;
+  }
+  void host.harness.getConfig().then(
+    (config) => {
+      const currentPercent = loopControlFromConfig(config)?.contextSizePercent ?? 100;
+      host.mountEditorReplacement(
+        new ContextSizeSelectorComponent({
+          contextWindow,
+          percentOptions,
+          currentPercent,
+          onSelect: (percent) => {
+            host.restoreEditor();
+            void applyContextSizeChoice(host, percent);
+          },
+          onCancel: () => {
+            host.restoreEditor();
+          },
+        }),
+      );
+    },
+    (error) => {
+      host.showError(`Failed to load context size: ${formatErrorMessage(error)}`);
+    },
+  );
+}
+
+async function applyContextSizeChoice(host: SlashCommandHost, percent: number): Promise<void> {
+  const contextWindow = activeModelContextWindow(host);
+  try {
+    await host.harness.setConfig({ loopControl: { contextSizePercent: percent } });
+  } catch (error) {
+    host.showError(`Failed to save context size: ${formatErrorMessage(error)}`);
+    return;
+  }
+  const maxContextTokens = contextWindow > 0 ? scaleContextTokens(contextWindow, percent) : 0;
+  if (maxContextTokens > 0) host.setAppState({ maxContextTokens });
+  host.showNotice(
+    `Context size: ${percent}%`,
+    `Effective window ${formatDecimalTokenCount(maxContextTokens)} (default ${formatDecimalTokenCount(contextWindow)}).`,
+  );
+}
+
 export async function showExperimentsPanel(host: SlashCommandHost): Promise<void> {
   let features: readonly ExperimentalFeatureState[];
   try {
@@ -1099,6 +1178,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'busy-input':
       showBusyInputModePicker(host);
+      return;
+    case 'context-size':
+      showContextSizePicker(host);
       return;
     case 'experiments':
       void showExperimentsPanel(host);

@@ -74,6 +74,19 @@ function trimDecimal(v: number): string {
 }
 
 /**
+ * Format a token count in 1000-based units ("1M", "950k", "200k"). Unlike
+ * `formatTokenCount` (1024-based, the footer/usage convention), this keeps
+ * exact product numbers readable: the context-size picker's floor is a
+ * literal 200k, and 5% steps of a 1M window land on round values.
+ */
+export function formatDecimalTokenCount(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '0';
+  if (n >= 1_000_000) return `${trimDecimal(n / 1_000_000)}M`;
+  if (n >= 1_000) return `${trimDecimal(n / 1_000)}k`;
+  return String(n);
+}
+
+/**
  * Usage as a whole-number percentage of `max`, ceiled so any non-zero
  * usage shows at least 1%, clamped to [0, 100]. A non-positive or
  * non-finite `max` reports 0.

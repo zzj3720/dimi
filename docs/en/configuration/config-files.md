@@ -182,6 +182,7 @@ When the experiment is enabled, the configuration is validated as the session st
 | `max_steps_per_turn`    | `integer` | —       | Maximum steps per turn; unset or `0` means unlimited                                                                                   |
 | `max_retries_per_step`  | `integer` | `10`    | Maximum retries after a step failure                                                                                                   |
 | `reserved_context_size` | `integer` | —       | Number of tokens reserved for model output; automatic compaction is triggered when the remaining context window falls below this value |
+| `context_size_percent`  | `integer` | `100`   | Effective context window as a percentage of the model's default window; 5% steps (5–100), never below 200k tokens. Models whose window is already below 200k are not adjustable and keep their window. Change it from the TUI settings (`/config` → Context size) |
 
 `max_steps_per_turn` can be overridden by the `DIMI_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_retries_per_step` by `DIMI_LOOP_MAX_RETRIES_PER_STEP`; both take higher priority than the config file.
 

@@ -771,6 +771,21 @@ describe("loopControl config section", () => {
     expect(() => registry.validate(LOOP_CONTROL_SECTION, { maxRetriesPerStep: 1.5 })).toThrow();
   });
 
+  it("validates contextSizePercent as 5%-stepped values in [5, 100]", () => {
+    const registry = new ConfigRegistry();
+
+    expect(registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 100 })).toEqual({
+      contextSizePercent: 100,
+    });
+    expect(registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 5 })).toEqual({
+      contextSizePercent: 5,
+    });
+    expect(() => registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 83 })).toThrow();
+    expect(() => registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 0 })).toThrow();
+    expect(() => registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 120 })).toThrow();
+    expect(() => registry.validate(LOOP_CONTROL_SECTION, { contextSizePercent: 1.5 })).toThrow();
+  });
+
   it("re-applies loopControl env bindings on every get() and ignores invalid env", async () => {
     const env: Record<string, string> = {};
     const disposables = new DisposableStore();

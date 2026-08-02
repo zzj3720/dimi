@@ -85,6 +85,8 @@ import { ErrorCodes, Error2 } from "#/errors";
 import { IBootstrapService } from "#/app/bootstrap/bootstrap";
 import { IConfigService } from "#/app/config/config";
 import type { LoopControl } from "#/agent/loop/configSection";
+import { LOOP_CONTROL_SECTION } from "#/agent/loop/configSection";
+import { scaleModelCapabilityContext } from "#/agent/loop/contextSize";
 import { IHostEnvironment } from "#/os/interface/hostEnvironment";
 import { IHostFileSystem } from "#/os/interface/hostFileSystem";
 import { ISessionContext } from "#/session/sessionContext/sessionContext";
@@ -235,6 +237,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         if (domain === TOOLS_SECTION) {
           this.publishToolPatternWarnings();
           void this.refreshSystemPrompt();
+        }
+        if (domain === LOOP_CONTROL_SECTION) {
+          // `context_size_percent` / compaction limits changed: republish the
+          // context window so status consumers (footer, /usage) stay in sync.
+          this.emitStatusUpdated();
         }
       }),
     );
@@ -501,7 +508,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return {
       cwd: this.cwd,
       modelAlias: this.modelAlias,
-      modelCapabilities: model === undefined ? UNKNOWN_CAPABILITY : modelCapabilities(model),
+      modelCapabilities: this.capabilitiesFor(model),
       profileName: this.profileName,
       thinkingLevel: this.thinkingLevel,
       systemPrompt: this.systemPrompt,
@@ -519,10 +526,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
     const model = this.modelCatalog.get(modelAlias);
-    const loopControl = this.config.get<LoopControl>("loopControl");
+    const loopControl = this.config.get<LoopControl>(LOOP_CONTROL_SECTION);
     return {
       modelAlias,
-      modelCapabilities: modelCapabilities(model),
+      modelCapabilities: this.capabilitiesFor(model),
       maxOutputSize: model.maxTokens,
       alwaysThinking: modelAlwaysThinking(model) || undefined,
       thinkingLevel: this.resolveThinkingState(model).effective,
@@ -554,8 +561,20 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   getModelCapabilities(): ModelCapability {
-    const model = this.tryResolveRawModel();
-    return model === undefined ? UNKNOWN_CAPABILITY : modelCapabilities(model);
+    return this.capabilitiesFor(this.tryResolveRawModel());
+  }
+
+  /**
+   * Model capabilities with the user's `[loop_control] context_size_percent`
+   * applied to the token limits. The percentage is read on every call, so
+   * config changes take effect on the next request without a restart.
+   */
+  private capabilitiesFor(model: Model | undefined): ModelCapability {
+    const capability = model === undefined ? UNKNOWN_CAPABILITY : modelCapabilities(model);
+    return scaleModelCapabilityContext(
+      capability,
+      this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.contextSizePercent,
+    );
   }
 
   getMaxOutputSize(): number | undefined {

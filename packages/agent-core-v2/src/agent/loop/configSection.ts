@@ -22,6 +22,11 @@ import { type EnvBindings, envBindings, stripEnvBoundFields } from '#/app/config
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 import { plainObjectToToml, transformPlainObject } from '#/app/config/toml';
 
+import {
+  CONTEXT_SIZE_PERCENT_MIN,
+  CONTEXT_SIZE_STEP_PERCENT,
+} from './contextSize';
+
 export const LOOP_CONTROL_SECTION = 'loopControl';
 
 export const LOOP_MAX_STEPS_PER_TURN_ENV = 'DIMI_LOOP_MAX_STEPS_PER_TURN';
@@ -33,6 +38,18 @@ export const LoopControlSchema = z.object({
   maxRalphIterations: z.number().int().min(-1).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
+  /**
+   * Effective context window as a percentage of the model's default, in
+   * 5% steps, never below `CONTEXT_SIZE_FLOOR_TOKENS`. See
+   * `agent/loop/contextSize.ts` for the scaling semantics.
+   */
+  contextSizePercent: z
+    .number()
+    .int()
+    .min(CONTEXT_SIZE_PERCENT_MIN)
+    .max(100)
+    .multipleOf(CONTEXT_SIZE_STEP_PERCENT)
+    .optional(),
 });
 
 export type LoopControl = z.infer<typeof LoopControlSchema>;

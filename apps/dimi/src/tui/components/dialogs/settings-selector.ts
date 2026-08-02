@@ -6,6 +6,7 @@ export type SettingsSelection =
   | 'editor'
   | 'permission'
   | 'busy-input'
+  | 'context-size'
   | 'experiments'
   | 'upgrade'
   | 'usage';
@@ -37,6 +38,11 @@ const SETTINGS_OPTIONS: readonly ChoiceOption[] = [
     description: 'Choose whether Enter queues or steers while the agent is working.',
   },
   {
+    value: 'context-size',
+    label: 'Context size',
+    description: 'Cap the conversation window as a percentage of the model default (min 200k).',
+  },
+  {
     value: 'experiments',
     label: 'Experiments',
     description: 'Turn experimental features on or off.',
@@ -60,6 +66,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'editor' ||
     value === 'permission' ||
     value === 'busy-input' ||
+    value === 'context-size' ||
     value === 'experiments' ||
     value === 'upgrade' ||
     value === 'usage'
