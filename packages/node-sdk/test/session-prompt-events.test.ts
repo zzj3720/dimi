@@ -89,37 +89,6 @@ async function removeTempDir(dir: string): Promise<void> {
 }
 
 describe("Session.prompt events", () => {
-  it("preserves existing custom metadata when an SDK metadata patch is resumed", async () => {
-    const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const harness = createDimiHarness({ identity: TEST_IDENTITY, homeDir });
-
-    try {
-      await configureFakeProvider(harness);
-      const session = await harness.createSession({
-        id: "ses_update_metadata",
-        workDir,
-        metadata: { source: "vscode" },
-      });
-      await session.createGoal({ objective: "Keep core-owned metadata" });
-      await session.updateMetadata({
-        vscode_legacy_approval: { yolo: true, afk: false },
-      });
-      await session.close();
-
-      const resumed = await harness.resumeSession({ id: session.id });
-
-      expect(resumed.summary?.metadata).toEqual({
-        source: "vscode",
-        vscode_legacy_approval: { yolo: true, afk: false },
-      });
-      await expect(resumed.getGoal()).resolves.toMatchObject({
-        goal: { objective: "Keep core-owned metadata" },
-      });
-    } finally {
-      await harness.close();
-    }
-  });
 
   it("persists sanitized prompt metadata without marking the title custom", async () => {
     const homeDir = await makeTempDir();

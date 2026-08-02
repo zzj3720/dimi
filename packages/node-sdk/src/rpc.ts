@@ -23,15 +23,12 @@ import type {
   BackgroundTaskInfo,
   CompactOptions,
   ConfigDiagnostics,
-  CreateGoalInput,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
   ForkSessionInput,
   GetConfigOptions,
   GetCronTasksResult,
-  GoalSnapshot,
-  GoalToolResult,
   JsonObject,
   DimiConfig,
   DimiConfigPatch,
@@ -213,11 +210,6 @@ export interface SDKRpcClientBase {
   ): Promise<BackgroundTaskInfo | undefined>;
   waitForBackgroundTasksOnPrint(input: SessionIdRpcInput): Promise<void>;
   handlePrintMainTurnCompleted(input: SessionIdRpcInput): Promise<"finish" | "continue">;
-  createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot>;
-  getGoal(input: SessionIdRpcInput): Promise<GoalToolResult>;
-  pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
-  resumeGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
-  cancelGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
   getCronTasks(input: SessionIdRpcInput): Promise<GetCronTasksResult>;
   listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]>;
   getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics>;

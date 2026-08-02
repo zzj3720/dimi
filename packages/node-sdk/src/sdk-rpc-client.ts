@@ -38,7 +38,6 @@ import {
   IAgentContextMemoryService,
   IAgentContextSizeService,
   IAgentFullCompactionService,
-  IAgentGoalService,
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPermissionModeService,
@@ -131,15 +130,12 @@ import type {
   BackgroundTaskInfo,
   CompactOptions,
   ConfigDiagnostics,
-  CreateGoalInput,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
   ForkSessionInput,
   GetConfigOptions,
   GetCronTasksResult,
-  GoalSnapshot,
-  GoalToolResult,
   JsonObject,
   DimiConfig,
   DimiConfigPatch,
@@ -1518,52 +1514,14 @@ export class SDKRpcClient extends SDKRpcClientBase {
   }
 
   // -----------------------------------------------------------------------
-  // Goal / cron / background tasks / print policy
+  // Cron / background tasks / print policy
   //
-  // The goal service is the v2 port of v1's `GoalMode` (same state machine,
-  // same validations, same error codes), so the goal overrides are thin
-  // forwards through the agent scope. Cron and the task manager moved from
+  // Cron and the task manager moved from
   // per-agent (v1) to session/agent-scope services with field-identical
   // wire shapes; the two print-policy methods have no v2 service at all
   // (the native v2 print runner re-implements the same policy inline), so
   // they are rebuilt here over the engine's config helpers and the session's
   // per-agent task services.
-  // -----------------------------------------------------------------------
-
-  /**
-   * Through the agent scope (`IAgentGoalService.createGoal`) — no klient
-   * facade exists for the goal domain. Gap: v2 rejects every goal command on
-   * a non-main agent (`goal.unsupported_agent`) where v1 keeps a `GoalMode`
-   * on every agent; only reachable through a non-main `interactiveAgentId`
-   * (tracked in the migration tracker).
-   */
-  override async createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot> {
-    const agent = await this.agentScope(input.sessionId);
-    return agent.accessor
-      .get(IAgentGoalService)
-      .createGoal({ objective: input.objective, replace: input.replace });
-  }
-
-  override async getGoal(input: SessionIdRpcInput): Promise<GoalToolResult> {
-    const agent = await this.agentScope(input.sessionId);
-    return agent.accessor.get(IAgentGoalService).getGoal();
-  }
-
-  override async pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
-    const agent = await this.agentScope(input.sessionId);
-    return agent.accessor.get(IAgentGoalService).pauseGoal();
-  }
-
-  override async resumeGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
-    const agent = await this.agentScope(input.sessionId);
-    return agent.accessor.get(IAgentGoalService).resumeGoal();
-  }
-
-  override async cancelGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
-    const agent = await this.agentScope(input.sessionId);
-    return agent.accessor.get(IAgentGoalService).cancelGoal();
-  }
-
   /**
    * Through the session scope (`ISessionCronService`) — no klient facade
    * exists for cron. v1's cron manager is per-agent: the main agent's

@@ -8,13 +8,6 @@ import type {
   ExperimentalFlagMap,
   ExperimentalFlagSource,
   ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
   IProviderRuntime,
   Provider,
   ITelemetryAppender,
@@ -63,13 +56,6 @@ export type {
   ExperimentalFlagMap,
   ExperimentalFlagSource,
   ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
   LoopControl,
   McpServerInfo,
   McpStartupMetrics,
@@ -150,11 +136,6 @@ export type { TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from "@dimi-agent/agent-core-v2";
 
 export type PermissionMode = "yolo" | "manual" | "auto";
-
-export interface CreateGoalInput {
-  readonly objective: string;
-  readonly replace?: boolean;
-}
 
 export type TextPromptPart = Extract<ContentPart, { type: "text" }>;
 export type PromptPart = Extract<ContentPart, { type: "text" | "image_url" | "video_url" }>;

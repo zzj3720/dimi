@@ -11,10 +11,7 @@ import type {
   AddAdditionalDirResult,
   BackgroundTaskInfo,
   CompactOptions,
-  CreateGoalInput,
   GetCronTasksResult,
-  GoalSnapshot,
-  GoalToolResult,
   JsonObject,
   McpServerInfo,
   McpStartupMetrics,
@@ -231,12 +228,6 @@ export class Session {
   /** Shallow-merge host-owned fields into this session's persisted custom metadata. */
   async updateMetadata(patch: JsonObject): Promise<void> {
     this.ensureOpen();
-    if (Object.hasOwn(patch, 'goal')) {
-      throw new DimiError(
-        ErrorCodes.GOAL_METADATA_RESERVED,
-        'Session metadata key "goal" is reserved for the goal lifecycle',
-      );
-    }
     const summary = this.requireSummary();
     await this.rpc.updateSessionMetadata({ sessionId: this.id, metadata: patch });
     const metadata = { ...summary.metadata, ...patch };
@@ -451,36 +442,9 @@ export class Session {
     return this.rpc.handlePrintMainTurnCompleted({ sessionId: this.id });
   }
 
-  // --- Goal lifecycle ---------------------------------------------------
-  // Deterministic user/host control surface. There is intentionally no
-  // `updateGoal`: the goal's terminal status is decided by the model via the
-  // in-conversation UpdateGoal tool (or the goal driver on budget/error), not
-  // by the host.
 
-  async createGoal(input: CreateGoalInput): Promise<GoalSnapshot> {
-    this.ensureOpen();
-    return this.rpc.createGoal({ sessionId: this.id, ...input });
-  }
 
-  async getGoal(): Promise<GoalToolResult> {
-    this.ensureOpen();
-    return this.rpc.getGoal({ sessionId: this.id });
-  }
 
-  async pauseGoal(): Promise<GoalSnapshot> {
-    this.ensureOpen();
-    return this.rpc.pauseGoal({ sessionId: this.id });
-  }
-
-  async resumeGoal(): Promise<GoalSnapshot> {
-    this.ensureOpen();
-    return this.rpc.resumeGoal({ sessionId: this.id });
-  }
-
-  async cancelGoal(): Promise<GoalSnapshot> {
-    this.ensureOpen();
-    return this.rpc.cancelGoal({ sessionId: this.id });
-  }
 
   /**
    * Enumerate the cron tasks scheduled in this session. Hosts running a

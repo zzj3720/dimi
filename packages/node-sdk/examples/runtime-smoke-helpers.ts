@@ -216,8 +216,7 @@ function logEvent(event: Event): void {
       break;
     case 'agent.status.updated':
     case 'cron.fired':
-    case 'goal.updated':
-    case 'session.meta.updated':
+        case 'session.meta.updated':
     case 'skill.activated':
     case 'turn.step.started':
     case 'turn.step.completed':

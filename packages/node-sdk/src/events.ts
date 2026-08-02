@@ -19,7 +19,6 @@ export type {
   CronFiredEvent,
   ErrorEvent,
   Event,
-  GoalUpdatedEvent,
   HookResultEvent,
   McpOAuthAuthorizationUrlUpdateData,
   McpServerStatusEvent,
