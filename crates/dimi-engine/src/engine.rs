@@ -345,8 +345,12 @@ impl TurnSession {
             );
 
             let mut usage = UsageAccumulator::default();
+            let request_messages = match self.input.context_window {
+                Some(window) if window > 0 => crate::context::project_window(&self.messages, window),
+                _ => self.messages.clone(),
+            };
             let request = ChatRequest {
-                messages: self.messages.clone(),
+                messages: request_messages,
                 tools: None,
                 model: Some(self.input.provider.model.clone()),
                 thinking_effort: self.input.provider.thinking_effort.clone(),
@@ -695,6 +699,7 @@ mod tests {
             max_steps_per_turn: max_steps,
             cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
             shell: Some("/bin/sh".to_string()),
+            context_window: None,
         }
     }
 
@@ -947,5 +952,86 @@ mod tests {
                 .unwrap()
                 .contains("Command failed with exit code: 2.")
         );
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::llm::ScriptedLlmClient;
+    use crate::types::ProviderConfig;
+
+    fn msg(role: &str, text: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn context_window_projects_the_request_messages() {
+        // A scripted client that records what it received.
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<LlmMessage>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<crate::llm::StreamedTurn, crate::llm::LlmError> {
+                *self.0.lock().unwrap() = request.messages.clone();
+                Ok(crate::llm::StreamedTurn {
+                    events: vec![],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "".to_string(),
+                        thinking: "".to_string(),
+                    },
+                })
+            }
+        }
+
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        let engine = Engine::default();
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![
+                msg("system", "sys"),
+                msg("user", "u1"),
+                msg("assistant", "a1"),
+                msg("user", "u2"),
+                msg("assistant", "a2"),
+                msg("user", "u3"),
+            ],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: Some(3),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        engine
+            .run_turn(&input, &llm, &crate::tool::BashTool, &policy, &mut |_| {})
+            .await;
+        let sent = recorded.lock().unwrap();
+        assert_eq!(sent.len(), 4); // system + tail 3
+        assert_eq!(sent[0].content, serde_json::Value::String("sys".to_string()));
+        assert_eq!(sent[1].content, serde_json::Value::String("u2".to_string()));
+        assert_eq!(sent[3].content, serde_json::Value::String("u3".to_string()));
     }
 }

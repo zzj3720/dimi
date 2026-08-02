@@ -101,6 +101,10 @@ pub struct EngineTurnInput {
     /// Shell used for Bash tool execution (default `/bin/sh`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shell: Option<String>,
+    /// Context window for per-step request assembly (tail projection;
+    /// `None` = no projection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<usize>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).
