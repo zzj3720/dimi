@@ -346,7 +346,9 @@ impl TurnSession {
 
             let mut usage = UsageAccumulator::default();
             let request_messages = match self.input.context_window {
-                Some(window) if window > 0 => crate::context::project_window(&self.messages, window),
+                Some(window) if window > 0 => {
+                    crate::context::project_window(&self.messages, window)
+                }
                 _ => self.messages.clone(),
             };
             let request = ChatRequest {
@@ -678,7 +680,7 @@ pub fn normalize_finish_reason(reason: FinishReason) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::ScriptedLlmClient;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
     use crate::types::ProviderConfig;
 
     fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
@@ -958,7 +960,6 @@ mod tests {
 #[cfg(test)]
 mod window_tests {
     use super::*;
-    use crate::llm::ScriptedLlmClient;
     use crate::types::ProviderConfig;
 
     fn msg(role: &str, text: &str) -> LlmMessage {
@@ -1030,7 +1031,10 @@ mod window_tests {
             .await;
         let sent = recorded.lock().unwrap();
         assert_eq!(sent.len(), 4); // system + tail 3
-        assert_eq!(sent[0].content, serde_json::Value::String("sys".to_string()));
+        assert_eq!(
+            sent[0].content,
+            serde_json::Value::String("sys".to_string())
+        );
         assert_eq!(sent[1].content, serde_json::Value::String("u2".to_string()));
         assert_eq!(sent[3].content, serde_json::Value::String("u3".to_string()));
     }

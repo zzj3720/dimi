@@ -124,7 +124,10 @@ mod tests {
             }]),
             reasoning: None,
         };
-        let expected = estimate_tokens("assistant") + estimate_tokens("hi") + estimate_tokens("Bash") + estimate_tokens("{\"command\":\"ls\"}");
+        let expected = estimate_tokens("assistant")
+            + estimate_tokens("hi")
+            + estimate_tokens("Bash")
+            + estimate_tokens("{\"command\":\"ls\"}");
         assert_eq!(estimate_tokens_for_message(&message), expected);
     }
 
@@ -140,7 +143,10 @@ mod tests {
             tool_calls: None,
             reasoning: None,
         };
-        assert_eq!(estimate_tokens_for_message(&message), estimate_tokens("user") + MEDIA_TOKEN_ESTIMATE);
+        assert_eq!(
+            estimate_tokens_for_message(&message),
+            estimate_tokens("user") + MEDIA_TOKEN_ESTIMATE
+        );
     }
 
     #[test]
