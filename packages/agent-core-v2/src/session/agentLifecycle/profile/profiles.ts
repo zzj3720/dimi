@@ -48,10 +48,6 @@ const AGENT_TOOLS = [
   'AskUserQuestion',
   'EnterPlanMode',
   'ExitPlanMode',
-  'CreateGoal',
-  'GetGoal',
-  'SetGoalBudget',
-  'UpdateGoal',
   'mcp__*',
 ] as const;
 

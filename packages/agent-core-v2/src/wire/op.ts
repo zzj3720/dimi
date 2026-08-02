@@ -5,8 +5,8 @@
  *
  * `defineOp` registers the descriptor into `OP_REGISTRY` at import time and
  * returns the descriptor fused with a payload factory, so a declared Op is both
- * callable (`goalCreate(payload)`) and inspectable (`goalCreate.apply`,
- * `goalCreate.type`). Every Op carries a mandatory pure `apply` and may carry
+ * callable (`todoSet(payload)`) and inspectable (`todoSet.apply`,
+ * `todoSet.type`). Every Op carries a mandatory pure `apply` and may carry
  * an optional `toEvent` that derives an `IEventBus` fact from the payload and
  * the post-apply state (published by `WireService` on live `dispatch`,
  * never during `restore`). A mandatory `schema` (zod, declared before `apply`) is the

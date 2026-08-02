@@ -12,7 +12,7 @@ export function isUserVisiblePromptOrigin(origin: PromptOrigin | undefined): boo
     case 'shell_command':
       return origin.phase === 'input';
     case 'system_trigger':
-      return origin.name === 'goal_continuation';
+      return false;
     default:
       return false;
   }

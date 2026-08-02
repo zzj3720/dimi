@@ -11,15 +11,6 @@
  */
 
 import type { AgentContextData } from "#/agent/contextMemory/types";
-import type {
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
-} from "#/agent/goal/types";
 import type { PermissionMode } from "#/agent/permissionPolicy/types";
 import type { SwarmModeTrigger } from "#/agent/swarm/swarm";
 import type { ToolDisclosure, ToolInfo } from "#/tool/toolContract";
@@ -285,21 +276,6 @@ export interface RenameSessionPayload {
 
 export interface UpdateSessionMetadataPayload {
   readonly metadata: SessionMetadataPatch;
-}
-
-export type {
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
-};
-
-export interface CreateGoalPayload {
-  readonly objective: string;
-  readonly replace?: boolean;
 }
 
 export interface GetDimiConfigPayload {

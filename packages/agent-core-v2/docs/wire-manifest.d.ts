@@ -21,7 +21,7 @@
 // owning model offloads inline media to blob storage), cross-reducers
 // (foreign models that also reduce this record on dispatch and replay).
 
-// Index (46 record types)
+// Index (42 record types)
 //   config.update                      profile              persisted  (unresolved)
 //   context_size.measured              contextSize          transient  src/agent/contextSize/contextSizeOps.ts
 //   context.append_loop_event          contextMemory        persisted  (unresolved)
@@ -32,13 +32,9 @@
 //   cron.add                           cron                 transient  src/session/cron/cronOps.ts
 //   cron.cursor                        cron                 transient  src/session/cron/cronOps.ts
 //   cron.delete                        cron                 transient  src/session/cron/cronOps.ts
-//   forked                             goal                 persisted  src/agent/goal/goalOps.ts
 //   full_compaction.begin              fullCompaction       persisted  src/agent/fullCompaction/compactionOps.ts
 //   full_compaction.cancel             fullCompaction       persisted  src/agent/fullCompaction/compactionOps.ts
 //   full_compaction.complete           fullCompaction       persisted  src/agent/fullCompaction/compactionOps.ts
-//   goal.clear                         goal                 persisted  src/agent/goal/goalOps.ts
-//   goal.create                        goal                 persisted  src/agent/goal/goalOps.ts
-//   goal.update                        goal                 persisted  src/agent/goal/goalOps.ts
 //   interaction.request                interaction          persisted  src/session/interaction/interactionOps.ts
 //   interaction.resolved               interaction          persisted  src/session/interaction/interactionOps.ts
 //   llm.request                        llm.requestTrace     persisted  (unresolved)
@@ -98,7 +94,7 @@ interface ContextAppendLoopEventPayload {
 }
 
 /**
- * model: contextMemory · persisted · blobs · cross-reducers: plan, goalForkNotice, task.notificationDelivery, todo
+ * model: contextMemory · persisted · blobs · cross-reducers: plan, task.notificationDelivery, todo
  * owner: (unresolved)
  * schema uses transforms; see the owner file
  */
@@ -177,14 +173,6 @@ interface CronDeletePayload {
 }
 
 /**
- * model: goal · persisted · cross-reducers: goalForkNotice
- * owner: src/agent/goal/goalOps.ts
- */
-interface ForkedPayload {
-  _name: 'forked';
-}
-
-/**
  * model: fullCompaction · persisted · toEvent
  * owner: src/agent/fullCompaction/compactionOps.ts
  * payload type: CompactionBeginData
@@ -209,54 +197,6 @@ interface FullCompactionCancelPayload {
  */
 interface FullCompactionCompletePayload {
   _name: 'full_compaction.complete';
-}
-
-/**
- * model: goal · persisted · cross-reducers: goalForkNotice
- * owner: src/agent/goal/goalOps.ts
- */
-interface GoalClearPayload {
-  _name: 'goal.clear';
-}
-
-/**
- * model: goal · persisted · cross-reducers: goalForkNotice
- * owner: src/agent/goal/goalOps.ts
- */
-interface GoalCreatePayload {
-  _name: 'goal.create';
-  goalId: string;
-  objective: string;
-  completionCriterion?: string;
-  wallClockResumedAt?: number;
-  status?: 'active' | 'paused' | 'blocked' | 'complete';
-  actor?: 'user' | 'model' | 'runtime' | 'system';
-  budgetLimits?: {
-    tokenBudget?: number;
-    turnBudget?: number;
-    wallClockBudgetMs?: number;
-  };
-}
-
-/**
- * model: goal · persisted
- * owner: src/agent/goal/goalOps.ts
- */
-interface GoalUpdatePayload {
-  _name: 'goal.update';
-  goalId?: string;
-  status?: 'active' | 'paused' | 'blocked' | 'complete';
-  reason?: string;
-  turnsUsed?: number;
-  tokensUsed?: number;
-  wallClockMs?: number;
-  wallClockResumedAt?: number;
-  budgetLimits?: {
-    tokenBudget?: number;
-    turnBudget?: number;
-    wallClockBudgetMs?: number;
-  };
-  actor?: 'user' | 'model' | 'runtime' | 'system';
 }
 
 /**
@@ -598,13 +538,9 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
-  "forked": ForkedPayload;
   "full_compaction.begin": FullCompactionBeginPayload;
   "full_compaction.cancel": FullCompactionCancelPayload;
   "full_compaction.complete": FullCompactionCompletePayload;
-  "goal.clear": GoalClearPayload;
-  "goal.create": GoalCreatePayload;
-  "goal.update": GoalUpdatePayload;
   "interaction.request": InteractionRequestPayload;
   "interaction.resolved": InteractionResolvedPayload;
   "llm.request": LlmRequestPayload;

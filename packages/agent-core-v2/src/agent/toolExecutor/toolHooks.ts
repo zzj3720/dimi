@@ -23,7 +23,7 @@
  *   tool, guard denial, invalid args), which arrive without `tool` set.
  *
  * Participants such as `permissionGate`, `toolDedupe`, `externalHooks`,
- * `goal`, `plan`, `swarm`, `btw`, and `mcp` register through these surfaces.
+ * `plan`, `swarm`, `btw`, and `mcp` register through these surfaces.
  * Pure contract (types only); no scoped service.
  */
 

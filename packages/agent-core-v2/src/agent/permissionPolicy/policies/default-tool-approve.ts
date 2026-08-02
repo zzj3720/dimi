@@ -24,10 +24,6 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'Skill',
   'EnterPlanMode',
   'ExitPlanMode',
-  'CreateGoal',
-  'GetGoal',
-  'SetGoalBudget',
-  'UpdateGoal',
   'select_tools',
   ALL_DONE_TOOL_NAME,
 ]);

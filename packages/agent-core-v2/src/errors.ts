@@ -15,7 +15,6 @@ import { ConfigErrors } from "#/app/config/errors";
 import { FileErrors } from "#/app/file/fileService";
 import { FsErrors } from "#/session/sessionFs/errors";
 import { FullCompactionErrors } from "#/agent/fullCompaction/errors";
-import { GoalErrors } from "#/agent/goal/errors";
 import { LoopErrors } from "#/agent/loop/errors";
 import { McpErrors } from "#/agent/mcp/errors";
 import { ModelCatalogErrors } from "#/app/modelCatalog/errors";
@@ -45,7 +44,6 @@ export { ConfigErrors } from "#/app/config/errors";
 export { FileErrors } from "#/app/file/fileService";
 export { FsErrors } from "#/session/sessionFs/errors";
 export { FullCompactionErrors } from "#/agent/fullCompaction/errors";
-export { GoalErrors } from "#/agent/goal/errors";
 export { LoopErrors } from "#/agent/loop/errors";
 export { McpErrors } from "#/agent/mcp/errors";
 export { ModelCatalogErrors } from "#/app/modelCatalog/errors";
@@ -72,7 +70,6 @@ export const ErrorCodes = {
   ...FileErrors.codes,
   ...FsErrors.codes,
   ...FullCompactionErrors.codes,
-  ...GoalErrors.codes,
   ...LoopErrors.codes,
   ...McpErrors.codes,
   ...ModelCatalogErrors.codes,

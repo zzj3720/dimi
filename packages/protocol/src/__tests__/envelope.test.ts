@@ -84,7 +84,6 @@ describe('error-codes', () => {
     expect(ErrorCode.SUCCESS).toBe(0);
     expect(ErrorCode.VALIDATION_FAILED).toBe(40001);
     expect(ErrorCode.SESSION_NOT_FOUND).toBe(40401);
-    expect(ErrorCode.GOAL_UNSUPPORTED_AGENT).toBe(40920);
     expect(ErrorCode.APPROVAL_EXPIRED).toBe(41001);
     expect(ErrorCode.FS_WATCH_LIMIT_EXCEEDED).toBe(42902);
     expect(ErrorCode.INTERNAL_ERROR).toBe(50001);
@@ -97,7 +96,6 @@ describe('error-codes', () => {
     expect(ErrorCodeReason[ErrorCode.MODEL_NOT_FOUND]).toBe('model.not_found');
     expect(ErrorCodeReason[ErrorCode.VALIDATION_FAILED]).toBe('validation.failed');
     expect(ErrorCodeReason[ErrorCode.FS_WATCH_LIMIT_EXCEEDED]).toBe('fs.watch_limit_exceeded');
-    expect(ErrorCodeReason[ErrorCode.GOAL_UNSUPPORTED_AGENT]).toBe('goal.unsupported_agent');
   });
 
   it('reserved codes are not redefined (40101, 50002 absent)', () => {

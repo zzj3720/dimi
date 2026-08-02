@@ -64,10 +64,6 @@ describe("DefaultToolApprovePermissionPolicyService", () => {
     ["Skill", { name: "test-skill" }],
     ["EnterPlanMode", {}],
     ["ExitPlanMode", {}],
-    ["CreateGoal", { title: "ship it" }],
-    ["GetGoal", {}],
-    ["SetGoalBudget", { tokenBudget: 1000 }],
-    ["UpdateGoal", { status: "complete" }],
   ] as const)("approves %s", (toolName, args) => {
     expect(policy.evaluate(policyContext(toolName, args))).toEqual({ kind: "approve" });
   });

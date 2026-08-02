@@ -22,8 +22,6 @@ import { ISessionCronService } from "#/session/cron/sessionCronService";
 import { SessionCronServiceImpl } from "#/session/cron/sessionCronServiceImpl";
 import { ICronTaskPersistence } from "#/app/cron/cronTaskPersistence";
 import { CronTaskPersistenceService } from "#/app/cron/cronTaskPersistenceService";
-import { IAgentGoalService } from "#/agent/goal/goal";
-import { AgentGoalService } from "#/agent/goal/goalService";
 import { ISessionMcpService } from "#/session/mcp/sessionMcp";
 import type { McpConnectionManager } from "#/agent/mcp/connection-manager";
 import type { PermissionData, PermissionMode } from "#/agent/permissionPolicy/types";
@@ -37,14 +35,11 @@ import type {
   BeginCompactionPayload,
   CancelPlanPayload,
   CancelShellCommandPayload,
-  CreateGoalPayload,
   DetachTaskPayload,
   EmptyPayload,
   EnterSwarmPayload,
   GetTaskOutputPayload,
   GetTasksPayload,
-  GoalSnapshot,
-  GoalToolResult,
   RegisterToolPayload,
   RunShellCommandPayload,
   SetActiveToolsPayload,
@@ -328,11 +323,6 @@ interface AgentRpcPassthroughAPI {
   stopTask: (payload: StopTaskPayload) => void;
   detachTask: (payload: DetachTaskPayload) => AgentTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
-  createGoal: (payload: CreateGoalPayload) => Promisable<GoalSnapshot>;
-  getGoal: (payload: EmptyPayload) => GoalToolResult;
-  pauseGoal: (payload: EmptyPayload) => Promisable<GoalSnapshot>;
-  resumeGoal: (payload: EmptyPayload) => Promisable<GoalSnapshot>;
-  cancelGoal: (payload: EmptyPayload) => Promisable<GoalSnapshot>;
   getTaskOutput: (payload: GetTaskOutputPayload) => Promisable<string>;
   getConfig: (payload: EmptyPayload) => AgentConfigData;
   getPermission: (payload: EmptyPayload) => PermissionData;
@@ -1157,7 +1147,6 @@ export class AgentTestContext {
             );
             reg.defineDescriptor(IAgentPermissionGate, new SyncDescriptor(AgentPermissionGate));
             reg.defineDescriptor(IAgentTaskService, new SyncDescriptor(AgentTaskService));
-            reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService));
             reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
             reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
             const agentScope = bootstrap.agentScope(workspaceId, sessionId, agentId);
@@ -1961,11 +1950,6 @@ export class AgentTestContext {
       },
       detachTask: (payload) => this.get(IAgentTaskService).detach(payload.taskId),
       clearContext: () => this.get(IAgentPromptService).clear(),
-      createGoal: (payload) => this.get(IAgentGoalService).createGoal(payload),
-      getGoal: () => this.get(IAgentGoalService).getGoal(),
-      pauseGoal: () => this.get(IAgentGoalService).pauseGoal(),
-      resumeGoal: () => this.get(IAgentGoalService).resumeGoal(),
-      cancelGoal: () => this.get(IAgentGoalService).cancelGoal(),
       getTaskOutput: (payload) =>
         this.get(IAgentTaskService).readOutput(payload.taskId, payload.tail),
       getConfig: () => this.get(IAgentProfileService).data(),

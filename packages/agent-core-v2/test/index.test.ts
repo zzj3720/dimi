@@ -5,7 +5,6 @@ import {
   CHECKPOINTED_MODELS,
   IAgentContextMemoryService,
   IAgentContextSizeService,
-  IAgentGoalService,
   type ContextMessage,
   type WireRecord,
 } from '#/index';
@@ -30,7 +29,6 @@ import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
 import { registerTestAgentWire, restoreTestAgentWire } from './wire/stubs';
 
 const PERSISTED_OP_TYPES: ReadonlySet<string> = new Set([
-  'forked',
   'turn.prompt',
   'turn.steer',
   'turn.cancel',
@@ -55,9 +53,6 @@ const PERSISTED_OP_TYPES: ReadonlySet<string> = new Set([
   'context.clear',
   'context.apply_compaction',
   'context.undo',
-  'goal.create',
-  'goal.update',
-  'goal.clear',
   'llm.tools_snapshot',
   'llm.request',
   'mcp.tools_discovered',
@@ -156,8 +151,6 @@ describe('conversation-time checkpoint registration', () => {
   // Registering a new context-reacting model without `defineCheckpointedModel`
   // fails this test — add the name here only with a justification.
   const CHECKPOINT_EXEMPT_MODELS: ReadonlySet<string> = new Set([
-    // goalForkNotice is one-shot reminder bookkeeping, not conversation state.
-    'goalForkNotice',
   ]);
   const CONTEXT_OPS = [
     'context.append_message',
@@ -336,93 +329,9 @@ describe('AgentRecords persistence metadata', () => {
     await expect(ctx.restorePersisted()).rejects.toThrow('Missing wire migration for version 0.9');
   });
 
-  it('restores goal.* records during replay', async () => {
-    persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-      {
-        type: 'goal.create',
-        goalId: 'g1',
-        objective: 'do work',
-        completionCriterion: 'tests pass',
-      },
-      { type: 'goal.update', budgetLimits: { turnBudget: 20 } },
-      { type: 'goal.update', tokensUsed: 5, wallClockMs: 0 },
-      { type: 'goal.update', turnsUsed: 1 },
-      { type: 'goal.update', status: 'blocked', reason: 'needs credentials', actor: 'model' },
-    );
 
-    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
-    expect(context.get()).toHaveLength(0);
-    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
-      goalId: 'g1',
-      objective: 'do work',
-      completionCriterion: 'tests pass',
-      status: 'blocked',
-      turnsUsed: 1,
-      tokensUsed: 5,
-      terminalReason: 'needs credentials',
-    });
-  });
 
-  it('restores forked records as fork boundaries that clear copied goals', async () => {
-    persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-      {
-        type: 'goal.create',
-        goalId: 'source-goal',
-        objective: 'source work',
-      },
-      { type: 'forked', time: 2 },
-    );
 
-    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
-    expect(persistence.records.slice(0, 3).map((record) => record.type)).toEqual([
-      'metadata',
-      'goal.create',
-      'forked',
-    ]);
-    expect(ctx.get(IAgentGoalService).getGoal().goal).toBeNull();
-    const reminder = context.get().at(-1);
-    expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_fork_cleared' });
-    expect(JSON.stringify(reminder?.content)).toContain('This fork does not have a current goal.');
-  });
-
-  it('keeps goals created after the forked boundary', async () => {
-    persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-      {
-        type: 'goal.create',
-        goalId: 'source-goal',
-        objective: 'source work',
-      },
-      { type: 'forked', time: 2 },
-      {
-        type: 'goal.create',
-        goalId: 'fork-goal',
-        objective: 'fork work',
-      },
-    );
-
-    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
-    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
-      goalId: 'fork-goal',
-      objective: 'fork work',
-    });
-    expect(context.get().at(-1)?.origin).toEqual({
-      kind: 'system_trigger',
-      name: 'goal_fork_cleared',
-    });
-  });
-
-  it('does not add a fork-cleared reminder when a forked record has no copied goal', async () => {
-    persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-      { type: 'forked', time: 2 },
-    );
-
-    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
-    expect(context.get()).toHaveLength(0);
-  });
 
   it('preconstructs context size restore handlers during runtime activation', async () => {
     await ctx.restore([

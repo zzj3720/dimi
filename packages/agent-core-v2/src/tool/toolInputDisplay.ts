@@ -72,15 +72,6 @@ export type ToolInputDisplay =
       options?: readonly { label: string; description: string }[] | undefined;
     }
   | {
-      kind: 'goal_start';
-      objective: string;
-      completionCriterion?: string | undefined;
-      // Current permission mode at approval time. The client uses it to pick the
-      // start menu (manual vs yolo); `auto` never reaches this display because it
-      // auto-approves the goal without a prompt.
-      mode: 'manual' | 'yolo';
-    }
-  | {
       kind: 'generic';
       summary: string;
       detail?: unknown;

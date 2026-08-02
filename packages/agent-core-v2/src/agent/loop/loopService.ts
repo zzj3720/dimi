@@ -17,7 +17,7 @@
  * next step lives entirely in the aspects: the `loopContinuation` aspect
  * enqueues a `ContinuationStepRequest` when a step executed tools (a plain
  * assistant message enqueues nothing, so the queue empties and the turn
- * completes), and orchestrators (`prompt`, `goal`, `externalHooks`, `task`)
+ * completes), and orchestrators (`prompt`, `externalHooks`, `task`)
  * steer the turn by enqueueing further requests. A failed step is dispatched
  * to the registered error handlers (first match wins); a handler that claims
  * and catches the error has already enqueued the turn's continuation itself —

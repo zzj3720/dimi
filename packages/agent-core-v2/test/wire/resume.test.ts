@@ -10,7 +10,6 @@ import {
 } from '#/_base/errors/unexpectedError';
 import {
   WIRE_PROTOCOL_VERSION,
-  IAgentGoalService,
   type WireRecord,
   type PromptOrigin,
 } from '#/index';
@@ -129,24 +128,6 @@ describe('Agent resume', () => {
     });
   });
 
-  it('restores the turn counter past goal-continuation turns that have no turn.prompt record', async () => {
-    const persistence = new RecordingAgentPersistence(goalContinuationResumeHistory() as unknown as WireRecord[]);
-    const ctx = testAgent({ persistence, autoConfigure: false });
-
-    await ctx.restorePersisted();
-
-    expect(turnCurrentId(ctx)).toBe(2);
-
-    ctx.mockNextResponse({ type: 'text', text: 'Fresh response after goal resume.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Fresh prompt after goal' }] });
-    await ctx.untilTurnEnd();
-
-    expect(findRpcEvent(ctx.allEvents, 'turn.started')?.args).toMatchObject({ turnId: 3 });
-    expect(findRpcEvent(ctx.allEvents, 'turn.ended')?.args).toMatchObject({
-      turnId: 3,
-      reason: 'completed',
-    });
-  });
 
   it('keeps turnIds monotonic across repeated resume cycles', async () => {
     const persistence = new RecordingAgentPersistence(multiTurnResumeHistory() as unknown as WireRecord[]);
@@ -314,7 +295,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, Edit, EnterPlanMode, ExitPlanMode, FetchURL, Glob, Grep, Read, Skill, TaskList, TaskOutput, TaskStop, TodoList, WaitFor, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -588,147 +569,8 @@ describe('Agent resume', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('rebuilds goal completion replay cards without adding model-visible context', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'metadata',
-        protocol_version: WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      },
-      {
-        type: 'goal.create',
-        goalId: 'goal-1',
-        objective: 'ship work',
-      },
-      {
-        type: 'goal.update',
-        status: 'complete',
-        reason: 'all tests passed',
-        turnsUsed: 2,
-        tokensUsed: 1200,
-        wallClockMs: 65_000,
-        actor: 'model',
-      },
-    ] as unknown as WireRecord[]);
-    const ctx = testAgent({ persistence, autoConfigure: false });
 
-    await ctx.restorePersisted();
 
-    expect(ctx.context.get()).toHaveLength(0);
-  });
-
-  it('restores an envelope-less active interval into a budget-reached paused goal', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
-    const persistence = new RecordingAgentPersistence(
-      [
-        {
-          type: 'goal.create',
-          goalId: 'goal-1',
-          objective: 'ship work',
-          time: 100,
-        },
-        {
-          type: 'goal.update',
-          status: 'paused',
-          wallClockMs: 2_000,
-          actor: 'user',
-          time: 500,
-        },
-        {
-          type: 'goal.update',
-          status: 'active',
-          budgetLimits: { wallClockBudgetMs: 6_000 },
-          actor: 'user',
-          time: 1_000,
-        },
-      ] as unknown as WireRecord[],
-      false,
-    );
-    const ctx = testAgent({ persistence, autoConfigure: false });
-
-    try {
-      await ctx.restorePersisted();
-
-      const goal = ctx.get(IAgentGoalService).getGoal().goal;
-      expect(goal).toMatchObject({
-        status: 'paused',
-        wallClockMs: 7_000,
-        budget: {
-          wallClockBudgetReached: true,
-          remainingWallClockMs: 0,
-          overBudget: true,
-        },
-      });
-      expect(persistence.appended).toEqual([
-        expect.objectContaining({
-          type: 'goal.update',
-          status: 'paused',
-          reason: 'Paused after agent resume',
-          wallClockMs: 7_000,
-        }),
-      ]);
-      expect(persistence.rewritten).toContainEqual(
-        expect.objectContaining({
-          type: 'goal.update',
-          status: 'active',
-          wallClockResumedAt: 1_000,
-        }),
-      );
-    } finally {
-      now.mockRestore();
-      await ctx.dispose();
-    }
-  });
-
-  it('restores only post-checkpoint active time from a 1.3 wall-clock checkpoint', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'metadata',
-        protocol_version: '1.3',
-        created_at: 1,
-      },
-      {
-        type: 'goal.create',
-        goalId: 'goal-1',
-        objective: 'ship work',
-        time: 1_000,
-      },
-      {
-        type: 'goal.account_usage',
-        goalId: 'goal-1',
-        wallClockMs: 3_000,
-        time: 4_000,
-      },
-    ] as unknown as WireRecord[]);
-    const ctx = testAgent({ persistence, autoConfigure: false });
-
-    try {
-      await ctx.restorePersisted();
-
-      expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
-        status: 'paused',
-        wallClockMs: 5_000,
-      });
-      expect(persistence.appended).toEqual([
-        expect.objectContaining({
-          type: 'goal.update',
-          status: 'paused',
-          wallClockMs: 5_000,
-        }),
-      ]);
-      expect(persistence.rewritten).toContainEqual(
-        expect.objectContaining({
-          type: 'goal.update',
-          wallClockMs: 3_000,
-          wallClockResumedAt: 4_000,
-        }),
-      );
-    } finally {
-      now.mockRestore();
-      await ctx.dispose();
-    }
-  });
 
   it('restores context after undo and removes undone messages from replay', async () => {
     const persistence = new RecordingAgentPersistence([
@@ -1172,7 +1014,7 @@ function canonicalContinuationTurn(
   start: number,
 ): WireRecord[] {
   return [
-    turnPromptRecord(turnId, { kind: 'system_trigger', name: 'goal_continuation' }),
+    turnPromptRecord(turnId, { kind: 'system_trigger', name: 'test_continuation' }),
     contextAppendRecord(start, [{ role: 'assistant', text: responseText }]),
   ];
 }
@@ -1221,14 +1063,6 @@ function multiTurnResumeHistory(): WireRecord[] {
   ];
 }
 
-function goalContinuationResumeHistory(): WireRecord[] {
-  return [
-    resumeConfigRecord(),
-    ...canonicalPromptedTurn(0, 'Goal prompt', 'Starting the goal.', 0),
-    ...canonicalContinuationTurn(1, 'Continuation turn one.', 2),
-    ...canonicalContinuationTurn(2, 'Continuation turn two.', 3),
-  ];
-}
 
 
 function findRpcEvent(

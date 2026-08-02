@@ -2,7 +2,6 @@ import type { AgentTaskInfo } from '#/agent/task/task';
 import type { CompactionResult } from '#/agent/fullCompaction/types';
 import type { AgentConfigData, AgentConfigUpdateData } from '#/agent/profile/profile';
 import type { AgentContextData, ContextMessage } from '#/agent/contextMemory/types';
-import type { GoalChange, GoalSnapshot } from '#/agent/goal/types';
 import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
 import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PlanData } from '#/agent/plan/plan';
@@ -17,11 +16,6 @@ type AgentType = 'main' | 'sub';
 export type AgentReplayRecordPayload =
   | { type: 'message'; message: ContextMessage }
   | { type: 'compaction'; result?: CompactionResult | 'cancelled'; instruction?: string }
-  | {
-      type: 'goal_updated';
-      snapshot: GoalSnapshot;
-      change: GoalChange | { readonly kind: 'created' };
-    }
   | { type: 'plan_updated'; enabled: boolean }
   | { type: 'config_updated'; config: AgentConfigUpdateData }
   | { type: 'permission_updated'; mode: PermissionMode }

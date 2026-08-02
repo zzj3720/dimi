@@ -19,14 +19,12 @@ import {
   SUB_SKILL_REVIEW,
 } from './sub-skill';
 import { UPDATE_CONFIG_SKILL } from './update-config';
-import { WRITE_GOAL_SKILL } from './write-goal';
 
 export const BUILTIN_SKILLS: readonly SkillDefinition[] = [
   MCP_CONFIG_SKILL,
   IMPORT_FROM_CC_CODEX_SKILL,
   UPDATE_CONFIG_SKILL,
   CUSTOM_THEME_SKILL,
-  WRITE_GOAL_SKILL,
   CHECK_DIMI_DOCS_SKILL,
   SUB_SKILL_PARENT,
   SUB_SKILL_REVIEW,
@@ -48,5 +46,4 @@ export {
   SUB_SKILL_PARENT,
   SUB_SKILL_REVIEW,
   UPDATE_CONFIG_SKILL,
-  WRITE_GOAL_SKILL,
 };

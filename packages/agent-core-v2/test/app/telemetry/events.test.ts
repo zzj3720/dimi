@@ -41,10 +41,6 @@ describe('telemetry event registry', () => {
         ).not.toHaveProperty('agent_id');
       }
     }
-    expect(telemetryEventDefinitions.goal_created.context).toBe('agent');
     expect(telemetryEventDefinitions.image_compress.context).toBe('none');
-    expectTypeOf<TelemetryEventProperties<'goal_created'>>().toMatchTypeOf<{
-      agent_id: string;
-    }>();
   });
 });

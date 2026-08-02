@@ -5,7 +5,7 @@
  * drives the `session/approval` broker, emits the `permission.approval.*`
  * events, records session-scope approval rules through `permissionRules`, and
  * resolves ask continuations. Consumed by `permissionGate` (policy-chain asks)
- * and by Harness domains such as `plan` / `goal` that run product reviews
+ * and by Harness domains such as `plan` that run product reviews
  * outside the permission chain. Bound at Agent scope.
  */
 

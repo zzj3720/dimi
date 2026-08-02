@@ -273,39 +273,6 @@ export interface QuestionAnsweredEvent {
   trace_id?: string;
 }
 
-export type TelemetryGoalActor = "user" | "model" | "runtime" | "system";
-
-export interface GoalBudgetProperties {
-  has_token_budget: boolean;
-  has_turn_budget: boolean;
-  has_wall_clock_budget: boolean;
-}
-
-export interface GoalCreatedEvent {
-  actor: TelemetryGoalActor;
-  replace: boolean;
-}
-
-export interface GoalBudgetSetEvent extends GoalBudgetProperties {
-  actor: TelemetryGoalActor;
-}
-
-export interface GoalContinuedEvent {
-  turns_used: number;
-}
-
-export interface GoalClearedEvent {
-  actor: TelemetryGoalActor;
-}
-
-export interface GoalStatusChangedEvent extends GoalBudgetProperties {
-  actor: TelemetryGoalActor;
-  status: "active" | "paused" | "blocked" | "complete";
-  turns_used: number;
-  tokens_used: number;
-  wall_clock_ms: number;
-}
-
 export interface ToolCallDedupDetectedEvent {
   turn_id?: number;
   step_no: number;
@@ -728,48 +695,6 @@ export const telemetryEventDefinitions = {
       method: "Input method used to answer",
       trace_id:
         "Trace id of the LLM request that produced the questioning tool call; absent for non-Dimi protocols",
-    },
-  }),
-  goal_created: defineAgentTelemetryEvent<GoalCreatedEvent>({
-    owner: "dimi",
-    comment: "A goal is created.",
-    properties: {
-      actor: "Who created the goal",
-      replace: "Whether the goal replaces an existing one",
-    },
-  }),
-  goal_budget_set: defineAgentTelemetryEvent<GoalBudgetSetEvent>({
-    owner: "dimi",
-    comment: "A goal budget is set.",
-    properties: {
-      actor: "Who set the budget",
-      has_token_budget: "Whether a token budget was set",
-      has_turn_budget: "Whether a turn budget was set",
-      has_wall_clock_budget: "Whether a wall-clock budget was set",
-    },
-  }),
-  goal_continued: defineAgentTelemetryEvent<GoalContinuedEvent>({
-    owner: "dimi",
-    comment: "A goal continues into another turn.",
-    properties: { turns_used: "Turns consumed so far" },
-  }),
-  goal_cleared: defineAgentTelemetryEvent<GoalClearedEvent>({
-    owner: "dimi",
-    comment: "A goal is cleared.",
-    properties: { actor: "Who cleared the goal" },
-  }),
-  goal_status_changed: defineAgentTelemetryEvent<GoalStatusChangedEvent>({
-    owner: "dimi",
-    comment: "A goal changes status.",
-    properties: {
-      actor: "Who changed the status",
-      status: "New goal status",
-      turns_used: "Turns consumed so far",
-      tokens_used: "Tokens consumed so far",
-      wall_clock_ms: "Wall-clock time consumed so far in milliseconds",
-      has_token_budget: "Whether a token budget was set",
-      has_turn_budget: "Whether a turn budget was set",
-      has_wall_clock_budget: "Whether a wall-clock budget was set",
     },
   }),
   tool_call_dedup_detected: defineAgentTelemetryEvent<ToolCallDedupDetectedEvent>({

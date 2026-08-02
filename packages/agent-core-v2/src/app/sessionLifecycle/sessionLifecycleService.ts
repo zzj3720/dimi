@@ -490,8 +490,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     } else if (records[0]?.type !== "metadata") {
       records.unshift(createWireMetadataRecord());
     }
-    records.push(forkedRecord());
-
     await this.appendLogStore.rewrite(
       this.bootstrap.agentScope(args.targetWorkspaceId, args.targetSessionId, args.agentId),
       AGENT_WIRE_RECORD_KEY,
@@ -668,10 +666,6 @@ function createSessionId(): string {
   return `session_${randomUUID()}`;
 }
 
-function forkedRecord(): WireRecord {
-  return { type: "forked", time: Date.now() };
-}
-
 function isUserTurnPrompt(record: WireRecord): boolean {
   return (
     record.type === "turn.prompt" &&
@@ -683,12 +677,6 @@ function forkCustomMetadata(
   source: Record<string, unknown> | undefined,
   input: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  const merged = { ...withoutGoal(source), ...withoutGoal(input) };
+  const merged = { ...source, ...input };
   return Object.keys(merged).length === 0 ? undefined : merged;
-}
-
-function withoutGoal(value: Record<string, unknown> | undefined): Record<string, unknown> {
-  if (value === undefined) return {};
-  const { goal: _drop, ...rest } = value as { goal?: unknown; [key: string]: unknown };
-  return rest;
 }

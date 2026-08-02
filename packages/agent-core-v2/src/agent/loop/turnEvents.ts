@@ -7,8 +7,8 @@
  * that render the user's prompt must take it from there, because the context
  * append carrying the same text is not a bus event and lands later. The
  * prompt rides the event only for displayable user origins
- * ({@link isDisplayablePromptOrigin}) — a system-triggered turn (goal
- * continuation, subagent run, cron…) has internal steering text as its input,
+ * ({@link isDisplayablePromptOrigin}) — a system-triggered turn (subagent
+ * run, cron…) has internal steering text as its input,
  * which must never surface in transcripts.
  */
 
