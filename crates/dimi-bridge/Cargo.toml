@@ -10,6 +10,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+dimi-engine = { path = "../dimi-engine" }
 dimi-exec = { path = "../dimi-exec" }
 dimi-store = { path = "../dimi-store" }
 dimi-wire = { path = "../dimi-wire" }

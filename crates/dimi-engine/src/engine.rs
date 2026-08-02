@@ -381,14 +381,14 @@ fn last_user_text(messages: &[LlmMessage]) -> Option<String> {
     None
 }
 
-/// Normalize a finish reason to the transcript vocabulary
-/// (loopService.normalizeFinishReason).
+/// Normalize a finish reason to the transcript vocabulary — byte-compatible
+/// with `loopService.normalizeFinishReason`.
 pub fn normalize_finish_reason(reason: FinishReason) -> &'static str {
     match reason {
-        FinishReason::Completed => "completed",
-        FinishReason::ToolCalls => "tool_calls",
+        FinishReason::Completed => "end_turn",
+        FinishReason::ToolCalls => "tool_use",
         FinishReason::Other => "other",
-        FinishReason::Truncated => "truncated",
+        FinishReason::Truncated => "max_tokens",
         FinishReason::Filtered => "filtered",
         FinishReason::Length => "length",
         FinishReason::ContentFilter => "content_filter",
@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(value["prompt"], "hi");
         // step completed carries finishReason completed.
         let step_completed = serde_json::to_value(&events[4]).unwrap();
-        assert_eq!(step_completed["finishReason"], "completed");
+        assert_eq!(step_completed["finishReason"], "end_turn");
         // turn.ended reason completed.
         let ended = serde_json::to_value(&events[5]).unwrap();
         assert_eq!(ended["reason"], "completed");
@@ -547,7 +547,7 @@ mod tests {
             .position(|name| name == "turn.step.completed")
             .unwrap();
         let step_completed = serde_json::to_value(&events[step_completed_idx]).unwrap();
-        assert_eq!(step_completed["finishReason"], "tool_calls");
+        assert_eq!(step_completed["finishReason"], "tool_use");
     }
 
     #[tokio::test]

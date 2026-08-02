@@ -70,7 +70,7 @@ describe('RustEngine minimal closed loop', () => {
     expect(started['prompt']).toBe('hi');
     expect(started['origin']).toEqual({ kind: 'user' });
     const stepCompleted = batch.events[4];
-    expect(stepCompleted['finishReason']).toBe('completed');
+    expect(stepCompleted['finishReason']).toBe('end_turn');
     const ended = batch.events[5];
     expect(ended['reason']).toBe('completed');
     expect(typeof ended['durationMs']).toBe('number');
@@ -105,7 +105,7 @@ describe('RustEngine minimal closed loop', () => {
     const firstStepCompleted = batch.events.find(
       (event) => event['type'] === 'turn.step.completed' && event['step'] === 1,
     );
-    expect(firstStepCompleted?.['finishReason']).toBe('tool_calls');
+    expect(firstStepCompleted?.['finishReason']).toBe('tool_use');
   });
 
   test('tool error surfaces as isError result', async () => {
