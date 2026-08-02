@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.5
+
+### Patch Changes
+
+- [`ff33753`](https://github.com/zzj3720/dimi/commit/ff33753b39a6d4119abaae6ac69b6b58dddfaab0) - Make subagents fully asynchronous, add the AgentOutput tool so the agent can inspect a subagent's recent transcript-style output (assistant text, thinking, tool calls, progress), and let it message a running subagent via resume — the prompt is steered into its current turn, like a human steering the agent.
+
 ## 0.5.4
 
 ### Patch Changes
