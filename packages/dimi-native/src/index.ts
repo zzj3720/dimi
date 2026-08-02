@@ -38,6 +38,10 @@ export interface NativeBinding {
   RustReadLines: RustReadLinesConstructor;
   /** Rust exec layer: environment probe (M2) — the IHostEnvironment socket. */
   RustHostEnvironment: RustHostEnvironmentConstructor;
+  /** Rust exec layer: fs watch (M2) — the IHostFsWatchService socket. */
+  RustFsWatch: RustFsWatchConstructor;
+  /** Watch session handle class. */
+  RustFsWatchHandle: RustFsWatchHandleConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -254,6 +258,72 @@ export interface RustHostEnvironmentInfo {
 /** The napi `RustHostEnvironment` class — stateless probe facade. */
 export interface RustHostEnvironmentConstructor {
   probe(): RustHostEnvironmentInfo;
+}
+
+/** `HostFsChange` mirror (napi object). */
+export interface RustFsChange {
+  path: string;
+  action: 'created' | 'modified' | 'deleted';
+  kind: 'file' | 'directory';
+}
+
+/** `HostFsWatchOptions` — `recursive` only; `ignored` stays on the adapter. */
+export interface RustFsWatchOptions {
+  recursive?: boolean;
+}
+
+/** The napi `RustFsWatchHandle` class — one watch session. */
+export interface RustFsWatchHandleConstructor {
+  new (): RustFsWatchHandle;
+}
+
+/** Watch session: events arrive via `setOnChange` until `dispose`. */
+export interface RustFsWatchHandle {
+  setOnChange(onChange: (change: RustFsChange) => void): void;
+  dispose(): void;
+}
+
+/** The napi `RustFsWatch` class — stateless facade. */
+export interface RustFsWatchConstructor {
+  watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle;
+}
+
+/**
+ * `rustFsWatch` — the M2 fs-watch socket. Events are normalized to the
+ * chokidar surface (created/modified/deleted × file/directory, `.git`
+ * filtered); the `ignored` callback option is applied by the adapter.
+ */
+export function rustFsWatch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle {
+  return loadNative().RustFsWatch.watch(path, options);
+}
+
+/**
+ * `RustFsWatch` — TS-side mirror of the napi class (binding-contract parity).
+ */
+export class RustFsWatch {
+  static watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle {
+    return rustFsWatch(path, options);
+  }
+}
+
+/**
+ * `RustFsWatchHandle` — TS-side mirror of the napi class (binding-contract
+ * parity). Wraps a handle returned by `RustFsWatch.watch`.
+ */
+export class RustFsWatchHandle {
+  readonly #inner: RustFsWatchHandle;
+
+  constructor(handle: RustFsWatchHandle) {
+    this.#inner = handle;
+  }
+
+  setOnChange(onChange: (change: RustFsChange) => void): void {
+    this.#inner.setOnChange(onChange);
+  }
+
+  dispose(): void {
+    this.#inner.dispose();
+  }
 }
 
 /**

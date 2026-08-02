@@ -6,8 +6,9 @@
 //! - filesystem (`hostFsService.ts`) — the real-disk `IHostFileSystem`
 //!   primitives used by persistence, skill loading and the file tools.
 //!
-//! Pure std-only Rust; the napi bridge (`dimi-bridge`) owns the JS-facing
-//! lifecycle (stream push via ThreadsafeFunction, async `wait`).
+//! The napi bridge (`dimi-bridge`) owns the JS-facing lifecycle (stream
+//! push via ThreadsafeFunction, async `wait`). std + libc + notify; no
+//! tokio.
 //!
 //! Semantics mirrored from the TS implementation:
 //! - `detached` defaults to `!isWindows`: on Unix the child is put in its
@@ -29,6 +30,7 @@
 pub mod env;
 pub mod fs;
 mod process;
+pub mod watch;
 
 pub use env::HostEnvironmentInfo;
 pub use fs::{
@@ -37,6 +39,7 @@ pub use fs::{
     realpath, remove, stat, write_bytes, write_text,
 };
 pub use process::{ExecProcess, ExecSpawnError, ShellSpec, SpawnOptions};
+pub use watch::{FsChange, FsWatchHandle, watch};
 
 /// Spawn a child process. `command`/`args` follow Node `spawn` semantics;
 /// `shell` is `None` (direct exec) or `Some(ShellSpec)`.

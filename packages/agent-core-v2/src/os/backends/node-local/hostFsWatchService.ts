@@ -21,6 +21,8 @@ import {
   IHostFsWatchService,
 } from '#/os/interface/hostFsWatch';
 
+import { RustHostFsWatchService } from '#/os/backends/rust-local/rustHostFsWatchService';
+
 const DEFAULT_IGNORED = (p: string): boolean => /(?:^|[/\\])\.git(?:$|[/\\])/.test(p);
 
 class HostFsWatchHandle implements IHostFsWatchHandle {
@@ -91,10 +93,19 @@ function mapActionAndKind(
   }
 }
 
+/**
+ * M2 swap-in: `DIMI_RUST_WATCH=1` registers the Rust-backed watcher
+ * (dimi-exec via the napi bridge); the node-local chokidar backend stays the
+ * default. The bridge is loaded lazily inside `RustHostFsWatchService`, so
+ * this registration only throws at watch time when the native binding is
+ * absent.
+ */
+const RUST_WATCH_ENABLED = process.env['DIMI_RUST_WATCH'] === '1';
+
 registerScopedService(
   LifecycleScope.App,
   IHostFsWatchService,
-  HostFsWatchService,
+  RUST_WATCH_ENABLED ? RustHostFsWatchService : HostFsWatchService,
   ScopeActivation.OnScopeCreated,
   'hostFsWatch',
 );
