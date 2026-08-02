@@ -36,3 +36,24 @@ for (const platform of PLATFORMS) {
 }
 
 console.log(`Copied pi-tui native prebuilds to ${target}`);
+
+// dimi-native's napi binding — the Rust exec layer (M2+). The npm package
+// ships the build machine's platform binary at `dist/dimi_bridge.node`
+// (`loadNative` resolves it relative to the bundled `dist/main.mjs`); other
+// platforms fall back to the legacy backend via the entry-point preflight.
+const bridgeSource = resolve(repoRoot, 'packages/dimi-native/dist/dimi_bridge.node');
+const bridgeTargetDir = resolve(appRoot, 'dist');
+const bridgeTarget = resolve(bridgeTargetDir, 'dimi_bridge.node');
+try {
+  const info = await stat(bridgeSource);
+  if (!info.isFile()) {
+    throw new Error('not a file');
+  }
+} catch {
+  throw new Error(
+    `dimi-native binding was not found at ${bridgeSource}. Run "pnpm --filter @dimi-agent/dimi-native run build:native" first.`,
+  );
+}
+await mkdir(bridgeTargetDir, { recursive: true });
+await cp(bridgeSource, bridgeTarget);
+console.log(`Copied dimi-native binding to ${bridgeTarget}`);
