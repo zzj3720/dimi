@@ -96,8 +96,6 @@ Read = `GET`, write = `POST`. `sid` = `session_id`, `aid` = `agent_id`.
 
 | resource | action | Service.method | verb |
 |---|---|---|---|
-| `goal` | `get` | IGoalService.getGoal | GET |
-| `goal` | `create` / `pause` / `resume` / `cancel` | IGoalService.* | POST |
 | `plan` | `status` | IPlanService.status | GET |
 | `plan` | `enter` / `exit` / `cancel` / `clear` | IPlanService.* | POST |
 | `tasks` | `list` / `get` / `readOutput` | IBackgroundService.* | GET |

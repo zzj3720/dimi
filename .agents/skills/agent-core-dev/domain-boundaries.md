@@ -43,7 +43,7 @@ Before introducing `I{Domain}EntityService`, classify the persistence model:
 | Persistence model | Use when | Examples |
 |---|---|---|
 | **Atomic document** | One typed document per key | `SessionMeta`, `config.toml` |
-| **Append-log / event-sourced** | The authoritative record is "what happened" | `wireRecord`, `contextMemory`, `goal`, `plan`, `permission` transitions |
+| **Append-log / event-sourced** | The authoritative record is "what happened" | `wireRecord`, `contextMemory`, `plan`, `permission` transitions |
 | **Blob / key-value** | Large or content-addressed bytes | media offload, blob store |
 | **Indexed query / read model** | Derived, queryable view | `sessionIndex`, future `IQueryStore` projections |
 | **Registry / catalog** | Global or scoped known items | `workspace`, `toolRegistry` |
@@ -97,7 +97,7 @@ The `session` domain owns only Session-level identity, metadata, lifecycle comma
 | Tool state | `toolStore` / `tool` |
 | Permission rules / mode | `permission` |
 | Profile / model | `profile` |
-| Goal / Plan | `goal` / `plan` |
+| Plan | `plan` |
 | Background tasks | `background` |
 | Cron tasks | `cron` |
 | Pending approvals / questions | `interaction` / `approval` / `question` |
@@ -133,7 +133,7 @@ Many Agent-scoped Services are **not** in the `agent` domain:
 | Tool definitions / registry | `toolRegistry` | Runtime registry |
 | Tool mutable state | `toolStore` | Wire records |
 | Permission mode / rules | `permissionMode` / `permissionRules` | Wire records + config |
-| Goal | `goal` | Wire records |
+
 | Plan | `plan` | Wire records + plan file |
 | Skill activation | `skill` | Wire records |
 | Background tasks | `background` | Task records / output logs, candidate for entity service |
@@ -143,7 +143,7 @@ Entity-service conclusion for `agent`:
 
 - ✅ Keep `IAgentLifecycleService` for Agent instance lifecycle.
 - ✅ If a persisted Agent identity registry is ever needed, name it after that narrow concern, e.g. `IAgentInstanceRegistry`.
-- ❌ Do not create `IAgentEntityService` or `IAgentDataService` that bundles profile, records, tools, permission, goal, plan, background, cron, and turn.
+- ❌ Do not create `IAgentEntityService` or `IAgentDataService` that bundles profile, records, tools, permission, plan, background, cron, and turn.
 
 ## Split conclusion — `turn`
 

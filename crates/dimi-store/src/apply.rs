@@ -768,7 +768,7 @@ fn merge_agent_status(
 }
 
 /// `meta.merge` (apply.ts 602–631): modes null-clears a badge, agent merges
-/// one level, goal/activity keep-on-undefined (`??` — no null-clear).
+/// one level, activity keep-on-undefined (`??` — no null-clear).
 fn apply_meta_merge(mut state: AgentState, meta: &TranscriptMetaMerge) -> OperationResult {
     let before = state.meta.clone();
 
@@ -790,9 +790,6 @@ fn apply_meta_merge(mut state: AgentState, meta: &TranscriptMetaMerge) -> Operat
     }
     if let Some(agent) = &meta.agent {
         state.meta.agent = merge_agent_status(&state.meta.agent, agent);
-    }
-    if meta.goal.is_some() {
-        state.meta.goal = meta.goal.clone();
     }
     if meta.activity.is_some() {
         state.meta.activity = meta.activity;

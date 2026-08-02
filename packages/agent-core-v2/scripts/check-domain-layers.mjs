@@ -153,7 +153,6 @@ const DOMAIN_LAYER = new Map([
   ["injection", 4],
   ["compaction", 4],
   ["plan", 4],
-  ["goal", 4],
   ["swarm", 4],
   ["usage", 4],
   ["runtime", 4],

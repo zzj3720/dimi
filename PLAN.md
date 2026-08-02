@@ -113,14 +113,14 @@ M6  切换与退役（删 TS、清历史、桥退役）
 - **风险**：pty 语义（node-pty vs portable-pty）、Windows（parity 要求：TS 产品支持 Windows，Rust 版必须支持；实现顺序可后置，M6 前完成）。
 
 ### M3 — dimi-engine（引擎核心，最大风险区）
-- **TS 对应物**：agent-core-v2 agent/ 域全量（loop、llmRequester、toolExecutor、contextMemory、contextProjector、permissionPolicy/Rules/Mode、profile、plan、goal、swarm、cron、mcp、media、fullCompaction、undo、usage、faultInjection、stepRetry、wait…）。
+- **TS 对应物**：agent-core-v2 agent/ 域全量（loop、llmRequester、toolExecutor、contextMemory、contextProjector、permissionPolicy/Rules/Mode、profile、plan、swarm、cron、mcp、media、fullCompaction、undo、usage、faultInjection、stepRetry、wait…）。
 - **策略**：垂直切片，每片有独立 DoD；切片 1 立住新架构（事件源 + 纯核心 + 效果边界）。**所有切片均为必需（parity），顺序即实现顺序，不按切片缩减范围**：
   1. 最小闭环：会话创建 → 用户输入 → LLM（OpenAI 兼容 SSE）→ 工具执行（Bash via dimi-exec）→ 回合完成 → wire 落盘；
   2. 权限/审批（glob 规则 + 交互）；
   3. 上下文管理（memory/projector/fullCompaction）；
   4. 子代理（Agent/AgentSwarm）与 swarm 模式；
   5. MCP 服务器 / 插件 / skills；
-  6. cron / goal / plan 模式 / undo / 媒体输入。
+  6. cron / plan 模式 / undo / 媒体输入。
   每个切片换入前，对照 TS 版逐功能核对（功能清单对照表），无遗漏才算完成。
 - **验证**：脚本化差分（mock LLM + 固定工具结果 → 同输入序列对比 wire 输出）；shadow mode（真 LLM 双跑对比）。
 - **换入**：TS 壳（TUI/server/SDK）经桥驱动 dimi-engine 作为会话后端；开关 `DIMI_RUST_ENGINE=1`。

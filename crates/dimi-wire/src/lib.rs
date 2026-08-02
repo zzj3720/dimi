@@ -51,7 +51,7 @@
 //! | agentPhaseMetaSchema | [`phase::AgentPhase`] |
 //!
 //! Out of M0 scope (land with their milestones): attachment / todo / prompt /
-//! interaction / meta (goal, modes, agent status), ops, subscription and REST
+//! interaction / meta (modes, agent status), ops, subscription and REST
 //! shapes, turn/step headers (M1), transcripts ops batch (M1).
 
 pub mod de;
@@ -68,8 +68,8 @@ pub mod task;
 
 pub use de::strict_option;
 pub use entity::{
-    ActivityState, AgentStatusMeta, AgentUsageMeta, Attachment, AttachmentSource, GoalMeta,
-    GoalStatus, Interaction, InteractionKind, InteractionState, ModesMeta, ModesMetaMerge,
+    ActivityState, AgentStatusMeta, AgentUsageMeta, Attachment, AttachmentSource,
+    Interaction, InteractionKind, InteractionState, ModesMeta, ModesMetaMerge,
     PermissionMode, PlanMeta, Prompt, PromptStatus, SwarmMeta, Todo, TodoItem, TodoItemStatus,
     TranscriptMeta, TranscriptMetaMerge,
 };

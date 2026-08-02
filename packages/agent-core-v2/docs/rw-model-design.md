@@ -47,8 +47,8 @@
 
 - 声明式 view 只迁移了 2 个（contextMemory、contextSize），其余 ~12 个域仍是
   "append 记录 + 手写私有状态 + live/resume 两份 apply + 手动通知"；
-- 同一事实最多有 **4 种表达**：wire record（`goal.update`）、AgentEvent signal
-  （`goal.updated`）、replay 记录（`goal_updated`）、getter snapshot（`getGoal()`）；
+- 同一事实最多有 **4 种表达**：wire record（`plan_mode.update`）、AgentEvent signal
+  （`plan_mode.updated`）、replay 记录（`goal_updated`）、getter snapshot（`getPlan()`）；
 - 事件机制 **6 种并存**：Emitter、OrderedHookSlot、ViewHandle.onChange、
   IEventService（无类型）、AsyncEventQueue、裸回调/Promise；
 - 每个会话有 **两本追加日志、两套序号**：agent wire log（核心）+
@@ -232,7 +232,7 @@ sections 一致），但把 `WireRecordMap`（18 个增补点）、`AgentEvent`�
 declare module '#/stream' {
   interface EventMap {
     'todo.set': Fact<{ todos: readonly TodoItem[] }, { scope: 'session' }>;
-    'goal.update': Fact<GoalPatch, { scope: 'agent'; blobs?: BlobSelector }>;
+    'plan_mode.update': Fact<GoalPatch, { scope: 'agent'; blobs?: BlobSelector }>;
     'assistant.delta': Signal<{ turnId: number; text: string }>;
     'tool.progress': Signal<ToolProgress>;
   }
@@ -716,14 +716,14 @@ export class SessionTodoService extends Disposable implements ISessionTodoServic
 
 ### D.2 场景：goal 状态与 live 投影（四种表达 → 一种）
 
-今天 goal 有四套词汇：`goal.update` record、`goal.updated` signal、
-`goal_updated` replay 记录、`getGoal()` getter。重写后只剩 fact + view：
+今天 goal 有四套词汇：`plan_mode.update` record、`plan_mode.updated` signal、
+`goal_updated` replay 记录、`getPlan()` getter。重写后只剩 fact + view：
 
 ```ts
 declare module '#/stream' {
   interface FactMap {
-    'goal.create': { goal: GoalInit }
-    'goal.update': { patch: GoalPatch }        // 增量事实，形状不变
+    'plan_mode.enter': { goal: GoalInit }
+    'plan_mode.update': { patch: GoalPatch }        // 增量事实，形状不变
     'goal.clear': {}
   }
   interface ViewMap { goal: GoalSnapshot | null }
@@ -732,20 +732,20 @@ declare module '#/stream' {
 export class AgentGoalService extends Disposable implements IAgentGoalService {
   constructor(@IAgentStream private readonly stream: IAgentStream) {
     super();
-    // live 投影在定义处声明一次：取代手动 signal('goal.updated')（V3 的响声化也在此：
+    // live 投影在定义处声明一次：取代手动 signal('plan_mode.updated')（V3 的响声化也在此：
     // replay 期根本不会走到投影，无需隐式压制）
-    this._register(stream.defineFact('goal.update', {
-      live: (f) => ({ type: 'goal.updated', patch: f.patch }),
+    this._register(stream.defineFact('plan_mode.update', {
+      live: (f) => ({ type: 'plan_mode.updated', patch: f.patch }),
     }));
     this._register(stream.defineView('goal', goalView));  // fold 见下
   }
 
   /** 高频预算更新：silent 抑制不再需要——view.equals 去重 + 通知队列合帧（§8.1）。 */
   recordTokenUsage(usage: TokenUsage): void {
-    this.stream.commit({ type: 'goal.update', patch: { usage } });
+    this.stream.commit({ type: 'plan_mode.update', patch: { usage } });
   }
 
-  getGoal(): GoalSnapshot | null {
+  getPlan(): GoalSnapshot | null {
     return this.stream.view('goal').get().value;
   }
 }
@@ -753,8 +753,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 const goalView: View<GoalState, GoalFold, GoalSnapshot | null> = {
   init: EMPTY_GOAL_STATE,
   select: (f) =>
-    f.type === 'goal.create' ? { kind: 'create', goal: f.goal }
-    : f.type === 'goal.update' ? { kind: 'patch', patch: f.patch }
+    f.type === 'plan_mode.enter' ? { kind: 'create', goal: f.goal }
+    : f.type === 'plan_mode.update' ? { kind: 'patch', patch: f.patch }
     : f.type === 'goal.clear' ? { kind: 'clear' }
     : undefined,
   reduce: applyGoalFold,          // 原 restoreUpdate/appendStatusUpdate 两份平行逻辑合一（R1）

@@ -10,8 +10,8 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use dimi_wire::entity::{
-    GoalMeta, GoalStatus, Interaction, InteractionKind, InteractionState, Todo, TodoItem,
-    TodoItemStatus, TranscriptMeta,
+    Interaction, InteractionKind, InteractionState, Todo, TodoItem, TodoItemStatus,
+    TranscriptMeta,
 };
 use dimi_wire::item::Item;
 use dimi_wire::record::WireRecord;
@@ -26,8 +26,6 @@ const TASK_STATES: &[&str] = &[
     "killed",
     "lost",
 ];
-const GOAL_STATUSES: &[&str] = &["active", "paused", "blocked", "complete"];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PlanRevision {
     review_path: Option<String>,
@@ -44,8 +42,6 @@ pub fn fold_wire_record_facts(
     // not depend on hash order.
     let mut interactions: Vec<Interaction> = Vec::new();
     let mut todo: Option<Todo> = None;
-    let mut goal: Option<GoalMeta> = None;
-    let mut goal_touched = false;
     let mut plan_active: Option<bool> = None;
     let mut plan_revision: Option<PlanRevision> = None;
     let mut swarm_active: Option<bool> = None;
@@ -92,59 +88,6 @@ pub fn fold_wire_record_facts(
                     items: read_todo_items(record.rest.get("value")),
                     updated_at: record_time_iso(record),
                 });
-            }
-            "goal.create" => {
-                goal_touched = true;
-                goal = Some(GoalMeta {
-                    objective: record
-                        .rest
-                        .get("objective")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_owned(),
-                    status: GoalStatus::Active,
-                    completion_criterion: record
-                        .rest
-                        .get("completionCriterion")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_owned),
-                    budget_used: Some(0),
-                    budget_limit: None,
-                });
-                push_marker("goal", record, &mut appended);
-            }
-            "goal.update" => {
-                goal_touched = true;
-                if let Some(current) = goal.as_mut() {
-                    if let Some(status) = record.rest.get("status").and_then(|v| v.as_str()) {
-                        if GOAL_STATUSES.contains(&status) {
-                            current.status = match status {
-                                "paused" => GoalStatus::Paused,
-                                "blocked" => GoalStatus::Blocked,
-                                "complete" => GoalStatus::Complete,
-                                _ => GoalStatus::Active,
-                            };
-                        }
-                    }
-                    if let Some(tokens_used) =
-                        record.rest.get("tokensUsed").and_then(|v| v.as_i64())
-                    {
-                        current.budget_used = Some(tokens_used);
-                    }
-                    let token_budget = record
-                        .rest
-                        .get("budgetLimits")
-                        .and_then(|v| v.get("tokenBudget"))
-                        .and_then(|v| v.as_i64());
-                    if let Some(token_budget) = token_budget {
-                        current.budget_limit = Some(token_budget);
-                    }
-                }
-                push_marker("goal", record, &mut appended);
-            }
-            "goal.clear" => {
-                goal_touched = true;
-                goal = None;
             }
             "plan_mode.enter" => {
                 plan_active = Some(true);
@@ -244,11 +187,6 @@ pub fn fold_wire_record_facts(
 
     let modes_touched = plan_active.is_some() || swarm_active.is_some();
     let meta = TranscriptMeta {
-        goal: if goal_touched {
-            goal.clone()
-        } else {
-            base.meta.goal.clone()
-        },
         modes: if modes_touched {
             Some(dimi_wire::entity::ModesMeta {
                 plan: match plan_active {

@@ -185,41 +185,6 @@ pub struct Prompt {
 
 // ------------------------------------------------------------ meta
 
-/// `goalMetaSchema` status (`schema.ts` 234).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GoalStatus {
-    Active,
-    Paused,
-    Blocked,
-    Complete,
-}
-
-/// `goalMetaSchema` (`schema.ts` 231–237).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoalMeta {
-    pub objective: String,
-    pub status: GoalStatus,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
-    pub completion_criterion: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
-    pub budget_used: Option<i64>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
-    pub budget_limit: Option<i64>,
-}
 
 /// `modesMetaSchema` plan badge (`schema.ts` 240, 246–248).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -399,12 +364,6 @@ pub struct TranscriptMeta {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::de::strict_option"
     )]
-    pub goal: Option<GoalMeta>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
     pub modes: Option<ModesMeta>,
     #[serde(
         default,
@@ -424,12 +383,6 @@ pub struct TranscriptMeta {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptMetaMerge {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
-    pub goal: Option<GoalMeta>,
     /// `modes` here uses the nullable merge shape (null clears a badge).
     #[serde(
         default,

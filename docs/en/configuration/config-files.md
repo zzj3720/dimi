@@ -354,7 +354,7 @@ notification_condition = "unfocused" # "unfocused" | "always"
 auto_install = true
 
 # [status_line]
-# items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]
+# items = ["mode", "model", "tasks", "cwd", "git", "tips"]
 # command = "~/.dimi/statusline.sh"
 ```
 

@@ -123,7 +123,7 @@ const taskUpsert = {
 
 const markerUpsert = (beforeTurn?: number) => ({
   op: 'marker.upsert',
-  item: { kind: 'marker', markerId: 'm1', marker: 'goal', payload: { objective: 'x' } },
+  item: { kind: 'marker', markerId: 'm1', marker: 'notice', payload: { text: 'x' } },
   ...(beforeTurn === undefined ? {} : { beforeTurn }),
 });
 
@@ -271,7 +271,7 @@ suite('dimi-store ↔ packages/transcript differential', () => {
         attachments: [],
         todos: [],
         prompts: [],
-        meta: { goal: { objective: 'g', status: 'active' } },
+        meta: {},
         hasMoreOlder: true,
       },
     };

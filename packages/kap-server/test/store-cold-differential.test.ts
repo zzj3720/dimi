@@ -50,7 +50,7 @@ function rustColdRebuild(records: WireRecord[]): Json {
 /**
  * Compare at the wire level: `JSON.stringify` of both sides must be equal —
  * key order included. (Deep-equality would also flag TS's
- * `{ goal: undefined, modes: undefined }` meta keys, which JSON drops, so
+ * `{ modes: undefined }` meta keys, which JSON drops, so
  * the object-level comparison is intentionally byte-oriented.)
  */
 function expectSameWire(ts: Json, rust: Json): void {

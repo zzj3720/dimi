@@ -109,7 +109,7 @@ Three mechanisms answer three different questions:
 
 **Q4. Would a direct A→B call create a cycle or violate scope direction?** → A *consequence check*, not a primary reason. Decide by Q1–Q3 first; do not turn a genuine direct call into an event just to break a cycle.
 
-**Q5. Is this fact part of the durable record / replay / cross-agent projection?** → Yes: **emit it on the wire** (`wireRecord`). State changes that must be recorded, replayed, or synchronized across agents are projected onto the wire, not handled by a direct call alone (`permission.set_mode`, `goal.create/update/clear`, `plan_mode.enter/exit`). The wire is the *durable record*, not the live notification channel.
+**Q5. Is this fact part of the durable record / replay / cross-agent projection?** → Yes: **emit it on the wire** (`wireRecord`). State changes that must be recorded, replayed, or synchronized across agents are projected onto the wire, not handled by a direct call alone (`permission.set_mode`, `plan_mode.enter/exit`). The wire is the *durable record*, not the live notification channel.
 
 ### One-sentence rule
 
@@ -155,7 +155,7 @@ The tiers, from lowest to highest:
 - **L1 — bridges & low-level capabilities** (logging, telemetry, event bus, environment, storage).
 - **L2 — data & cross-cutting capabilities** (records, config, providers, auth, workspace registry).
 - **L3 — registries & capabilities** (tools, permissions, flags, skills, plugins).
-- **L4 — agent behaviour** (turn, loop, prompt, profile, context, goal, plan, swarm).
+- **L4 — agent behaviour** (turn, loop, prompt, profile, context, plan, swarm).
 - **L5 — async lifecycle** (background, MCP, cron, sub-agent tools).
 - **L6 — coordination** (session, agent/session lifecycle, interactions, terminal).
 - **L7 — boundary / edge** (`gateway`, `rpc`, approval/question, the `*Legacy` v1 adapters).

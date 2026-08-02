@@ -188,7 +188,7 @@ Use a veto event when many domains may intercept an operation and the only outco
 - Yes → **emit it on the wire** (`wireRecord`). This is a system-specific but strong reason:
   state changes that must be recorded, replayed, or synchronized across agents have to be
   projected onto the wire, not handled by a direct call alone. `permission.set_mode`,
-  `goal.create/update/clear`, and `plan_mode.enter/exit` are all in this category.
+  `plan records`, and `plan_mode.enter/exit` are all in this category.
   Note that the wire is the *durable record*, not the live notification channel: a live
   context mutation appends v1 wire records (`context.append_message` /
   `context.append_loop_event` / `context.undo` / `context.clear` /

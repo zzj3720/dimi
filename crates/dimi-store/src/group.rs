@@ -15,7 +15,7 @@ use dimi_wire::snapshot::AgentTranscriptSnapshot;
 /// Origins whose content is context, not display (groupTurns.ts 85).
 const HIDDEN_USER_ORIGINS: &[&str] = &["injection", "system_trigger", "retry"];
 /// Hidden origins that open a real engine turn (groupTurns.ts 96).
-const TURN_OPENING_SYSTEM_TRIGGERS: &[&str] = &["goal_continuation", "subagent"];
+const TURN_OPENING_SYSTEM_TRIGGERS: &[&str] = &["subagent"];
 /// Origins rendered as timeline markers (groupTurns.ts 98–102).
 const MARKER_USER_ORIGINS: &[(&str, &str)] = &[
     ("skill_activation", "skill"),

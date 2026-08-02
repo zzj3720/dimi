@@ -15,7 +15,7 @@
  * sessions are discovered through the `sessionIndex` read model, and workspace
  * roots are remembered through `workspace`. Fork flushes
  * live Agent wire journals, normalizes a missing protocol envelope, and
- * appends the fork boundary before restoring the target Agent. On
+ * copies the source wire records before restoring the target Agent. On
  * materialize, the session's metadata, tool policy, and agent-profile catalog
  * are awaited before the handle is published — agent-file discovery is local-
  * fs and cheap, and a resumed session's first turn must see file-defined
