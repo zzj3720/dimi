@@ -55,14 +55,24 @@
 //! shapes, turn/step headers (M1), transcripts ops batch (M1).
 
 pub mod de;
+pub mod entity;
 pub mod frame;
 pub mod id;
 pub mod item;
 pub mod model;
+pub mod op;
 pub mod phase;
+pub mod record;
+pub mod snapshot;
 pub mod task;
 
 pub use de::strict_option;
+pub use entity::{
+    ActivityState, AgentStatusMeta, AgentUsageMeta, Attachment, AttachmentSource, GoalMeta,
+    GoalStatus, Interaction, InteractionKind, InteractionState, ModesMeta, ModesMetaMerge,
+    PermissionMode, PlanMeta, Prompt, PromptStatus, SwarmMeta, Todo, TodoItem, TodoItemStatus,
+    TranscriptMeta, TranscriptMetaMerge,
+};
 pub use frame::{
     AgentRef, Frame, NoticeLevel, ProgressKind, TextRole, ToolFrameProgress, ToolState,
 };
@@ -71,5 +81,8 @@ pub use item::{Item, Step, StepKind};
 pub use model::{
     StepRetry, StepState, StepTiming, StepUsage, TranscriptUsage, TurnOrigin, TurnState,
 };
+pub use op::{AppendTarget, OpBatch, Operation, StepHeader, TurnHeader, TurnKind};
 pub use phase::{AgentPhase, EndReason, InterruptReason, StreamKind};
+pub use record::{HistoryMessage, MessageOrigin, ToolCall, WireMetadataRecord, WireRecord};
+pub use snapshot::AgentTranscriptSnapshot;
 pub use task::{Task, TaskKind, TaskState};

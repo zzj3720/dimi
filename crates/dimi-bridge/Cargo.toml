@@ -10,6 +10,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+dimi-store = { path = "../dimi-store" }
 dimi-wire = { path = "../dimi-wire" }
 napi = "3.12.0"
 napi-derive = "3.6.2"

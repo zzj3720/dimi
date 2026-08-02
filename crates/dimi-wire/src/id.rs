@@ -28,6 +28,15 @@ macro_rules! id_type {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
+
+            /// Internal constructor WITHOUT validation — mirrors zod's
+            /// boundary-check model: `min(1)` is enforced at the wire edge
+            /// (Deserialize), while in-memory construction (e.g. the cold
+            /// rebuild's `mapOrigin`) may produce ids the boundary would
+            /// reject. Do not use for user input.
+            pub fn new_unchecked(value: String) -> Self {
+                $name(value)
+            }
         }
 
         impl fmt::Display for $name {

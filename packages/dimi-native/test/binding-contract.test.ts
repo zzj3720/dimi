@@ -31,16 +31,20 @@ function napiJsName(rustFnName: string): string {
 }
 
 /**
- * Extract `#[napi]`-annotated function names from the bridge source,
- * honoring `js_name = "..."` overrides when present.
+ * Extract top-level `#[napi]`-annotated names from the bridge source:
+ * module-level `pub fn`s (class methods are indented and skipped) plus
+ * `pub struct` napi classes. Honors `js_name = "..."` overrides.
  */
 function napiFunctionNames(source: string): string[] {
   const names: string[] = [];
-  for (const match of source.matchAll(/#\[napi(\([^\]]*\))?\]\s*pub fn\s+(\w+)/g)) {
+  for (const match of source.matchAll(/^#\[napi(\([^\]]*\))?\]\s*pub fn\s+(\w+)/gm)) {
     const attr = match[1] ?? '';
     const fnName = match[2] ?? '';
     const jsNameOverride = attr.match(/js_name\s*=\s*"([^"]+)"/);
     names.push(jsNameOverride ? (jsNameOverride[1] ?? '') : napiJsName(fnName));
+  }
+  for (const match of source.matchAll(/^#\[napi\]\s*pub struct\s+(\w+)/gm)) {
+    names.push(match[1] ?? '');
   }
   return names;
 }

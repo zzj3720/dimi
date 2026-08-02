@@ -1,0 +1,16 @@
+[package]
+name = "dimi-store"
+description = "Event-sourced transcript store: wire.jsonl parsing, cold rebuild, op reducer, snapshot, pagination — byte-exact mirror of packages/transcript + kap-server TranscriptService storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+dimi-wire = { path = "../dimi-wire" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[lints]
+workspace = true

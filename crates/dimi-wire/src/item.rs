@@ -29,7 +29,6 @@ pub struct Step {
     pub turn_id: TurnId,
     pub ordinal: i64,
     pub state: StepState,
-    pub frames: Vec<Frame>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -78,6 +77,10 @@ pub struct Step {
         deserialize_with = "crate::de::strict_option"
     )]
     pub end_message: Option<String>,
+    // `frames` is LAST: the store builds the step as `{...header, kind,
+    // frames}` (apply.ts stepHeaderToStep), mirroring the engine's header
+    // construction order (coreEventMap.ts ensureStep).
+    pub frames: Vec<Frame>,
 }
 
 /// `transcriptItemSchema` — the item discriminated union
@@ -109,7 +112,6 @@ pub enum Item {
             deserialize_with = "crate::de::strict_option"
         )]
         attachment_ids: Option<Vec<String>>,
-        steps: Vec<Step>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -127,12 +129,6 @@ pub enum Item {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::de::strict_option"
         )]
-        usage: Option<TranscriptUsage>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::de::strict_option"
-        )]
         duration_ms: Option<i64>,
         #[serde(
             default,
@@ -140,6 +136,16 @@ pub enum Item {
             deserialize_with = "crate::de::strict_option"
         )]
         error: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::de::strict_option"
+        )]
+        usage: Option<TranscriptUsage>,
+        // `steps` is LAST: the engine builds the turn as `{...header,
+        // steps}` (coreEventMap.ts onTurnStarted/onTurnEnded), so the real
+        // wire key order is header fields then `steps`.
+        steps: Vec<Step>,
     },
     #[serde(rename_all = "camelCase")]
     Marker {

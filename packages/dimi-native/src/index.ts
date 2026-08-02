@@ -22,6 +22,25 @@ export interface NativeBinding {
   normalizePhase: typeof normalizePhase;
   /** Filename-safe agent id check. */
   isPlainAgentId: typeof isPlainAgentId;
+  /** Full cold rebuild: wire records → snapshot JSON. */
+  coldRebuild: typeof coldRebuild;
+  /** Page items by turn cursor. */
+  paginateTurns: typeof paginateTurns;
+  /** Parse a `wire.jsonl` file into records JSON. */
+  readWireRecords: typeof readWireRecords;
+  /** One agent's transcript store, held on the Rust side. */
+  RustAgentTranscript: RustAgentTranscriptConstructor;
+}
+
+export interface RustAgentTranscriptConstructor {
+  new (agentId: string): RustAgentTranscriptHandle;
+}
+
+export interface RustAgentTranscriptHandle {
+  /** Apply an op batch (ops JSON array); returns `AppliedOps` JSON. */
+  apply(opsJson: string): string;
+  /** Snapshot JSON; optional `{ tailTurns }` window JSON. */
+  snapshot(windowJson?: string): string;
 }
 
 let binding: NativeBinding | undefined;
@@ -61,4 +80,45 @@ export function normalizePhase(json: string): string {
 
 export function isPlainAgentId(id: string): boolean {
   return loadNative().isPlainAgentId(id);
+}
+
+/** Full cold rebuild: wire records JSON array → snapshot JSON. */
+export function coldRebuild(recordsJson: string): string {
+  return loadNative().coldRebuild(recordsJson);
+}
+
+/** Page items by turn cursor (items JSON array + query JSON → page JSON). */
+export function paginateTurns(itemsJson: string, queryJson: string): string {
+  return loadNative().paginateTurns(itemsJson, queryJson);
+}
+
+/** Parse a `wire.jsonl` file into records JSON. */
+export function readWireRecords(path: string): string {
+  return loadNative().readWireRecords(path);
+}
+
+/**
+ * One agent's transcript store, held on the Rust side — the swap-in socket
+ * for the kap-server `TranscriptService` storage backend.
+ */
+export class RustAgentTranscript {
+  readonly #inner: RustAgentTranscriptHandle;
+
+  constructor(agentId: string) {
+    // NOTE: `new loadNative().RustAgentTranscript(...)` would be parsed as
+    // `(new loadNative()).RustAgentTranscript(...)` — a `new`-less call that
+    // returns a method-less stub object. Bind the class first.
+    const NativeClass = loadNative().RustAgentTranscript;
+    this.#inner = new NativeClass(agentId);
+  }
+
+  /** Apply an op batch (ops JSON array); returns `AppliedOps` JSON. */
+  apply(opsJson: string): string {
+    return this.#inner.apply(opsJson);
+  }
+
+  /** Snapshot JSON; optional `{ tailTurns }` window JSON. */
+  snapshot(windowJson?: string): string {
+    return this.#inner.snapshot(windowJson);
+  }
 }
