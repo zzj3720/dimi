@@ -61,16 +61,20 @@ import {
   groupMessagesIntoSnapshot,
   isPlainAgentId,
   type AgentDescriptor,
-  type AgentTranscript,
+  type AgentTranscriptLike,
   type AgentTranscriptSnapshot,
   type TranscriptChangeEvent,
   type TranscriptMarker,
   type TranscriptOperation,
+  type TranscriptStoreLike,
   type TranscriptTaskRef,
   type TranscriptTurn,
 } from '@dimi-agent/transcript';
 
+import { coldRebuild } from '@dimi-agent/dimi-native';
+
 import { readWireRecords } from '../snapshot/snapshotReader';
+import { RustTranscriptStore } from './rustTranscriptStore';
 import {
   bindSessionTranscript,
   descriptorFromMeta,
@@ -84,6 +88,18 @@ const MAIN_AGENT_ID = 'main';
 const WIRE_FILE = 'wire.jsonl';
 const STATE_FILE = 'state.json';
 
+/**
+ * `DIMI_RUST_STORE=1` swaps the transcript storage backend to the Rust
+ * `dimi-store` (via the napi bridge) — live store + cold rebuild. The
+ * differential suites prove the Rust snapshots are wire-identical to the TS
+ * ones; the flag gates the strangler swap while both backends ship.
+ */
+const RUST_STORE_ENABLED = process.env['DIMI_RUST_STORE'] === '1';
+
+function createTranscriptStore(sessionId: string): TranscriptStoreLike {
+  return RUST_STORE_ENABLED ? new RustTranscriptStore(sessionId) : new TranscriptStore(sessionId);
+}
+
 export interface TranscriptServiceDeps {
   readonly homeDir: string;
   readonly core: Scope;
@@ -91,7 +107,7 @@ export interface TranscriptServiceDeps {
 }
 
 interface LiveEntry {
-  readonly store: TranscriptStore;
+  readonly store: TranscriptStoreLike;
   readonly binding: TranscriptBinding;
   /** Resolves when the initial main-agent history backfill has landed. */
   readonly ready: Promise<void>;
@@ -144,7 +160,7 @@ export class TranscriptService {
    * Get (or create + bind) the transcript store for a session that is live in
    * this process. Returns `undefined` when the session is not in memory.
    */
-  forSessionLive(sessionId: string): TranscriptStore | undefined {
+  forSessionLive(sessionId: string): TranscriptStoreLike | undefined {
     const existing = this.live.get(sessionId);
     if (existing !== undefined) {
       if (this.deps.core.accessor.get(ISessionLifecycleService).get(sessionId) !== undefined) {
@@ -157,7 +173,7 @@ export class TranscriptService {
     }
     const session = this.deps.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) return undefined;
-    const store = new TranscriptStore(sessionId);
+    const store = createTranscriptStore(sessionId);
     let binding: TranscriptBinding;
     try {
       binding = bindSessionTranscript(store, session, this.deps.logger, (event) =>
@@ -227,7 +243,7 @@ export class TranscriptService {
   }
 
   /** Initial backfill: main-agent history + the full roster from session metadata. */
-  private async backfillMain(sessionId: string, store: TranscriptStore): Promise<void> {
+  private async backfillMain(sessionId: string, store: TranscriptStoreLike): Promise<void> {
     await this.backfillAgent(sessionId, store, MAIN_AGENT_ID);
     if (this.live.get(sessionId)?.store !== store) return;
     // Seed the roster from the session's persisted agent registry, so full
@@ -251,7 +267,7 @@ export class TranscriptService {
    * the rebuild are 0-based like the engine's, so future live turns continue
    * without colliding.
    */
-  private async backfillAgent(sessionId: string, store: TranscriptStore, agentId: string): Promise<void> {
+  private async backfillAgent(sessionId: string, store: TranscriptStoreLike, agentId: string): Promise<void> {
     let snapshot: AgentTranscriptSnapshot | undefined;
     try {
       snapshot = await this.readColdSnapshot(sessionId, agentId);
@@ -441,7 +457,7 @@ export class TranscriptService {
   private liveTurnOverlay(
     sessionId: string,
     agentId: string,
-    transcript: AgentTranscript,
+    transcript: AgentTranscriptLike,
     snapshot: AgentTranscriptSnapshot,
   ): TranscriptOperation | undefined {
     const session = this.deps.core.accessor.get(ISessionLifecycleService).get(sessionId);
@@ -568,6 +584,12 @@ export class TranscriptService {
         return groupMessagesIntoSnapshot([]);
       }
       throw error;
+    }
+    if (RUST_STORE_ENABLED) {
+      // The Rust pipeline is reduce → group → fold in one pass; the
+      // differential suite (store-cold-differential.test.ts) proves the
+      // output equals the TS three-stage rebuild byte-for-byte.
+      return JSON.parse(coldRebuild(JSON.stringify(records))) as AgentTranscriptSnapshot;
     }
     const messages = [...reduceContextTranscript(records).entries];
     const base = groupMessagesIntoSnapshot(messages);

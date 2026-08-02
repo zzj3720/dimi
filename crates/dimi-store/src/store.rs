@@ -8,11 +8,16 @@ use crate::apply::apply_operation;
 use crate::state::{AgentState, empty_agent_state};
 
 /// `AppliedOps` — the batch-apply result (operation.ts 185–190).
+///
+/// `gap` must OMIT the key when `None` (never `null`): TS consumers check
+/// `result.gap !== undefined` to distinguish a clean batch from a gap, and a
+/// JSON `null` would read as a gap and silently drop every batch.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AppliedOps {
     /// Ops that actually changed the state, in arrival order.
     pub accepted: Vec<Operation>,
     /// The LAST gap of the batch, with the append target attached.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gap: Option<BatchGap>,
 }
 
@@ -144,8 +149,10 @@ impl AgentTranscript {
     }
 }
 
-/// `{ tailTurns }` snapshot window.
+/// `{ tailTurns }` snapshot window — camelCase on the wire (`snapshot()`
+/// in agentTranscript.ts takes `{ tailTurns }`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SnapshotWindow {
     pub tail_turns: i64,
 }

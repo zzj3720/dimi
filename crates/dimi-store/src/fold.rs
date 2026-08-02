@@ -253,10 +253,18 @@ pub fn fold_wire_record_facts(
             Some(dimi_wire::entity::ModesMeta {
                 plan: match plan_active {
                     None => base.meta.modes.as_ref().and_then(|m| m.plan.clone()),
-                    Some(true) => plan_revision.map(|r| dimi_wire::entity::PlanMeta {
-                        review_path: r.review_path,
-                        version: r.version,
-                    }),
+                    // `planRevision ?? {}` — active plan mode with no revision
+                    // record (older sessions) still carries a bare badge.
+                    Some(true) => Some(plan_revision.map_or_else(
+                        || dimi_wire::entity::PlanMeta {
+                            review_path: None,
+                            version: None,
+                        },
+                        |r| dimi_wire::entity::PlanMeta {
+                            review_path: r.review_path,
+                            version: r.version,
+                        },
+                    )),
                     Some(false) => None,
                 },
                 swarm: match swarm_active {

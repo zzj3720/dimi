@@ -15,14 +15,51 @@ use serde_json::{Map, Value};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireRecord {
     pub r#type: String,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::de::strict_option"
-    )]
-    pub time: Option<i64>,
+    /// `time?: number | string` on the wire — the engine writes epoch-ms
+    /// numbers, but the fold's `recordTimeIso` (foldFacts.ts 137–142) also
+    /// passes ISO strings through, so the reader must accept both (`null` is
+    /// tolerated like TS, where neither `typeof` branch matches).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<RecordTime>,
     #[serde(flatten)]
     pub rest: Map<String, Value>,
+}
+
+/// `WireRecord.time` — epoch ms or a passthrough ISO string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecordTime {
+    /// Integral epoch milliseconds (what the engine writes).
+    Ms(i64),
+    /// Any other finite number (e.g. fractional ms) — kept as-is.
+    Frac(f64),
+    /// ISO string passthrough.
+    Iso(String),
+}
+
+impl RecordTime {
+    /// Epoch-ms view used by the reducer's per-message `times` and the fold's
+    /// `recordTimeIso`; JS `Date` truncates fractional ms toward zero, so a
+    /// finite in-range float maps the same way.
+    pub fn as_ms(&self) -> Option<i64> {
+        match self {
+            RecordTime::Ms(ms) => Some(*ms),
+            RecordTime::Frac(f)
+                if f.is_finite() && *f >= i64::MIN as f64 && *f <= i64::MAX as f64 =>
+            {
+                Some(f.trunc() as i64)
+            }
+            _ => None,
+        }
+    }
+
+    /// ISO-string passthrough view (`recordTimeIso`'s string branch).
+    pub fn as_iso(&self) -> Option<&str> {
+        match self {
+            RecordTime::Iso(iso) => Some(iso),
+            _ => None,
+        }
+    }
 }
 
 impl WireRecord {

@@ -144,6 +144,15 @@ pub enum AgentPhase {
             deserialize_with = "crate::de::strict_option"
         )]
         duration_ms: Option<i64>,
-        at: i64,
+        // The TS apply path never validates ops (zod is only the wire
+        // contract), and `toLegacyPhase` may emit `at: undefined` when the
+        // turn has no recorded end stamp — the key then vanishes under
+        // JSON.stringify, so the mirror must tolerate its absence.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::de::strict_option"
+        )]
+        at: Option<i64>,
     },
 }

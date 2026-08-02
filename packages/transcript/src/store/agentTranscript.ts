@@ -32,6 +32,7 @@ import type {
   TranscriptChangeEvent,
   TranscriptOperation,
 } from '../ops/operation';
+import type { AgentTranscriptLike } from './transcriptStore';
 
 export type TranscriptListener = (event: TranscriptChangeEvent) => void;
 
@@ -39,7 +40,7 @@ export interface Disposable {
   dispose(): void;
 }
 
-export class AgentTranscript {
+export class AgentTranscript implements AgentTranscriptLike {
   #state: AgentState = EMPTY_AGENT_STATE;
   readonly #listeners = new Set<TranscriptListener>();
 

@@ -31,7 +31,7 @@ import {
   type Interaction,
   type ISessionScopeHandle,
 } from '@dimi-agent/agent-core-v2';
-import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStore } from '@dimi-agent/transcript';
+import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStoreLike } from '@dimi-agent/transcript';
 
 import { AgentTranscriptProjector, type ProjectorInteraction } from './coreEventMap';
 
@@ -57,7 +57,7 @@ export interface TranscriptBinding extends IDisposable {
 }
 
 export function bindSessionTranscript(
-  store: TranscriptStore,
+  store: TranscriptStoreLike,
   session: ISessionScopeHandle,
   logger?: TranscriptBindingLogger,
   /**

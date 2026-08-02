@@ -265,7 +265,11 @@ suite('cold rebuild: TS three-stage vs Rust dimi-store', () => {
   });
 
   test('plain conversation with string timestamps', () => {
-    const records: WireRecord[] = [
+    // The engine always writes epoch-ms numbers, but the fold's
+    // `recordTimeIso` also passes ISO strings through (defensive read path),
+    // so the wire input may carry them — the TS `WireRecord` type only
+    // models the engine-written form.
+    const records: Array<Omit<WireRecord, 'time'> & { time?: number | string }> = [
       {
         type: 'context.append_message',
         time: '2026-08-01T10:00:00.000Z',
@@ -283,8 +287,8 @@ suite('cold rebuild: TS three-stage vs Rust dimi-store', () => {
         info: { taskId: 'task_x', kind: 'question', status: 'running', startedAt: 1000 },
       },
     ];
-    const ts = tsColdRebuild(records);
-    const rust = rustColdRebuild(records);
+    const ts = tsColdRebuild(records as WireRecord[]);
+    const rust = rustColdRebuild(records as WireRecord[]);
     expectSameWire(ts, rust);
   });
 

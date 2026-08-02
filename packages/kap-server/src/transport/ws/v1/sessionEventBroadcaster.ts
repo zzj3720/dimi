@@ -83,13 +83,13 @@ import {
   gradeFor,
   needsResetOnTransition,
   redactSnapshotForGrade,
-  type AgentTranscript,
+  type AgentTranscriptLike,
   type TranscriptGrade,
   type TranscriptGradeSpec,
   type TranscriptOperation,
   type TranscriptOpsEvent,
   type TranscriptResetEvent,
-  type TranscriptStore,
+  type TranscriptStoreLike,
 } from '@dimi-agent/transcript';
 
 import { toWireApproval } from '../../../routes/approvals';
@@ -154,7 +154,7 @@ export interface TargetSubscription {
 /** Per-session transcript streaming state (shared across all targets). */
 interface TranscriptStream {
   /** The store this stream's listeners are attached to — a rebuilt store (session reload) forces re-attachment. */
-  readonly store: TranscriptStore;
+  readonly store: TranscriptStoreLike;
   /** Agents already seeded (roster de-dup for the reset fan-out). */
   readonly knownAgents: Set<string>;
 }
@@ -514,7 +514,7 @@ export class SessionEventBroadcaster {
    * re-register the fan-out against the rebuilt store — returning early on
    * any stale stream would deliver resets but never the live ops.
    */
-  private ensureTranscriptStream(state: SessionState, store: TranscriptStore): void {
+  private ensureTranscriptStream(state: SessionState, store: TranscriptStoreLike): void {
     if (state.transcriptStream?.store === store) return;
     const service = this.opts.transcriptService;
     if (service === undefined) return;
@@ -576,7 +576,7 @@ export class SessionEventBroadcaster {
   private sendTranscriptReset(
     state: SessionState,
     target: BroadcastTarget,
-    transcript: AgentTranscript,
+    transcript: AgentTranscriptLike,
     grade: TranscriptGrade,
   ): void {
     const snapshot = redactSnapshotForGrade(
