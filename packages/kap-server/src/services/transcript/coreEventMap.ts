@@ -59,7 +59,7 @@
  * `agent/loop/loopService.ts`, `agent/toolExecutor/toolExecutorService.ts`,
  * `agent/task/taskOps.ts`, `agent/shellCommand/shellCommandService.ts`,
  * `session/agentLifecycle/mirrorAgentRun.ts`, `session/swarm/sessionSwarmService.ts`,
- * `agent/goal/goalOps.ts`, `agent/usage/usageOps.ts`, `agent/skill/skillOps.ts`,
+ * `agent/usage/usageOps.ts`, `agent/skill/skillOps.ts`,
  * `agent/rpc/rpcService.ts`, `session/cron/cronOps.ts`,
  * `agent/fullCompaction/compactionOps.ts`, `agent/mcp/mcpService.ts`,
  * `agent/profile/profileService.ts`, `agent/contextMemory/contextMemoryService.ts`).
@@ -249,8 +249,6 @@ export class AgentTranscriptProjector {
       case 'subagent.failed':
       case 'subagent.suspended':
         return this.onSubagentRun(event);
-      case 'goal.updated':
-        return this.onGoalUpdated(event);
       case 'agent.status.updated':
         return this.onAgentStatusUpdated(event);
       case 'agent.activity.updated':
@@ -1077,40 +1075,6 @@ export class AgentTranscriptProjector {
     return [{ op: 'task.upsert', task }];
   }
 
-  // ---------------------------------------------------------------- goal / modes / markers
-
-  private onGoalUpdated(event: {
-    readonly type: string;
-    snapshot: {
-      objective: string;
-      status: 'active' | 'paused' | 'blocked' | 'complete';
-      completionCriterion?: string;
-      tokensUsed: number;
-      budget: { tokenBudget: number | null };
-    } | null;
-  }): TranscriptOperation[] {
-    const ops: TranscriptOperation[] = [];
-    const snapshot = event.snapshot;
-    if (snapshot !== null) {
-      ops.push({
-        op: 'meta.merge',
-        meta: {
-          goal: {
-            objective: snapshot.objective,
-            status: snapshot.status,
-            completionCriterion: snapshot.completionCriterion,
-            budgetUsed: snapshot.tokensUsed,
-            budgetLimit: snapshot.budget.tokenBudget ?? undefined,
-          },
-        },
-      });
-    }
-    // Known limitation: a cleared goal (`snapshot: null`) cannot be expressed
-    // by `meta.merge` (absent keys keep prior state) — the 'goal' marker
-    // lands, and `meta.goal` refreshes on the next reset.
-    ops.push(this.markerOp('goal', restOf(event)));
-    return ops;
-  }
 
   private onAgentStatusUpdated(event: {
     planMode?: boolean;

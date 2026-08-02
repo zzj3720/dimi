@@ -26,9 +26,7 @@ import {
   type UpdateSessionProfileRequest,
 } from '@dimi-agent/protocol';
 
-import { goalSnapshotSchema } from './goal';
-import { cursorQuerySchema, pageResponseSchema } from './pagination';
-import {
+import { cursorQuerySchema, pageResponseSchema } from './pagination';import {
   sessionChildCreateSchema,
   sessionCreateSchema,
   sessionForkSchema,
@@ -146,12 +144,6 @@ export type CreateSessionChildRequest = z.infer<typeof createSessionChildRequest
 
 export const createSessionChildResponseSchema = sessionSchema;
 export type CreateSessionChildResponse = z.infer<typeof createSessionChildResponseSchema>;
-
-// GET /sessions/{id}/goal — the session's current goal snapshot (camelCase,
-// same shape as the `goal.updated` WS event payload), or null when none is
-// active.
-export const getSessionGoalResponseSchema = goalSnapshotSchema.nullable();
-export type GetSessionGoalResponse = z.infer<typeof getSessionGoalResponseSchema>;
 
 export const compactSessionRequestSchema = z.preprocess(
   (value) => value === undefined ? {} : value,

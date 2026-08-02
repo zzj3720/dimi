@@ -26,7 +26,7 @@
  * `SnapshotReader` read (`readWireRecords` + `reduceContextTranscript`), then
  * groups the flat messages into a base snapshot via
  * `groupMessagesIntoSnapshot` and folds the non-`context.*` records
- * (tasks / interactions / todos / goal / plan / swarm) on top via
+ * (tasks / interactions / todos / plan / swarm) on top via
  * `foldWireRecordFacts` — best-effort fidelity.
  *
  * Lifecycle: entries are dropped when the session closes or archives
@@ -595,7 +595,7 @@ export class TranscriptService {
     }
     const messages = [...reduceContextTranscript(records).entries];
     const base = groupMessagesIntoSnapshot(messages);
-    // Second fold: tasks / interactions / todos / meta (goal, plan, swarm)
+    // Second fold: tasks / interactions / todos / meta (plan, swarm)
     // come from the non-`context.*` records in the same journal.
     return foldWireRecordFacts(records, base);
   }

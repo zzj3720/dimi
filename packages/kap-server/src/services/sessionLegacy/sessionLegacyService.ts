@@ -1,9 +1,9 @@
 /**
  * `SessionLegacyService` — kap-server-edge projection of the v1 session
  * actions `POST /sessions/{id}/profile` (`updateProfile` — title rename,
- * metadata merge, and the cross-domain `agent_config` patch),
- * `GET /sessions/{id}/status` (`status`), and `GET /sessions/{id}/goal`
- * (`goal`) on top of the native v2 engine services.
+ * metadata merge, and the cross-domain `agent_config` patch) and
+ * `GET /sessions/{id}/status` (`status`) on top of the native v2 engine
+ * services.
  *
  * This is the v1 wire-compat adapter previously kept in agent-core-v2
  * (`src/app/sessionLegacy/`) — deliberately relocated to the kap-server edge
@@ -11,21 +11,19 @@
  * wire-compatibility concerns. The thin pass-through actions (`fork` /
  * `compact` / `abort` / `archive`), the `:undo` action, and the
  * `/sessions/{id}/children` endpoints are NOT wrapped here: the route calls
- * the native engine services directly. Only `updateProfile`, `status`, and
- * `goal` hold real cross-domain adaptation (the `agent_config` patch, the
- * best-effort status rollup, and the current-goal read). The class is a
+ * the native engine services directly. Only `updateProfile` and `status`
+ * hold real cross-domain adaptation (the `agent_config` patch and the
+ * best-effort status rollup). The class is a
  * stateless dispatcher: it resolves the target session/agent per call
  * through the App `Scope`.
  */
 
-import type { GoalSnapshot } from '@dimi-agent/agent-core-v2';
 import {
   Error2,
   ErrorCodes,
   ensureMainAgent,
   IAgentActivityView,
   IAgentContextSizeService,
-  IAgentGoalService,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentPlanService,
@@ -131,25 +129,6 @@ export class SessionLegacyService {
         else swarm.exit();
       }
     }
-    if (agentConfig.goal_objective !== undefined) {
-      await agent.accessor
-        .get(IAgentGoalService)
-        .createGoal({ objective: agentConfig.goal_objective });
-    }
-    if (agentConfig.goal_control !== undefined) {
-      const goal = agent.accessor.get(IAgentGoalService);
-      switch (agentConfig.goal_control) {
-        case 'pause':
-          await goal.pauseGoal({});
-          break;
-        case 'resume':
-          await goal.resumeGoal({ continueIfPaused: true, continueIfBlocked: true });
-          break;
-        case 'cancel':
-          await goal.cancelGoal({});
-          break;
-      }
-    }
   }
 
   private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle> {
@@ -215,10 +194,6 @@ export class SessionLegacyService {
     return false;
   }
 
-  async goal(sessionId: string): Promise<GoalSnapshot | null> {
-    const agent = await this.resolveMainAgent(sessionId);
-    return agent.accessor.get(IAgentGoalService).getGoal().goal;
-  }
 }
 
 function resolveDefaultModelContextTokens(agent: IAgentScopeHandle): number {

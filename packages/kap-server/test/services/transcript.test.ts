@@ -900,37 +900,6 @@ describe('AgentTranscriptProjector', () => {
     });
   });
 
-  it('projects goal updates into meta.goal plus an inline marker', () => {
-    const projector = new AgentTranscriptProjector('main');
-    const tx = new AgentTranscript('main');
-    const snapshot = {
-      goalId: 'g1',
-      objective: 'ship it',
-      status: 'active',
-      completionCriterion: 'tests green',
-      turnsUsed: 3,
-      tokensUsed: 1234,
-      wallClockMs: 5000,
-      budget: { tokenBudget: 50000 },
-    };
-    const ops = projector.map(ev({ type: 'goal.updated', snapshot, change: { kind: 'lifecycle' } }));
-    tx.apply(ops);
-
-    expect(tx.getMeta().goal).toEqual({
-      objective: 'ship it',
-      status: 'active',
-      completionCriterion: 'tests green',
-      budgetUsed: 1234,
-      budgetLimit: 50000,
-    });
-    const marker = tx.getItems().find((item) => item.kind === 'marker');
-    expect(marker).toMatchObject({ marker: 'goal', payload: { snapshot } });
-
-    // Cleared goal: only the marker lands (meta.merge cannot express clearing).
-    const clearedOps = projector.map(ev({ type: 'goal.updated', snapshot: null }));
-    expect(clearedOps.every((op) => op.op === 'marker.upsert')).toBe(true);
-  });
-
   it('mirrors plan / swarm mode slices into meta.modes (only when provided)', () => {
     const projector = new AgentTranscriptProjector('main');
     const tx = new AgentTranscript('main');
@@ -1489,7 +1458,7 @@ describe('AgentTranscriptProjector', () => {
     }
   });
 
-  it('readColdSnapshot folds task/todo/goal/plan/interaction records into the cold snapshot', async () => {
+  it('readColdSnapshot folds task/todo/plan/interaction records into the cold snapshot', async () => {
     const home = await mkdtemp(join(tmpdir(), 'transcript-cold-facts-'));
     try {
       const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
@@ -1520,7 +1489,6 @@ describe('AgentTranscriptProjector', () => {
           value: [{ title: 'write tests', status: 'in_progress' }],
           time: 3000,
         },
-        { type: 'goal.create', goalId: 'g1', objective: 'fix the bug', time: 4000 },
         { type: 'plan_mode.enter', id: 'plan-1', time: 5000 },
         {
           type: 'task.started',
@@ -1605,7 +1573,6 @@ describe('AgentTranscriptProjector', () => {
           updatedAt: new Date(3000).toISOString(),
         },
       ]);
-      expect(snapshot!.meta.goal).toMatchObject({ objective: 'fix the bug', status: 'active' });
       expect(snapshot!.meta.modes).toEqual({ plan: {} });
       expect(snapshot!.interactions).toEqual([
         {
@@ -1622,8 +1589,7 @@ describe('AgentTranscriptProjector', () => {
       // the fact fold append after it in record order.
       const standalone = snapshot!.items.filter((item) => item.kind !== 'turn');
       expect(standalone).toEqual([
-        expect.objectContaining({ kind: 'marker', marker: 'goal', markerId: 'm1' }),
-        expect.objectContaining({ kind: 'marker', marker: 'plan.enter', markerId: 'm2' }),
+        expect.objectContaining({ kind: 'marker', marker: 'plan.enter', markerId: 'm1' }),
         expect.objectContaining({ kind: 'taskref', refId: 'ref-task_1', taskId: 'task_1' }),
       ]);
       service.dropSession('s1');

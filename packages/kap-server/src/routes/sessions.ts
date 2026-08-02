@@ -13,7 +13,6 @@
  *   GET    /sessions/{session_id}/children     list child sessions
  *   POST   /sessions/{session_id}/children     create child session (fork+tag)
  *   GET    /sessions/{session_id}/status       best-effort
- *   GET    /sessions/{session_id}/goal         current goal (null when none)
  *   GET    /sessions/{session_id}/warnings     session-level notices
  *
  * The `POST /sessions/{tail}` actions split into two groups. The thin
@@ -30,9 +29,9 @@
  * and `ISessionIndex.list({ childOf })` directly — the child markers and
  * parent-title default live in the lifecycle, and the child filter lives in the
  * index. Only `POST /sessions/{id}/profile` (`updateProfile`),
- * `GET /sessions/{id}/status`, and `GET /sessions/{id}/goal` go through
+ * `GET /sessions/{id}/status` goes through
  * `SessionLegacyService` (the `agent_config` patch, the status rollup, and the
- * current-goal read hold real cross-domain adaptation);
+ * holds real cross-domain adaptation);
  * the route forwards each adapter result verbatim, mirroring v1's thin handler.
  * `create`, `fork`, and child creation publish `event.session.created` on the
  * core event bus, matching v1.
@@ -109,7 +108,6 @@ import {
   createSessionChildRequestSchema,
   createSessionRequestSchema,
   forkSessionRequestSchema,
-  getSessionGoalResponseSchema,
   listSessionChildrenResponseSchema,
   sessionAbortResponseSchema,
   sessionStatusResponseSchema,
@@ -965,34 +963,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     statusRoute.handler as Parameters<SessionRouteHost["get"]>[2],
   );
 
-  const goalRoute = defineRoute(
-    {
-      method: "GET",
-      path: "/sessions/{session_id}/goal",
-      params: sessionIdParamSchema,
-      success: { data: getSessionGoalResponseSchema },
-      errors: {
-        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
-        [ErrorCode.SESSION_NOT_FOUND]: {},
-      },
-      description: "Get the current session goal (null when none is active)",
-      tags: ["sessions"],
-    },
-    async (req, reply) => {
-      try {
-        const { session_id } = req.params;
-        const goal = await legacy.goal(session_id);
-        reply.send(okEnvelope(goal, req.id));
-      } catch (error) {
-        sendMappedError(reply, req, error);
-      }
-    },
-  );
-  app.get(
-    goalRoute.path,
-    goalRoute.options,
-    goalRoute.handler as Parameters<SessionRouteHost["get"]>[2],
-  );
+
 
   const sessionWarningsRoute = defineRoute(
     {
@@ -1185,16 +1156,16 @@ function pageUndoMessages(
 }
 
 /**
- * Build the wire `Session.metadata`: caller-supplied custom fields (minus the
- * reserved `goal` key, matching v1's `toProtocolSession`) overlaid with the
- * required `cwd`. `cwd` always wins so the resolved work dir is authoritative.
+ * Build the wire `Session.metadata`: caller-supplied custom fields overlaid
+ * with the required `cwd`. `cwd` always wins so the resolved work dir is
+ * authoritative.
  */
 function buildWireMetadata(
   custom: Record<string, unknown> | undefined,
   cwd: string,
 ): { cwd: string; [key: string]: unknown } {
   if (custom === undefined) return { cwd };
-  const { goal: _drop, ...rest } = custom as { goal?: unknown; [key: string]: unknown };
+  const rest = custom;
   return { ...rest, cwd };
 }
 
@@ -1252,26 +1223,6 @@ function sendMappedError(
           request_id: requestId,
           stack: err.stack,
         });
-        return;
-      case ErrorCodes.GOAL_ALREADY_EXISTS:
-        reply.send(errEnvelope(ErrorCode.GOAL_ALREADY_EXISTS, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.GOAL_NOT_FOUND:
-        reply.send(errEnvelope(ErrorCode.GOAL_NOT_FOUND, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.GOAL_STATUS_INVALID:
-        reply.send(errEnvelope(ErrorCode.GOAL_STATUS_INVALID, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.GOAL_NOT_RESUMABLE:
-        reply.send(errEnvelope(ErrorCode.GOAL_NOT_RESUMABLE, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.GOAL_OBJECTIVE_EMPTY:
-        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_EMPTY, err.message, requestId, err.stack));
-        return;
-      case ErrorCodes.GOAL_OBJECTIVE_TOO_LONG:
-        reply.send(
-          errEnvelope(ErrorCode.GOAL_OBJECTIVE_TOO_LONG, err.message, requestId, err.stack),
-        );
         return;
       case ErrorCodes.FS_PATH_NOT_FOUND:
         reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId, err.stack));

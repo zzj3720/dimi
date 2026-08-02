@@ -35,17 +35,6 @@ import type {
 } from "@dimi-agent/agent-core-v2/agent/fullCompaction/compactionOps";
 import type { CompactionResult } from "@dimi-agent/agent-core-v2/agent/fullCompaction/types";
 import type {
-  GoalActor,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeKind,
-  GoalChangeStats,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
-} from "@dimi-agent/agent-core-v2/agent/goal/types";
-import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
@@ -228,74 +217,6 @@ export const promptOriginSchema = z.discriminatedUnion("kind", [
   retryOriginSchema,
 ]);
 
-export const goalStatusSchema = z.enum([
-  "active",
-  "paused",
-  "blocked",
-  "complete",
-]) satisfies z.ZodType<GoalStatus>;
-
-export const goalActorSchema = z.enum([
-  "user",
-  "model",
-  "runtime",
-  "system",
-]) satisfies z.ZodType<GoalActor>;
-
-export const goalBudgetLimitsSchema = z.object({
-  tokenBudget: z.number().optional(),
-  turnBudget: z.number().optional(),
-  wallClockBudgetMs: z.number().optional(),
-}) satisfies z.ZodType<GoalBudgetLimits>;
-
-export const goalBudgetReportSchema = z.object({
-  tokenBudget: z.number().nullable(),
-  turnBudget: z.number().nullable(),
-  wallClockBudgetMs: z.number().nullable(),
-  remainingTokens: z.number().nullable(),
-  remainingTurns: z.number().nullable(),
-  remainingWallClockMs: z.number().nullable(),
-  tokenBudgetReached: z.boolean(),
-  turnBudgetReached: z.boolean(),
-  wallClockBudgetReached: z.boolean(),
-  overBudget: z.boolean(),
-}) satisfies z.ZodType<GoalBudgetReport>;
-
-export const goalSnapshotSchema = z.object({
-  goalId: z.string(),
-  objective: z.string(),
-  completionCriterion: z.string().optional(),
-  status: goalStatusSchema,
-  turnsUsed: z.number(),
-  tokensUsed: z.number(),
-  wallClockMs: z.number(),
-  budget: goalBudgetReportSchema,
-  terminalReason: z.string().optional(),
-}) satisfies z.ZodType<GoalSnapshot>;
-
-export const goalToolResultSchema = z.object({
-  goal: goalSnapshotSchema.nullable(),
-}) satisfies z.ZodType<GoalToolResult>;
-
-export const goalChangeStatsSchema = z.object({
-  turnsUsed: z.number(),
-  tokensUsed: z.number(),
-  wallClockMs: z.number(),
-}) satisfies z.ZodType<GoalChangeStats>;
-
-export const goalChangeKindSchema = z.enum([
-  "lifecycle",
-  "completion",
-]) satisfies z.ZodType<GoalChangeKind>;
-
-export const goalChangeSchema = z.object({
-  kind: goalChangeKindSchema,
-  status: goalStatusSchema.optional(),
-  reason: z.string().optional(),
-  stats: goalChangeStatsSchema.optional(),
-  actor: goalActorSchema.optional(),
-}) satisfies z.ZodType<GoalChange>;
-
 export const dimiErrorCodeSchema = z.enum([
   "config.invalid",
   "session.not_found",
@@ -328,14 +249,6 @@ export const dimiErrorCodeSchema = z.enum([
   "activity.initializing",
   "activity.session_rejected",
   "turn.agent_busy",
-  "goal.already_exists",
-  "goal.not_found",
-  "goal.objective_empty",
-  "goal.objective_too_long",
-  "goal.status_invalid",
-  "goal.metadata_reserved",
-  "goal.not_resumable",
-  "goal.unsupported_agent",
   "model.not_configured",
   "model.config_invalid",
   "profile.thinking_alias_conflict",
@@ -624,12 +537,6 @@ export const configChangedEventSchema = z.object({
   type: z.literal("event.config.changed"),
   changedFields: z.array(z.string()),
   config: configResponseSchema,
-});
-
-export const goalUpdatedEventSchema = z.object({
-  type: z.literal("goal.updated"),
-  snapshot: goalSnapshotSchema.nullable(),
-  change: goalChangeSchema.optional(),
 });
 
 export const skillActivatedEventSchema = z.object({
@@ -939,7 +846,6 @@ export const agentEventSchema = z.discriminatedUnion("type", [
   workspaceDeletedEventSchema,
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
-  goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,
   turnStartedEventSchema,

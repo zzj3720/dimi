@@ -1,5 +1,5 @@
 /**
- * Scenario: v1-compatible session routes, including blocked-goal Web resume.
+ * Scenario: v1-compatible session routes.
  * Responsibilities: verify HTTP envelopes, persisted reads, and session actions.
  * Wiring: real kap-server; route errors stub the agent service contract.
  * Run: `pnpm --filter @dimi-agent/kap-server exec vitest run test/sessions.test.ts`.
@@ -16,11 +16,8 @@ import {
   Error2,
   ErrorCodes,
   IBootstrapService,
-  type DomainEvent,
   IAgentConversationUndoService,
-  IAgentGoalService,
   IAgentLifecycleService,
-  IEventBus,
   IEventService,
   IProviderRuntime,
   ISessionLifecycleService,
@@ -69,15 +66,6 @@ interface PageWire {
 
 function agentRpc(service: ServiceIdentifier<unknown>, method: string, sessionId: string): string {
   return `/api/v1/debug/session/${sessionId}/agent/main/${String(service)}/${method}`;
-}
-
-function goalContinuationStarts(events: readonly DomainEvent[]): readonly DomainEvent[] {
-  return events.filter(
-    (event) =>
-      event.type === "turn.started" &&
-      event.origin.kind === "system_trigger" &&
-      event.origin.name === "goal_continuation",
-  );
 }
 
 describe("server-v2 /api/v1/sessions", () => {
@@ -278,45 +266,6 @@ describe("server-v2 /api/v1/sessions", () => {
     );
     expect(manifest.desktopLogPath).toBe("logs/dimi-desktop.log");
   });
-
-  async function createStoppedGoalRig(status: "paused" | "blocked") {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>("/api/v1/sessions", { metadata: { cwd } });
-    const id = created.body.data.id;
-    await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: "finish the migration" },
-    });
-    const session = (server as RunningServer).core.accessor.get(ISessionLifecycleService).get(id);
-    if (session === undefined) throw new Error("expected a live session");
-    const agent = session.accessor.get(IAgentLifecycleService).get(MAIN_AGENT_ID);
-    if (agent === undefined) throw new Error("expected a live main agent");
-
-    const eventBus = agent.accessor.get(IEventBus);
-    const events: DomainEvent[] = [];
-    const subscription = eventBus.subscribe((event) => events.push(event));
-
-    const stopped = await postJson<{ status: string }>(
-      agentRpc(IAgentGoalService, status === "blocked" ? "markBlocked" : "pauseGoal", id),
-      status === "blocked" ? { reason: "need credentials" } : {},
-    );
-    if (stopped.body.data.status !== status) throw new Error(`expected a ${status} goal`);
-
-    return {
-      id,
-      eventBus,
-      events,
-      cancel: async () => {
-        subscription.dispose();
-        await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-          agent_config: { goal_control: "cancel" },
-        });
-      },
-    };
-  }
-
-  async function createBlockedGoalRig() {
-    return createStoppedGoalRig("blocked");
-  }
 
   it("creates a session from metadata.cwd", async () => {
     const cwd = home as string;
@@ -545,69 +494,6 @@ describe("server-v2 /api/v1/sessions", () => {
     expect(after.body.data.plan_mode).toBe(true);
     expect(after.body.data.swarm_mode).toBe(true);
     expect(after.body.data.permission).toBe("yolo");
-  });
-
-  it("returns the current goal via GET /goal", async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>("/api/v1/sessions", { metadata: { cwd } });
-    const id = created.body.data.id;
-
-    const before = await getJson<unknown>(`/api/v1/sessions/${id}/goal`);
-    expect(before.body.data).toBeNull();
-
-    await postJson(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: "fix all lint warnings" },
-    });
-
-    const after = await getJson<{ objective: string; status: string } | null>(
-      `/api/v1/sessions/${id}/goal`,
-    );
-    expect(after.body.data?.objective).toBe("fix all lint warnings");
-    expect(after.body.data?.status).toBe("active");
-  });
-
-  it("starts one continuation when the Web profile resumes a blocked goal", async () => {
-    const rig = await createBlockedGoalRig();
-    try {
-      const resumed = await postJson<SessionWire>(`/api/v1/sessions/${rig.id}/profile`, {
-        agent_config: { goal_control: "resume" },
-      });
-
-      expect(resumed.body.code).toBe(0);
-      expect(goalContinuationStarts(rig.events)).toHaveLength(1);
-    } finally {
-      await rig.cancel();
-    }
-  });
-
-  it("starts one continuation when the Web profile resumes a paused goal", async () => {
-    const rig = await createStoppedGoalRig("paused");
-    try {
-      const resumed = await postJson<SessionWire>(`/api/v1/sessions/${rig.id}/profile`, {
-        agent_config: { goal_control: "resume" },
-      });
-
-      expect(resumed.body.code).toBe(0);
-      expect(goalContinuationStarts(rig.events)).toHaveLength(1);
-    } finally {
-      await rig.cancel();
-    }
-  });
-
-  it("returns the active goal when the Web refreshes after blocked-goal resume", async () => {
-    const rig = await createBlockedGoalRig();
-    try {
-      rig.eventBus.publish({ type: "turn.started", turnId: 999, origin: { kind: "user" } });
-      await postJson<SessionWire>(`/api/v1/sessions/${rig.id}/profile`, {
-        agent_config: { goal_control: "resume" },
-      });
-
-      const refreshed = await getJson<{ status: string } | null>(`/api/v1/sessions/${rig.id}/goal`);
-
-      expect(refreshed.body.data?.status).toBe("active");
-    } finally {
-      await rig.cancel();
-    }
   });
 
   it("archives a session via :archive and reflects archived flag on get", async () => {
@@ -1091,22 +977,6 @@ describe("server-v2 /api/v1/sessions", () => {
       agent_config: { plan_mode: true },
     });
     expect(again.body.code).toBe(0);
-  });
-
-  it("maps goal already_exists from agent_config.goal_objective (40913)", async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>("/api/v1/sessions", { metadata: { cwd } });
-    const id = created.body.data.id;
-
-    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: "ship the feature" },
-    });
-    expect(first.body.code).toBe(0);
-
-    const dup = await postJson<null>(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { goal_objective: "ship the feature" },
-    });
-    expect(dup.body.code).toBe(40913);
   });
 
   it("publishes session.meta.updated on the core bus when renaming via profile", async () => {

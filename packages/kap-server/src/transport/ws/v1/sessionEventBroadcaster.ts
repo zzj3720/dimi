@@ -1368,7 +1368,6 @@ const TRANSCRIPT_PROJECTED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'cron.fired',
   'error',
   'warning',
-  'goal.updated',
   'plan.revision',
   'context.spliced',
   'agent.status.updated',

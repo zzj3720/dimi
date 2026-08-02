@@ -88,22 +88,8 @@ export const ErrorCode = {
   /** skill 存在但类型不支持用户激活（如 reference 类型） */
   SKILL_NOT_ACTIVATABLE: 40912,
 
-  /** 当前会话已存在活跃 goal */
-  GOAL_ALREADY_EXISTS: 40913,
-  /** 目标不存在 */
-  GOAL_NOT_FOUND: 40914,
-  /** goal 状态不允许该操作 */
-  GOAL_STATUS_INVALID: 40915,
-  /** goal 当前状态不可恢复 */
-  GOAL_NOT_RESUMABLE: 40916,
-  /** goal objective 为空 */
-  GOAL_OBJECTIVE_EMPTY: 40917,
-  /** goal objective 超过长度限制 */
-  GOAL_OBJECTIVE_TOO_LONG: 40918,
   /** fs.mkdir 目标路径已存在（文件或目录） */
   FS_ALREADY_EXISTS: 40919,
-  /** goal 只允许主 agent 使用 */
-  GOAL_UNSUPPORTED_AGENT: 40920,
   /** approval 60s 超时 */
   APPROVAL_EXPIRED: 41001,
   /** question 60s 超时 */
