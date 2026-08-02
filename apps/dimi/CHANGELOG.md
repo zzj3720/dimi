@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.2
+
+### Patch Changes
+
+- [`4cc2ef8`](https://github.com/zzj3720/dimi/commit/4cc2ef822bc15431f30c04abb446d20a07a084bf) - Merge consecutive tool calls into one summary line when only invisible content (notifications, whitespace deltas) separates them, including across notification-driven turns.
+
 ## 0.5.1
 
 ### Patch Changes
