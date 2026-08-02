@@ -1,9 +1,12 @@
-//! dimi-exec — OS process/exec layer (M2, slice 1: processes).
+//! dimi-exec — OS execution layer (M2): processes and filesystem.
 //!
-//! Mirror of `hostProcessService.ts` (agent-core-v2
-//! `os/backends/node-local/hostProcessService.ts`), the App-scope process
-//! spawner every shell command, git call and rg probe goes through. Pure
-//! std-only Rust; the napi bridge (`dimi-bridge`) owns the JS-facing
+//! Mirror of the agent-core-v2 `os/` domain:
+//! - processes (`hostProcessService.ts`) — the App-scope spawner every shell
+//!   command, git call and rg probe goes through;
+//! - filesystem (`hostFsService.ts`) — the real-disk `IHostFileSystem`
+//!   primitives used by persistence, skill loading and the file tools.
+//!
+//! Pure std-only Rust; the napi bridge (`dimi-bridge`) owns the JS-facing
 //! lifecycle (stream push via ThreadsafeFunction, async `wait`).
 //!
 //! Semantics mirrored from the TS implementation:
@@ -16,11 +19,21 @@
 //! - `timeout` is accepted in the options shape but NOT enforced — the TS
 //!   implementation declares it in the interface and never consumes it.
 //! - stdin/stdout/stderr are read continuously by background threads and
-//!   handed out as channel receivers, so output stays readable after
-//!   `wait()` returns (the TS `BufferedReadable` semantics).
+//!   handed out as bounded channel receivers (4 × 64KB per pipe), so a slow
+//!   consumer back-pressures the child through the kernel pipe buffer
+//!   instead of buffering unboundedly.
+//! - `readText` without options keeps the BOM and decodes leniently
+//!   (`readFile(path, 'utf8')`); with options it follows
+//!   `decodeTextWithErrors` (TextDecoder semantics).
 
+pub mod fs;
 mod process;
 
+pub use fs::{
+    DecodeErrors, DirEntry, Encoding, FileStat, FsError, ReadLines, ReadTextOptions, append_text,
+    create_exclusive, decode_with_errors, errno_name, lstat, mkdir, read_bytes, read_text, readdir,
+    realpath, remove, stat, write_bytes, write_text,
+};
 pub use process::{ExecProcess, ExecSpawnError, ShellSpec, SpawnOptions};
 
 /// Spawn a child process. `command`/`args` follow Node `spawn` semantics;

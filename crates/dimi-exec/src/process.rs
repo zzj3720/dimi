@@ -6,7 +6,13 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, channel, sync_channel};
+
+/// Bounded pipe buffer, in 64KB chunks. When the channel is full the reader
+/// thread blocks on `send` and stops reading the OS pipe, so a slow consumer
+/// back-pressures the child through the kernel pipe buffer (the
+/// `BufferedReadable` pause semantics) instead of buffering unboundedly.
+const CHANNEL_CAPACITY: usize = 4;
 
 /// `HostProcessOptions` (`hostProcess.ts` 19–29). `timeout` is accepted for
 /// shape parity and deliberately unused (the TS implementation never
@@ -148,8 +154,8 @@ pub fn spawn(
     let stdout = child.stdout.take().expect("stdout piped");
     let stderr = child.stderr.take().expect("stderr piped");
 
-    let (stdout_tx, stdout_rx) = channel::<Vec<u8>>();
-    let (stderr_tx, stderr_rx) = channel::<Vec<u8>>();
+    let (stdout_tx, stdout_rx) = sync_channel::<Vec<u8>>(CHANNEL_CAPACITY);
+    let (stderr_tx, stderr_rx) = sync_channel::<Vec<u8>>(CHANNEL_CAPACITY);
     let (exit_tx, exit_rx) = channel::<i32>();
     let exited = Arc::new(AtomicBool::new(false));
     let exit_code = Arc::new(AtomicI32::new(0));
@@ -190,7 +196,7 @@ pub fn spawn(
 
 fn reader_thread(
     mut stream: impl Read + Send + 'static,
-    tx: Sender<Vec<u8>>,
+    tx: SyncSender<Vec<u8>>,
     _name: &str,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {

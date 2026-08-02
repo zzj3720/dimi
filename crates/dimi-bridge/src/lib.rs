@@ -13,6 +13,7 @@
 use napi_derive::napi;
 
 mod exec;
+mod fs;
 
 use dimi_store::AgentTranscript;
 use dimi_store::paginate::TurnPageQuery;

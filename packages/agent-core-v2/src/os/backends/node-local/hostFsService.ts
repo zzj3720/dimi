@@ -20,11 +20,15 @@ import {
 
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
+import { RustHostFileSystem } from '#/os/backends/rust-local/rustHostFileSystemService';
 
 import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
 
 const READ_CHUNK_SIZE = 64 * 1024;
+
+/** `DIMI_RUST_FS=1` swaps the fs backend to the Rust bridge (M2 slice 2). */
+const RUST_FS_ENABLED = process.env['DIMI_RUST_FS'] === '1';
 
 function isUtf8Encoding(encoding: BufferEncoding): boolean {
   return encoding === 'utf-8' || encoding === 'utf8';
@@ -261,7 +265,7 @@ export class HostFileSystem implements IHostFileSystem {
 registerScopedService(
   LifecycleScope.App,
   IHostFileSystem,
-  HostFileSystem,
+  RUST_FS_ENABLED ? RustHostFileSystem : HostFileSystem,
   ScopeActivation.OnScopeCreated,
   'hostFs',
 );

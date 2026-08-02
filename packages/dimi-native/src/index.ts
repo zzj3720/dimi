@@ -32,6 +32,10 @@ export interface NativeBinding {
   RustAgentTranscript: RustAgentTranscriptConstructor;
   /** Rust exec layer: process spawn (M2) — the IHostProcessService socket. */
   RustHostProcess: RustHostProcessConstructor;
+  /** Rust exec layer: filesystem (M2) — the IHostFileSystem socket. */
+  RustFileSystem: RustFileSystemConstructor;
+  /** `readLines` async-iterator handle class. */
+  RustReadLines: RustReadLinesConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -196,5 +200,126 @@ export class RustHostProcess {
     throw new Error(
       'RustHostProcess is async-constructed: use `await RustHostProcess.spawn(command, args, options)`',
     );
+  }
+}
+
+/** `readText` / `readLines` options — `BufferEncoding` + `TextDecodeErrors`. */
+export interface RustReadTextOptions {
+  encoding?: string;
+  errors?: 'strict' | 'replace' | 'ignore';
+}
+
+/** `HostFileStat` mirror (napi object). */
+export interface RustFileStat {
+  isFile: boolean;
+  isDirectory: boolean;
+  isSymbolicLink?: boolean;
+  size: number;
+  mtimeMs?: number;
+  ino?: number;
+}
+
+/** `HostDirEntry` mirror (napi object). */
+export interface RustDirEntry {
+  name: string;
+  isFile: boolean;
+  isDirectory: boolean;
+  isSymbolicLink?: boolean;
+}
+
+/** The napi `RustReadLines` class — line-iterator handle. */
+export interface RustReadLinesConstructor {
+  new (): RustReadLinesHandle;
+}
+
+/** `readLines` handle: `next()` yields one line (`null` at EOF). */
+export interface RustReadLinesHandle {
+  next(): Promise<string | null>;
+  dispose(): void;
+}
+
+/** The napi `RustFileSystem` class — stateless facade, all static methods. */
+export interface RustFileSystemConstructor {
+  readText(path: string, options?: RustReadTextOptions): Promise<string>;
+  writeText(path: string, data: string): Promise<void>;
+  appendText(path: string, data: string): Promise<void>;
+  readBytes(path: string, n?: number): Promise<Uint8Array>;
+  writeBytes(path: string, data: Uint8Array): Promise<void>;
+  readLines(path: string, options?: RustReadTextOptions): RustReadLinesHandle;
+  createExclusive(path: string, data: Uint8Array): Promise<boolean>;
+  stat(path: string): Promise<RustFileStat>;
+  lstat(path: string): Promise<RustFileStat>;
+  readdir(path: string): Promise<RustDirEntry[]>;
+  mkdir(path: string, recursive?: boolean): Promise<void>;
+  remove(path: string): Promise<void>;
+  realpath(path: string): Promise<string>;
+}
+
+/**
+ * `RustFileSystem` — TS-side mirror of the napi class with the same name
+ * (binding-contract parity). Stateless: every method delegates to the
+ * binding's static surface.
+ */
+export class RustFileSystem {
+  static readText(path: string, options?: RustReadTextOptions): Promise<string> {
+    return loadNative().RustFileSystem.readText(path, options);
+  }
+  static writeText(path: string, data: string): Promise<void> {
+    return loadNative().RustFileSystem.writeText(path, data);
+  }
+  static appendText(path: string, data: string): Promise<void> {
+    return loadNative().RustFileSystem.appendText(path, data);
+  }
+  static readBytes(path: string, n?: number): Promise<Uint8Array> {
+    return loadNative().RustFileSystem.readBytes(path, n);
+  }
+  static writeBytes(path: string, data: Uint8Array): Promise<void> {
+    return loadNative().RustFileSystem.writeBytes(path, data);
+  }
+  static readLines(path: string, options?: RustReadTextOptions): RustReadLinesHandle {
+    return loadNative().RustFileSystem.readLines(path, options);
+  }
+  static createExclusive(path: string, data: Uint8Array): Promise<boolean> {
+    return loadNative().RustFileSystem.createExclusive(path, data);
+  }
+  static stat(path: string): Promise<RustFileStat> {
+    return loadNative().RustFileSystem.stat(path);
+  }
+  static lstat(path: string): Promise<RustFileStat> {
+    return loadNative().RustFileSystem.lstat(path);
+  }
+  static readdir(path: string): Promise<RustDirEntry[]> {
+    return loadNative().RustFileSystem.readdir(path);
+  }
+  static mkdir(path: string, recursive?: boolean): Promise<void> {
+    return loadNative().RustFileSystem.mkdir(path, recursive);
+  }
+  static remove(path: string): Promise<void> {
+    return loadNative().RustFileSystem.remove(path);
+  }
+  static realpath(path: string): Promise<string> {
+    return loadNative().RustFileSystem.realpath(path);
+  }
+}
+
+/**
+ * `RustReadLines` — TS-side mirror of the napi class (binding-contract
+ * parity). Wraps a handle returned by `RustFileSystem.readLines`.
+ */
+export class RustReadLines {
+  readonly #inner: RustReadLinesHandle;
+
+  constructor(handle: RustReadLinesHandle) {
+    this.#inner = handle;
+  }
+
+  /** Next line including its `\n` terminator; `null` at EOF. */
+  next(): Promise<string | null> {
+    return this.#inner.next();
+  }
+
+  /** Drop the file handle early. */
+  dispose(): void {
+    this.#inner.dispose();
   }
 }
