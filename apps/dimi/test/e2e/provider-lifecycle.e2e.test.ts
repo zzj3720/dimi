@@ -378,7 +378,7 @@ function runCli(
       ],
       {
         cwd,
-        env: { ...env, DIMI_CODE_HOME: home, DIMI_LOG_LEVEL: "off" },
+        env: { ...env, DIMI_CODE_HOME: home, DIMI_LOG_LEVEL: "off", DIMI_LEGACY: "1" },
         stdio: ["pipe", "pipe", "pipe"],
       },
     );

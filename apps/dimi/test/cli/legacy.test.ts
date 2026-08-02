@@ -2,7 +2,7 @@
  * `--legacy` switch tests — the "use the TypeScript backend" flag.
  *
  * The main command parses `--legacy` and arms the process-wide
- * `DIMI_LEGACY_STORE` env switch (any server started in this process honors
+ * `DIMI_LEGACY` env switch (any server started in this process honors
  * it), and the web server CLI options carry `legacyStore` through
  * `parseServerOptions` into `startServer`.
  */
@@ -13,7 +13,7 @@ import { parseServerOptions } from '#/cli/sub/web/shared';
 
 describe('--legacy flag', () => {
   afterEach(() => {
-    delete process.env['DIMI_LEGACY_STORE'];
+    delete process.env['DIMI_LEGACY'];
   });
 
   test('main command parses --legacy and sets the env switch', () => {
@@ -29,7 +29,7 @@ describe('--legacy flag', () => {
     program.exitOverride();
     program.parse(['--legacy'], { from: 'user' });
     expect(seenLegacy).toBe(true);
-    expect(process.env['DIMI_LEGACY_STORE']).toBe('1');
+    expect(process.env['DIMI_LEGACY']).toBe('1');
   });
 
   test('main command without --legacy leaves the env switch unset', () => {

@@ -401,6 +401,7 @@ function startTui(
       TERM: 'xterm-256color',
       DIMI_CODE_HOME: home,
       DIMI_LOG_LEVEL: 'off',
+      DIMI_LEGACY: '1',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -429,6 +430,7 @@ function startDevTui(
       TERM: 'xterm-256color',
       DIMI_CODE_HOME: home,
       DIMI_LOG_LEVEL: 'off',
+      DIMI_LEGACY: '1',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
