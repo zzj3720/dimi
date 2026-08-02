@@ -1,7 +1,5 @@
 /**
- * Wire protocol 1.5 once anchored wall-clock at goal boundaries. The goal
- * feature is removed, so the migration is now the identity — every record
- * passes through unchanged and unknown goal records are skipped at restore.
+ * The migration is now the identity — every record passes through unchanged.
  */
 import type { WireMigration, WireMigrationRecord } from './migration';
 

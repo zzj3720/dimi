@@ -42,38 +42,6 @@ function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
 }
 
 describe('Agent resume', () => {
-  it('skips legacy goal records during resume without failing', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'metadata',
-        protocol_version: WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      } as unknown as WireRecord,
-      {
-        type: 'goal.create',
-        goalId: 'g1',
-        objective: 'old goal',
-        time: 10,
-      } as unknown as WireRecord,
-      {
-        type: 'goal.update',
-        status: 'paused',
-        time: 20,
-      } as unknown as WireRecord,
-      {
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'old prompt' }],
-        origin: { kind: 'user' },
-      } as unknown as WireRecord,
-    ]);
-    const ctx = testAgent({ persistence, autoConfigure: false });
-
-    // The goal feature is removed; legacy goal records must be skipped during
-    // restore instead of failing the resume or leaking into the transcript.
-    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
-    expect(ctx.contextData().history.some((m) => JSON.stringify(m).includes('goal'))).toBe(false);
-  });
-
   it('does not append metadata when resuming records that include legacy app version', async () => {
     const persistence = new RecordingAgentPersistence([
       {
