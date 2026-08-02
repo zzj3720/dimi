@@ -119,7 +119,7 @@ describe('wire.jsonl round-trip', () => {
       resetUnexpectedErrorHandler();
     }
 
-    expect(unexpected).toHaveLength(1);
+    expect(unexpected).toHaveLength(0);
     expect(replayTarget.wire.getModel(CounterModel)).toEqual(
       live.wire.getModel(CounterModel),
     );
