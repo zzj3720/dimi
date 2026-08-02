@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.4
+
+### Patch Changes
+
+- [`9b87918`](https://github.com/zzj3720/dimi/commit/9b87918a1019d6e9d62de07c87f2e5a6d45996f9) - Ship the Rust runtime with npm installs: the platform-specific native binding is now installed for every supported platform, and native (SEA) release binaries embed it instead of falling back to the legacy TypeScript backend.
+
 ## 0.5.3
 
 ### Patch Changes
