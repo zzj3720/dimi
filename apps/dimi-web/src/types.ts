@@ -325,7 +325,6 @@ export type DetailTarget = 'file' | 'diff' | 'thinking' | 'compaction' | 'agent'
 
 export interface ActivationBadges {
   plan: boolean;
-  goal: { status: string; turnsUsed: number; elapsedMs: number } | null;
   swarm: { done: number; total: number } | null;
 }
 

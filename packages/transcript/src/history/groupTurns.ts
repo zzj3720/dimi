@@ -13,7 +13,7 @@
  *    bytes are dropped, never shipped); mid-turn media is not anchored;
  *  - streamed-vs-persisted duplication is assumed already resolved upstream;
  *  - only the turn tree is built here: tasks / interactions / todos / meta
- *    (goal, plan, swarm) are NOT context messages — the companion fold
+ *    (plan, swarm) are NOT context messages — the companion fold
  *    (`foldWireRecordFacts` in `foldFacts.ts`) rebuilds them from the
  *    non-`context.*` wire records on top of this base snapshot;
  *  - persisted messages carry no turn ids, so turn ordinals are assigned by
@@ -85,7 +85,7 @@ interface StepDraft {
 const HIDDEN_USER_ORIGINS = new Set(['injection', 'system_trigger', 'retry']);
 /**
  * Hidden origins that nonetheless OPEN a real engine turn
- * (`MessageStepRequest` with `admission: 'newTurn'`, e.g. goal continuation;
+ * (`MessageStepRequest` with `admission: 'newTurn'`, e.g. subagent;
  * a subagent's run prompt goes through `promptService.enqueue`, which always
  * launches a new turn). Other hidden origins are mid-turn context
  * (reminders, injections, retries) and stay folded away; skipping a
@@ -93,7 +93,7 @@ const HIDDEN_USER_ORIGINS = new Set(['injection', 'system_trigger', 'retry']);
  * prior visible turn and break the 0-based ordinal alignment with the
  * engine's live turn numbering.
  */
-const TURN_OPENING_SYSTEM_TRIGGERS = new Set(['goal_continuation', 'subagent']);
+const TURN_OPENING_SYSTEM_TRIGGERS = new Set(['subagent']);
 /** Origins rendered as timeline markers rather than turns. */
 const MARKER_USER_ORIGINS: Readonly<Record<string, string>> = {
   skill_activation: 'skill',

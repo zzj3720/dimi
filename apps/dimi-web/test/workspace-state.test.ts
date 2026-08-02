@@ -85,7 +85,6 @@ function createState(): ExtendedState {
     thinkingBySession: {},
     planModeBySession: {},
     swarmModeBySession: {},
-    goalModeBySession: {},
     loading: false,
     sessionLoading: false,
     queuedBySession: {},
@@ -138,7 +137,6 @@ function createDeps(): UseWorkspaceStateDeps {
     subscribeToSessionEvents: vi.fn(),
     hasLoadedMessages: vi.fn(),
     refreshSessionStatus: vi.fn(),
-    refreshSessionGoal: vi.fn(),
     persistSessionProfile: vi.fn().mockResolvedValue(true),
     mergedWorkspaces: computed(() => []),
     workspacesView: computed(() => []),
@@ -147,12 +145,10 @@ function createDeps(): UseWorkspaceStateDeps {
     savePermissionToStorage: vi.fn(),
     savePlanModeToStorage: vi.fn(),
     saveSwarmModeToStorage: vi.fn(),
-    saveGoalModeToStorage: vi.fn(),
-    draftModes: { planMode: false, swarmMode: false, goalMode: false },
+    draftModes: { planMode: false, swarmMode: false },
     saveUnread: vi.fn(),
     saveActiveWorkspaceToStorage: vi.fn(),
     saveHiddenWorkspacesToStorage: vi.fn(),
-    goalErrorMessage: vi.fn(),
     basename: (path: string) => path.split("/").at(-1) ?? path,
     resetFastMoon: vi.fn(),
     initialized: ref(true),
@@ -829,7 +825,7 @@ describe("useWorkspaceState — startSessionAndActivateSkill", () => {
     const deps = {
       ...skillDeps(activateSkill),
       persistSessionProfile,
-      draftModes: { planMode: true, swarmMode: true, goalMode: false },
+      draftModes: { planMode: true, swarmMode: true },
     };
     const state = createState();
     state.permission = "auto";
@@ -870,7 +866,7 @@ describe("useWorkspaceState — startSessionAndActivateSkill", () => {
       upsertSessionFront: vi.fn((s) => {
         state2.sessions = [s, ...state2.sessions.filter((x) => x.id !== s.id)];
       }),
-      draftModes: { planMode: true, swarmMode: false, goalMode: false },
+      draftModes: { planMode: true, swarmMode: false },
     };
     const ws2 = useWorkspaceState(state2, deps2);
 
@@ -893,191 +889,6 @@ describe("useWorkspaceState — startSessionAndActivateSkill", () => {
     expect(apiMock.createSession).not.toHaveBeenCalled();
     expect(activateSkill).not.toHaveBeenCalled();
     expect(deps.pushOperationFailure).not.toHaveBeenCalled();
-  });
-});
-
-describe("useWorkspaceState — createGoal from an empty composer", () => {
-  const registered = { id: "wd_1", root: "/abs/path", name: "A", sessionCount: 0 };
-  const newSession = { ...createSession(), id: "sess_new", workspaceId: "wd_1", cwd: "/abs/path" };
-
-  beforeEach(() => {
-    apiMock.addWorkspace.mockReset();
-    apiMock.createSession.mockReset();
-    apiMock.updateSession.mockReset();
-    apiMock.submitPrompt.mockReset();
-    apiMock.addWorkspace.mockResolvedValue(registered);
-    apiMock.createSession.mockResolvedValue(newSession);
-    apiMock.updateSession.mockResolvedValue({});
-    apiMock.submitPrompt.mockResolvedValue({ promptId: "pr_goal" });
-  });
-
-  function emptyComposerState() {
-    const state = createState();
-    state.activeSessionId = null;
-    state.activeWorkspaceId = "wd_1";
-    state.workspaces = [workspace("wd_1", "/abs/path", "A")];
-    state.permission = "auto"; // skip the interactive goal-start confirmation
-    return state;
-  }
-
-  function goalDeps(): UseWorkspaceStateDeps {
-    return {
-      ...createDeps(),
-      taskPoller: {
-        loadTasksForSession: vi.fn(),
-      } as unknown as UseWorkspaceStateDeps["taskPoller"],
-      modelProvider: {
-        draftModel: ref(null),
-        skillsBySession: ref({}),
-        loadSkillsForSession: vi.fn(),
-        resolveThinkingForPrompt: async () => undefined,
-      } as unknown as UseWorkspaceStateDeps["modelProvider"],
-      // Something the goal can land in + what's visible in the sidebar.
-      mergedWorkspaces: computed(() => [workspace("wd_1", "/abs/path", "A")]),
-      workspacesView: computed(() => [workspace("wd_1", "/abs/path", "A")]),
-    } as unknown as UseWorkspaceStateDeps;
-  }
-
-  it("creates a session, sets the goal profile, and submits the objective", async () => {
-    const state = emptyComposerState(); // rawState.activeWorkspaceId = 'wd_1'
-    const deps = goalDeps();
-    const ws = useWorkspaceState(state, deps);
-
-    await ws.createGoal("improve test coverage");
-
-    expect(apiMock.createSession).toHaveBeenCalledOnce();
-    // Profile is updated on the new session: that's what marks the prompt as a goal.
-    expect(apiMock.updateSession).toHaveBeenCalledWith("sess_new", {
-      goalObjective: "improve test coverage",
-    });
-    // And the objective is sent as the first user prompt on the new session.
-    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
-      "sess_new",
-      expect.objectContaining({
-        content: [{ type: "text", text: "improve test coverage" }],
-      }),
-    );
-    expect(deps.pushOperationFailure).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the first visible workspace when raw activeWorkspaceId is unset", async () => {
-    // Regression for a real empty-workspace boot: load() never writes
-    // rawState.activeWorkspaceId when there are no sessions, so the raw read is
-    // null, but the sidebar still shows a usable workspace via the computed
-    // fallback. First-session goals must work there too.
-    const state = emptyComposerState();
-    state.activeWorkspaceId = null;
-    const ws = useWorkspaceState(state, goalDeps());
-
-    await ws.createGoal("improve test coverage");
-
-    expect(apiMock.createSession).toHaveBeenCalledOnce();
-    expect(apiMock.updateSession).toHaveBeenCalledWith("sess_new", {
-      goalObjective: "improve test coverage",
-    });
-    expect(apiMock.submitPrompt).toHaveBeenCalledOnce();
-  });
-
-  it("queues the objective when the active session is running (no queue bypass)", async () => {
-    // Regression: creating a goal against an already-active session must honor
-    // sendPrompt's queue guard, not bypass straight to submitPromptInternal.
-    // Otherwise a /goal message sent while another turn is running races with
-    // the active turn instead of being locally queued like normal sends.
-    const state = createState();
-    state.activeSessionId = "sess_1";
-    state.permission = "auto"; // skip the interactive goal-start confirmation
-    const ws = useWorkspaceState(state, createDeps());
-
-    await ws.createGoal("improve test coverage");
-
-    // Didn't create a session: we targeted the existing one.
-    expect(apiMock.createSession).not.toHaveBeenCalled();
-    expect(apiMock.updateSession).toHaveBeenCalledWith("sess_1", {
-      goalObjective: "improve test coverage",
-    });
-    // And because the session is running (createDeps' default activity is
-    // 'running'), sendPrompt queues rather than posting immediately.
-    expect(apiMock.submitPrompt).not.toHaveBeenCalled();
-    expect(state.queuedBySession["sess_1"]).toEqual([
-      expect.objectContaining({ text: "improve test coverage", attachments: undefined }),
-    ]);
-  });
-
-  it("is a no-op when there is no active session and no usable workspace", async () => {
-    const state = emptyComposerState();
-    state.activeWorkspaceId = null;
-    const deps: UseWorkspaceStateDeps = {
-      ...createDeps(),
-      mergedWorkspaces: computed(() => []),
-      workspacesView: computed(() => []),
-    };
-    const ws = useWorkspaceState(state, deps);
-
-    await ws.createGoal("improve test coverage");
-
-    expect(apiMock.createSession).not.toHaveBeenCalled();
-    expect(apiMock.updateSession).not.toHaveBeenCalled();
-    expect(apiMock.submitPrompt).not.toHaveBeenCalled();
-    expect(deps.pushOperationFailure).not.toHaveBeenCalled();
-  });
-
-  it("ignores empty/whitespace objectives", async () => {
-    const state = emptyComposerState();
-    const ws = useWorkspaceState(state, goalDeps());
-
-    await ws.createGoal("   ");
-
-    expect(apiMock.createSession).not.toHaveBeenCalled();
-    expect(apiMock.updateSession).not.toHaveBeenCalled();
-  });
-
-  it("clears staged goal mode so the objective prompt is submitted once", async () => {
-    // Regression for: empty composer with bare `/goal` staged (draftModes.goalMode),
-    // then `/goal <objective>`. createDraftSession copies draftModes.goalMode into
-    // goalModeBySession[sid]. If we don't clear it after the explicit
-    // updateSession(goalObjective), submitPromptInternal re-POSTs a goalObjective,
-    // the daemon rejects it (existing goal), and the objective prompt never sends.
-    const state = emptyComposerState();
-    const deps: UseWorkspaceStateDeps = {
-      ...goalDeps(),
-      draftModes: { planMode: false, swarmMode: false, goalMode: true },
-    };
-    const ws = useWorkspaceState(state, deps);
-
-    await ws.createGoal("improve test coverage");
-
-    // The explicit goal objective went through...
-    expect(apiMock.updateSession).toHaveBeenCalledWith("sess_new", {
-      goalObjective: "improve test coverage",
-    });
-    // ...and the objective prompt itself was submitted exactly once as a user prompt.
-    expect(apiMock.submitPrompt).toHaveBeenCalledTimes(1);
-    expect(apiMock.submitPrompt).toHaveBeenCalledWith(
-      "sess_new",
-      expect.objectContaining({
-        content: [{ type: "text", text: "improve test coverage" }],
-      }),
-    );
-    // goal mode flag was consumed by the explicit goal.
-    expect(state.goalModeBySession["sess_new"]).toBe(false);
-    expect(deps.pushOperationFailure).not.toHaveBeenCalled();
-  });
-
-  it("surfaces session-creation failures instead of leaking an unhandled rejection", async () => {
-    // App.vue invokes createGoal fire-and-forget, so a rejection from
-    // createDraftSession must be caught and reported via pushOperationFailure —
-    // mirroring the other draft-session paths (skill / BTW / first prompt).
-    const state = emptyComposerState();
-    const deps = goalDeps();
-    const ws = useWorkspaceState(state, deps);
-    const err = new Error("snapshot failed");
-    apiMock.createSession.mockRejectedValue(err);
-
-    await expect(ws.createGoal("improve test coverage")).resolves.toBeUndefined();
-
-    expect(deps.pushOperationFailure).toHaveBeenCalledWith("createGoal", err);
-    expect(apiMock.updateSession).not.toHaveBeenCalled();
-    expect(apiMock.submitPrompt).not.toHaveBeenCalled();
   });
 });
 

@@ -223,8 +223,6 @@ export interface PromptSubmission {
   permissionMode?: "manual" | "auto" | "yolo";
   planMode?: boolean;
   swarmMode?: boolean;
-  goalObjective?: string;
-  goalControl?: "pause" | "resume" | "cancel";
 }
 
 export interface PromptSubmitResult {
@@ -344,32 +342,6 @@ export interface AppTask {
    *  this links the two so the REST copy can be folded into this row and so
    *  cancel can target the id REST actually knows. */
   backgroundTaskId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Goal
-// ---------------------------------------------------------------------------
-
-export type AppGoalStatus = "active" | "paused" | "blocked" | "complete";
-
-export interface AppGoal {
-  goalId: string;
-  objective: string;
-  completionCriterion?: string;
-  status: AppGoalStatus;
-  turnsUsed: number;
-  tokensUsed: number;
-  wallClockMs: number;
-  terminalReason?: string;
-  budget: {
-    tokenBudget: number | null;
-    remainingTokens: number | null;
-    turnBudget: number | null;
-    remainingTurns: number | null;
-    wallClockBudgetMs: number | null;
-    remainingWallClockMs: number | null;
-    overBudget: boolean;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +515,6 @@ export type AppEvent =
   // background subagent or BTW side chat keeps the session busy but must not
   // light up the main conversation's moon. `reason` rides on deactivation.
   | { type: "turnActiveChanged"; sessionId: string; active: boolean; reason?: string }
-  | { type: "goalUpdated"; sessionId: string; goal: AppGoal | null }
   | { type: "configChanged"; changedFields: string[]; config: AppConfig }
   | {
       type: "modelCatalogChanged";
@@ -788,14 +759,10 @@ export interface DimiWebApi {
       permissionMode?: string;
       planMode?: boolean;
       swarmMode?: boolean;
-      goalObjective?: string;
-      goalControl?: "pause" | "resume" | "cancel";
       thinking?: string;
     },
   ): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
-  /** Current goal snapshot, or null when the session has no active goal. */
-  getSessionGoal(sessionId: string): Promise<AppGoal | null>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
   restoreSession(sessionId: string): Promise<AppSession>;

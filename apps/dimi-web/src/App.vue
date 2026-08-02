@@ -526,15 +526,6 @@ function handleCommand(cmd: string): void {
     } else void client.toggleSwarmMode();
     return;
   }
-  // `/goal <objective>` creates a goal (and submits it); `/goal pause|resume|cancel`
-  // controls the active one; bare `/goal` toggles goal mode for the next message.
-  if (cmd === "/goal" || cmd.startsWith("/goal ")) {
-    const arg = cmd.slice("/goal".length).trim();
-    if (arg === "pause" || arg === "resume" || arg === "cancel") client.controlGoal(arg);
-    else if (arg) void client.createGoal(arg);
-    else client.toggleGoalMode();
-    return;
-  }
   // `/btw <question>` opens (creating if needed) the side chat and asks it; bare
   // `/btw` toggles the side-chat tab for the active session.
   if (cmd === "/btw" || cmd.startsWith("/btw ")) {
@@ -815,13 +806,11 @@ function openPr(url: string): void {
         :git-info="client.gitInfo.value"
         :tasks="client.tasks.value"
         :todos="client.todos.value"
-        :goal="client.goal.value"
         :activation-badges="client.activationBadges.value"
         :status="client.status.value"
         :thinking="client.thinking.value"
         :plan-mode="client.planMode.value"
         :swarm-mode="client.swarmMode.value"
-        :goal-mode="client.goalMode.value"
         :models="client.models.value"
         :starred-ids="client.starredModelIds.value"
         :skills="client.skills.value"
@@ -870,9 +859,6 @@ function openPr(url: string): void {
         @set-thinking="client.setThinking($event)"
         @toggle-plan="client.togglePlanMode()"
         @toggle-swarm="client.toggleSwarmMode()"
-        @toggle-goal="client.toggleGoalMode()"
-        @create-goal="client.createGoal($event)"
-        @control-goal="client.controlGoal($event)"
         @refresh-git-status="
           client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)
         "

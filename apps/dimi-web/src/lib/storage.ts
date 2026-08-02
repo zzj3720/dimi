@@ -12,7 +12,6 @@ export const STORAGE_KEYS = {
   activeWorkspace: 'dimi-active-workspace',
   planMode: 'dimi-web.plan-mode',
   swarmMode: 'dimi-web.swarm-mode',
-  goalMode: 'dimi-web.goal-mode',
   uiFontSize: 'dimi-web.ui-font-size',
   starredModels: 'dimi-web.starred-models',
   unread: 'dimi-web.unread',

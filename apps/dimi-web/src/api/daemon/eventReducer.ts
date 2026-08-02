@@ -12,7 +12,6 @@ import type {
   AppApprovalRequest,
   AppConfig,
   AppEvent,
-  AppGoal,
   AppMessage,
   AppMessageContent,
   AppNotice,
@@ -62,11 +61,6 @@ export interface DimiClientState {
   planReviewByToolCallId: Record<string, { plan: string; path?: string }>;
   questionsBySession: Record<string, AppQuestionRequest[]>;
   tasksBySession: Record<string, AppTask[]>;
-  goalBySession: Record<string, AppGoal>;
-  /** Monotonic per-session counter bumped on EVERY `goalUpdated` event —
-   *  including delete/clear ones — so an async recovery read can detect that a
-   *  live event won the race even when the goal entry stayed absent. */
-  goalVersionBySession: Record<string, number>;
   lastSeqBySession: Record<string, number>;
   /** MAIN-agent turn in flight, per session — set from the main agent's
    *  turn.started/turn.ended boundary events and seeded from the snapshot's
@@ -87,8 +81,6 @@ export function createInitialState(): DimiClientState {
     planReviewByToolCallId: {},
     questionsBySession: {},
     tasksBySession: {},
-    goalBySession: {},
-    goalVersionBySession: {},
     lastSeqBySession: {},
     turnActiveBySession: {},
     compactionBySession: {},
@@ -115,8 +107,6 @@ function cloneState(s: DimiClientState): DimiClientState {
     planReviewByToolCallId: { ...s.planReviewByToolCallId },
     questionsBySession: { ...s.questionsBySession },
     tasksBySession: { ...s.tasksBySession },
-    goalBySession: { ...s.goalBySession },
-    goalVersionBySession: { ...s.goalVersionBySession },
     lastSeqBySession: { ...s.lastSeqBySession },
     turnActiveBySession: { ...s.turnActiveBySession },
     compactionBySession: { ...s.compactionBySession },
@@ -345,7 +335,6 @@ export function reduceAppEvent(
       next.sessions = next.sessions.filter((s) => s.id !== id);
       delete next.messagesBySession[id];
       delete next.tasksBySession[id];
-      delete next.goalBySession[id];
       delete next.approvalsBySession[id];
       delete next.questionsBySession[id];
       delete next.lastSeqBySession[id];
@@ -706,20 +695,6 @@ export function reduceAppEvent(
           outputBytes: event.outputBytes,
         };
       });
-      break;
-    }
-
-    // -------------------------------------------------------------------------
-    case 'goalUpdated': {
-      const sid = event.sessionId;
-      // Bump on every goal event — including clears — so refreshSessionGoal's
-      // recovery read can detect any live event that landed mid-flight.
-      next.goalVersionBySession[sid] = (next.goalVersionBySession[sid] ?? 0) + 1;
-      if (event.goal === null || event.goal.status === 'complete') {
-        delete next.goalBySession[sid];
-      } else {
-        next.goalBySession[sid] = event.goal;
-      }
       break;
     }
 

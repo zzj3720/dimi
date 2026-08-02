@@ -177,7 +177,7 @@ describe('granularity', () => {
 
 describe('paginateTurns', () => {
   const items: TranscriptItem[] = [
-    { kind: 'marker', markerId: 'm0', marker: 'goal' },
+    { kind: 'marker', markerId: 'm0', marker: 'notice' },
     ...[1, 2, 3, 4, 5].flatMap((n): TranscriptItem[] => [
       {
         kind: 'turn',
@@ -203,7 +203,7 @@ describe('paginateTurns', () => {
     expect(page.hasMore).toBe(true);
 
     const oldest = paginateTurns(items, { beforeTurn: 't2', pageSize: 5 });
-    expect(oldest.items[0]).toEqual({ kind: 'marker', markerId: 'm0', marker: 'goal' });
+    expect(oldest.items[0]).toEqual({ kind: 'marker', markerId: 'm0', marker: 'notice' });
     expect(oldest.hasMore).toBe(false);
   });
 
@@ -218,13 +218,13 @@ describe('paginateTurns', () => {
     // newest page carries it and reports nothing older (a segment-counted
     // page would drop it and hallucinate an older marker-only page).
     const page = paginateTurns(items, { pageSize: 5 });
-    expect(page.items[0]).toEqual({ kind: 'marker', markerId: 'm0', marker: 'goal' });
+    expect(page.items[0]).toEqual({ kind: 'marker', markerId: 'm0', marker: 'notice' });
     expect(page.items.map(idLabel)).toEqual(['m0', 't1', 'm1', 't2', 'm2', 't3', 'm3', 't4', 'm4', 't5', 'm5']);
     expect(page.hasMore).toBe(false);
   });
 
   it('returns a marker-only timeline as one page with nothing older', () => {
-    const only = paginateTurns([{ kind: 'marker', markerId: 'm0', marker: 'goal' }], { pageSize: 3 });
+    const only = paginateTurns([{ kind: 'marker', markerId: 'm0', marker: 'notice' }], { pageSize: 3 });
     expect(only.items.map(idLabel)).toEqual(['m0']);
     expect(only.hasMore).toBe(false);
   });
@@ -236,7 +236,7 @@ describe('ViewRegistry', () => {
     registry.registerTool('read', 'readRenderer');
     registry.registerTool('swarm', 'swarmRenderer');
     registry.registerInput('cron', 'cronInput');
-    registry.registerMarker('goal', 'goalMarker');
+    registry.registerMarker('notice', 'noticeMarker');
 
     expect(
       registry.resolveTool({ kind: 'tool', frameId: 'f', toolCallId: 'c1', name: 'Read', state: 'done' }),
@@ -249,7 +249,7 @@ describe('ViewRegistry', () => {
     ).toBe('generic');
     expect(registry.resolveInput({ kind: 'cron' })).toBe('cronInput');
     expect(registry.resolveInput({ kind: 'user' })).toBeUndefined();
-    expect(registry.resolveMarker('goal')).toBe('goalMarker');
+    expect(registry.resolveMarker('notice')).toBe('noticeMarker');
   });
 });
 
@@ -261,7 +261,7 @@ describe('contract schemas', () => {
       stepOp,
       frameOp,
       appendOp,
-      { op: 'marker.upsert', item: { kind: 'marker', markerId: 'm1', marker: 'goal' } },
+      { op: 'marker.upsert', item: { kind: 'marker', markerId: 'm1', marker: 'notice' } },
       { op: 'taskref.upsert', item: { kind: 'taskref', refId: 'r1', taskId: 'task1' } },
       { op: 'task.upsert', task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' } },
       {
@@ -274,7 +274,6 @@ describe('contract schemas', () => {
       },
       { op: 'todo.upsert', todo: { todoId: 'todo', items: [{ title: 'x', status: 'done' }] } },
       promptOp,
-      { op: 'meta.merge', meta: { goal: { objective: 'x', status: 'active' } } },
       { op: 'items.remove', ids: ['t1'] },
     ];
     for (const op of ops) {
@@ -569,15 +568,15 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
     expect(slashTurn.steps).toHaveLength(2);
   });
 
-  it('starts a promptless turn for turn-opening system triggers (goal continuation)', () => {
+  it('starts a promptless turn for turn-opening system triggers (subagent)', () => {
     const snapshot = groupMessagesIntoSnapshot([
       { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [], origin: { kind: 'user' } },
       { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
       {
         role: 'user',
-        content: [{ type: 'text', text: 'continue the goal' }],
+        content: [{ type: 'text', text: 'subagent run' }],
         toolCalls: [],
-        origin: { kind: 'system_trigger', name: 'goal_continuation' } as { kind: string },
+        origin: { kind: 'system_trigger', name: 'subagent' } as { kind: string },
       },
       { role: 'assistant', content: [{ type: 'text', text: 'continued' }], toolCalls: [] },
       {
@@ -589,7 +588,7 @@ describe('groupMessagesIntoSnapshot (cold path)', () => {
       { role: 'assistant', content: [{ type: 'text', text: 'still same turn' }], toolCalls: [] },
     ]);
 
-    // The continuation opened a real engine turn: the grouping must advance
+    // The system-triggered turn opened a real engine turn: the grouping must advance
     // (0-based ordinals stay aligned with the engine) instead of folding the
     // continuation output into the visible user turn. A mid-turn injection
     // still folds away without splitting the turn.
@@ -699,55 +698,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
     ]);
     // Facts append no items for todos.
     expect(folded.items).toBe(base.items);
-  });
-
-  it('folds goal create/update/clear into meta.goal with markers, last write wins', () => {
-    const base = baseWithMarker();
-    // The base carries one compaction marker (`m1`) — folded markers must
-    // continue the numbering instead of colliding.
-    expect(base.items.some((item) => item.kind === 'marker' && item.markerId === 'm1')).toBe(true);
-
-    const folded = foldWireRecordFacts(
-      [
-        {
-          type: 'goal.create',
-          goalId: 'g1',
-          objective: 'fix the bug',
-          completionCriterion: 'tests pass',
-          time: 1000,
-        },
-        { type: 'goal.update', status: 'blocked', reason: 'stuck', tokensUsed: 1200, time: 2000 },
-        { type: 'goal.update', budgetLimits: { tokenBudget: 50000 }, time: 3000 },
-      ],
-      base,
-    );
-    expect(folded.meta.goal).toEqual({
-      objective: 'fix the bug',
-      status: 'blocked',
-      completionCriterion: 'tests pass',
-      budgetUsed: 1200,
-      budgetLimit: 50000,
-    });
-    const goalMarkers = folded.items.filter(
-      (item) => item.kind === 'marker' && item.marker === 'goal',
-    );
-    expect(goalMarkers.map((item) => item.kind === 'marker' && item.markerId)).toEqual([
-      'm2',
-      'm3',
-      'm4',
-    ]);
-    expect(goalMarkers[0]).toMatchObject({ at: new Date(1000).toISOString() });
-    // Markers append after the base items, in record order.
-    expect(folded.items.slice(0, base.items.length)).toEqual(base.items);
-
-    const cleared = foldWireRecordFacts(
-      [
-        { type: 'goal.create', goalId: 'g1', objective: 'fix the bug', time: 1000 },
-        { type: 'goal.clear', time: 2000 },
-      ],
-      base,
-    );
-    expect(cleared.meta.goal).toBeUndefined();
   });
 
   it('folds plan/swarm mode records into meta.modes with enter/exit markers', () => {

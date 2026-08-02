@@ -1,16 +1,15 @@
 <!-- ChatDock.vue -->
-<!-- Bottom dock that belongs to the chat tab: goal strip, running-task chips, -->
+<!-- Bottom dock that belongs to the chat tab: running-task chips, -->
 <!-- pending question/approval cards, and the composer. Only rendered inside a -->
 <!-- chat-pane group so it never leaks into files/tasks/preview/btw panes. -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivationBadges, ApprovalBlock, ConversationStatus, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../../types';
-import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
+import type { AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/useDimiWebClient';
 import Composer from './Composer.vue';
-import GoalStrip from './GoalStrip.vue';
 import QuestionCard from './QuestionCard.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import TasksPane from './TasksPane.vue';
@@ -32,13 +31,10 @@ const props = defineProps<{
   thinking?: ThinkingLevel;
   planMode?: boolean;
   swarmMode?: boolean;
-  goalMode?: boolean;
   activationBadges?: ActivationBadges;
   models?: AppModel[];
   starredIds?: string[];
   skills?: AppSkill[];
-  goal?: AppGoal | null;
-  goalExpandSignal?: number;
   dockPanel: 'bash' | 'subagent' | 'todos' | null;
   bashTasks: TaskItem[];
   subagentTasks: TaskItem[];
@@ -65,11 +61,7 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleSwarm: [];
-  toggleGoal: [];
   openBtw: [];
-  createGoal: [objective: string];
-  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
-  focusGoal: [];
   focusSwarm: [];
   compact: [];
   pickModel: [];
@@ -207,12 +199,6 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       </div>
     </Transition>
 
-    <GoalStrip
-      v-if="goal"
-      :goal="goal"
-      :force-expanded="goalExpandSignal"
-      @control-goal="emit('controlGoal', $event)"
-    />
     <div v-if="hasDockWork" ref="workbarRef" class="dock-workbar">
       <Pill
         v-if="bashTasks.length > 0"
@@ -275,8 +261,6 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       :thinking="thinking"
       :plan-mode="planMode"
       :swarm-mode="swarmMode"
-      :goal-mode="goalMode"
-      :goal="goal"
       :activation-badges="activationBadges"
       :models="models"
       :starred-ids="starredIds"
@@ -290,11 +274,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       @set-thinking="emit('setThinking', $event)"
       @toggle-plan="emit('togglePlan')"
       @toggle-swarm="emit('toggleSwarm')"
-      @toggle-goal="emit('toggleGoal')"
       @open-btw="emit('openBtw')"
-      @create-goal="emit('createGoal', $event)"
-      @control-goal="emit('controlGoal', $event)"
-      @focus-goal="emit('focusGoal')"
       @focus-swarm="emit('focusSwarm')"
       @compact="emit('compact')"
       @pick-model="emit('pickModel')"

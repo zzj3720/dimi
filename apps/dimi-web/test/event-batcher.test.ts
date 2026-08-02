@@ -714,7 +714,6 @@ describe("useDimiWebClient (resync integration)", () => {
         maxContextTokens: 0,
         contextUsage: 0,
       })),
-      getSessionGoal: vi.fn(async () => null),
       getSessionWarnings: vi.fn(async () => []),
       getGitStatus: vi.fn(async () => ({
         branch: "",

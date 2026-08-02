@@ -228,14 +228,6 @@ export const transcriptTaskSchema = z.object({
   usage: stepUsageSchema.optional(),
 });
 
-export const goalMetaSchema = z.object({
-  objective: z.string(),
-  status: z.enum(['active', 'paused', 'blocked', 'complete']),
-  completionCriterion: z.string().optional(),
-  budgetUsed: z.number().optional(),
-  budgetLimit: z.number().optional(),
-});
-
 export const modesMetaSchema = z.object({
   plan: z.object({ reviewPath: z.string().optional(), version: z.number().optional() }).optional(),
   swarm: z.object({ trigger: z.string().optional() }).optional(),
@@ -333,7 +325,6 @@ export const agentStatusMetaSchema = z.object({
 });
 
 export const transcriptMetaSchema = z.object({
-  goal: goalMetaSchema.optional(),
   modes: modesMetaSchema.optional(),
   activity: z.enum(['idle', 'turn', 'disposing', 'unknown']).optional(),
   agent: agentStatusMetaSchema.optional(),

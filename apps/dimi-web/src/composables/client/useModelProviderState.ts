@@ -62,8 +62,6 @@ export interface PersistSessionProfilePatch {
   permissionMode?: string;
   planMode?: boolean;
   swarmMode?: boolean;
-  goalObjective?: string;
-  goalControl?: "pause" | "resume" | "cancel";
   thinking?: string;
 }
 

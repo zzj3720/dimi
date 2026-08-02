@@ -92,8 +92,6 @@ export interface WireSession {
     permission_mode?: string;
     plan_mode?: boolean;
     swarm_mode?: boolean;
-    goal_objective?: string;
-    goal_control?: "pause" | "resume" | "cancel";
   };
   usage: WireSessionUsage;
   permission_rules: WirePermissionRule[];
@@ -111,31 +109,6 @@ export interface WireSessionRuntimeStatus {
   context_tokens: number;
   max_context_tokens: number;
   context_usage: number;
-}
-
-// GET /sessions/{id}/goal — camelCase, same shape as the `goal.updated` event
-// payload. The endpoint returns null when no goal is active.
-export interface WireGoalSnapshot {
-  goalId: string;
-  objective: string;
-  completionCriterion?: string;
-  status: "active" | "paused" | "blocked" | "complete";
-  turnsUsed: number;
-  tokensUsed: number;
-  wallClockMs: number;
-  terminalReason?: string;
-  budget: {
-    tokenBudget: number | null;
-    turnBudget: number | null;
-    wallClockBudgetMs: number | null;
-    remainingTokens: number | null;
-    remainingTurns: number | null;
-    remainingWallClockMs: number | null;
-    tokenBudgetReached: boolean;
-    turnBudgetReached: boolean;
-    wallClockBudgetReached: boolean;
-    overBudget: boolean;
-  };
 }
 
 // GET /sessions/{id}/warnings — session-level warnings (e.g. oversized AGENTS.md).
@@ -221,8 +194,6 @@ export interface WirePromptSubmission {
   permission_mode?: string;
   plan_mode?: boolean;
   swarm_mode?: boolean;
-  goal_objective?: string;
-  goal_control?: "pause" | "resume" | "cancel";
 }
 
 export interface WirePromptSubmitResult {

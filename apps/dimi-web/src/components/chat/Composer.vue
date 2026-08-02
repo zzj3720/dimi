@@ -9,7 +9,7 @@ import { buildSlashItems, parseSlash, SKILL_COMMAND_PREFIX } from '../../lib/sla
 import { formatTokens } from '../../lib/formatTokens';
 import type { FileItem } from './MentionMenu.vue';
 import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../../types';
-import type { AppGoal, AppModel, AppSkill, ThinkingLevel } from '../../api/types';
+import type { AppModel, AppSkill, ThinkingLevel } from '../../api/types';
 import {
   commitLevel,
   effectiveThinkingLevel,
@@ -26,7 +26,6 @@ import { useAttachmentUpload, type Attachment } from '../../composables/useAttac
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import type { PromptAttachment } from '../../composables/useDimiWebClient';
 import Spinner from '../ui/Spinner.vue';
-import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
 import ContextRing from '../ui/ContextRing.vue';
@@ -53,8 +52,6 @@ const props = withDefaults(defineProps<{
   thinking?: ThinkingLevel;
   planMode?: boolean;
   swarmMode?: boolean;
-  goalMode?: boolean;
-  goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
   /** Available models for the quick-switch dropdown. */
   models?: AppModel[];
@@ -80,9 +77,7 @@ const placeholder = computed(() =>
     ? t('composer.starting')
     : props.running
       ? t('composer.placeholderRunning')
-      : props.goalMode
-        ? t('status.goalPlaceholder')
-        : t('composer.placeholder')
+      : t('composer.placeholder')
 );
 
 const emit = defineEmits<{
@@ -96,11 +91,7 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleSwarm: [];
-  toggleGoal: [];
   openBtw: [];
-  createGoal: [objective: string];
-  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
-  focusGoal: [];
   focusSwarm: [];
   compact: [];
   pickModel: [];
@@ -332,8 +323,8 @@ function handleSubmit(): void {
   history.push(trimmed);
 
   // If it's a known slash command, keep the optional tail as command input
-  // instead of submitting it as normal chat text. This covers `/goal <task>`,
-  // `/swarm <task>`, `/btw <question>`, slash skills with args, and bare
+  // instead of submitting it as normal chat text. This covers `/swarm <task>`,
+  // `/btw <question>`, slash skills with args, and bare
   // commands such as `/model`. A hand-typed bare skill name (`/deploy`) also
   // resolves to its prefixed menu entry (`/skill:deploy`), mirroring the TUI.
   if (trimmed) {
@@ -669,22 +660,16 @@ function thinkingSegmentLabel(segment: string): string {
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
 const swarmOn = computed(() => props.swarmMode === true);
-const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
-const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
-const goalArmed = computed(() => goalActive.value || props.goalMode === true);
-const goalCanPause = computed(() => goalStatus.value === 'active');
-const goalCanResume = computed(() => goalStatus.value === 'paused' || goalStatus.value === 'blocked');
 
-// Modes selector (plan / goal / swarm) — the popover that replaces the bare
-// "plan" pill. Plan/Swarm are real client toggles; goal reflects agent-driven
-// state and focuses its card when active.
+// Modes selector (plan / swarm) — the popover that replaces the bare
+// "plan" pill. Plan/Swarm are real client toggles.
 const modesOpen = ref(false);
 const modesRef = ref<HTMLElement | null>(null);
 const modesMenuRef = ref<HTMLElement | null>(null);
 // The menu is position:fixed (so no composer stacking context can paint over
 // it); these coords anchor it just above the pill, computed on open.
 const modesMenuStyle = ref<Record<string, string>>({});
-const anyModeActive = computed(() => planOn.value || swarmOn.value || goalArmed.value);
+const anyModeActive = computed(() => planOn.value || swarmOn.value);
 function closeModes(): void {
   modesOpen.value = false;
   document.removeEventListener('mousedown', onModesDocClick);
@@ -718,7 +703,7 @@ const PERM_MODES: { mode: PermissionMode; color: string; labelKey: string; descK
   { mode: 'yolo', color: 'var(--color-warning)', labelKey: 'status.permissionYolo', descKey: 'status.permissionYoloDesc' },
   { mode: 'auto', color: 'var(--color-danger)', labelKey: 'status.permissionAuto', descKey: 'status.permissionAutoDesc' },
 ];
-const MODE_DESC_KEYS = ['status.planDesc', 'status.swarmDesc', 'status.goalDesc'] as const;
+const MODE_DESC_KEYS = ['status.planDesc', 'status.swarmDesc'] as const;
 
 const menuMeasureRef = ref<HTMLElement | null>(null);
 const permissionDescriptionWidth = ref('');
@@ -995,7 +980,7 @@ function selectModel(modelId: string): void {
             </button>
           </div>
 
-          <!-- Modes selector (plan / goal / swarm) — replaces the plan pill. -->
+          <!-- Modes selector (plan / swarm) — replaces the plan pill. -->
           <div v-if="status" ref="modesRef" class="modes">
             <button
               type="button"
@@ -1006,7 +991,6 @@ function selectModel(modelId: string): void {
               <span class="mode-label">{{ t('status.modesLabel') }}</span>
               <span v-if="planOn" class="mode-tag">{{ t('status.planLabel') }}</span>
               <span v-if="swarmOn" class="mode-tag">{{ t('status.swarmLabel') }}</span>
-              <span v-if="goalArmed" class="mode-tag">{{ t('status.goalLabel') }}</span>
             </button>
 
             <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuInlineStyle" role="menu">
@@ -1028,53 +1012,7 @@ function selectModel(modelId: string): void {
                 </span>
                 <span class="mode-switch" :class="{ on: swarmOn }"><span class="mode-knob" /></span>
               </button>
-              <!-- Goal — lifecycle controls when active; switch is on when active or armed. -->
-              <div class="mode-row mode-row-goal" :class="{ on: goalActive || props.goalMode }">
-                <button
-                  type="button"
-                  class="mode-row-main"
-                  role="menuitem"
-                  @click="goalActive ? emit('focusGoal') : emit('toggleGoal')"
-                >
-                  <span class="mode-row-icon"><Icon name="target" size="sm" /></span>
-                  <span class="mode-row-info">
-                    <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
-                    <span class="mode-row-desc">{{ t('status.goalDesc') }}</span>
-                  </span>
-                  <span v-if="!goalActive" class="mode-switch" :class="{ on: props.goalMode }"><span class="mode-knob" /></span>
-                </button>
-                <div v-if="goalActive" class="mode-row-actions">
-                  <Button
-                    v-if="goalCanPause"
-                    size="sm"
-                    variant="secondary"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'pause')"
-                  >
-                    <Icon name="pause" size="sm" />
-                    <span>{{ t('status.goalPause') }}</span>
-                  </Button>
-                  <Button
-                    v-if="goalCanResume"
-                    size="sm"
-                    variant="primary"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'resume')"
-                  >
-                    <Icon name="play" size="sm" />
-                    <span>{{ t('status.goalResume') }}</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger-soft"
-                    class="mode-row-action"
-                    @click="emit('controlGoal', 'cancel')"
-                  >
-                    <Icon name="close" size="sm" />
-                    <span>{{ t('status.goalCancel') }}</span>
-                  </Button>
-                </div>
-              </div>
+
             </div>
           </div>
 
@@ -1900,7 +1838,7 @@ function selectModel(modelId: string): void {
 }
 
 /* Toggle pills (Thinking / Plan) */
-/* Modes selector (plan / goal / swarm) — replaces the old plan pill + badges.
+/* Modes selector (plan / swarm) — replaces the old plan pill + badges.
    z-index lifts the whole control (incl. its upward-opening menu) above the
    composer input row, which otherwise paints over the menu. */
 .modes { position: relative; display: inline-flex; z-index: var(--z-sticky); }
@@ -2039,50 +1977,6 @@ function selectModel(modelId: string): void {
 }
 .mode-switch.on .mode-knob { transform: translateX(15px); }
 
-.mode-row-goal {
-  --mode-row-icon-col: 14px;
-  --mode-row-col-gap: 7px;
-  --mode-row-pad-x: 7px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  cursor: default;
-  padding: 0;
-  gap: 0;
-}
-.mode-row-goal:hover { background: transparent; }
-.mode-row-goal.on {
-  background: var(--color-accent-soft);
-}
-.mode-row-main {
-  display: grid;
-  grid-template-columns: var(--mode-row-icon-col) var(--composer-menu-desc-width, max-content);
-  column-gap: var(--mode-row-col-gap);
-  row-gap: 2px;
-  align-items: start;
-  width: 100%;
-  padding: 6px var(--mode-row-pad-x);
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: var(--font-ui);
-  text-align: left;
-}
-.mode-row-main:hover { background: var(--color-surface-sunken); }
-.mode-row-goal.on .mode-row-main .mode-row-name { color: var(--color-accent-hover); }
-.mode-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  justify-content: flex-start;
-  padding: 0 var(--mode-row-pad-x) var(--mode-row-pad-x)
-    calc(var(--mode-row-pad-x) + var(--mode-row-icon-col) + var(--mode-row-col-gap));
-}
-.mode-row-action {
-  flex: none;
-}
-.mode-row-action :deep(.ui-button__content) { gap: var(--space-1); }
 .mode-row-input {
   flex: 1;
   min-width: 0;

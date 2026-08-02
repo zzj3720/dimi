@@ -58,7 +58,7 @@ export class ViewRegistry<C = unknown> {
     return this;
   }
 
-  /** Key: marker key ('compaction' | 'goal' | 'notice' | …). */
+  /** Key: marker key ('compaction' | 'notice' | …). */
   registerMarker(marker: string, renderer: C): this {
     this.#markerRenderers.set(marker, renderer);
     return this;

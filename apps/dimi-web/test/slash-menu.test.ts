@@ -72,7 +72,7 @@ describe('useSlashMenu — update', () => {
   });
 
   it('closes once the token contains a space', () => {
-    const { slash } = setup('/goal some task');
+    const { slash } = setup('/swarm some task');
     slash.update();
     expect(slash.open.value).toBe(false);
   });
@@ -116,9 +116,9 @@ describe('useSlashMenu — select', () => {
   });
 
   it('acceptsInput: keeps the command in the box and does not emit yet', async () => {
-    const { text, emitted, pushed, slash } = setup('/goal');
-    slash.select({ name: '/goal', desc: '', acceptsInput: true });
-    expect(text.value).toBe('/goal ');
+    const { text, emitted, pushed, slash } = setup('/swarm');
+    slash.select({ name: '/swarm', desc: '', acceptsInput: true });
+    expect(text.value).toBe('/swarm ');
     expect(emitted).toEqual([]);
     expect(pushed).toEqual([]);
     expect(slash.open.value).toBe(false);

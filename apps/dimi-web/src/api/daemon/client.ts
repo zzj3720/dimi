@@ -6,7 +6,6 @@ import { buildRestUrl, buildWsUrl } from "../config";
 import { traceKeyEvent } from "../../debug/trace";
 import type {
   AppConfig,
-  AppGoal,
   AppMessage,
   AppMessageRole,
   AppModel,
@@ -41,7 +40,6 @@ import {
   toAppConfig,
   toAppEvent,
   toAppFsEntry,
-  toAppGoal,
   toAppMessage,
   toAppModel,
   toAppProvider,
@@ -64,7 +62,6 @@ import type {
   WireFsBrowseResult,
   WireFsEntry,
   WireFsHomeResult,
-  WireGoalSnapshot,
   WireMessage,
   WireModel,
   WireOAuthCancelResult,
@@ -408,8 +405,6 @@ export class DaemonDimiWebApi implements DimiWebApi {
       permissionMode?: string;
       planMode?: boolean;
       swarmMode?: boolean;
-      goalObjective?: string;
-      goalControl?: "pause" | "resume" | "cancel";
       thinking?: string;
     },
   ): Promise<AppSession> {
@@ -421,8 +416,6 @@ export class DaemonDimiWebApi implements DimiWebApi {
     if (input.permissionMode !== undefined) agentConfig["permission_mode"] = input.permissionMode;
     if (input.planMode !== undefined) agentConfig["plan_mode"] = input.planMode;
     if (input.swarmMode !== undefined) agentConfig["swarm_mode"] = input.swarmMode;
-    if (input.goalObjective !== undefined) agentConfig["goal_objective"] = input.goalObjective;
-    if (input.goalControl !== undefined) agentConfig["goal_control"] = input.goalControl;
     if (input.thinking !== undefined) agentConfig["thinking"] = input.thinking;
     if (Object.keys(agentConfig).length > 0) body["agent_config"] = agentConfig;
     const data = await this.http.post<WireSession>(
@@ -452,17 +445,6 @@ export class DaemonDimiWebApi implements DimiWebApi {
       maxContextTokens: data.max_context_tokens ?? 0,
       contextUsage: data.context_usage ?? 0,
     };
-  }
-
-  /**
-   * GET /sessions/{id}/goal — the session's current goal, or null when no goal
-   * is active.
-   */
-  async getSessionGoal(sessionId: string): Promise<AppGoal | null> {
-    const data = await this.http.get<WireGoalSnapshot | null>(
-      `/sessions/${encodeURIComponent(sessionId)}/goal`,
-    );
-    return toAppGoal(data);
   }
 
   async getSessionWarnings(sessionId: string): Promise<WireSessionWarning[]> {

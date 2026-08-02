@@ -4,7 +4,6 @@ export default {
   login: { desc: 'Sign in to Dimi in the browser' },
   plan: { desc: 'Toggle plan mode on/off' },
   swarm: { desc: 'Toggle swarm mode; /swarm <task> runs a task in swarm' },
-  goal: { desc: 'Create/control a goal: /goal <objective>, /goal pause|resume|cancel' },
   btw: { desc: 'Side chat: /btw <question> asks a forked side session' },
   yolo: { desc: 'Auto-approve tool actions; the agent may still ask questions' },
   auto: { desc: 'Fully autonomous — the agent never asks questions' },

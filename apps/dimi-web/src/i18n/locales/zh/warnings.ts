@@ -46,11 +46,4 @@ export default {
   copyDetails: '复制诊断信息',
   copied: '已复制',
   wsTitle: '实时连接出错',
-  goal: {
-    alreadyExists: '当前会话已有一个进行中的目标，请先取消它再创建新目标。',
-    notFound: '没有找到可操作的目标，可能它已经结束或被取消。',
-    statusInvalid: '当前目标状态不支持这个操作。',
-    notResumable: '这个目标无法恢复（可能已取消或已完成）。',
-    objectiveTooLong: '目标描述太长了，请精简后重试。',
-  },
 };

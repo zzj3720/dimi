@@ -46,11 +46,4 @@ export default {
   copyDetails: 'Copy diagnostics',
   copied: 'Copied',
   wsTitle: 'Realtime connection error',
-  goal: {
-    alreadyExists: 'This session already has an active goal. Cancel it before starting a new one.',
-    notFound: 'No goal to act on — it may have already finished or been cancelled.',
-    statusInvalid: 'The current goal state does not allow this action.',
-    notResumable: 'This goal cannot be resumed (it may be cancelled or completed).',
-    objectiveTooLong: 'The objective is too long. Please shorten it and try again.',
-  },
 } as const;

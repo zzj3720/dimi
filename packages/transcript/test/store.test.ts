@@ -379,7 +379,7 @@ describe('AgentTranscript', () => {
     const tx = new AgentTranscript('main');
     for (let n = 1; n <= 5; n += 1) {
       tx.apply([
-        { op: 'marker.upsert', item: { kind: 'marker', markerId: `m${n}`, marker: 'goal' } },
+        { op: 'marker.upsert', item: { kind: 'marker', markerId: `m${n}`, marker: 'notice' } },
         {
           op: 'turn.upsert',
           turn: { kind: 'turn', turnId: `t${n}`, ordinal: n, state: 'completed', origin: { kind: 'user' } },
@@ -420,13 +420,9 @@ describe('AgentTranscript', () => {
     expect(task?.outputTail).toBe('line1\n');
   });
 
-  it('meta.merge merges goal/modes shallowly', () => {
+  it('meta.merge merges modes shallowly', () => {
     const tx = new AgentTranscript('main');
-    tx.apply([
-      { op: 'meta.merge', meta: { goal: { objective: 'ship it', status: 'active' } } },
-      { op: 'meta.merge', meta: { modes: { plan: { reviewPath: '/p' } } } },
-    ]);
-    expect(tx.getMeta().goal?.status).toBe('active');
+    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: { reviewPath: '/p' } } } }]);
     expect(tx.getMeta().modes?.plan?.reviewPath).toBe('/p');
   });
 

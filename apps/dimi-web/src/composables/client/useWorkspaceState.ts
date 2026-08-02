@@ -1,6 +1,6 @@
 // apps/dimi-web/src/composables/client/useWorkspaceState.ts
 // Workspace/session actions: session lifecycle, workspace CRUD, prompt
-// submission + queueing, approvals/questions/tasks, mode toggles, goals,
+// submission + queueing, approvals/questions/tasks, mode toggles,
 // file/diff/git actions, auth/config, and URL<->session routing.
 //
 // The event reducer wiring (applyEvent, connectEventsIfNeeded, eventConn) and
@@ -202,8 +202,6 @@ export interface PersistSessionProfilePatch {
   permissionMode?: string;
   planMode?: boolean;
   swarmMode?: boolean;
-  goalObjective?: string;
-  goalControl?: "pause" | "resume" | "cancel";
   thinking?: string;
 }
 
@@ -237,7 +235,6 @@ export interface UseWorkspaceStateDeps {
   reopenSession: (sessionId: string) => Promise<SyncSessionResult>;
   hasLoadedMessages: (sessionId: string) => boolean;
   refreshSessionStatus: (sessionId: string) => Promise<void>;
-  refreshSessionGoal: (sessionId: string) => Promise<void>;
   /** Persist profile fields to the daemon. Resolves false (after surfacing the
    *  failure itself) when the daemon rejected the patch — awaited callers that
    *  order strictly after the profile must NOT proceed on false. */
@@ -254,13 +251,11 @@ export interface UseWorkspaceStateDeps {
   /** Persist the current per-session mode maps (read off rawState). */
   savePlanModeToStorage: () => void;
   saveSwarmModeToStorage: () => void;
-  saveGoalModeToStorage: () => void;
   /** Staged mode toggles for the not-yet-created draft session. */
-  draftModes: { planMode: boolean; swarmMode: boolean; goalMode: boolean };
+  draftModes: { planMode: boolean; swarmMode: boolean };
   saveUnread: (changes: Record<string, boolean>) => void;
   saveActiveWorkspaceToStorage: (id: string) => void;
   saveHiddenWorkspacesToStorage: (roots: string[]) => void;
-  goalErrorMessage: (err: unknown) => string | undefined;
   resetFastMoon: () => void;
   initialized: Ref<boolean>;
   /** Diagnostic for the connecting splash, set by checkAuth on transient
@@ -294,7 +289,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     reopenSession,
     hasLoadedMessages,
     refreshSessionStatus,
-    refreshSessionGoal,
     persistSessionProfile,
     mergedWorkspaces,
     workspacesView,
@@ -303,12 +297,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     savePermissionToStorage,
     savePlanModeToStorage,
     saveSwarmModeToStorage,
-    saveGoalModeToStorage,
     draftModes,
     saveUnread,
     saveActiveWorkspaceToStorage,
     saveHiddenWorkspacesToStorage,
-    goalErrorMessage,
     resetFastMoon,
     initialized,
     connectIssue,
@@ -364,7 +356,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     void taskPoller.loadTasksForSession(sessionId);
     void loadGitStatus(sessionId);
     void refreshSessionStatus(sessionId);
-    void refreshSessionGoal(sessionId);
     if (!Object.prototype.hasOwnProperty.call(modelProvider.skillsBySession.value, sessionId)) {
       void modelProvider.loadSkillsForSession(sessionId);
     }
@@ -1127,13 +1118,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.swarmModeBySession = { ...rawState.swarmModeBySession, [sid]: true };
       saveSwarmModeToStorage();
     }
-    if (draftModes.goalMode) {
-      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: true };
-      saveGoalModeToStorage();
-    }
     draftModes.planMode = false;
     draftModes.swarmMode = false;
-    draftModes.goalMode = false;
     return sid;
   }
 
@@ -1194,9 +1180,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // otherwise the first skill turn can start before applyAgentState and
       // run at daemon defaults while the UI shows otherwise. Thinking is NOT
       // persisted here — activateSkill resolves and persists it for this
-      // session's model (gated) immediately before activating. Goal mode is a
-      // one-shot flag consumed per send, not a profile field, so there is
-      // nothing to persist for it.
+      // session's model (gated) immediately before activating.
       const planMode = rawState.planModeBySession[sid] ?? false;
       const swarmMode = rawState.swarmModeBySession[sid] ?? false;
       const promptSession = rawState.sessions.find((s) => s.id === sid);
@@ -1503,20 +1487,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // that session's settings.
       const planMode = rawState.planModeBySession[sid] ?? false;
       const swarmMode = rawState.swarmModeBySession[sid] ?? false;
-      const goalMode = rawState.goalModeBySession[sid] ?? false;
-
-      if (goalMode && text) {
-        try {
-          await api.updateSession(sid, { goalObjective: text.trim() });
-        } catch (err) {
-          pushOperationFailure("createGoal", err, { sessionId: sid });
-          rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
-          updateSessionMessages(sid, (msgs) =>
-            msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
-          );
-          return "rejected";
-        }
-      }
 
       const result = await api.submitPrompt(sid, {
         content,
@@ -1532,12 +1502,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         planMode,
         swarmMode,
       });
-
-      // Goal mode is a one-shot flag: consumed by this send, then cleared.
-      if (goalMode) {
-        rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: false };
-        saveGoalModeToStorage();
-      }
 
       // Authoritative prompt_id for :abort — race-free (the projector binding can
       // lose to a fast turn.started and synthesize a `pr_…` id the daemon rejects).
@@ -2146,112 +2110,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     setSwarmMode(on);
   }
 
-  /** Persist goal mode for the active session. Unlike plan/swarm, this is a
-   *  one-shot flag consumed on send (not pushed to the session profile). */
-  function setGoalMode(on: boolean): void {
-    const sid = rawState.activeSessionId;
-    if (sid) {
-      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: on };
-      saveGoalModeToStorage();
-    } else {
-      draftModes.goalMode = on;
-    }
-  }
-
-  /** Flip goal mode on/off for the active session (or the draft). */
-  function toggleGoalMode(): void {
-    const sid = rawState.activeSessionId;
-    const current = sid ? (rawState.goalModeBySession[sid] ?? false) : draftModes.goalMode;
-    setGoalMode(!current);
-  }
-
-  /** Create a goal by sending its objective to the session profile, then submit it as a prompt. */
-  async function createGoal(objective: string): Promise<void> {
-    const trimmed = objective.trim();
-    if (!trimmed) return;
-    if (rawState.permission === "manual") {
-      const ok = await confirm({
-        title: t("workspace.goalStartConfirm", { objective: trimmed }),
-        variant: "primary",
-      });
-      if (!ok) return;
-    }
-    // Empty-composer heal: `/goal <objective>` from the new-session screen
-    // would otherwise silently clear and run nothing. Create the session first
-    // (same path as the first prompt / a new-session skill), then target it.
-    let sid = rawState.activeSessionId;
-    if (!sid) {
-      // Use the same fallback as the client-wide computed activeWorkspaceId
-      // (raw value if it exists, else the first sidebar-visible workspace). On a
-      // fresh empty workspace load() never writes rawState.activeWorkspaceId
-      // (there's no most-recent session to anchor it), so a raw read here would
-      // be null and silently no-op even though the UI can still show a usable
-      // workspace. Plain first-prompts and skill activations don't hit this
-      // because App.vue passes the computed activeWorkspaceId in.
-      const raw = rawState.activeWorkspaceId;
-      const wsId =
-        raw && workspacesView.value.some((w) => w.id === raw)
-          ? raw
-          : (workspacesView.value[0]?.id ?? null);
-      if (!wsId) return;
-      // App.vue invokes createGoal fire-and-forget, so a rejection here would
-      // otherwise surface as an unhandled rejection instead of an operation
-      // failure. Mirror the other draft-session paths (skill / BTW / first
-      // prompt) which wrap createDraftSession.
-      try {
-        sid = (await createDraftSession(wsId)) ?? undefined;
-      } catch (err) {
-        pushOperationFailure("createGoal", err);
-        return;
-      }
-      if (!sid) return;
-    }
-    try {
-      await getDimiWebApi().updateSession(sid, { goalObjective: trimmed });
-    } catch (err) {
-      pushOperationFailure("createGoal", err, { sessionId: sid, message: goalErrorMessage(err) });
-      return;
-    }
-    // The goal objective is set explicitly above. If goal mode was staged on the
-    // draft (e.g. the user ran bare `/goal`, then `/goal <objective>`),
-    // createDraftSession copied it into this session's goalModeBySession map.
-    // Leaving it on would make submitPromptInternal (via sendPrompt) re-POST
-    // another goalObjective — which the daemon rejects because a goal already
-    // exists — and the user's objective prompt would never be submitted.
-    // Clear the one-shot flag here: an explicit `/goal <objective>` has exactly
-    // the same effect as the goal-mode flag's consumption.
-    if (rawState.goalModeBySession[sid]) {
-      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: false };
-      saveGoalModeToStorage();
-    }
-    // Preserve normal send queueing semantics whenever the goal still targets the
-    // active session (the overwhelmingly common case): sendPrompt enqueues when
-    // another turn is running or a prompt is already in flight. Only fall back to
-    // the explicit-session send when activeSessionId moved during the create
-    // window above, so a concurrent session switch can't redirect the goal prompt.
-    // (The new session is otherwise idle+not-in-flight, so this does not race
-    // another turn.)
-    if (rawState.activeSessionId === sid) {
-      await sendPrompt(trimmed);
-    } else {
-      await submitPromptInternal(sid, trimmed);
-    }
-  }
-
-  /** Send a one-shot goal control action (pause/resume/cancel). */
-  function controlGoal(action: "pause" | "resume" | "cancel"): void {
-    const sid = rawState.activeSessionId;
-    if (!sid) return;
-    void Promise.resolve(getDimiWebApi().updateSession(sid, { goalControl: action })).catch(
-      (err) => {
-        pushOperationFailure("controlGoal", err, {
-          sessionId: sid,
-          message: goalErrorMessage(err),
-        });
-      },
-    );
-  }
-
   /** Persist and apply a new permission mode. Approval decisions are owned by
    *  the daemon (auto/yolo are resolved server-side), so any pending approvals
    *  are left for the user to answer explicitly. */
@@ -2807,10 +2665,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     togglePlanMode,
     setSwarmMode,
     toggleSwarmMode,
-    setGoalMode,
-    toggleGoalMode,
-    createGoal,
-    controlGoal,
     setPermission,
     dismissWarning,
     renameSession,

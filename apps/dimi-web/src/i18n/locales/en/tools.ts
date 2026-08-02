@@ -13,10 +13,6 @@ export default {
     task: 'Task',
     swarm: 'Swarm',
     ask_user: 'Question',
-    goal_create: 'Start Goal',
-    goal_get: 'Read Goal',
-    goal_budget: 'Set Goal Budget',
-    goal_update: 'Update Goal',
   },
   swarm: {
     progress: '{done} / {total}',
@@ -35,17 +31,6 @@ export default {
     edited: 'edited',
     created: 'created',
     todos: '{count} items',
-  },
-  goal: {
-    objectiveWithCriterion: '{objective} · {criterion}',
-    status: 'Status: {status}',
-    budget: '{value} {unit}',
-    turns: '{value} turns',
-    tokens: '{value} tokens',
-    milliseconds: '{value} ms',
-    seconds: '{value} sec',
-    minutes: '{value} min',
-    hours: '{value} hr',
   },
   group: {
     title: '{count} tool call | {count} tool calls',

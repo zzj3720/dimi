@@ -56,7 +56,6 @@ import type {
   AppEvent,
   AppApprovalRequest,
   AppConfig,
-  AppGoal,
   AppNotice,
   AppNoticeDetail,
   AppMessage,
@@ -115,7 +114,6 @@ const PERMISSION_STORAGE_KEY = STORAGE_KEYS.permission;
 const ACTIVE_WORKSPACE_KEY = STORAGE_KEYS.activeWorkspace;
 const PLAN_MODE_STORAGE_KEY = STORAGE_KEYS.planMode;
 const SWARM_MODE_STORAGE_KEY = STORAGE_KEYS.swarmMode;
-const GOAL_MODE_STORAGE_KEY = STORAGE_KEYS.goalMode;
 const SESSION_NOT_FOUND_CODE = 40401;
 const ONBOARDED_STORAGE_KEY = STORAGE_KEYS.onboarded;
 
@@ -153,7 +151,7 @@ function savePermissionToStorage(mode: PermissionMode): void {
   }
 }
 
-// Plan / swarm / goal modes are per-session. Each is persisted as a compact
+// Plan / swarm modes are per-session. Each is persisted as a compact
 // JSON map of only the `true` entries (cleared sessions are dropped), keyed by
 // session id — mirroring the unread map. The legacy global format (a bare
 // 'true'/'false' string) is not an object and parses to an empty map, so it is
@@ -193,10 +191,6 @@ function savePlanModeToStorage(): void {
 
 function saveSwarmModeToStorage(): void {
   saveModeMapToStorage(SWARM_MODE_STORAGE_KEY, rawState.swarmModeBySession);
-}
-
-function saveGoalModeToStorage(): void {
-  saveModeMapToStorage(GOAL_MODE_STORAGE_KEY, rawState.goalModeBySession);
 }
 
 function loadActiveWorkspaceFromStorage(): string | null {
@@ -314,8 +308,6 @@ export interface ExtendedState extends DimiClientState {
   planModeBySession: Record<string, boolean>;
   /** Swarm-mode toggle per session. */
   swarmModeBySession: Record<string, boolean>;
-  /** Goal-mode (one-shot "next send creates a goal") toggle per session. */
-  goalModeBySession: Record<string, boolean>;
   loading: boolean;
   sessionLoading: boolean;
   queuedBySession: Record<string, QueuedPrompt[]>;
@@ -396,7 +388,6 @@ const rawState: ExtendedState = reactive({
   thinkingBySession: {},
   planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
   swarmModeBySession: loadModeMapFromStorage(SWARM_MODE_STORAGE_KEY),
-  goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
   loading: false,
   sessionLoading: false,
   queuedBySession: {},
@@ -429,16 +420,15 @@ const rawState: ExtendedState = reactive({
 
 // ---------------------------------------------------------------------------
 // Draft mode staging (no active session yet).
-// When the user toggles plan/swarm/goal in the empty composer before the first
+// When the user toggles plan/swarm in the empty composer before the first
 // message is sent, there is no session to bind the toggle to. These staged
 // values are transferred into the new session's per-session entry when the
 // first prompt is sent (see startSessionAndSendPrompt), then cleared. Not
 // persisted — the draft is ephemeral.
 // ---------------------------------------------------------------------------
-const draftModes = reactive<{ planMode: boolean; swarmMode: boolean; goalMode: boolean }>({
+const draftModes = reactive<{ planMode: boolean; swarmMode: boolean }>({
   planMode: false,
   swarmMode: false,
-  goalMode: false,
 });
 
 // ---------------------------------------------------------------------------
@@ -595,7 +585,6 @@ function forgetSession(sessionId: string): void {
   delete rawState.approvalsBySession[sessionId];
   delete rawState.questionsBySession[sessionId];
   delete rawState.tasksBySession[sessionId];
-  delete rawState.goalBySession[sessionId];
   delete rawState.gitStatusBySession[sessionId];
   delete rawState.lastSeqBySession[sessionId];
   delete rawState.compactionBySession[sessionId];
@@ -619,11 +608,9 @@ function forgetSession(sessionId: string): void {
   // doesn't linger in localStorage.
   delete rawState.planModeBySession[sessionId];
   delete rawState.swarmModeBySession[sessionId];
-  delete rawState.goalModeBySession[sessionId];
   delete rawState.thinkingBySession[sessionId];
   savePlanModeToStorage();
   saveSwarmModeToStorage();
-  saveGoalModeToStorage();
 }
 
 // Models + Providers reactive state and helpers live in
@@ -678,38 +665,6 @@ async function refreshSessionStatus(sessionId: string): Promise<void> {
   }
 }
 
-/**
- * Fetch GET /sessions/{id}/goal and fold the result into goalBySession — the
- * recovery channel for the goal card after a full-page reload (the snapshot +
- * WS-replay path never carries the historical `goal.updated`, since its seq is
- * ≤ the snapshot watermark). Never throws — an old daemon without the /goal
- * endpoint keeps any live-event state.
- */
-async function refreshSessionGoal(sessionId: string): Promise<void> {
-  // A live `goal.updated` arriving during the request is newer than whatever
-  // the server read when handling it — never let this recovery write override
-  // such an event (it would resurrect a finished goal until the next reload).
-  // Track the per-session goal event version, not the goal entry itself:
-  // clear/complete events DELETE the entry, which would leave an
-  // undefined === undefined comparison blind to exactly the race that matters.
-  const versionBefore = rawState.goalVersionBySession[sessionId] ?? 0;
-  let goal: AppGoal | null;
-  try {
-    goal = await getDimiWebApi().getSessionGoal(sessionId);
-  } catch {
-    return; // goal endpoint missing/unreachable — keep what we have.
-  }
-  if ((rawState.goalVersionBySession[sessionId] ?? 0) !== versionBefore) {
-    return; // a live goal event won the race
-  }
-  // Mirror the reducer's goalUpdated branch: null (or a completed goal) clears
-  // the card, anything else replaces it.
-  const nextGoals = { ...rawState.goalBySession };
-  if (goal === null || goal.status === "complete") delete nextGoals[sessionId];
-  else nextGoals[sessionId] = goal;
-  rawState.goalBySession = nextGoals;
-}
-
 /** Persist runtime controls to a session via POST /profile, then re-read
  *  /status. `sessionId` overrides the active session — used when creating a
  *  session and immediately persisting its draft modes, so a concurrent session
@@ -728,8 +683,6 @@ function persistSessionProfile(
     permissionMode?: string;
     planMode?: boolean;
     swarmMode?: boolean;
-    goalObjective?: string;
-    goalControl?: "pause" | "resume" | "cancel";
     thinking?: string;
   },
   sessionId?: string,
@@ -821,8 +774,6 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     planReviewByToolCallId: rawState.planReviewByToolCallId,
     questionsBySession: rawState.questionsBySession,
     tasksBySession: rawState.tasksBySession,
-    goalBySession: rawState.goalBySession,
-    goalVersionBySession: rawState.goalVersionBySession,
     lastSeqBySession: rawState.lastSeqBySession,
     turnActiveBySession: rawState.turnActiveBySession,
     compactionBySession: rawState.compactionBySession,
@@ -838,8 +789,6 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.planReviewByToolCallId = next.planReviewByToolCallId;
   rawState.questionsBySession = next.questionsBySession;
   rawState.tasksBySession = next.tasksBySession;
-  rawState.goalBySession = next.goalBySession;
-  rawState.goalVersionBySession = next.goalVersionBySession;
   rawState.lastSeqBySession = next.lastSeqBySession;
   rawState.turnActiveBySession = next.turnActiveBySession;
   rawState.compactionBySession = next.compactionBySession;
@@ -1321,23 +1270,6 @@ function pushOperationFailure(
     httpStatus: network ? err.status : undefined,
   });
   pushWarning(operationFailureNotice(operation, err, opts));
-}
-
-// Goal-specific protocol error codes (40913–40918). The daemon now returns
-// these instead of a bare 500, so map them to a friendly explanation rather
-// than dumping the raw envelope message on the user.
-const GOAL_ERROR_KEYS: Record<number, string> = {
-  40913: "warnings.goal.alreadyExists",
-  40914: "warnings.goal.notFound",
-  40915: "warnings.goal.statusInvalid",
-  40916: "warnings.goal.notResumable",
-  40918: "warnings.goal.objectiveTooLong",
-};
-
-function goalErrorMessage(err: unknown): string | undefined {
-  if (!isDaemonApiError(err)) return undefined;
-  const key = GOAL_ERROR_KEYS[err.code];
-  return key ? i18n.global.t(key) : undefined;
 }
 
 async function handleSessionNotFound(sessionId: string): Promise<void> {
@@ -2025,12 +1957,6 @@ const swarmMembersByToolCallId = computed<Map<string, SwarmMember[]>>(() =>
   swarmMembersByToolCall(activeAppTasks.value),
 );
 
-const goal = computed<AppGoal | null>(() => {
-  const sid = rawState.activeSessionId;
-  if (!sid) return null;
-  return rawState.goalBySession[sid] ?? null;
-});
-
 /** Current todo list of the active session (TodoList tool, latest write wins). */
 const todos = computed<TodoView[]>(() => {
   const sid = rawState.activeSessionId;
@@ -2086,23 +2012,11 @@ const swarmMode = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
   return sid ? (rawState.swarmModeBySession[sid] ?? false) : draftModes.swarmMode;
 });
-const goalMode = computed<boolean>(() => {
-  const sid = rawState.activeSessionId;
-  return sid ? (rawState.goalModeBySession[sid] ?? false) : draftModes.goalMode;
-});
 
 const activationBadges = computed<ActivationBadges>(() => {
   const swarmCounts = countSwarmMembers(swarms.value);
   return {
     plan: planMode.value,
-    goal:
-      goal.value && goal.value.status !== "complete"
-        ? {
-            status: goal.value.status,
-            turnsUsed: goal.value.turnsUsed,
-            elapsedMs: goal.value.wallClockMs,
-          }
-        : null,
     swarm: swarmCounts.total > 0 ? swarmCounts : null,
   };
 });
@@ -2612,7 +2526,6 @@ const workspaceState = useWorkspaceState(rawState, {
   reopenSession,
   hasLoadedMessages,
   refreshSessionStatus,
-  refreshSessionGoal,
   persistSessionProfile,
   mergedWorkspaces,
   workspacesView,
@@ -2621,12 +2534,10 @@ const workspaceState = useWorkspaceState(rawState, {
   savePermissionToStorage,
   savePlanModeToStorage,
   saveSwarmModeToStorage,
-  saveGoalModeToStorage,
   draftModes,
   saveUnread,
   saveActiveWorkspaceToStorage,
   saveHiddenWorkspacesToStorage,
-  goalErrorMessage,
   resetFastMoon: appearance.resetFastMoon,
   initialized,
   connectIssue,
@@ -2792,7 +2703,6 @@ export function useDimiWebClient() {
      *  sources a subagent's streaming `outputLines` from here. */
     activeAppTasks,
     todos,
-    goal,
     swarms,
     swarmMembersByToolCallId,
     activationBadges,
@@ -2826,7 +2736,6 @@ export function useDimiWebClient() {
     thinking,
     planMode,
     swarmMode,
-    goalMode,
     queued,
     warnings,
     questions,
@@ -2914,10 +2823,6 @@ export function useDimiWebClient() {
     togglePlanMode: workspaceState.togglePlanMode,
     setSwarmMode: workspaceState.setSwarmMode,
     toggleSwarmMode: workspaceState.toggleSwarmMode,
-    setGoalMode: workspaceState.setGoalMode,
-    toggleGoalMode: workspaceState.toggleGoalMode,
-    createGoal: workspaceState.createGoal,
-    controlGoal: workspaceState.controlGoal,
     enqueue: workspaceState.enqueue,
     dismissWarning: workspaceState.dismissWarning,
     renameSession: workspaceState.renameSession,

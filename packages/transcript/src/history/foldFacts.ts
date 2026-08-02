@@ -2,7 +2,7 @@
  * Cold-path fact fold: enrich a base snapshot (the turn tree built by
  * `groupMessagesIntoSnapshot`) with the durable facts carried by the
  * non-`context.*` wire records — tasks, interactions, todos, and the
- * goal/plan/swarm meta.
+ * plan/swarm meta.
  *
  * This is the second half of the cold rebuild: the engine persists these
  * records next to the context messages in the same `wire.jsonl`, and the live
@@ -31,7 +31,7 @@
 
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
-import type { GoalMeta, GoalStatus, TranscriptMeta } from '../model/meta';
+import type { TranscriptMeta } from '../model/meta';
 import type { TranscriptTask } from '../model/task';
 import type { TodoItem, TranscriptTodo } from '../model/todo';
 import type { AgentTranscriptSnapshot } from '../ops/operation';
@@ -44,7 +44,7 @@ export interface HistoryWireRecord {
 
 // ---------------------------------------------------------------------------
 // Record payload shapes (structural reads of the engine op payloads — see
-// `agent-core-v2` goal/plan/swarm/todo/task/interaction ops).
+// `agent-core-v2` plan/swarm/todo/task/interaction ops).
 // ---------------------------------------------------------------------------
 
 /** `tools.update_store` payload. */
@@ -53,14 +53,6 @@ interface UpdateStorePayload {
   readonly value?: unknown;
 }
 
-/** `goal.create` / `goal.update` payload (the GoalState source fields). */
-interface GoalPayload {
-  readonly objective?: unknown;
-  readonly completionCriterion?: unknown;
-  readonly status?: unknown;
-  readonly tokensUsed?: unknown;
-  readonly budgetLimits?: { readonly tokenBudget?: unknown };
-}
 
 /** `task.started` / `task.terminated` `info` (`AgentTaskInfo`). */
 interface TaskInfoPayload {
@@ -118,7 +110,6 @@ const TASK_STATES = new Set<TranscriptTask['state']>([
   'lost',
 ]);
 
-const GOAL_STATUSES = new Set<GoalStatus>(['active', 'paused', 'blocked', 'complete']);
 
 /** Interaction terminal state — mirrors the live path's `mapInteractionEndState`. */
 function mapInteractionEndState(
@@ -174,8 +165,6 @@ export function foldWireRecordFacts(
   const tasks = new Map<string, TranscriptTask>();
   const interactions = new Map<string, TranscriptInteraction>();
   let todo: TranscriptTodo | undefined;
-  let goal: GoalMeta | undefined;
-  let goalTouched = false;
   let planActive: boolean | undefined;
   /** Latest folded `plan.revision` reference; feeds the active plan badge. */
   let planRevision: { readonly reviewPath?: string; readonly version?: number } | undefined;
@@ -259,48 +248,6 @@ export function foldWireRecordFacts(
           items: readTodoItems(payload.value),
           updatedAt: recordTimeIso(record),
         };
-        break;
-      }
-      case 'goal.create': {
-        const payload = record as GoalPayload;
-        goalTouched = true;
-        // Mirrors the model's `apply`: a create always lands active with zero
-        // usage; budget limits arrive via `goal.update`.
-        goal = {
-          objective: typeof payload.objective === 'string' ? payload.objective : '',
-          status: 'active',
-          completionCriterion:
-            typeof payload.completionCriterion === 'string'
-              ? payload.completionCriterion
-              : undefined,
-          budgetUsed: 0,
-        };
-        pushMarker('goal', record);
-        break;
-      }
-      case 'goal.update': {
-        const payload = record as GoalPayload;
-        goalTouched = true;
-        if (goal !== undefined) {
-          const tokenBudget = payload.budgetLimits?.tokenBudget;
-          goal = {
-            ...goal,
-            status:
-              typeof payload.status === 'string' &&
-              GOAL_STATUSES.has(payload.status as GoalStatus)
-                ? (payload.status as GoalStatus)
-                : goal.status,
-            budgetUsed:
-              typeof payload.tokensUsed === 'number' ? payload.tokensUsed : goal.budgetUsed,
-            budgetLimit: typeof tokenBudget === 'number' ? tokenBudget : goal.budgetLimit,
-          };
-        }
-        pushMarker('goal', record);
-        break;
-      }
-      case 'goal.clear': {
-        goalTouched = true;
-        goal = undefined;
         break;
       }
       case 'plan_mode.enter': {
@@ -395,7 +342,6 @@ export function foldWireRecordFacts(
   const modesTouched = planActive !== undefined || swarmActive !== undefined;
   const meta: TranscriptMeta = {
     ...base.meta,
-    goal: goalTouched ? goal : base.meta.goal,
     modes: modesTouched
       ? {
           ...base.meta.modes,

@@ -3,7 +3,7 @@
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
-import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
+import type { AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
 import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/useDimiWebClient';
 import ChatPane from './ChatPane.vue';
@@ -27,13 +27,11 @@ const props = defineProps<{
   tasks: TaskItem[];
   /** Model-maintained todo list (TodoList tool) — shown as a floating card. */
   todos?: TodoView[];
-  goal?: AppGoal | null;
   activationBadges?: ActivationBadges;
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
   swarmMode?: boolean;
-  goalMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
    *  state). Keyed by questionId with the action kind. */
@@ -113,9 +111,6 @@ const emit = defineEmits<{
   setThinking: [level: ThinkingLevel];
   togglePlan: [];
   toggleSwarm: [];
-  toggleGoal: [];
-  createGoal: [objective: string];
-  controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   compact: [];
   pickModel: [];
   selectModel: [modelId: string];
@@ -185,7 +180,6 @@ const chatPaneRef = ref<InstanceType<typeof ChatPane> | null>(null);
 const emptyComposerRef = ref<ComposerHandle | null>(null);
 const dockedComposerRef = ref<ComposerHandle | null>(null);
 const copyConversationCopied = ref(false);
-const goalExpandSignal = ref(0);
 let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Load text (and any attachments) into whichever composer is currently mounted
@@ -215,10 +209,6 @@ function handleCopyConversationCopied(): void {
     copyConversationCopiedTimer = null;
     copyConversationCopied.value = false;
   }, 2000);
-}
-
-function focusGoal(): void {
-  goalExpandSignal.value++;
 }
 
 const bashTasks = computed(() => props.tasks.filter((t) => t.kind !== 'subagent'));
@@ -1378,8 +1368,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
               :thinking="thinking"
               :plan-mode="planMode"
               :swarm-mode="swarmMode"
-              :goal-mode="goalMode"
-              :goal="goal"
               :activation-badges="activationBadges"
               :models="models"
               :starred-ids="starredIds"
@@ -1396,11 +1384,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @set-thinking="emit('setThinking', $event)"
               @toggle-plan="emit('togglePlan')"
               @toggle-swarm="emit('toggleSwarm')"
-              @toggle-goal="emit('toggleGoal')"
               @open-btw="emit('command', '/btw')"
-              @create-goal="emit('createGoal', $event)"
-              @control-goal="emit('controlGoal', $event)"
-              @focus-goal="focusGoal"
               @compact="emit('compact')"
               @pick-model="emit('pickModel')"
               @select-model="emit('selectModel', $event)"
@@ -1454,13 +1438,10 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :thinking="thinking"
         :plan-mode="planMode"
         :swarm-mode="swarmMode"
-        :goal-mode="goalMode"
         :activation-badges="activationBadges"
         :models="models"
         :starred-ids="starredIds"
         :skills="skills"
-        :goal="goal"
-        :goal-expand-signal="goalExpandSignal"
         :dock-panel="dockPanel"
         :bash-tasks="bashTasks"
         :subagent-tasks="subagentTasks"
@@ -1481,7 +1462,6 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @dismiss="emit('dismiss', $event)"
         @approval="handleApproval"
         @cancel-task="emit('cancelTask', $event)"
-        @control-goal="emit('controlGoal', $event)"
         @submit="handleComposerSubmit"
         @steer="emit('steer', $event)"
         @command="emit('command', $event)"
@@ -1490,10 +1470,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @set-thinking="emit('setThinking', $event)"
         @toggle-plan="emit('togglePlan')"
         @toggle-swarm="emit('toggleSwarm')"
-        @toggle-goal="emit('toggleGoal')"
           @open-btw="emit('command', '/btw')"
-          @create-goal="emit('createGoal', $event)"
-          @focus-goal="focusGoal"
           @compact="emit('compact')"
           @pick-model="emit('pickModel')"
           @select-model="emit('selectModel', $event)"
