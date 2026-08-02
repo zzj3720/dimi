@@ -42,13 +42,16 @@ import('./main-app').catch((error: unknown) => {
 
 /** Locate the napi binding without loading it. */
 function nativeBindingAvailable(): boolean {
-  const require = createRequire(import.meta.url);
+  // NB: do not name this binding `require` — rolldown's CJS output references
+  // the injected `require` inside the createRequire initializer, and a
+  // `const require` shadowing it dies with a TDZ ReferenceError at startup.
+  const nodeRequire = createRequire(import.meta.url);
   // Bundled/npm install: `dist/dimi_bridge.node` next to `dist/main.mjs`
   // (the bundled `loadNative` resolves `../dist/dimi_bridge.node` from it).
   const candidates = [resolve(dirname(fileURLToPath(import.meta.url)), '../dist/dimi_bridge.node')];
   // Dev (tsx from src/): the workspace dimi-native package's own dist.
   try {
-    const pkgPath = require.resolve('@dimi-agent/dimi-native/package.json');
+    const pkgPath = nodeRequire.resolve('@dimi-agent/dimi-native/package.json');
     candidates.push(resolve(dirname(pkgPath), 'dist/dimi_bridge.node'));
   } catch {
     // not resolvable in the packaged runtime — the first candidate covers it
