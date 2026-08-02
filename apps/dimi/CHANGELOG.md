@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.1
+
+### Patch Changes
+
+- [`d1726cd`](https://github.com/zzj3720/dimi/commit/d1726cdcfe70661df6107dc93e2148dc65c0ed51) - Clarify the AllDone tool guidance so agents call WaitFor directly when waiting on the user instead of replying with repeated status text.
+
 ## 0.5.0
 
 ### Minor Changes

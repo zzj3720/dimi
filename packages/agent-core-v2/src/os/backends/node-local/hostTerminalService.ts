@@ -18,6 +18,8 @@ import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/
 
 import { IHostTerminalService, type TerminalProcess, type TerminalSpawnOptions } from '#/os/interface/terminal';
 
+import { RustHostTerminalService } from '#/os/backends/rust-local/rustHostTerminalService';
+
 export class HostTerminalService extends Disposable implements IHostTerminalService {
   declare readonly _serviceBrand: undefined;
 
@@ -55,10 +57,19 @@ export class HostTerminalService extends Disposable implements IHostTerminalServ
   }
 }
 
+/**
+ * Default backend is the Rust pty terminal (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * node-pty backend. The bridge is loaded lazily inside
+ * `RustHostTerminalService`, so this registration only throws at spawn time
+ * when the native binding is absent.
+ */
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
+
 registerScopedService(
   LifecycleScope.App,
   IHostTerminalService,
-  HostTerminalService,
+  LEGACY_TS ? HostTerminalService : RustHostTerminalService,
   ScopeActivation.OnScopeCreated,
   'terminal',
 );

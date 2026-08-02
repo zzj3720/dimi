@@ -31,5 +31,9 @@
   },
   "dependencies": {
     "@dimi-agent/transcript": "workspace:^"
+  },
+  "devDependencies": {
+    "chokidar": "^4.0.3",
+    "node-pty": "^1.1.0"
   }
 }

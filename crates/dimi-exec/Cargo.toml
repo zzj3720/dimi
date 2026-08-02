@@ -1,0 +1,22 @@
+[package]
+name = "dimi-exec"
+description = "OS exec layer: process spawn, filesystem, environment probe, fs watch — mirror of agent-core-v2 os/backends/node-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+libc = "0.2"
+# Filesystem watch backend (chokidar mirror, M2 slice 4).
+notify = "7"
+# Interactive terminal backend (node-pty mirror, M2 slice 5).
+portable-pty = "0.9"
+
+# setsid/kill are plain libc calls; the workspace default `unsafe_code =
+# "forbid"` cannot apply (same carve-out as dimi-bridge).
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "warn"
