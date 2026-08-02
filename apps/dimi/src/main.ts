@@ -46,15 +46,32 @@ function nativeBindingAvailable(): boolean {
   // the injected `require` inside the createRequire initializer, and a
   // `const require` shadowing it dies with a TDZ ReferenceError at startup.
   const nodeRequire = createRequire(import.meta.url);
-  // Bundled/npm install: `dist/dimi_bridge.node` next to `dist/main.mjs`
+  // SEA binary: the platform binding is embedded in the executable, so the
+  // Rust runtime is available by construction (bundle and assets are atomic).
+  try {
+    const sea = nodeRequire('node:sea') as { isSea?: () => boolean } | undefined;
+    if (typeof sea?.isSea === 'function' && sea.isSea()) return true;
+  } catch {
+    // not a SEA runtime
+  }
+  // Local dev build: `dist/dimi_bridge.node` next to the bundle
   // (the bundled `loadNative` resolves `../dist/dimi_bridge.node` from it).
-  const candidates = [resolve(dirname(fileURLToPath(import.meta.url)), '../dist/dimi_bridge.node')];
+  if (existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '../dist/dimi_bridge.node'))) {
+    return true;
+  }
+  // npm install (>=0.5.4): the platform binding subpackage installed by npm.
+  try {
+    nodeRequire.resolve(`@dimi-agent/dimi-native-${process.platform}-${process.arch}`);
+    return true;
+  } catch {
+    // binding not installed for this platform
+  }
   // Dev (tsx from src/): the workspace dimi-native package's own dist.
   try {
     const pkgPath = nodeRequire.resolve('@dimi-agent/dimi-native/package.json');
-    candidates.push(resolve(dirname(pkgPath), 'dist/dimi_bridge.node'));
+    if (existsSync(resolve(dirname(pkgPath), 'dist/dimi_bridge.node'))) return true;
   } catch {
-    // not resolvable in the packaged runtime — the first candidate covers it
+    // not resolvable in the packaged runtime — no binding available
   }
-  return candidates.some((candidate) => existsSync(candidate));
+  return false;
 }

@@ -3,6 +3,12 @@ packages:
   - apps/*
   - docs
 
+onlyBuiltDependencies:
+  # node-pty's postinstall downloads/compiles its native pty.node; pnpm 10
+  # blocks dependency build scripts by default, which leaves the pty
+  # differential suite (and the legacy terminal backend) without a binary.
+  - node-pty
+
 catalog:
   zod: 4.3.6
 

@@ -193,6 +193,7 @@ impl RustHostProcess {
 }
 
 /// `NodeJS.Signals` → numeric signal (defaults to SIGTERM).
+#[cfg(unix)]
 fn signal_to_number(signal: &str) -> i32 {
     let name = signal
         .strip_prefix("SIG")
@@ -212,5 +213,32 @@ fn signal_to_number(signal: &str) -> i32 {
         "PIPE" => libc::SIGPIPE,
         "ALRM" => libc::SIGALRM,
         _ => libc::SIGTERM,
+    }
+}
+
+/// `NodeJS.Signals` → numeric signal. Windows kills go through
+/// `taskkill /T /F` and ignore the signal value, and the libc crate does not
+/// provide the POSIX-only constants there, so map to the standard numeric
+/// values for parity and fall back to SIGTERM (15).
+#[cfg(windows)]
+fn signal_to_number(signal: &str) -> i32 {
+    let name = signal
+        .strip_prefix("SIG")
+        .unwrap_or(signal)
+        .to_ascii_uppercase();
+    match name.as_str() {
+        "HUP" => 1,
+        "INT" => 2,
+        "QUIT" => 3,
+        "ABRT" => 6,
+        "KILL" => 9,
+        "USR1" => 10,
+        "USR2" => 12,
+        "PIPE" => 13,
+        "ALRM" => 14,
+        "TERM" => 15,
+        "CONT" => 18,
+        "STOP" => 19,
+        _ => 15,
     }
 }

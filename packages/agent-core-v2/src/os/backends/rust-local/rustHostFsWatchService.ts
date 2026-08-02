@@ -10,7 +10,7 @@
  * stays here on the adapter, exactly like the node-local backend.
  */
 
-import { rustFsWatch, type RustFsWatchHandle } from '@dimi-agent/dimi-native';
+import { rustFsWatch, type RustFsWatchHandleLike } from '@dimi-agent/dimi-native';
 
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -26,7 +26,7 @@ class RustHostFsWatchHandle implements IHostFsWatchHandle {
   readonly onDidChange: Event<HostFsChange>;
 
   private readonly emitter: Emitter<HostFsChange>;
-  private readonly handle: RustFsWatchHandle;
+  private readonly handle: RustFsWatchHandleLike;
   private readonly ignored: ((path: string) => boolean) | undefined;
   private disposed = false;
 

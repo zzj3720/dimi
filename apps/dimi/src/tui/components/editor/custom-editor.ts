@@ -622,10 +622,6 @@ export function highlightFirstSlashToken(line: string, token: 'primary'): string
 }
 
 
-function isTokenSpace(ch: string | undefined): boolean {
-  return ch === ' ' || ch === '\t';
-}
-
 function highlightVisibleRanges(
   line: string,
   ranges: Array<{ start: number; end: number }>,

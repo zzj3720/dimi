@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
-import { rustFsWatch, type RustFsChange, type RustFsWatchHandle } from '#/index';
+import { rustFsWatch, type RustFsChange, type RustFsWatchHandleLike } from '#/index';
 
 const bindingPath = new URL('../dist/dimi_bridge.node', import.meta.url);
 const nativeAvailable = existsSync(bindingPath);
@@ -30,7 +30,7 @@ interface WatchedChange {
   kind: string;
 }
 
-function collectRust(handle: RustFsWatchHandle, ms: number): Promise<WatchedChange[]> {
+function collectRust(handle: RustFsWatchHandleLike, ms: number): Promise<WatchedChange[]> {
   return new Promise((resolve) => {
     const changes: WatchedChange[] = [];
     handle.setOnChange((change: RustFsChange) => {

@@ -104,25 +104,31 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     );
   });
 
-  test('readLines matches node readFile split, incl. cross-chunk lines', async () => {
-    const file = p('lines.txt');
-    let content = '';
-    for (let i = 0; i < 200_000; i += 1) {
-      content += `line${i}\n`;
-    }
-    content += 'tail-no-newline';
-    writeFileSync(file, content, 'utf8');
-    const tsLines = (await fsp.readFile(file, 'utf8')).split(/(?<=\n)/);
-    if (tsLines[tsLines.length - 1] === '') tsLines.pop();
-    const rust: string[] = [];
-    const handle = await RustFileSystem.readLines(file);
-    for (;;) {
-      const line = await handle.next();
-      if (line === null) break;
-      rust.push(line);
-    }
-    expect(rust).toEqual(tsLines);
-  });
+  test(
+    'readLines matches node readFile split, incl. cross-chunk lines',
+    async () => {
+      const file = p('lines.txt');
+      let content = '';
+      for (let i = 0; i < 200_000; i += 1) {
+        content += `line${i}\n`;
+      }
+      content += 'tail-no-newline';
+      writeFileSync(file, content, 'utf8');
+      const tsLines = (await fsp.readFile(file, 'utf8')).split(/(?<=\n)/);
+      if (tsLines[tsLines.length - 1] === '') tsLines.pop();
+      const rust: string[] = [];
+      const handle = await RustFileSystem.readLines(file);
+      for (;;) {
+        const line = await handle.next();
+        if (line === null) break;
+        rust.push(line);
+      }
+      expect(rust).toEqual(tsLines);
+    },
+    // 200k lines are streamed line-by-line over napi; debug builds on slow CI
+    // runners exceed the default 5s timeout by a wide margin.
+    30_000,
+  );
 
   test('readLines BOM stripped on the first line only', async () => {
     const file = p('bom-lines.txt');

@@ -9,7 +9,10 @@
  */
 import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
+// NB: do not name this binding `require` — rolldown's CJS (SEA) output
+// references the injected `require` inside the createRequire initializer, and
+// a `const require` shadowing it dies with a TDZ ReferenceError at startup.
+const nodeRequire = createRequire(import.meta.url);
 
 export interface NativeBinding {
   /** Parse one transcript item and re-serialize it canonically. */
@@ -102,20 +105,46 @@ export interface RustHostProcessHandle {
 let binding: NativeBinding | undefined;
 
 /**
- * Loads the native binding, building nothing. Throws with a pointer to the
- * build command when `dist/dimi_bridge.node` is missing.
+ * The npm platform subpackage for this machine, e.g.
+ * `@dimi-agent/dimi-native-darwin-arm64`. Installed by npm as an
+ * optionalDependency of the CLI; in the SEA binary the module hook redirects
+ * it into the native-asset cache.
+ */
+const PLATFORM_SUBPACKAGE = `@dimi-agent/dimi-native-${process.platform}-${process.arch}`;
+
+function loadPlatformSubpackage(): NativeBinding | null {
+  try {
+    return nodeRequire(PLATFORM_SUBPACKAGE) as NativeBinding;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Loads the native binding, building nothing. Resolution order:
+ *  1. `dist/dimi_bridge.node` next to the package — the dev / workspace
+ *     layout (local cargo builds always win).
+ *  2. the npm platform subpackage (`@dimi-agent/dimi-native-<platform>-<arch>`)
+ *     — npm installs >=0.5.4; the SEA binary's module hook redirects the same
+ *     specifier into the embedded native-asset cache.
+ * Throws with a pointer to the build command when neither exists.
  */
 export function loadNative(): NativeBinding {
   if (binding) return binding;
   try {
-    binding = require('../dist/dimi_bridge.node') as NativeBinding;
-  } catch (error) {
-    throw new Error(
-      'dimi-native: native binding not found; run `pnpm --filter @dimi-agent/dimi-native run build:native`',
-      { cause: error },
-    );
+    binding = nodeRequire('../dist/dimi_bridge.node') as NativeBinding;
+    return binding;
+  } catch {
+    // not the workspace layout — try the npm-installed platform subpackage
   }
-  return binding;
+  const platformBinding = loadPlatformSubpackage();
+  if (platformBinding !== null) {
+    binding = platformBinding;
+    return binding;
+  }
+  throw new Error(
+    'dimi-native: native binding not found; run `pnpm --filter @dimi-agent/dimi-native run build:native`',
+  );
 }
 
 export function normalizeItem(json: string): string {
@@ -276,18 +305,20 @@ export interface RustFsWatchOptions {
 
 /** The napi `RustFsWatchHandle` class — one watch session. */
 export interface RustFsWatchHandleConstructor {
-  new (): RustFsWatchHandle;
+  new (): RustFsWatchHandleLike;
 }
 
 /** Watch session: events arrive via `setOnChange` until `dispose`. */
-export interface RustFsWatchHandle {
+// NB: named `...Like` — `RustFsWatchHandle` (the TS mirror class below) must
+// not merge declarations with an interface of the same name.
+export interface RustFsWatchHandleLike {
   setOnChange(onChange: (change: RustFsChange) => void): void;
   dispose(): void;
 }
 
 /** The napi `RustFsWatch` class — stateless facade. */
 export interface RustFsWatchConstructor {
-  watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle;
+  watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandleLike;
 }
 
 /**
@@ -295,7 +326,10 @@ export interface RustFsWatchConstructor {
  * chokidar surface (created/modified/deleted × file/directory, `.git`
  * filtered); the `ignored` callback option is applied by the adapter.
  */
-export function rustFsWatch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle {
+export function rustFsWatch(
+  path: string,
+  options?: RustFsWatchOptions,
+): RustFsWatchHandleLike {
   return loadNative().RustFsWatch.watch(path, options);
 }
 
@@ -303,7 +337,7 @@ export function rustFsWatch(path: string, options?: RustFsWatchOptions): RustFsW
  * `RustFsWatch` — TS-side mirror of the napi class (binding-contract parity).
  */
 export class RustFsWatch {
-  static watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandle {
+  static watch(path: string, options?: RustFsWatchOptions): RustFsWatchHandleLike {
     return rustFsWatch(path, options);
   }
 }
@@ -313,9 +347,9 @@ export class RustFsWatch {
  * parity). Wraps a handle returned by `RustFsWatch.watch`.
  */
 export class RustFsWatchHandle {
-  readonly #inner: RustFsWatchHandle;
+  readonly #inner: RustFsWatchHandleLike;
 
-  constructor(handle: RustFsWatchHandle) {
+  constructor(handle: RustFsWatchHandleLike) {
     this.#inner = handle;
   }
 

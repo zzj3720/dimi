@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { RustHostTerminalService } from '#/os/backends/rust-local/rustHostTerminalService';
 import type { TerminalProcess } from '#/os/interface/terminal';
 
-const SHELL = process.env.SHELL ?? '/bin/sh';
+const SHELL = process.env['SHELL'] ?? '/bin/sh';
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe('RustHostTerminalService', () => {

@@ -47,6 +47,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The rust-local backend tests exercise the napi binding; build it before
+      # running vitest (gitignored dist/ does not survive checkout).
+      - run: pnpm --filter @dimi-agent/dimi-native run build:native
+
       # Reuse the vitest transform cache (node_modules/.vite, vitest's default
       # location) across shards and runs — re-transforming the monorepo's
       # sources is the dominant cost of the test jobs. Safe to restore stale:

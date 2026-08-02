@@ -11,7 +11,6 @@
  * in the `AsyncGenerator` contract.
  */
 
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { TextDecodeErrors } from '#/_base/execEnv/decodeText';
 import {
   RustFileSystem,

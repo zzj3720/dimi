@@ -23,6 +23,29 @@ let installed = false;
 // two path segments after "prebuilds", so ".+" (not "[^/]+") is required.
 const PI_TUI_NATIVE_PATTERN = /native[\\/](?:win32|darwin)[\\/]prebuilds[\\/].+\.node$/;
 
+// dimi-native's binding subpackage, e.g. `@dimi-agent/dimi-native-darwin-arm64`.
+// loadNative requires it by name (falling back from the workspace dist copy);
+// in a SEA binary no node_modules exists, so redirect it into the
+// native-asset cache where the per-platform binding is materialized.
+const DIMI_NATIVE_SUBPACKAGE = /^@dimi-agent\/dimi-native-(?:darwin|linux|win32)-(?:arm64|x64)$/;
+
+/**
+ * The cached dimi_bridge.node for the requested binding subpackage, or null
+ * when the package resolves normally (dev / npm installs — the real package
+ * wins) or the native-asset tree has no such package.
+ */
+function dimiNativeBindingPath(request: string): string | null {
+  try {
+    nodeRequire.resolve(request);
+    return null; // resolvable outside SEA — nothing to redirect
+  } catch {
+    // not installed — fall through to the native-asset cache (SEA)
+  }
+  const pkgRoot = getNativePackageRoot(request);
+  if (pkgRoot === null) return null;
+  return join(pkgRoot, 'dimi_bridge.node');
+}
+
 export function installNativeModuleHook(): void {
   if (installed) return;
   installed = true;
@@ -37,16 +60,19 @@ export function installNativeModuleHook(): void {
     parent: unknown,
     isMain: boolean,
   ): unknown {
-    if (
-      typeof request === 'string' &&
-      PI_TUI_NATIVE_PATTERN.test(request) &&
-      !existsSync(request)
-    ) {
-      const pkgRoot = getNativePackageRoot('@dimi-agent/pi-tui');
-      if (pkgRoot !== null) {
-        const match = request.match(PI_TUI_NATIVE_PATTERN);
-        if (match !== null) {
-          const redirected = join(pkgRoot, match[0]);
+    if (typeof request === 'string') {
+      if (PI_TUI_NATIVE_PATTERN.test(request) && !existsSync(request)) {
+        const pkgRoot = getNativePackageRoot('@dimi-agent/pi-tui');
+        if (pkgRoot !== null) {
+          const match = request.match(PI_TUI_NATIVE_PATTERN);
+          if (match !== null) {
+            const redirected = join(pkgRoot, match[0]);
+            return originalLoad.call(this, redirected, parent, isMain);
+          }
+        }
+      } else if (DIMI_NATIVE_SUBPACKAGE.test(request)) {
+        const redirected = dimiNativeBindingPath(request);
+        if (redirected !== null) {
           return originalLoad.call(this, redirected, parent, isMain);
         }
       }
