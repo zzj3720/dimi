@@ -63,6 +63,7 @@
     "@anthropic-ai/sdk": "^0.95.2",
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/credential-provider-node": "^3.972.76",
+    "@dimi-agent/dimi-native": "workspace:^",
     "@dimi-agent/dimi-oauth": "workspace:^",
     "@dimi-agent/protocol": "workspace:^",
     "@google/genai": "^1.49.0",

@@ -12,6 +12,8 @@
 
 use napi_derive::napi;
 
+mod exec;
+
 use dimi_store::AgentTranscript;
 use dimi_store::paginate::TurnPageQuery;
 use dimi_store::store::SnapshotWindow;

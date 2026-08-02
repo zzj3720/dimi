@@ -14,15 +14,16 @@
  * Skips itself when the native binding is not built (same policy as the
  * differential suite).
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import * as wrapper from '#/index';
 import { loadNative } from '#/index';
 
 const bindingPath = fileURLToPath(new URL('../dist/dimi_bridge.node', import.meta.url));
-const bridgeSrcPath = fileURLToPath(new URL('../../../crates/dimi-bridge/src/lib.rs', import.meta.url));
+const bridgeSrcDir = fileURLToPath(new URL('../../../crates/dimi-bridge/src/', import.meta.url));
 
 /** napi-rs default JS export name: snake_case fn name → camelCase. */
 function napiJsName(rustFnName: string): string {
@@ -31,7 +32,7 @@ function napiJsName(rustFnName: string): string {
 }
 
 /**
- * Extract top-level `#[napi]`-annotated names from the bridge source:
+ * Extract top-level `#[napi]`-annotated names from every bridge source file:
  * module-level `pub fn`s (class methods are indented and skipped) plus
  * `pub struct` napi classes. Honors `js_name = "..."` overrides.
  */
@@ -49,12 +50,20 @@ function napiFunctionNames(source: string): string[] {
   return names;
 }
 
+function readBridgeSource(): string {
+  return readdirSync(bridgeSrcDir)
+    .filter((file) => file.endsWith('.rs'))
+    .sort()
+    .map((file) => readFileSync(join(bridgeSrcDir, file), 'utf8'))
+    .join('\n');
+}
+
 const nativeAvailable = existsSync(bindingPath);
 const suite = nativeAvailable ? describe : describe.skip;
 
 suite('native binding ↔ Rust source ↔ TS wrapper', () => {
   test('binding exports exactly the #[napi] functions, under napi-rs JS names', () => {
-    const source = readFileSync(bridgeSrcPath, 'utf8');
+    const source = readBridgeSource();
     const expected = napiFunctionNames(source).map(napiJsName).sort();
     expect(expected.length).toBeGreaterThan(0);
 
@@ -63,7 +72,7 @@ suite('native binding ↔ Rust source ↔ TS wrapper', () => {
   });
 
   test('TS wrapper re-exports every binding function with a function value', () => {
-    const source = readFileSync(bridgeSrcPath, 'utf8');
+    const source = readBridgeSource();
     for (const rustName of napiFunctionNames(source)) {
       const jsName = napiJsName(rustName);
       expect(typeof wrapper[jsName as keyof typeof wrapper], `wrapper.${jsName}`).toBe('function');

@@ -30,6 +30,8 @@ export interface NativeBinding {
   readWireRecords: typeof readWireRecords;
   /** One agent's transcript store, held on the Rust side. */
   RustAgentTranscript: RustAgentTranscriptConstructor;
+  /** Rust exec layer: process spawn (M2) — the IHostProcessService socket. */
+  RustHostProcess: RustHostProcessConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -41,6 +43,49 @@ export interface RustAgentTranscriptHandle {
   apply(opsJson: string): string;
   /** Snapshot JSON; optional `{ tailTurns }` window JSON. */
   snapshot(windowJson?: string): string;
+}
+
+/** `HostProcessOptions` shape passed to `RustHostProcess.spawn`. */
+export interface RustHostProcessOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  /** `shell: true` — platform default shell. */
+  shellDefault?: boolean;
+  /** `shell: "/bin/bash"` — explicit shell binary. */
+  shellPath?: string;
+  detached?: boolean;
+  windowsHide?: boolean;
+  mergeStderr?: boolean;
+}
+
+export interface RustHostProcessConstructor {
+  spawn(
+    command: string,
+    args: readonly string[],
+    options?: RustHostProcessOptions,
+  ): Promise<RustHostProcessHandle>;
+}
+
+export interface RustHostProcessHandle {
+  readonly pid: number;
+  readonly exitCode: number | null;
+  /**
+   * Wire stream pumps. Call once right after spawn: `onStdout(chunk)` /
+   * `onStderr(chunk)` fire per pipe chunk, `onStdoutEnd()` / `onStderrEnd()`
+   * once at EOF. Positional — the napi surface takes four functions.
+   */
+  setStreamCallbacks(
+    onStdout: (chunk: Uint8Array) => void,
+    onStderr: (chunk: Uint8Array) => void,
+    onStdoutEnd: () => void,
+    onStderrEnd: () => void,
+  ): void;
+  /** Resolves with the exit code (`-1` when killed by a signal). */
+  wait(): Promise<number>;
+  kill(signal?: string): void;
+  writeStdin(chunk: Uint8Array): void;
+  closeStdin(): void;
+  dispose(): void;
 }
 
 let binding: NativeBinding | undefined;
@@ -120,5 +165,37 @@ export class RustAgentTranscript {
   /** Snapshot JSON; optional `{ tailTurns }` window JSON. */
   snapshot(windowJson?: string): string {
     return this.#inner.snapshot(windowJson);
+  }
+}
+
+/** `RustHostProcess.spawn` — the M2 exec spawn socket. */
+export async function rustHostProcessSpawn(
+  command: string,
+  args: readonly string[],
+  options?: RustHostProcessOptions,
+): Promise<RustHostProcessHandle> {
+  return loadNative().RustHostProcess.spawn(command, [...args], options);
+}
+
+/**
+ * `RustHostProcess` — TS-side mirror of the napi class with the same name
+ * (the binding-contract suite pins wrapper ↔ binding export parity). The
+ * napi class is async-constructed through its static `spawn`, so this mirror
+ * exposes the same static and throws from the constructor.
+ */
+export class RustHostProcess {
+  /** Spawn one child; resolves with the process handle. */
+  static spawn(
+    command: string,
+    args: readonly string[],
+    options?: RustHostProcessOptions,
+  ): Promise<RustHostProcessHandle> {
+    return rustHostProcessSpawn(command, args, options);
+  }
+
+  constructor() {
+    throw new Error(
+      'RustHostProcess is async-constructed: use `await RustHostProcess.spawn(command, args, options)`',
+    );
   }
 }

@@ -370,6 +370,9 @@ importers:
       '@aws-sdk/credential-provider-node':
         specifier: ^3.972.76
         version: 3.972.76
+      '@dimi-agent/dimi-native':
+        specifier: workspace:^
+        version: link:../dimi-native
       '@dimi-agent/dimi-oauth':
         specifier: workspace:^
         version: link:../oauth

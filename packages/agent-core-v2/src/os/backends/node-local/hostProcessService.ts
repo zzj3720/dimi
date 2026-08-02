@@ -20,6 +20,7 @@ import {
   type HostProcessOptions,
   type IHostProcess,
 } from '#/os/interface/hostProcess';
+import { RustHostProcessService } from '#/os/backends/rust-local/rustHostProcessService';
 
 const isWindows: boolean = process.platform === 'win32';
 
@@ -197,10 +198,18 @@ export class HostProcessService implements IHostProcessService {
   }
 }
 
+/**
+ * M2 swap-in: `DIMI_RUST_EXEC=1` registers the Rust-backed spawner
+ * (dimi-exec via the napi bridge); the node-local backend stays the default.
+ * The bridge is loaded lazily inside `RustHostProcessService`, so this
+ * registration only throws at spawn time when the native binding is absent.
+ */
+const RUST_EXEC_ENABLED = process.env['DIMI_RUST_EXEC'] === '1';
+
 registerScopedService(
   LifecycleScope.App,
   IHostProcessService,
-  HostProcessService,
+  RUST_EXEC_ENABLED ? RustHostProcessService : HostProcessService,
   ScopeActivation.OnScopeCreated,
   'hostProcess',
 );
