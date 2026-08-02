@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.1
+
+### Patch Changes
+
+- [`ad98cbe`](https://github.com/zzj3720/dimi/commit/ad98cbe222edbd96500b945c274bf43790754f8a) - Fix the WaitFor wait card keeping its elapsed timer running after a notification wakes the wait; the elapsed time is now frozen when the wait ends.
+
 ## 0.6.0
 
 ### Minor Changes
