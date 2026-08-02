@@ -18,7 +18,9 @@ use dimi_engine::aimux::{AimuxLlmClient, openai_model};
 use dimi_engine::events::EngineEvent;
 use dimi_engine::llm::{LlmClient, LlmStreamEvent, ScriptedLlmClient};
 use dimi_engine::permission::{ApprovalDecision, PolicyConfig};
-use dimi_engine::tool::{BashTool, ToolExecutor};
+use dimi_engine::tool::{
+    AgentOutputTool, AgentTasks, AsyncAgentTool, BashTool, ToolExecutor, ToolRegistry, WaitForTool,
+};
 use dimi_engine::types::EngineTurnInput;
 
 use crate::wire_error;
@@ -96,7 +98,7 @@ impl RustEngine {
 #[napi]
 pub struct RustTurnSession {
     inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
-    llm: Box<dyn LlmClient>,
+    llm: std::sync::Arc<dyn LlmClient>,
     tools: Box<dyn ToolExecutor>,
     policy: PolicyConfig,
 }
@@ -143,8 +145,30 @@ impl RustTurnSession {
     ) -> napi::Result<Self> {
         let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
         let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
-        let llm = make_client(&input, scripted_segments_json)?;
-        let tools: Box<dyn ToolExecutor> = Box::new(BashTool);
+        let llm: std::sync::Arc<dyn LlmClient> =
+            std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
+        let tasks = AgentTasks::new();
+        let mut registry = ToolRegistry::new();
+        registry.register("Bash", Box::new(BashTool));
+        registry.register(
+            "Agent",
+            Box::new(AsyncAgentTool {
+                llm: std::sync::Arc::clone(&llm),
+                tools: std::sync::Arc::new(BashTool),
+                policy: policy.clone(),
+                max_steps: input.max_steps_per_turn,
+                shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
+                tasks: tasks.clone(),
+            }),
+        );
+        registry.register(
+            "AgentOutput",
+            Box::new(AgentOutputTool {
+                tasks: tasks.clone(),
+            }),
+        );
+        registry.register("WaitFor", Box::new(WaitForTool { tasks }));
+        let tools: Box<dyn ToolExecutor> = Box::new(registry);
         Ok(Self {
             inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::new(input)),
             llm,

@@ -657,6 +657,54 @@ mod agent_tool_tests {
     }
 }
 
+/// `ToolRegistry` — routes tool calls by name to registered executors
+/// (the engine's tool set: Bash + Agent + AgentOutput + WaitFor + …).
+#[derive(Default)]
+pub struct ToolRegistry {
+    tools: std::collections::HashMap<String, Box<dyn ToolExecutor>>,
+}
+
+impl std::fmt::Debug for ToolRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolRegistry")
+            .field("tools", &self.names())
+            .finish()
+    }
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&mut self, name: impl Into<String>, tool: Box<dyn ToolExecutor>) {
+        self.tools.insert(name.into(), tool);
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for ToolRegistry {
+    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+        match self.tools.get(&call.name) {
+            Some(tool) => tool.execute(call, ctx).await,
+            None => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("Tool \"{}\" not found", call.name),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        }
+    }
+}
+
 /// Shared subagent task registry (slice 4c async semantics).
 #[derive(Debug, Clone, Default)]
 pub struct AgentTasks {
