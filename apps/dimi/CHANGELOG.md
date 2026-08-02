@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.5.0
+
+### Minor Changes
+
+- [`c4234fa`](https://github.com/zzj3720/dimi/commit/c4234fa70603cfe1d3e3f0c8511897b4996247b4) - Remove goal mode: the `/goal` command, the goal tools (CreateGoal, GetGoal, SetGoalBudget, UpdateGoal), the session goal API, and the `GET /sessions/{id}/goal` route are gone.
+
 ## 0.4.4
 
 ### Patch Changes
