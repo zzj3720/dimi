@@ -2538,6 +2538,114 @@ command = "vim"
     expect(transcript).toContain('Pipeline complete.');
   });
 
+  it('merges tool calls across a notification-driven turn boundary', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('merge and push');
+
+    // Turn 1 ends with a final visible message plus a Bash call.
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        delta: '合并成功无冲突。推送：',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_push',
+        name: 'Bash',
+        args: { command: 'git push' },
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_push',
+        output: 'pushed',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'turn.ended',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        reason: 'completed',
+      } as Event,
+      sendQueued,
+    );
+
+    // Turn 2 is notification-driven: no user message appears in the
+    // transcript, only a whitespace delta and a Read call. The folded run from
+    // turn 1 is visually adjacent, so both calls must merge into one line.
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'assistant.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 2,
+        delta: ' ',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 2,
+        toolCallId: 'call_read',
+        name: 'Read',
+        args: { filePath: 'a.ts' },
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 2,
+        toolCallId: 'call_read',
+        output: 'content',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'turn.ended',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 2,
+        reason: 'completed',
+      } as Event,
+      sendQueued,
+    );
+    driver.streamingUI.flushNow();
+
+    const sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Used 2 tools · read 1 file')).toBe(1);
+    expect(transcript).toContain('合并成功无冲突。推送：');
+  });
+
   it('keeps the AllDone completion card visible instead of folding it', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();

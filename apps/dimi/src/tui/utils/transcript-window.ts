@@ -42,6 +42,13 @@ export const TRANSCRIPT_HYSTERESIS = readEnvInt('DIMI_CODE_TUI_HYSTERESIS', 5);
 /** Keep this many recent steps untouched inside a turn; older steps are merged into a summary. `0` disables merging. */
 export const TRANSCRIPT_KEEP_RECENT_STEPS = readEnvInt('DIMI_CODE_TUI_KEEP_RECENT_STEPS', 30);
 
+/**
+ * Width used for the "does this component render any lines" check during tool
+ * folding. Emptiness is width-independent (empty content renders zero lines at
+ * any width), so a fixed width is sufficient for the visibility decision.
+ */
+export const TRANSCRIPT_FOLD_WIDTH = 120;
+
 export interface TranscriptTurn {
   readonly turnId: string | undefined;
   readonly entries: TranscriptEntry[];

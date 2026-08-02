@@ -146,6 +146,7 @@ import {
 import { nextTranscriptId } from './utils/transcript-id';
 import {
   TRANSCRIPT_EXPAND_TURNS,
+  TRANSCRIPT_FOLD_WIDTH,
   TRANSCRIPT_HYSTERESIS,
   TRANSCRIPT_KEEP_RECENT_STEPS,
   TRANSCRIPT_MAX_TURNS,
@@ -2143,18 +2144,24 @@ export class DimiTUI {
     while (start > 0) {
       const child = children[start - 1]!;
       const calls = toolCallsIn(child);
-      // Empty assistant messages (whitespace-only deltas, empty replayed
-      // entries) render zero lines and carry no content — they must not split
-      // a contiguous run of tool calls into separate folded lines.
-      if (
-        calls === undefined &&
-        !(child instanceof ThinkingComponent) &&
-        !(child instanceof AssistantMessageComponent && child.isEmpty())
-      ) {
-        break;
+      if (calls !== undefined) {
+        toolCalls.unshift(...calls);
+        start -= 1;
+        continue;
       }
-      start -= 1;
-      if (calls !== undefined) toolCalls.unshift(...calls);
+      // Visual merge rule: a run of tool calls is contiguous unless something
+      // *visible* separates it. Components that render zero lines — whitespace
+      // assistant deltas, notifications, hidden thinking — do not exist in the
+      // UI and must not split the run. Thinking folds into the sequence either
+      // way, so it never counts as a separator.
+      if (
+        child instanceof ThinkingComponent ||
+        child.render(TRANSCRIPT_FOLD_WIDTH).length === 0
+      ) {
+        start -= 1;
+        continue;
+      }
+      break;
     }
     if (toolCalls.length === 0) return;
 
@@ -2170,6 +2177,15 @@ export class DimiTUI {
     const standalone: Component[] = [];
     const sequenceComponents: Component[] = [];
     for (const component of components) {
+      // A previously folded sequence (from an earlier notification-driven turn
+      // with no visible user message between them) must be unwrapped so its
+      // children re-join the merged run instead of nesting inside it. The old
+      // sequence is dropped from the transcript, so clear its child list.
+      if (component instanceof ToolCallSequenceComponent) {
+        sequenceComponents.push(...component.children);
+        component.clear();
+        continue;
+      }
       if (component instanceof ToolCallComponent && standaloneCalls.has(component)) {
         standalone.push(component);
       } else {

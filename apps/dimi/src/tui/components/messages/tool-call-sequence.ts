@@ -15,6 +15,12 @@ export function toolCallsIn(component: Component): readonly ToolCallComponent[] 
   if (component instanceof ReadGroupComponent || component instanceof AgentGroupComponent) {
     return component.getToolComponents();
   }
+  // A previously folded sequence (e.g. the trailing tools of an earlier
+  // notification-driven turn) is still a contiguous run of tool calls: expose
+  // them so the collapse walk can merge across it instead of stopping.
+  if (component instanceof ToolCallSequenceComponent) {
+    return component.toolCalls;
+  }
   return undefined;
 }
 
@@ -22,6 +28,7 @@ export function toolCallsIn(component: Component): readonly ToolCallComponent[] 
 export class ToolCallSequenceComponent extends Container {
   readonly toolCount: number;
   readonly thinkingCount: number;
+  readonly toolCalls: readonly ToolCallComponent[];
   private mode: ToolDisplayMode;
   private readonly summary: string;
 
@@ -36,6 +43,7 @@ export class ToolCallSequenceComponent extends Container {
     this.thinkingCount = components.filter(
       (component) => component instanceof ThinkingComponent,
     ).length;
+    this.toolCalls = toolCalls;
     this.summary = buildSummary(toolCalls);
     this.mode = mode;
     this.setDisplayMode(mode);
