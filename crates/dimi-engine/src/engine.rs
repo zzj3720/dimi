@@ -97,12 +97,12 @@ impl Engine {
     /// Run one turn. `llm` and `tools` are the injected effect boundaries;
     /// `on_event` receives the engine event stream in order. The returned
     /// outcome carries the terminal state.
-    pub fn run_turn(
+    pub async fn run_turn(
         &self,
         input: &EngineTurnInput,
         llm: &dyn LlmClient,
         tools: &dyn ToolExecutor,
-        on_event: &mut dyn FnMut(EngineEvent),
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnOutcome {
         let started_at = Instant::now();
         let turn_id = input.turn_id;
@@ -176,7 +176,9 @@ impl Engine {
 
             let (disposition, tool_messages) = match execute_step(
                 turn_id, &tool_ctx, llm, tools, &request, &mut usage, on_event,
-            ) {
+            )
+            .await
+            {
                 Ok(parts) => parts,
                 Err(error) => {
                     let message = error.message.clone();
@@ -258,48 +260,51 @@ impl Engine {
 /// Execute one step: LLM stream → parse → tool calls → tool results.
 /// Returns the disposition for the outer loop plus the tool messages to
 /// append to the conversation.
-fn execute_step(
+async fn execute_step(
     turn_id: i64,
     tool_ctx: &ToolContext,
     llm: &dyn LlmClient,
     tools: &dyn ToolExecutor,
     request: &ChatRequest,
     usage: &mut UsageAccumulator,
-    on_event: &mut dyn FnMut(EngineEvent),
+    on_event: &mut (dyn FnMut(EngineEvent) + Send),
 ) -> Result<(StepDisposition, Vec<LlmMessage>), crate::llm::LlmError> {
     let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-    let assistant = llm.stream_chat(request, &mut |event| match event {
-        LlmStreamEvent::Text { delta } => {
-            on_event(EngineEvent::AssistantDelta {
-                turn_id,
-                delta: delta.clone(),
-            });
+    let streamed = llm.stream_chat(request).await?;
+    for event in &streamed.events {
+        match event {
+            LlmStreamEvent::Text { delta } => {
+                on_event(EngineEvent::AssistantDelta {
+                    turn_id,
+                    delta: delta.clone(),
+                });
+            }
+            LlmStreamEvent::Thinking { delta } => {
+                on_event(EngineEvent::ThinkingDelta {
+                    turn_id,
+                    delta: delta.clone(),
+                });
+            }
+            LlmStreamEvent::ToolCall {
+                tool_call_id,
+                name,
+                arguments_part,
+            } => {
+                on_event(EngineEvent::ToolCallDelta {
+                    turn_id,
+                    tool_call_id: tool_call_id.clone(),
+                    name: name.clone(),
+                    arguments_part: arguments_part.clone(),
+                });
+            }
+            LlmStreamEvent::Usage { .. } => {
+                usage.add(event);
+            }
+            LlmStreamEvent::Finish { .. } | LlmStreamEvent::Error { .. } => {}
         }
-        LlmStreamEvent::Thinking { delta } => {
-            on_event(EngineEvent::ThinkingDelta {
-                turn_id,
-                delta: delta.clone(),
-            });
-        }
-        LlmStreamEvent::ToolCall {
-            tool_call_id,
-            name,
-            arguments_part,
-        } => {
-            on_event(EngineEvent::ToolCallDelta {
-                turn_id,
-                tool_call_id: tool_call_id.clone(),
-                name: name.clone(),
-                arguments_part: arguments_part.clone(),
-            });
-        }
-        LlmStreamEvent::Usage { .. } => {
-            usage.add(event);
-        }
-        LlmStreamEvent::Finish { .. } => {}
-        LlmStreamEvent::Error { .. } => {}
-    })?;
+    }
+    let assistant = &streamed.assistant;
 
     for call in &assistant.tool_calls {
         let args: serde_json::Value =
@@ -357,7 +362,7 @@ fn execute_step(
     Ok((StepDisposition::Continue, tool_messages))
 }
 
-fn emit(on_event: &mut dyn FnMut(EngineEvent), event: EngineEvent) {
+fn emit(on_event: &mut (dyn FnMut(EngineEvent) + Send), event: EngineEvent) {
     on_event(event);
 }
 
@@ -442,8 +447,8 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn single_step_completes_with_text() {
+    #[tokio::test]
+    async fn single_step_completes_with_text() {
         let engine = Engine::default();
         let llm = ScriptedLlmClient::once(vec![
             LlmStreamEvent::Text {
@@ -457,12 +462,14 @@ mod tests {
             },
         ]);
         let mut events = Vec::new();
-        let outcome = engine.run_turn(
-            &input(vec![user_message("hi")]),
-            &llm,
-            &BashTool,
-            &mut |event| events.push(event),
-        );
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("hi")]),
+                &llm,
+                &BashTool,
+                &mut |event| events.push(event),
+            )
+            .await;
 
         assert_eq!(outcome.status, TurnEndReason::Completed);
         assert_eq!(outcome.steps, 1);
@@ -490,8 +497,8 @@ mod tests {
         assert_eq!(ended["reason"], "completed");
     }
 
-    #[test]
-    fn tool_call_runs_bash_and_loops() {
+    #[tokio::test]
+    async fn tool_call_runs_bash_and_loops() {
         let engine = Engine::default();
         let llm = ScriptedLlmClient::new(vec![
             // Step 1: request a Bash tool call.
@@ -516,12 +523,14 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
-        let outcome = engine.run_turn(
-            &input(vec![user_message("run a command")]),
-            &llm,
-            &BashTool,
-            &mut |event| events.push(event),
-        );
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("run a command")]),
+                &llm,
+                &BashTool,
+                &mut |event| events.push(event),
+            )
+            .await;
 
         assert_eq!(outcome.status, TurnEndReason::Completed);
         assert_eq!(outcome.steps, 2);
@@ -541,8 +550,8 @@ mod tests {
         assert_eq!(step_completed["finishReason"], "tool_calls");
     }
 
-    #[test]
-    fn max_steps_fails_the_turn() {
+    #[tokio::test]
+    async fn max_steps_fails_the_turn() {
         let engine = Engine {
             max_steps_per_turn: Some(1),
             shell: "/bin/sh".to_string(),
@@ -571,12 +580,14 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
-        let outcome = engine.run_turn(
-            &input(vec![user_message("loop")]),
-            &llm,
-            &BashTool,
-            &mut |event| events.push(event),
-        );
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("loop")]),
+                &llm,
+                &BashTool,
+                &mut |event| events.push(event),
+            )
+            .await;
 
         assert_eq!(outcome.status, TurnEndReason::Failed);
         assert_eq!(
@@ -593,8 +604,8 @@ mod tests {
         assert_eq!(interrupted["reason"], "max_steps");
     }
 
-    #[test]
-    fn tool_error_is_error_result() {
+    #[tokio::test]
+    async fn tool_error_is_error_result() {
         let engine = Engine::default();
         let llm = ScriptedLlmClient::new(vec![
             vec![
@@ -617,12 +628,14 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
-        let outcome = engine.run_turn(
-            &input(vec![user_message("fail")]),
-            &llm,
-            &BashTool,
-            &mut |event| events.push(event),
-        );
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("fail")]),
+                &llm,
+                &BashTool,
+                &mut |event| events.push(event),
+            )
+            .await;
 
         assert_eq!(outcome.status, TurnEndReason::Completed);
         let result = events

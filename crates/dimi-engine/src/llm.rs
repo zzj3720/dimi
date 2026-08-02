@@ -14,14 +14,14 @@ use crate::types::{LlmMessage, LlmToolCall};
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum LlmStreamEvent {
     /// Plain text delta (assistant content chunk).
-    #[serde(rename = "text")]
+    #[serde(rename = "text", rename_all = "camelCase")]
     Text { delta: String },
     /// Reasoning/thinking delta.
-    #[serde(rename = "thinking")]
+    #[serde(rename = "thinking", rename_all = "camelCase")]
     Thinking { delta: String },
     /// Tool-call delta: either the call header (id/name) or an arguments
     /// fragment. The client concatenates argument fragments per call id.
-    #[serde(rename = "tool_call")]
+    #[serde(rename = "tool_call", rename_all = "camelCase")]
     ToolCall {
         tool_call_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -30,7 +30,7 @@ pub enum LlmStreamEvent {
         arguments_part: Option<String>,
     },
     /// Usage report (arrives with the terminal chunk).
-    #[serde(rename = "usage")]
+    #[serde(rename = "usage", rename_all = "camelCase")]
     Usage {
         prompt_tokens: Option<u64>,
         completion_tokens: Option<u64>,
@@ -41,14 +41,14 @@ pub enum LlmStreamEvent {
         completion_tokens_details: Option<CompletionUsageDetails>,
     },
     /// Terminal event: the model finished its response.
-    #[serde(rename = "finish")]
+    #[serde(rename = "finish", rename_all = "camelCase")]
     Finish {
         /// Raw provider finish reason (openai vocabulary), or None.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         finish_reason: Option<String>,
     },
     /// Terminal event: the request failed.
-    #[serde(rename = "error")]
+    #[serde(rename = "error", rename_all = "camelCase")]
     Error { message: String },
 }
 
@@ -92,15 +92,22 @@ pub struct AssistantTurn {
     pub thinking: String,
 }
 
+/// A streamed chat completion: the raw event sequence plus the parsed turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamedTurn {
+    /// Every stream event, in arrival order (deltas, usage, finish, …).
+    pub events: Vec<LlmStreamEvent>,
+    /// Parsed assistant turn (concatenated text/thinking + tool calls).
+    pub assistant: AssistantTurn,
+}
+
 /// LLM effect boundary.
-pub trait LlmClient {
-    /// Stream one chat completion; events arrive in order. The engine
-    /// collects them into an `AssistantTurn` and forwards deltas.
-    fn stream_chat(
-        &self,
-        request: &ChatRequest,
-        on_event: &mut dyn FnMut(&LlmStreamEvent),
-    ) -> Result<AssistantTurn, LlmError>;
+#[async_trait::async_trait]
+pub trait LlmClient: Send + Sync {
+    /// Stream one chat completion and return the full event sequence plus
+    /// the parsed assistant turn. The engine forwards the events and drives
+    /// the loop from the parsed turn.
+    async fn stream_chat(&self, request: &ChatRequest) -> Result<StreamedTurn, LlmError>;
 }
 
 /// LLM failure — message text is shown to the user (turn fails).
@@ -139,12 +146,9 @@ impl ScriptedLlmClient {
     }
 }
 
+#[async_trait::async_trait]
 impl LlmClient for ScriptedLlmClient {
-    fn stream_chat(
-        &self,
-        _request: &ChatRequest,
-        on_event: &mut dyn FnMut(&LlmStreamEvent),
-    ) -> Result<AssistantTurn, LlmError> {
+    async fn stream_chat(&self, _request: &ChatRequest) -> Result<StreamedTurn, LlmError> {
         let mut cursor = self.cursor.lock().unwrap_or_else(|p| p.into_inner());
         let segment = self.segments.get(*cursor).cloned().unwrap_or_default();
         *cursor += 1;
@@ -156,11 +160,9 @@ impl LlmClient for ScriptedLlmClient {
             match event {
                 LlmStreamEvent::Text { delta } => {
                     text.push_str(delta);
-                    on_event(event);
                 }
                 LlmStreamEvent::Thinking { delta } => {
                     thinking.push_str(delta);
-                    on_event(event);
                 }
                 LlmStreamEvent::ToolCall {
                     tool_call_id,
@@ -185,13 +187,9 @@ impl LlmClient for ScriptedLlmClient {
                             });
                         }
                     }
-                    on_event(event);
                 }
-                LlmStreamEvent::Usage { .. } | LlmStreamEvent::Finish { .. } => {
-                    on_event(event);
-                }
+                LlmStreamEvent::Usage { .. } | LlmStreamEvent::Finish { .. } => {}
                 LlmStreamEvent::Error { message } => {
-                    on_event(event);
                     return Err(LlmError {
                         message: message.clone(),
                         code: None,
@@ -199,10 +197,13 @@ impl LlmClient for ScriptedLlmClient {
                 }
             }
         }
-        Ok(AssistantTurn {
-            tool_calls,
-            text,
-            thinking,
+        Ok(StreamedTurn {
+            events: segment,
+            assistant: AssistantTurn {
+                tool_calls,
+                text,
+                thinking,
+            },
         })
     }
 }
@@ -218,12 +219,10 @@ pub struct OpenAiCompatibleClient {
     pub model: String,
 }
 
+#[async_trait::async_trait]
+#[async_trait::async_trait]
 impl LlmClient for OpenAiCompatibleClient {
-    fn stream_chat(
-        &self,
-        _request: &ChatRequest,
-        _on_event: &mut dyn FnMut(&LlmStreamEvent),
-    ) -> Result<AssistantTurn, LlmError> {
+    async fn stream_chat(&self, _request: &ChatRequest) -> Result<StreamedTurn, LlmError> {
         // Slice 1: HTTP transport lands with the napi swap-in (slice 1 tail);
         // the parser itself lives in `parse_openai_sse` (unit-tested below).
         Err(LlmError {
@@ -247,8 +246,8 @@ pub fn parse_openai_sse_chunk(
 mod tests {
     use super::*;
 
-    #[test]
-    fn scripted_client_concatenates_tool_call_arguments() {
+    #[tokio::test]
+    async fn scripted_client_concatenates_tool_call_arguments() {
         let client = ScriptedLlmClient::once(vec![
             LlmStreamEvent::Text {
                 delta: "hel".to_string(),
@@ -272,24 +271,23 @@ mod tests {
         ]);
         let mut seen: Vec<LlmStreamEvent> = Vec::new();
         let turn = client
-            .stream_chat(
-                &ChatRequest {
-                    messages: vec![],
-                    tools: None,
-                    model: None,
-                    thinking_effort: None,
-                },
-                &mut |event| seen.push(event.clone()),
-            )
+            .stream_chat(&ChatRequest {
+                messages: vec![],
+                tools: None,
+                model: None,
+                thinking_effort: None,
+            })
+            .await
             .unwrap();
-        assert_eq!(turn.text, "hello");
-        assert_eq!(turn.tool_calls.len(), 1);
-        assert_eq!(turn.tool_calls[0].id, "call_1");
-        assert_eq!(turn.tool_calls[0].function.name, "Bash");
+        assert_eq!(turn.assistant.text, "hello");
+        assert_eq!(turn.assistant.tool_calls.len(), 1);
+        assert_eq!(turn.assistant.tool_calls[0].id, "call_1");
+        assert_eq!(turn.assistant.tool_calls[0].function.name, "Bash");
         assert_eq!(
-            turn.tool_calls[0].function.arguments,
+            turn.assistant.tool_calls[0].function.arguments,
             "{\"command\":\"echo hi\"}"
         );
-        assert_eq!(seen.len(), 5);
+        assert_eq!(seen.len(), 0);
+        assert_eq!(turn.events.len(), 5);
     }
 }

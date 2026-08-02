@@ -47,6 +47,8 @@ export interface NativeBinding {
   RustFsWatchHandle: RustFsWatchHandleConstructor;
   /** Rust exec layer: terminal pty (M2) — the IHostTerminalService socket. */
   RustTerminal: RustTerminalConstructor;
+  /** Rust engine: one turn of orchestration (M3) — the loop swap-in socket. */
+  RustEngine: RustEngineConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -560,4 +562,35 @@ export class RustTerminalProcess {
   kill(): void {
     this.#inner.kill();
   }
+}
+
+/**
+ * `RustEngine` — the M3 swap-in socket: one Rust-orchestrated turn.
+ *
+ * `startTurn` runs the full turn (LLM stream + Bash tool execution) and
+ * returns the collected engine event batch — the same event shapes the TS
+ * loop publishes on its event bus. Slice 1 is synchronous: the TS adapter
+ * publishes the returned events after the turn completes.
+ */
+export class RustEngine {
+  readonly #inner: RustEngineHandle;
+
+  constructor(maxStepsPerTurn?: number) {
+    const NativeClass = loadNative().RustEngine;
+    this.#inner = new NativeClass(maxStepsPerTurn);
+  }
+
+  /** Run one turn; resolves with the `EngineEventBatch` JSON. */
+  async startTurn(inputJson: string, scriptedSegmentsJson?: string): Promise<string> {
+    return this.#inner.startTurn(inputJson, scriptedSegmentsJson ?? null);
+  }
+}
+
+/** The napi `RustEngine` class. */
+export interface RustEngineConstructor {
+  new (maxStepsPerTurn?: number): RustEngineHandle;
+}
+
+export interface RustEngineHandle {
+  startTurn(inputJson: string, scriptedSegmentsJson: string | null): Promise<string>;
 }

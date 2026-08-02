@@ -9,6 +9,7 @@
 //! assembly, permission/approval, compaction, subagents and the remaining
 //! tool domains land in later slices (see `DESIGN-slice1.md`).
 
+pub mod aimux;
 pub mod engine;
 pub mod events;
 pub mod llm;

@@ -49,7 +49,7 @@ pub struct ToolResult {
 }
 
 /// Tool effect boundary.
-pub trait ToolExecutor {
+pub trait ToolExecutor: Send + Sync {
     fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult;
 }
 
