@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.5.3
+
+### Patch Changes
+
+- [`fa5569c`](https://github.com/zzj3720/dimi/commit/fa5569c26ac1dbfdb38752dfa5aa18fcd6f9c93e) - Ship the Rust runtime binary in the npm package, and fall back to the TypeScript backends with a warning when it is unavailable instead of crashing at startup.
+
+- [`fa5569c`](https://github.com/zzj3720/dimi/commit/fa5569c26ac1dbfdb38752dfa5aa18fcd6f9c93e) - Use the Rust runtime for process, file, environment, file-watch and terminal operations by default. Pass `--legacy` to keep the TypeScript backends.
+
 ## 0.5.2
 
 ### Patch Changes
