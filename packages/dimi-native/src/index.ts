@@ -36,6 +36,8 @@ export interface NativeBinding {
   RustFileSystem: RustFileSystemConstructor;
   /** `readLines` async-iterator handle class. */
   RustReadLines: RustReadLinesConstructor;
+  /** Rust exec layer: environment probe (M2) — the IHostEnvironment socket. */
+  RustHostEnvironment: RustHostEnvironmentConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -238,6 +240,33 @@ export interface RustReadLinesHandle {
   dispose(): void;
 }
 
+/** `HostEnvironmentInfo` mirror — the immutable host snapshot (napi object). */
+export interface RustHostEnvironmentInfo {
+  osKind: string;
+  osArch: string;
+  osVersion: string;
+  shellName: string;
+  shellPath: string;
+  pathClass: string;
+  homeDir: string;
+}
+
+/** The napi `RustHostEnvironment` class — stateless probe facade. */
+export interface RustHostEnvironmentConstructor {
+  probe(): RustHostEnvironmentInfo;
+}
+
+/**
+ * `rustHostEnvironmentProbe` — the M2 environment probe socket.
+ * Node-parity details: `osArch` uses Node `process.arch` values (arm64/x64),
+ * `osVersion` is the kernel release (`os.release()`), `shellName`/`shellPath`
+ * follow the `/bin/bash` → `/usr/bin/bash` → `/usr/local/bin/bash` → `sh`
+ * fallback chain.
+ */
+export function rustHostEnvironmentProbe(): RustHostEnvironmentInfo {
+  return loadNative().RustHostEnvironment.probe();
+}
+
 /** The napi `RustFileSystem` class — stateless facade, all static methods. */
 export interface RustFileSystemConstructor {
   readText(path: string, options?: RustReadTextOptions): Promise<string>;
@@ -324,5 +353,16 @@ export class RustReadLines {
   /** Drop the file handle early. */
   dispose(): void {
     this.#inner.dispose();
+  }
+}
+
+/**
+ * `RustHostEnvironment` — TS-side mirror of the napi class (binding-contract
+ * parity). Stateless probe facade.
+ */
+export class RustHostEnvironment {
+  /** `probeHostEnvironmentFromNode` — the immutable host snapshot. */
+  static probe(): RustHostEnvironmentInfo {
+    return rustHostEnvironmentProbe();
   }
 }

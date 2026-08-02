@@ -12,6 +12,7 @@
 
 use napi_derive::napi;
 
+mod env;
 mod exec;
 mod fs;
 

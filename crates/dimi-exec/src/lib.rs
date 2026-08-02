@@ -26,9 +26,11 @@
 //!   (`readFile(path, 'utf8')`); with options it follows
 //!   `decodeTextWithErrors` (TextDecoder semantics).
 
+pub mod env;
 pub mod fs;
 mod process;
 
+pub use env::HostEnvironmentInfo;
 pub use fs::{
     DecodeErrors, DirEntry, Encoding, FileStat, FsError, ReadLines, ReadTextOptions, append_text,
     create_exclusive, decode_with_errors, errno_name, lstat, mkdir, read_bytes, read_text, readdir,
