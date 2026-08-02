@@ -3,6 +3,7 @@ dist/
 dist-web/
 dist-single/
 dist-native/
+dist-platform/
 .tmp-api-extractor/
 .contract-types-tmp/
 .local/

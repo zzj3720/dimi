@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "!dist/dimi_bridge.node",
     "dist-web",
     "native",
     "README.md"

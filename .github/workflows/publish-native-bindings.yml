@@ -1,0 +1,54 @@
+name: Publish native bindings
+
+on:
+  workflow_dispatch:
+
+# One-shot / manual bootstrap + re-publish path for the platform binding
+# subpackages (@dimi-agent/dimi-native-<platform>-<arch>). The normal release
+# flow publishes them from `publish-native-assets`; this workflow exists for
+# publishing without a CLI release (first-time bootstrap, binding-only fixes).
+# Idempotent: versions already on the registry are skipped.
+
+jobs:
+  build:
+    name: Build native bindings
+    uses: ./.github/workflows/_native-build.yml
+    with:
+      upload-artifact-prefix: dimi-native
+      retention-days: 7
+      sign-macos: false
+
+  publish:
+    name: Publish native bindings
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download binding artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dimi-binding-*
+          path: dist-binding
+          merge-multiple: true
+
+      - name: Publish binding subpackages
+        run: node apps/dimi/scripts/native/publish-bindings.mjs dist-binding
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

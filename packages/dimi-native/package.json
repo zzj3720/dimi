@@ -25,6 +25,7 @@
   },
   "scripts": {
     "build:native": "node scripts/build.mjs",
+    "pack:platform": "node scripts/pack-platform.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",

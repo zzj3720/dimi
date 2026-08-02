@@ -142,6 +142,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -152,6 +153,21 @@ jobs:
           pattern: dimi-native-*
           path: dist-native-release
           merge-multiple: true
+
+      - name: Download binding artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dimi-binding-*
+          path: dist-binding
+          merge-multiple: true
+
+      - name: Publish binding subpackages
+        # npm installs load the Rust runtime from the platform subpackage;
+        # publish the per-platform bindings built by the native matrix at the
+        # CLI version. Idempotent (existing versions are skipped).
+        run: node apps/dimi/scripts/native/publish-bindings.mjs dist-binding
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Produce manifest.json
         env:

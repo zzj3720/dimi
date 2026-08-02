@@ -70,6 +70,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binding subpackage
+        # npm installs load the Rust runtime from the platform subpackage
+        # (@dimi-agent/dimi-native-<platform>-<arch>, an optionalDependency of
+        # the CLI); build + pack the current platform's binding at the CLI
+        # version. The SEA binary embeds the same binding via native assets.
+        run: |
+          DIMI_NATIVE_RELEASE=1 pnpm --filter @dimi-agent/dimi-native run pack:platform
+
+      - name: Upload binding subpackage
+        uses: actions/upload-artifact@v7
+        with:
+          name: dimi-binding-${{ matrix.target }}
+          retention-days: ${{ inputs.retention-days }}
+          path: packages/dimi-native/dist-platform/*.tgz
+          if-no-files-found: error
+
       - name: Setup macOS keychain (release only)
         if: runner.os == 'macOS' && inputs.sign-macos
         uses: ./.github/actions/macos-keychain-setup
