@@ -5,11 +5,12 @@
  * into a Profile + Model binding, creates (or resumes) an agent through
  * `IAgentLifecycleService`, drives one turn via `ISessionSubagentService.run`,
  * and mirrors the run onto the calling agent's record stream
- * (`mirrorAgentRun`). The tool also owns the JSON schema + description,
- * approval rule, background-task registration (so the LLM can see the run
- * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
- * detach), and terminal text formatting. The public contract (schemas,
- * constants, `ISubagentTool`) lives in `./agent`.
+ * (`mirrorAgentRun`). Subagents are fully asynchronous: the tool registers a
+ * detached task (visible under TaskList/TaskOutput/TaskStop, completion
+ * arrives as a notification) and returns the `agent_id` immediately; progress
+ * is checked with the `AgentOutput` tool. The tool also owns the JSON schema +
+ * description, approval rule, and terminal text formatting. The public
+ * contract (schemas, constants, `ISubagentTool`) lives in `./agent`.
  *
  * Spawn bindings use an explicit tool choice first, then the target profile's
  * symbolic model preference, before `resolveSubagentBinding` falls back to the
@@ -79,14 +80,12 @@ import { emitAgentRunSpawned, mirrorAgentRun } from "#/session/subagent/mirrorAg
 import { ISessionSubagentService } from "#/session/subagent/subagent";
 import {
   buildSubagentModelDescriptions,
-  formatSubagentTimeoutDescription,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
   wrapSubagentModelError,
 } from "#/session/subagent/configSection";
 import { SECONDARY_MODEL_FLAG_ID } from "#/session/subagent/flag";
 import {
-  BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
   ISubagentTool,
   RESUME_WITH_TYPE_UNAVAILABLE,
@@ -98,8 +97,6 @@ import {
 } from "./agent";
 import { SubagentTask, type SubagentHandle } from "./subagent-task";
 
-import AGENT_BACKGROUND_DISABLED_DESCRIPTION from "./agent-background-disabled.md?raw";
-import AGENT_BACKGROUND_DESCRIPTION from "./agent-background-enabled.md?raw";
 import AGENT_DESCRIPTION_BASE from "./agent.md?raw";
 
 export class SubagentTool implements ISubagentTool {
@@ -108,7 +105,6 @@ export class SubagentTool implements ISubagentTool {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SubagentToolInputSchema);
 
   private readonly callerAgentId: string;
-  private readonly canRunInBackground: () => boolean;
 
   constructor(
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
@@ -129,17 +125,10 @@ export class SubagentTool implements ISubagentTool {
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
   ) {
     this.callerAgentId = scopeContext.agentId;
-    this.canRunInBackground = () =>
-      this.toolPolicy.isToolActive("TaskList") &&
-      this.toolPolicy.isToolActive("TaskOutput") &&
-      this.toolPolicy.isToolActive("TaskStop");
   }
 
   get description(): string {
-    const backgroundDescription = this.canRunInBackground()
-      ? AGENT_BACKGROUND_DESCRIPTION
-      : AGENT_BACKGROUND_DISABLED_DESCRIPTION;
-    let description = `${AGENT_DESCRIPTION_BASE}\n\n${backgroundDescription}`;
+    let description = AGENT_DESCRIPTION_BASE;
     const allowlist = subagentAllowlistFor(this.catalog, this.profile.data());
     const profiles =
       allowlist === undefined
@@ -196,15 +185,14 @@ export class SubagentTool implements ISubagentTool {
       resumeAgentId !== undefined && resumeAgentId.length > 0
         ? (this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL)
         : (requestedProfileName ?? DEFAULT_PROFILE_NAME);
-    const prefix = args.run_in_background === true ? "Launching background" : "Launching";
     return {
-      description: `${prefix} ${profileNameForDisplay} agent: ${args.description}`,
+      description: `Launching ${profileNameForDisplay} agent: ${args.description}`,
       accesses: ToolAccesses.none(),
       display: {
         kind: "agent_call",
         agent_name: profileNameForDisplay,
         prompt: args.prompt,
-        background: args.run_in_background,
+        background: false,
       },
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, profileNameForDisplay),
@@ -293,12 +281,11 @@ export class SubagentTool implements ISubagentTool {
       });
     }
 
-    const runInBackground = args.run_in_background === true;
     emitAgentRunSpawned(requester, agentId, {
       profileName,
       parentToolCallId: toolCallId,
       description: args.description,
-      runInBackground,
+      runInBackground: false,
     });
 
     const run = await this.subagents.run(
@@ -340,7 +327,6 @@ export class SubagentTool implements ISubagentTool {
   ): Promise<ExecutableToolResult> {
     try {
       signal.throwIfAborted();
-      const runInBackground = args.run_in_background === true;
       const requestedProfileName = args.subagent_type?.length ? args.subagent_type : undefined;
       const resumeAgentId = args.resume?.trim();
       const isResume = resumeAgentId !== undefined && resumeAgentId.length > 0;
@@ -349,19 +335,13 @@ export class SubagentTool implements ISubagentTool {
         return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
       }
 
-      const allowBackground = this.canRunInBackground();
-      if (runInBackground && !allowBackground) {
-        return { output: BACKGROUND_AGENT_UNAVAILABLE, isError: true };
-      }
       const timeoutMs = resolveSubagentTimeoutMs(this.config);
 
       const controller = new AbortController();
       const abortBeforeRegister = (): void => {
         controller.abort(signal.reason);
       };
-      if (!runInBackground) {
-        signal.addEventListener("abort", abortBeforeRegister, { once: true });
-      }
+      signal.addEventListener("abort", abortBeforeRegister, { once: true });
 
       let handle: SubagentHandle;
       try {
@@ -370,7 +350,6 @@ export class SubagentTool implements ISubagentTool {
         signal.removeEventListener("abort", abortBeforeRegister);
         this.log.warn("subagent launch failed", {
           toolCallId,
-          runInBackground,
           operation: isResume ? "resume" : "spawn",
           subagentType: requestedProfileName ?? DEFAULT_PROFILE_NAME,
           resumeAgentId: isResume ? resumeAgentId : undefined,
@@ -379,12 +358,15 @@ export class SubagentTool implements ISubagentTool {
         throw error;
       }
 
+      // Subagents always run asynchronously: register a detached task so the
+      // run is visible under TaskList/TaskOutput/TaskStop and its completion
+      // arrives as a notification, then hand the agent_id back immediately.
       let taskId: string;
       try {
         const registerOptions: RegisterAgentTaskOptions = {
-          detached: runInBackground,
+          detached: true,
           timeoutMs,
-          signal: runInBackground ? undefined : signal,
+          signal: undefined,
         };
         taskId = this.tasks.registerTask(
           new SubagentTask(handle, args.description, controller),
@@ -395,7 +377,7 @@ export class SubagentTool implements ISubagentTool {
         controller.abort();
         void handle.completion.catch(() => {});
         signal.removeEventListener("abort", abortBeforeRegister);
-        this.log?.warn("background agent task registration failed", {
+        this.log?.warn("subagent task registration failed", {
           toolCallId,
           agentId: handle.agentId,
           subagentType: handle.profileName,
@@ -411,43 +393,12 @@ export class SubagentTool implements ISubagentTool {
         };
       }
 
-      if (runInBackground) {
-        return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
-        };
-      }
-
-      const release = await this.tasks.waitForForegroundRelease(taskId);
-      if (release === "detached") {
-        return {
-          output: formatBackgroundAgentResult(taskId, handle, args.description, allowBackground),
-        };
-      }
-      return await this.formatForegroundResult(taskId, handle, timeoutMs);
+      return {
+        output: formatAsyncAgentResult(taskId, handle, args.description),
+      };
     } catch (error) {
       return { output: `subagent error: ${launchErrorMessage(error, signal)}`, isError: true };
     }
-  }
-
-  private async formatForegroundResult(
-    taskId: string,
-    handle: SubagentHandle,
-    timeoutMs: number,
-  ): Promise<ExecutableToolResult> {
-    const info = this.tasks.getTask(taskId);
-    if (info?.status === "completed") {
-      return {
-        output: formatForegroundAgentSuccess(handle, await this.tasks.readOutput(taskId)),
-      };
-    }
-    const timedOut = info?.status === "timed_out";
-    const message = timedOut
-      ? `Agent timed out after ${formatSubagentTimeoutDescription(timeoutMs)}.`
-      : formatSubagentStoppedMessage(info?.stopReason);
-    return {
-      output: formatForegroundAgentFailure(handle, message, timedOut),
-      isError: true,
-    };
   }
 }
 
@@ -505,11 +456,10 @@ function buildProfileDescriptions(
     .join("\n");
 }
 
-function formatBackgroundAgentResult(
+function formatAsyncAgentResult(
   taskId: string,
   handle: SubagentHandle,
   description: string,
-  allowBackground: boolean,
 ): string {
   return [
     `task_id: ${taskId}`,
@@ -520,42 +470,10 @@ function formatBackgroundAgentResult(
     "",
     `description: ${description}`,
     "",
-    allowBackground
-      ? `next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with other work or hand back to the user. (If you have nothing to do until it finishes, run such tasks in the foreground next time.)`
-      : "next_step: The completion arrives automatically in a later turn.",
-    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
+    "next_step: The subagent runs fully asynchronously — continue with other work. Its final result arrives later as a completion notification.",
+    `progress_hint: To check on it, call AgentOutput(agent_id="${handle.agentId}") to read its recent output (assistant text, thinking, tool calls). If you have nothing else to do, call WaitFor with a reasonable timeout_seconds instead of polling, then check again with AgentOutput.`,
+    `resume_hint: To continue or recover this same subagent later, call Agent(resume="${handle.agentId}", prompt="..."). The parameter is agent_id ("${handle.agentId}"), NOT task_id ("${taskId}") or source_id from a later <notification>. The target must be idle (not still running) — check with AgentOutput first if unsure. Recovery cases: a later <notification type="task.lost" | "task.failed" | "task.killed"> for this subagent — its conversation history is preserved across session restarts and resume will pick it up.`,
   ].join("\n");
-}
-
-function formatForegroundAgentSuccess(handle: SubagentHandle, result: string): string {
-  return [
-    `agent_id: ${handle.agentId}`,
-    `actual_subagent_type: ${handle.profileName}`,
-    "status: completed",
-    "",
-    "[summary]",
-    result,
-  ].join("\n");
-}
-
-function formatForegroundAgentFailure(
-  handle: SubagentHandle,
-  message: string,
-  timedOut: boolean,
-): string {
-  const lines = [
-    `agent_id: ${handle.agentId}`,
-    `actual_subagent_type: ${handle.profileName}`,
-    "status: failed",
-    "",
-    `subagent error: ${message}`,
-  ];
-  if (timedOut) {
-    lines.push(
-      `resume_hint: Continue with Agent(resume="${handle.agentId}", prompt="continue"). Use agent_id only; do not set subagent_type. The subagent retains its prior context; redo any unfinished tool call if its result was lost.`,
-    );
-  }
-  return lines.join("\n");
 }
 
 function launchErrorMessage(error: unknown, signal: AbortSignal): string {
