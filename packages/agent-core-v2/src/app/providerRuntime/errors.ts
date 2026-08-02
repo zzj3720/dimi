@@ -80,7 +80,7 @@ export function providerRuntimeError(message: string, metadata?: unknown, cause?
         ? ProviderRuntimeErrors.codes.PROVIDER_OVERLOADED
         : /context.{0,24}(length|window|token)|too many tokens/.test(normalized)
           ? ProviderRuntimeErrors.codes.CONTEXT_OVERFLOW
-          : /fetch failed|network|connection|timed? ?out|socket/.test(normalized)
+          : /fetch failed|network|connection|timed? ?out|socket|stream ended|finish reason/.test(normalized)
             ? ProviderRuntimeErrors.codes.PROVIDER_CONNECTION_ERROR
             : ProviderRuntimeErrors.codes.PROVIDER_API_ERROR;
   return new Error2(code, message, {

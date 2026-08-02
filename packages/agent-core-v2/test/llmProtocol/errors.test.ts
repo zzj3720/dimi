@@ -22,6 +22,7 @@ import {
   normalizeAPIStatusError,
   parseRetryAfterMs,
 } from "#/llmProtocol/errors";
+import { providerRuntimeError } from "#/app/providerRuntime/errors";
 import { describe, expect, it } from "vitest";
 
 describe("ChatProviderError", () => {
@@ -191,6 +192,17 @@ describe("isRetryableGenerateError", () => {
     ).toBe(false);
     expect(isRetryableGenerateError(new Error("boom"))).toBe(false);
     expect(isRetryableGenerateError("boom")).toBe(false);
+  });
+
+  it("treats a stream that ended without a finish reason as retryable", () => {
+    // A stream terminating without a terminal finish reason is transient (the
+    // provider connection died mid-stream) — retrying usually succeeds, so it
+    // must not be classified as a permanent provider.api_error.
+    const error = providerRuntimeError(
+      "OpenAI Chat stream ended without a finish reason",
+    );
+    expect(error.code).toBe("provider.connection_error");
+    expect(isRetryableGenerateError(error)).toBe(true);
   });
 
   it("retries an unclassified provider error as a transient fallback", () => {
