@@ -31,7 +31,14 @@ if (process.env['DIMI_LEGACY'] !== '1' && !nativeBindingAvailable()) {
   );
 }
 
-await import('./main-app');
+// Load the real entry. No top-level await: the native bundle (SEA) builds
+// this entry as CJS, which does not support TLA.
+import('./main-app').catch((error: unknown) => {
+  process.stderr.write(
+    `dimi: failed to start: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
+  process.exit(1);
+});
 
 /** Locate the napi binding without loading it. */
 function nativeBindingAvailable(): boolean {
