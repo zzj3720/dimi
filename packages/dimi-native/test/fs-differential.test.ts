@@ -109,7 +109,9 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     async () => {
       const file = p('lines.txt');
       let content = '';
-      for (let i = 0; i < 200_000; i += 1) {
+      // ~550KB with 50k lines — far beyond the 64KB read chunk so several
+      // chunk boundaries split lines, while staying fast on slow CI shards.
+      for (let i = 0; i < 50_000; i += 1) {
         content += `line${i}\n`;
       }
       content += 'tail-no-newline';
@@ -125,8 +127,8 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
       }
       expect(rust).toEqual(tsLines);
     },
-    // 200k lines are streamed line-by-line over napi; debug builds on slow CI
-    // runners exceed the default 5s timeout by a wide margin.
+    // Lines stream line-by-line over napi; debug builds on shared CI shards
+    // need more headroom than the default 5s.
     30_000,
   );
 
