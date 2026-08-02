@@ -80,6 +80,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @dimi-agent/pi-tui test
 
+  # dimi-wire / dimi-bridge: cargo tests + the napi-rs addon + the TS↔Rust
+  # differential suite. Requires a Rust toolchain (the rest of CI does not).
+  test-rust:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Cargo tests
+        run: cargo test -p dimi-wire -p dimi-bridge
+      - name: Build native binding
+        run: pnpm --filter @dimi-agent/dimi-native run build:native
+      - name: Differential suite
+        run: pnpm --filter @dimi-agent/dimi-native test
+
   test-windows:
     runs-on: windows-latest
     # Temporarily disabled while Windows tests are being stabilized.

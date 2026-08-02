@@ -522,6 +522,12 @@ importers:
         specifier: ^6.3.3
         version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/dimi-native:
+    dependencies:
+      '@dimi-agent/transcript':
+        specifier: workspace:^
+        version: link:../transcript
+
   packages/kap-server:
     dependencies:
       '@dimi-agent/agent-core-v2':

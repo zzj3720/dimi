@@ -63,6 +63,7 @@
       # -------------------------------------------------------------------
       workspacePaths = [
         ./packages/agent-core-v2
+        ./packages/dimi-native
         ./packages/kap-server
         ./packages/klient
         ./packages/node-sdk
@@ -81,6 +82,7 @@
 
       workspaceNames = [
         "@dimi-agent/agent-core-v2"
+        "@dimi-agent/dimi-native"
         "@dimi-agent/kap-server"
         "@dimi-agent/dimi-sdk"
         "@dimi-agent/dimi-oauth"

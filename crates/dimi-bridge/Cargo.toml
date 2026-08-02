@@ -1,0 +1,29 @@
+[package]
+name = "dimi-bridge"
+description = "napi-rs bridge exposing dimi-wire to Node — the TS↔Rust differential harness and the swap-in socket for migrated modules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dimi-wire = { path = "../dimi-wire" }
+napi = "3.12.0"
+napi-derive = "3.6.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+napi-build = "2.4.0"
+
+# The napi-rs macro-generated binding code uses unsafe internally (raw
+# Node-API calls), so this crate cannot inherit the workspace default
+# `unsafe_code = "forbid"`; the lints are spelled out explicitly instead.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "warn"
