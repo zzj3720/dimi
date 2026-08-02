@@ -13,6 +13,7 @@ pub mod aimux;
 pub mod engine;
 pub mod events;
 pub mod llm;
+pub mod permission;
 pub mod tool;
 pub mod types;
 

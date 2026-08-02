@@ -269,7 +269,7 @@ mod tests {
                 finish_reason: Some("tool_calls".to_string()),
             },
         ]);
-        let mut seen: Vec<LlmStreamEvent> = Vec::new();
+        let seen: Vec<LlmStreamEvent> = Vec::new();
         let turn = client
             .stream_chat(&ChatRequest {
                 messages: vec![],

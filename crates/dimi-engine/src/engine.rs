@@ -7,9 +7,14 @@
 //! TS side (slice 1): the engine receives the assembled messages and appends
 //! tool results as the turn progresses.
 //!
+//! Slice 2 adds the permission policy chain: before each tool call the
+//! engine evaluates the policy (mode / whitelist / user rules / session
+//! history) and either executes, denies (fixed error text) or pauses the
+//! turn for an approval (`TurnProgress::NeedsApproval`); `TurnSession::resume`
+//! continues with the user's decision.
+//!
 //! Effect boundaries are injected (no DI container — plain trait objects):
-//! `LlmClient` for models and `ToolExecutor` for tools. Slice 1 ships the
-//! scripted LLM (differential tests) and the Bash tool over dimi-exec.
+//! `LlmClient` for models and `ToolExecutor` for tools.
 
 use std::time::Instant;
 
@@ -17,7 +22,10 @@ use dimi_wire::model::{TranscriptUsage, TurnOrigin};
 
 use crate::events::{EngineEvent, FinishReason};
 use crate::llm::{ChatRequest, LlmClient, LlmStreamEvent};
-use crate::tool::{ToolCall, ToolContext, ToolExecutor};
+use crate::permission::{
+    ApprovalDecision, ApprovalRequest, PolicyConfig, PolicyDecision, PolicyInput, evaluate,
+};
+use crate::tool::{ToolCall, ToolContext, ToolExecutor, ToolResult};
 use crate::types::{EngineTurnInput, LlmMessage, TurnEndReason, TurnOutcome};
 
 /// Engine configuration.
@@ -43,8 +51,8 @@ impl Default for Engine {
 enum StepDisposition {
     /// No tool calls (or a stop_turn result) — the turn is complete.
     Complete,
-    /// Tool calls were executed; loop back for another step.
-    Continue,
+    /// Tool calls to run through the policy gate.
+    Continue(Vec<ToolCall>),
 }
 
 /// Accumulates usage across steps; per-step usage is reported in
@@ -94,21 +102,203 @@ impl UsageAccumulator {
 }
 
 impl Engine {
-    /// Run one turn. `llm` and `tools` are the injected effect boundaries;
-    /// `on_event` receives the engine event stream in order. The returned
-    /// outcome carries the terminal state.
+    /// Run one turn to completion. Approvals are not wired in this
+    /// convenience entry: if the policy asks, the tool call is denied
+    /// (never hangs) — the session API (`TurnSession`) exposes the
+    /// pause/resume flow for interactive use.
     pub async fn run_turn(
         &self,
         input: &EngineTurnInput,
         llm: &dyn LlmClient,
         tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnOutcome {
-        let started_at = Instant::now();
-        let turn_id = input.turn_id;
-        let origin = TurnOrigin::User { payload: None };
-        let prompt = last_user_text(&input.messages);
+        let mut session = TurnSession::new(input.clone());
+        match session.run(llm, tools, policy, on_event).await {
+            TurnProgress::Completed(outcome) => outcome,
+            TurnProgress::NeedsApproval(_) => {
+                // No resolver wired: deny by default (never hang).
+                match session
+                    .resume(
+                        ApprovalDecision::Rejected { feedback: None },
+                        llm,
+                        tools,
+                        policy,
+                        on_event,
+                    )
+                    .await
+                {
+                    TurnProgress::Completed(outcome) => outcome,
+                    TurnProgress::NeedsApproval(_) => {
+                        // Another approval surfaced — deny it too, then finish.
+                        session
+                            .resume(
+                                ApprovalDecision::Rejected { feedback: None },
+                                llm,
+                                tools,
+                                policy,
+                                on_event,
+                            )
+                            .await
+                            .into_completed_or_failed()
+                    }
+                }
+            }
+        }
+    }
+}
 
+/// One in-flight turn: messages, step counter and the pending approval (if
+/// the policy asked and the turn paused).
+pub struct TurnSession {
+    input: EngineTurnInput,
+    messages: Vec<LlmMessage>,
+    steps: u32,
+    started_at: Instant,
+    pending: Option<PendingApproval>,
+}
+
+/// A tool call waiting for the user's approval decision.
+pub struct PendingApproval {
+    pub request: ApprovalRequest,
+    pub call: ToolCall,
+}
+
+/// Where the turn stands after `run` / `resume`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TurnProgress {
+    Completed(TurnOutcome),
+    NeedsApproval(ApprovalRequest),
+}
+
+impl TurnProgress {
+    /// Non-interactive fallback: collapse any state into an outcome.
+    pub fn into_completed_or_failed(self) -> TurnOutcome {
+        match self {
+            TurnProgress::Completed(outcome) => outcome,
+            TurnProgress::NeedsApproval(_) => TurnOutcome {
+                status: TurnEndReason::Failed,
+                steps: 0,
+                error: Some("approval pending without a resolver".to_string()),
+                error_code: Some("APPROVAL_PENDING".to_string()),
+                truncated: None,
+            },
+        }
+    }
+}
+
+impl TurnSession {
+    pub fn new(input: EngineTurnInput) -> Self {
+        Self {
+            input,
+            messages: Vec::new(),
+            steps: 0,
+            started_at: Instant::now(),
+            pending: None,
+        }
+    }
+
+    /// Run until the turn completes or a tool call needs approval.
+    pub async fn run(
+        &mut self,
+        llm: &dyn LlmClient,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        self.messages = self.input.messages.clone();
+        self.run_loop(llm, tools, policy, on_event).await
+    }
+
+    /// Resume after an approval decision; returns the next progress state.
+    pub async fn resume(
+        &mut self,
+        decision: ApprovalDecision,
+        llm: &dyn LlmClient,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        let Some(pending) = self.pending.take() else {
+            // Nothing pending — finish as failed (defensive).
+            return TurnProgress::Completed(TurnOutcome {
+                status: TurnEndReason::Failed,
+                steps: self.steps,
+                error: Some("resume called without a pending approval".to_string()),
+                error_code: Some("NO_PENDING_APPROVAL".to_string()),
+                truncated: None,
+            });
+        };
+        let result = match decision {
+            ApprovalDecision::Approved => {
+                execute_tool(pending.call.clone(), tools, &self.tool_ctx(), on_event).await
+            }
+            ApprovalDecision::Rejected { feedback } => ToolResult {
+                tool_call_id: pending.call.id.clone(),
+                tool_name: pending.call.name.clone(),
+                output: match feedback {
+                    Some(reason) if !reason.is_empty() => format!(
+                        "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
+                        pending.call.name, reason
+                    ),
+                    _ => format!(
+                        "Tool \"{}\" was not run because the user rejected the approval request.",
+                        pending.call.name
+                    ),
+                },
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+            ApprovalDecision::Cancelled => ToolResult {
+                tool_call_id: pending.call.id.clone(),
+                tool_name: pending.call.name.clone(),
+                output: format!(
+                    "Tool \"{}\" was not run because the approval request was cancelled.",
+                    pending.call.name
+                ),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        };
+        emit_tool_result(&result, self.input.turn_id, on_event);
+        self.messages.push(LlmMessage {
+            role: "tool".to_string(),
+            content: serde_json::Value::String(result.output.clone()),
+            name: Some(result.tool_name.clone()),
+            tool_call_id: Some(result.tool_call_id.clone()),
+            tool_calls: None,
+            reasoning: None,
+        });
+        if result.stop_turn {
+            return self.finish_turn(TurnEndReason::Completed, on_event);
+        }
+        self.run_loop(llm, tools, policy, on_event).await
+    }
+
+    fn tool_ctx(&self) -> ToolContext {
+        ToolContext {
+            cwd: self.input.cwd.clone().unwrap_or_else(|| ".".to_string()),
+            shell: self
+                .input
+                .shell
+                .clone()
+                .unwrap_or_else(|| "/bin/sh".to_string()),
+        }
+    }
+
+    async fn run_loop(
+        &mut self,
+        llm: &dyn LlmClient,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        let turn_id = self.input.turn_id;
+        let origin = TurnOrigin::User { payload: None };
+        let prompt = last_user_text(&self.input.messages);
         emit(
             on_event,
             EngineEvent::TurnStarted {
@@ -118,26 +308,15 @@ impl Engine {
             },
         );
 
-        let mut messages = input.messages.clone();
-        let mut steps: u32 = 0;
-
-        let mut tool_ctx = ToolContext {
-            cwd: input.cwd.clone().unwrap_or_else(|| ".".to_string()),
-            shell: input.shell.clone().unwrap_or_else(|| self.shell.clone()),
-        };
-        if tool_ctx.shell.is_empty() {
-            tool_ctx.shell = "/bin/sh".to_string();
-        }
-
-        let outcome = loop {
-            // max-steps guard (loopService.beginLoopStep).
-            if let Some(max) = self.max_steps_per_turn {
-                if max > 0 && steps >= max {
+        loop {
+            // max-steps guard.
+            if let Some(max) = self.input.max_steps_per_turn {
+                if max > 0 && self.steps >= max {
                     emit(
                         on_event,
                         EngineEvent::TurnStepInterrupted {
                             turn_id,
-                            step: steps as i64,
+                            step: self.steps as i64,
                             step_id: None,
                             reason: "max_steps".to_string(),
                             message: Some(format!(
@@ -145,18 +324,17 @@ impl Engine {
                             )),
                         },
                     );
-                    break TurnOutcome {
-                        status: TurnEndReason::Failed,
-                        steps,
-                        error: Some(format!("Turn exceeded maxSteps={max}")),
-                        error_code: Some("LOOP_MAX_STEPS_EXCEEDED".to_string()),
-                        truncated: None,
-                    };
+                    return self.finish_turn_with_error(
+                        TurnEndReason::Failed,
+                        Some(format!("Turn exceeded maxSteps={max}")),
+                        Some("LOOP_MAX_STEPS_EXCEEDED".to_string()),
+                        on_event,
+                    );
                 }
             }
 
-            steps += 1;
-            let step_number = steps;
+            self.steps += 1;
+            let step_number = self.steps;
             emit(
                 on_event,
                 EngineEvent::TurnStepStarted {
@@ -168,21 +346,17 @@ impl Engine {
 
             let mut usage = UsageAccumulator::default();
             let request = ChatRequest {
-                messages: messages.clone(),
+                messages: self.messages.clone(),
                 tools: None,
-                model: Some(input.provider.model.clone()),
-                thinking_effort: input.provider.thinking_effort.clone(),
+                model: Some(self.input.provider.model.clone()),
+                thinking_effort: self.input.provider.thinking_effort.clone(),
             };
 
-            let (disposition, tool_messages) = match execute_step(
-                turn_id, &tool_ctx, llm, tools, &request, &mut usage, on_event,
-            )
-            .await
+            let disposition = match execute_step(turn_id, llm, &request, &mut usage, on_event).await
             {
-                Ok(parts) => parts,
+                Ok(disposition) => disposition,
                 Err(error) => {
                     let message = error.message.clone();
-                    let code = error.code.clone().unwrap_or_default();
                     emit(
                         on_event,
                         EngineEvent::TurnStepInterrupted {
@@ -193,84 +367,223 @@ impl Engine {
                             message: Some(message.clone()),
                         },
                     );
-                    break TurnOutcome {
-                        status: TurnEndReason::Failed,
-                        steps: step_number,
-                        error: Some(message),
-                        error_code: Some(code),
-                        truncated: None,
-                    };
+                    return self.finish_turn_with_error(
+                        TurnEndReason::Failed,
+                        Some(message),
+                        error.code.clone(),
+                        on_event,
+                    );
                 }
             };
-            messages.extend(tool_messages);
-
-            let step_finish = match &disposition {
-                StepDisposition::Complete => FinishReason::Completed,
-                StepDisposition::Continue => FinishReason::ToolCalls,
-            };
-            emit(
-                on_event,
-                EngineEvent::TurnStepCompleted {
-                    turn_id,
-                    step: step_number as i64,
-                    step_id: None,
-                    usage: usage.transcript_usage(),
-                    finish_reason: Some(normalize_finish_reason(step_finish).to_string()),
-                },
-            );
 
             match disposition {
                 StepDisposition::Complete => {
-                    break TurnOutcome {
-                        status: TurnEndReason::Completed,
-                        steps: step_number,
-                        error: None,
-                        error_code: None,
-                        truncated: Some(step_finish == FinishReason::Truncated),
-                    };
+                    emit(
+                        on_event,
+                        EngineEvent::TurnStepCompleted {
+                            turn_id,
+                            step: step_number as i64,
+                            step_id: None,
+                            usage: usage.transcript_usage(),
+                            finish_reason: Some(
+                                normalize_finish_reason(FinishReason::Completed).to_string(),
+                            ),
+                        },
+                    );
+                    return self.finish_turn(TurnEndReason::Completed, on_event);
                 }
-                StepDisposition::Continue => {
-                    // Tool results were appended to messages; loop back.
+                StepDisposition::Continue(calls) => {
+                    let mut stop_turn = false;
+                    for call in &calls {
+                        let input = PolicyInput {
+                            mode: policy.mode,
+                            tool_name: call.name.clone(),
+                            args: call.arguments.clone(),
+                            rules: policy.rules.clone(),
+                            session_approved_patterns: policy.session_approved_patterns.clone(),
+                            match_arg: call
+                                .arguments
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_owned),
+                        };
+                        match evaluate(&input) {
+                            PolicyDecision::Approve => {
+                                let result =
+                                    execute_tool(call.clone(), tools, &self.tool_ctx(), on_event)
+                                        .await;
+                                emit_tool_result(&result, turn_id, on_event);
+                                self.messages.push(LlmMessage {
+                                    role: "tool".to_string(),
+                                    content: serde_json::Value::String(result.output.clone()),
+                                    name: Some(result.tool_name.clone()),
+                                    tool_call_id: Some(result.tool_call_id.clone()),
+                                    tool_calls: None,
+                                    reasoning: None,
+                                });
+                                if result.stop_turn {
+                                    stop_turn = true;
+                                    break;
+                                }
+                            }
+                            PolicyDecision::Deny { reason } => {
+                                let result = ToolResult {
+                                    tool_call_id: call.id.clone(),
+                                    tool_name: call.name.clone(),
+                                    output: reason,
+                                    is_error: true,
+                                    stop_turn: false,
+                                    updates: vec![],
+                                };
+                                emit_tool_result(&result, turn_id, on_event);
+                                self.messages.push(LlmMessage {
+                                    role: "tool".to_string(),
+                                    content: serde_json::Value::String(result.output),
+                                    name: Some(call.name.clone()),
+                                    tool_call_id: Some(call.id.clone()),
+                                    tool_calls: None,
+                                    reasoning: None,
+                                });
+                            }
+                            PolicyDecision::Ask => {
+                                let request = ApprovalRequest {
+                                    request_id: format!("approval-{turn_id}-{}", call.id),
+                                    tool_call_id: call.id.clone(),
+                                    tool_name: call.name.clone(),
+                                    action: Some("Run tool".to_string()),
+                                    display: Some(serde_json::json!({
+                                        "tool": call.name,
+                                        "args": call.arguments
+                                    })),
+                                    tool_input: Some(call.arguments.clone()),
+                                };
+                                self.pending = Some(PendingApproval {
+                                    request: request.clone(),
+                                    call: call.clone(),
+                                });
+                                return TurnProgress::NeedsApproval(request);
+                            }
+                        }
+                    }
+                    if stop_turn {
+                        emit(
+                            on_event,
+                            EngineEvent::TurnStepCompleted {
+                                turn_id,
+                                step: step_number as i64,
+                                step_id: None,
+                                usage: usage.transcript_usage(),
+                                finish_reason: Some(
+                                    normalize_finish_reason(FinishReason::Completed).to_string(),
+                                ),
+                            },
+                        );
+                        return self.finish_turn(TurnEndReason::Completed, on_event);
+                    }
+                    emit(
+                        on_event,
+                        EngineEvent::TurnStepCompleted {
+                            turn_id,
+                            step: step_number as i64,
+                            step_id: None,
+                            usage: usage.transcript_usage(),
+                            finish_reason: Some(
+                                normalize_finish_reason(FinishReason::ToolCalls).to_string(),
+                            ),
+                        },
+                    );
                 }
             }
-        };
+        }
+    }
 
+    fn finish_turn(
+        &mut self,
+        status: TurnEndReason,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        self.finish_turn_with_error(status, None, None, on_event)
+    }
+
+    fn finish_turn_with_error(
+        &mut self,
+        status: TurnEndReason,
+        error: Option<String>,
+        error_code: Option<String>,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        let outcome = TurnOutcome {
+            status,
+            steps: self.steps,
+            error,
+            error_code,
+            truncated: None,
+        };
         emit(
             on_event,
             EngineEvent::TurnEnded {
-                turn_id,
-                reason: match outcome.status {
+                turn_id: self.input.turn_id,
+                reason: match status {
                     TurnEndReason::Completed => "completed".to_string(),
                     TurnEndReason::Cancelled => "cancelled".to_string(),
                     TurnEndReason::Failed => "failed".to_string(),
                     TurnEndReason::Blocked => "blocked".to_string(),
                 },
-                error: outcome
-                    .error
-                    .as_ref()
-                    .map(|message| serde_json::json!({ "message": message })),
-                duration_ms: Some(started_at.elapsed().as_millis() as i64),
+                error: None,
+                duration_ms: Some(self.started_at.elapsed().as_millis() as i64),
             },
         );
-
-        outcome
+        TurnProgress::Completed(outcome)
     }
 }
 
-/// Execute one step: LLM stream → parse → tool calls → tool results.
-/// Returns the disposition for the outer loop plus the tool messages to
-/// append to the conversation.
+async fn execute_tool(
+    call: ToolCall,
+    tools: &dyn ToolExecutor,
+    ctx: &ToolContext,
+    on_event: &mut (dyn FnMut(EngineEvent) + Send),
+) -> ToolResult {
+    on_event(EngineEvent::ToolCallStarted {
+        turn_id: 0,
+        tool_call_id: call.id.clone(),
+        name: call.name.clone(),
+        args: Some(call.arguments.clone()),
+        description: None,
+    });
+    let result = tools.execute(&call, ctx);
+    for update in &result.updates {
+        on_event(EngineEvent::ToolProgress {
+            turn_id: 0,
+            tool_call_id: call.id.clone(),
+            update: update.clone(),
+        });
+    }
+    result
+}
+
+fn emit_tool_result(
+    result: &ToolResult,
+    turn_id: i64,
+    on_event: &mut (dyn FnMut(EngineEvent) + Send),
+) {
+    on_event(EngineEvent::ToolResult {
+        turn_id,
+        tool_call_id: result.tool_call_id.clone(),
+        output: result.output.clone(),
+        is_error: Some(result.is_error),
+        synthetic: None,
+    });
+}
+
+/// Execute one step's LLM phase: stream → parse → tool call list. The tool
+/// phase is driven by the session loop (policy + approvals).
 async fn execute_step(
     turn_id: i64,
-    tool_ctx: &ToolContext,
     llm: &dyn LlmClient,
-    tools: &dyn ToolExecutor,
     request: &ChatRequest,
     usage: &mut UsageAccumulator,
     on_event: &mut (dyn FnMut(EngineEvent) + Send),
-) -> Result<(StepDisposition, Vec<LlmMessage>), crate::llm::LlmError> {
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-
+) -> Result<StepDisposition, crate::llm::LlmError> {
     let streamed = llm.stream_chat(request).await?;
     for event in &streamed.events {
         match event {
@@ -306,6 +619,7 @@ async fn execute_step(
     }
     let assistant = &streamed.assistant;
 
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
     for call in &assistant.tool_calls {
         let args: serde_json::Value =
             serde_json::from_str(&call.function.arguments).unwrap_or(serde_json::Value::Null);
@@ -317,52 +631,12 @@ async fn execute_step(
     }
 
     if tool_calls.is_empty() {
-        return Ok((StepDisposition::Complete, Vec::new()));
+        return Ok(StepDisposition::Complete);
     }
-
-    let mut tool_messages = Vec::new();
-    for call in &tool_calls {
-        on_event(EngineEvent::ToolCallStarted {
-            turn_id,
-            tool_call_id: call.id.clone(),
-            name: call.name.clone(),
-            args: Some(call.arguments.clone()),
-            description: None,
-        });
-        let result = tools.execute(call, tool_ctx);
-        for update in &result.updates {
-            on_event(EngineEvent::ToolProgress {
-                turn_id,
-                tool_call_id: call.id.clone(),
-                update: update.clone(),
-            });
-        }
-        on_event(EngineEvent::ToolResult {
-            turn_id,
-            tool_call_id: call.id.clone(),
-            output: result.output.clone(),
-            is_error: Some(result.is_error),
-            synthetic: None,
-        });
-        // Append the tool message to the conversation
-        // (loopEventFold.createToolMessage).
-        tool_messages.push(LlmMessage {
-            role: "tool".to_string(),
-            content: serde_json::Value::String(result.output.clone()),
-            name: Some(call.name.clone()),
-            tool_call_id: Some(call.id.clone()),
-            tool_calls: None,
-            reasoning: None,
-        });
-        if result.stop_turn {
-            return Ok((StepDisposition::Complete, tool_messages));
-        }
-    }
-
-    Ok((StepDisposition::Continue, tool_messages))
+    Ok(StepDisposition::Continue(tool_calls))
 }
 
-fn emit(on_event: &mut (dyn FnMut(EngineEvent) + Send), event: EngineEvent) {
+fn emit(on_event: &mut dyn FnMut(EngineEvent), event: EngineEvent) {
     on_event(event);
 }
 
@@ -400,11 +674,14 @@ pub fn normalize_finish_reason(reason: FinishReason) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
-    use crate::tool::BashTool;
+    use crate::llm::ScriptedLlmClient;
     use crate::types::ProviderConfig;
 
     fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        input_with_steps(messages, None)
+    }
+
+    fn input_with_steps(messages: Vec<LlmMessage>, max_steps: Option<u32>) -> EngineTurnInput {
         EngineTurnInput {
             turn_id: 1,
             messages,
@@ -415,7 +692,7 @@ mod tests {
                 model: "test-model".to_string(),
                 thinking_effort: None,
             },
-            max_steps_per_turn: None,
+            max_steps_per_turn: max_steps,
             cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
             shell: Some("/bin/sh".to_string()),
         }
@@ -466,7 +743,12 @@ mod tests {
             .run_turn(
                 &input(vec![user_message("hi")]),
                 &llm,
-                &BashTool,
+                &crate::tool::BashTool,
+                &crate::permission::PolicyConfig {
+                    mode: crate::permission::PermissionMode::Auto,
+                    rules: vec![],
+                    session_approved_patterns: vec![],
+                },
                 &mut |event| events.push(event),
             )
             .await;
@@ -527,7 +809,12 @@ mod tests {
             .run_turn(
                 &input(vec![user_message("run a command")]),
                 &llm,
-                &BashTool,
+                &crate::tool::BashTool,
+                &crate::permission::PolicyConfig {
+                    mode: crate::permission::PermissionMode::Auto,
+                    rules: vec![],
+                    session_approved_patterns: vec![],
+                },
                 &mut |event| events.push(event),
             )
             .await;
@@ -582,9 +869,14 @@ mod tests {
         let mut events = Vec::new();
         let outcome = engine
             .run_turn(
-                &input(vec![user_message("loop")]),
+                &input_with_steps(vec![user_message("loop")], Some(1)),
                 &llm,
-                &BashTool,
+                &crate::tool::BashTool,
+                &crate::permission::PolicyConfig {
+                    mode: crate::permission::PermissionMode::Auto,
+                    rules: vec![],
+                    session_approved_patterns: vec![],
+                },
                 &mut |event| events.push(event),
             )
             .await;
@@ -632,7 +924,12 @@ mod tests {
             .run_turn(
                 &input(vec![user_message("fail")]),
                 &llm,
-                &BashTool,
+                &crate::tool::BashTool,
+                &crate::permission::PolicyConfig {
+                    mode: crate::permission::PermissionMode::Auto,
+                    rules: vec![],
+                    session_approved_patterns: vec![],
+                },
                 &mut |event| events.push(event),
             )
             .await;

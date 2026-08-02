@@ -17,6 +17,7 @@ use napi_derive::napi;
 use dimi_engine::aimux::{AimuxLlmClient, openai_model};
 use dimi_engine::events::EngineEvent;
 use dimi_engine::llm::{LlmClient, LlmStreamEvent, ScriptedLlmClient};
+use dimi_engine::permission::{ApprovalDecision, PolicyConfig};
 use dimi_engine::tool::{BashTool, ToolExecutor};
 use dimi_engine::types::EngineTurnInput;
 
@@ -63,16 +64,132 @@ impl RustEngine {
             }),
         };
         let tools: Box<dyn ToolExecutor> = Box::new(BashTool);
+        let policy = dimi_engine::permission::PolicyConfig {
+            mode: dimi_engine::permission::PermissionMode::Manual,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
 
         let mut events: Vec<EngineEvent> = Vec::new();
         let outcome = self
             .inner
-            .run_turn(&input, llm.as_ref(), tools.as_ref(), &mut |event| {
-                events.push(event);
-            })
+            .run_turn(
+                &input,
+                llm.as_ref(),
+                tools.as_ref(),
+                &policy,
+                &mut |event| events.push(event),
+            )
             .await;
 
         let batch = dimi_engine::events::EngineEventBatch { events, outcome };
         serde_json::to_string(&batch).map_err(wire_error)
+    }
+}
+
+/// `RustTurnSession` — an in-flight Rust-engine turn with approval support.
+///
+/// `run()` advances the turn until it completes or needs an approval;
+/// `resume(decisionJson)` continues after the user's decision. The event
+/// batch JSON carries `progress`: `{status:"completed", outcome}` or
+/// `{status:"needsApproval", approval}`.
+#[napi]
+pub struct RustTurnSession {
+    inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
+    llm: Box<dyn LlmClient>,
+    tools: Box<dyn ToolExecutor>,
+    policy: PolicyConfig,
+}
+
+fn progress_json(
+    progress: dimi_engine::engine::TurnProgress,
+    events: Vec<EngineEvent>,
+) -> napi::Result<String> {
+    let progress = match progress {
+        dimi_engine::engine::TurnProgress::Completed(outcome) => {
+            serde_json::json!({ "status": "completed", "outcome": outcome })
+        }
+        dimi_engine::engine::TurnProgress::NeedsApproval(approval) => {
+            serde_json::json!({ "status": "needsApproval", "approval": approval })
+        }
+    };
+    serde_json::to_string(&serde_json::json!({ "events": events, "progress": progress }))
+        .map_err(wire_error)
+}
+
+fn make_client(
+    input: &EngineTurnInput,
+    scripted_segments_json: Option<String>,
+) -> napi::Result<Box<dyn LlmClient>> {
+    match scripted_segments_json {
+        Some(segments_json) => {
+            let segments: Vec<Vec<LlmStreamEvent>> =
+                serde_json::from_str(&segments_json).map_err(wire_error)?;
+            Ok(Box::new(ScriptedLlmClient::new(segments)))
+        }
+        None => Ok(Box::new(AimuxLlmClient {
+            model: openai_model(&input.provider),
+        })),
+    }
+}
+
+#[napi]
+impl RustTurnSession {
+    #[napi(constructor)]
+    pub fn new(
+        input_json: String,
+        policy_json: String,
+        scripted_segments_json: Option<String>,
+    ) -> napi::Result<Self> {
+        let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
+        let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
+        let llm = make_client(&input, scripted_segments_json)?;
+        let tools: Box<dyn ToolExecutor> = Box::new(BashTool);
+        Ok(Self {
+            inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::new(input)),
+            llm,
+            tools,
+            policy,
+        })
+    }
+
+    /// Advance the turn until completion or an approval request.
+    #[napi]
+    pub async fn run(&self) -> napi::Result<String> {
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = {
+            let mut inner = self.inner.lock().await;
+            inner
+                .run(
+                    self.llm.as_ref(),
+                    self.tools.as_ref(),
+                    &self.policy,
+                    &mut |event| events.push(event),
+                )
+                .await
+        };
+        progress_json(progress, events)
+    }
+
+    /// Resume after the user's approval decision
+    /// (`{decision:"approved"|"rejected", feedback?}`).
+    #[napi]
+    pub async fn resume(&self, decision_json: String) -> napi::Result<String> {
+        let decision: ApprovalDecision =
+            serde_json::from_str(&decision_json).map_err(wire_error)?;
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = {
+            let mut inner = self.inner.lock().await;
+            inner
+                .resume(
+                    decision,
+                    self.llm.as_ref(),
+                    self.tools.as_ref(),
+                    &self.policy,
+                    &mut |event| events.push(event),
+                )
+                .await
+        };
+        progress_json(progress, events)
     }
 }
