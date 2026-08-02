@@ -20,6 +20,7 @@ import {
 
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
+import { RustHostFileSystem } from '#/os/backends/rust-local/rustHostFileSystemService';
 
 import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
@@ -258,10 +259,17 @@ export class HostFileSystem implements IHostFileSystem {
   }
 }
 
+/**
+ * Default backend is the Rust fs layer (dimi-exec via the napi bridge);
+ * `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local
+ * backend.
+ */
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
+
 registerScopedService(
   LifecycleScope.App,
   IHostFileSystem,
-  HostFileSystem,
+  LEGACY_TS ? HostFileSystem : RustHostFileSystem,
   ScopeActivation.OnScopeCreated,
   'hostFs',
 );

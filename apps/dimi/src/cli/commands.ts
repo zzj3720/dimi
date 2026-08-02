@@ -156,8 +156,9 @@ export function createProgram(
 
     // `--legacy` is the process-wide "use the TypeScript backend" switch:
     // any server started in this process (web/remote, or the main session
-    // once it is server-backed) honors it via DIMI_LEGACY_STORE.
-    if (raw["legacy"] === true) process.env["DIMI_LEGACY_STORE"] = "1";
+    // once it is server-backed) honors it via DIMI_LEGACY. The entry point
+    // (`main.ts`) also sets it from argv before any backend module loads.
+    if (raw["legacy"] === true) process.env["DIMI_LEGACY"] = "1";
 
     const rawSession = raw["session"] ?? raw["resume"];
     const sessionValue = rawSession === true ? "" : (rawSession as string | undefined);

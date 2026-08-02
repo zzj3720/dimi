@@ -12,6 +12,10 @@ import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
+import { RustHostEnvironmentService } from '#/os/backends/rust-local/rustHostEnvironmentService';
+
+/** `DIMI_LEGACY=1` (set by the CLI `--legacy` flag) keeps the node-local probe. */
+const LEGACY_TS = process.env['DIMI_LEGACY'] === '1';
 
 import {
   type HostEnvironmentInfo,
@@ -77,7 +81,7 @@ export class HostEnvironmentService implements IHostEnvironment {
 registerScopedService(
   LifecycleScope.App,
   IHostEnvironment,
-  HostEnvironmentService,
+  LEGACY_TS ? HostEnvironmentService : RustHostEnvironmentService,
   ScopeActivation.OnScopeCreated,
   'hostEnvironment',
 );
