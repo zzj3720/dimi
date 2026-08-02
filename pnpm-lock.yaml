@@ -144,6 +144,24 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     optionalDependencies:
+      '@dimi-agent/dimi-native-darwin-arm64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
+      '@dimi-agent/dimi-native-darwin-x64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
+      '@dimi-agent/dimi-native-linux-arm64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
+      '@dimi-agent/dimi-native-linux-x64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
+      '@dimi-agent/dimi-native-win32-arm64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
+      '@dimi-agent/dimi-native-win32-x64':
+        specifier: '>=0.5.3 <1'
+        version: 0.5.3
       '@mariozechner/clipboard':
         specifier: ^0.3.9
         version: 0.3.9
@@ -1515,6 +1533,36 @@ packages:
   '@dagrejs/graphlib@2.2.4':
     resolution: {integrity: sha512-mepCf/e9+SKYy1d02/UkvSy6+6MoyXhVxP8lLDfA7BPE1X1d4dR0sZznmbM8/XVJ1GPM+Svnx7Xj6ZweByWUkw==}
     engines: {node: '>17.0.0'}
+
+  '@dimi-agent/dimi-native-darwin-arm64@0.5.3':
+    resolution: {integrity: sha512-wBQeJLOO5GN25HDDu3IhwVqFX6oDrmW2g0LT+CVa/rvjY9UbbtE82ZaUaXYU/xrPLoIwYcygrOz3ntUGz1IWMg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@dimi-agent/dimi-native-darwin-x64@0.5.3':
+    resolution: {integrity: sha512-7wPWruKSOvhV87zWhzagYkSiufPVvL2B02SA1+0DW9Xr1p9pZSjV1CPvad52e1SvFyjWrRGG/SxVzVpFzToNww==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@dimi-agent/dimi-native-linux-arm64@0.5.3':
+    resolution: {integrity: sha512-PuvFvj0xyqpntdvD6kTc2I5OhdWOQPPTmexhMYaYClSd3ltxD9njNyG23Wzm8oBaqMPreXkGOn2gIS+L7HQ0oQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@dimi-agent/dimi-native-linux-x64@0.5.3':
+    resolution: {integrity: sha512-iKhODrXSXP0/iZrozA6V0T1J68cZ/7uF5WJXBzBRg0vQE1H+H9RCBEpw0YesKVYlfjlc1BgLFAcWceTemjT47w==}
+    cpu: [x64]
+    os: [linux]
+
+  '@dimi-agent/dimi-native-win32-arm64@0.5.3':
+    resolution: {integrity: sha512-/l3dufBU1SQTkujBw4bB3vDj7K6rxJ1M18nZ+mqkFRINnity3SGCWbOmQwqqzXBsMw/8EJA56oxb76Q+EMtOvw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@dimi-agent/dimi-native-win32-x64@0.5.3':
+    resolution: {integrity: sha512-ZyztZBUCVgiiuPypBQnoCibCwjAhDfYtyjKqWrgxXhI0G7WL/dmugAKtRxjFJurt2AoHEvxrOS6OC0YIvHoIRA==}
+    cpu: [x64]
+    os: [win32]
 
   '@docsearch/css@3.8.2':
     resolution: {integrity: sha512-y05ayQFyUmCXze79+56v/4HpycYF3uFqB78pLPrSV5ZKAlDuIAAJNhaRi8tTdRNXh05yxX/TyNnzD6LwSM89vQ==}
@@ -9591,6 +9639,24 @@ snapshots:
       '@dagrejs/graphlib': 2.2.4
 
   '@dagrejs/graphlib@2.2.4': {}
+
+  '@dimi-agent/dimi-native-darwin-arm64@0.5.3':
+    optional: true
+
+  '@dimi-agent/dimi-native-darwin-x64@0.5.3':
+    optional: true
+
+  '@dimi-agent/dimi-native-linux-arm64@0.5.3':
+    optional: true
+
+  '@dimi-agent/dimi-native-linux-x64@0.5.3':
+    optional: true
+
+  '@dimi-agent/dimi-native-win32-arm64@0.5.3':
+    optional: true
+
+  '@dimi-agent/dimi-native-win32-x64@0.5.3':
+    optional: true
 
   '@docsearch/css@3.8.2': {}
 

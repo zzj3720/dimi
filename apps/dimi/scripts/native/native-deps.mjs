@@ -84,6 +84,19 @@ export const nativeDeps = Object.freeze([
     parent: null,
     nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],
   },
+  {
+    id: 'dimi-native',
+    name: (target) => `@dimi-agent/dimi-native-${target}`,
+    // The dimi Rust runtime binding: npm installs get it from the platform
+    // subpackage (an optionalDependency of the CLI); the SEA binary embeds
+    // it here so native releases run the Rust runtime too. loadNative
+    // requires the subpackage by name and the module hook redirects it into
+    // the native-asset cache (only the .node + package.json are collected —
+    // the JS wrapper is bundled into main.cjs).
+    collect: 'native-file-only',
+    parent: null,
+    nativeFileRelatives: () => ['dimi_bridge.node'],
+  },
 ]);
 
 /**
