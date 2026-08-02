@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.4.4
+
+### Patch Changes
+
+- [`2914a0f`](https://github.com/zzj3720/dimi/commit/2914a0ff07648c38904825435926e8022cfb7923) - Allow /model, /effort, and other configuration or read-only slash commands while the agent is streaming or compacting.
+
 ## 0.4.3
 
 ### Patch Changes
