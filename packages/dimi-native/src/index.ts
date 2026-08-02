@@ -13,15 +13,15 @@ const require = createRequire(import.meta.url);
 
 export interface NativeBinding {
   /** Parse one transcript item and re-serialize it canonically. */
-  normalizeItem(json: string): string;
+  normalizeItem: typeof normalizeItem;
   /** Parse one transcript step and re-serialize it canonically. */
-  normalizeStep(json: string): string;
+  normalizeStep: typeof normalizeStep;
   /** Parse one task and re-serialize it canonically. */
-  normalizeTask(json: string): string;
+  normalizeTask: typeof normalizeTask;
   /** Parse one agent phase and re-serialize it canonically. */
-  normalizePhase(json: string): string;
+  normalizePhase: typeof normalizePhase;
   /** Filename-safe agent id check. */
-  isPlainAgentId(id: string): boolean;
+  isPlainAgentId: typeof isPlainAgentId;
 }
 
 let binding: NativeBinding | undefined;
