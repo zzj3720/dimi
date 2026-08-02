@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { pino } from "pino";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   hostRequestHeadersSeed,
@@ -29,11 +29,82 @@ import { listenWithPortRetry, type RunningServer, startServer } from "../src/sta
 import { getServerVersion } from "../src/version";
 import { authedFetch } from "./helpers/auth";
 
+/**
+ * Provider auth resolves ambient env vars — every builtin provider's
+ * `envNames` (builtinCatalog.generated.ts) plus the special-case keys in
+ * `providerRuntime/auth.ts` (Anthropic gateway/OAuth, Bedrock AWS chain,
+ * Vertex Google Cloud, Cloudflare account/gateway). A dev shell usually has
+ * several of these set (e.g. `OPENCODE_API_KEY`), which would make the
+ * `authenticated_providers` assertions below environment-dependent. Stubbing
+ * every known key to `""` keeps the boot suite hermetic: all resolvers treat
+ * a blank value as "not configured" (`?.trim()` checks).
+ *
+ * Known residual: Bedrock/Vertex also accept on-disk credential files
+ * (`~/.aws/credentials`, `~/.config/gcloud/...`); machines with those files
+ * still surface the provider here.
+ */
+const PROVIDER_ENV_KEYS = [
+  // Builtin catalog envNames (builtinCatalog.generated.ts).
+  "AI_GATEWAY_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "ANT_LING_API_KEY",
+  "AZURE_OPENAI_API_KEY",
+  "CEREBRAS_API_KEY",
+  "CLOUDFLARE_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "DIMI_API_KEY",
+  "FIREWORKS_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_CLOUD_API_KEY",
+  "GROQ_API_KEY",
+  "HF_TOKEN",
+  "MINIMAX_API_KEY",
+  "MINIMAX_CN_API_KEY",
+  "MISTRAL_API_KEY",
+  "MOONSHOT_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENCODE_API_KEY",
+  "OPENROUTER_API_KEY",
+  "QWEN_TOKEN_PLAN_API_KEY",
+  "QWEN_TOKEN_PLAN_CN_API_KEY",
+  "RADIUS_API_KEY",
+  "TOGETHER_API_KEY",
+  "XAI_API_KEY",
+  "XIAOMI_API_KEY",
+  "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+  "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+  "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+  "ZAI_API_KEY",
+  "ZAI_CODING_CN_API_KEY",
+  // Special-case auth keys (providerRuntime/auth.ts).
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_OAUTH_TOKEN",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "AWS_PROFILE",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "GOOGLE_CLOUD_PROJECT",
+  "GCLOUD_PROJECT",
+  "GOOGLE_CLOUD_LOCATION",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
+];
+
 describe("server-v2 boot", () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
 
+  beforeEach(() => {
+    for (const key of PROVIDER_ENV_KEYS) vi.stubEnv(key, "");
+  });
+
   afterEach(async () => {
+    vi.unstubAllEnvs();
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -112,7 +183,7 @@ describe("server-v2 boot", () => {
     });
     const base = `http://127.0.0.1:${server.port}`;
 
-    const login = await authedFetch(server, base, "/api/v1/providers/anthropic:login", {
+    const login = await authedFetch(server, base, "/api/v1/providers/deepseek:login", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ method: "api_key", value: "YOUR_API_KEY" }),
@@ -125,7 +196,7 @@ describe("server-v2 boot", () => {
     expect(loginBody).toMatchObject({
       code: 0,
       data: {
-        id: "anthropic",
+        id: "deepseek",
         status: "connected",
         credential_type: "api_key",
       },
@@ -135,8 +206,8 @@ describe("server-v2 boot", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        default_provider: "anthropic",
-        default_model: "claude-sonnet-4-6",
+        default_provider: "deepseek",
+        default_model: "deepseek-chat",
       }),
     });
     expect(configure.status).toBe(200);
@@ -153,7 +224,7 @@ describe("server-v2 boot", () => {
       code: 0,
       data: {
         ready: true,
-        authenticated_providers: [{ id: "anthropic", type: "api_key" }],
+        authenticated_providers: [{ id: "deepseek", type: "api_key" }],
       },
     });
 
@@ -164,12 +235,12 @@ describe("server-v2 boot", () => {
     };
     expect(modelsBody.data.items).toContainEqual(
       expect.objectContaining({
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        provider: "deepseek",
+        model: "deepseek-chat",
       }),
     );
 
-    const logout = await authedFetch(server, base, "/api/v1/providers/anthropic:logout", {
+    const logout = await authedFetch(server, base, "/api/v1/providers/deepseek:logout", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
