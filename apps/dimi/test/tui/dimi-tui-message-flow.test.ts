@@ -2808,6 +2808,97 @@ command = "vim"
     expect(transcript).toContain('Watching it.');
   });
 
+  it('freezes the WaitFor elapsed time when a notification wakes the wait', async () => {
+    vi.useFakeTimers();
+    try {
+      const { driver } = await makeDriver();
+      const sendQueued = vi.fn();
+      const startedAt = Date.now();
+      driver.handleUserInput('wait for the build');
+
+      // The WaitFor call returns a `waiting` result: the card starts its
+      // live count-up.
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: 'call_wait',
+          name: 'WaitFor',
+          args: { reason: 'watching the build', timeout_seconds: 60 },
+        } as Event,
+        sendQueued,
+      );
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.result',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: 'call_wait',
+          output: JSON.stringify({
+            status: 'waiting',
+            wait_id: 'wait-1',
+            reason: 'watching the build',
+            timeout_seconds: 60,
+            started_at: startedAt,
+            deadline_at: startedAt + 60_000,
+            message: 'wake on notification',
+          }),
+        } as Event,
+        sendQueued,
+      );
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'turn.ended',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          reason: 'completed',
+        } as Event,
+        sendQueued,
+      );
+
+      // The count-up ticks with the fake clock.
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(stripSgr(renderTranscript(driver))).toContain('Waiting 3s / 1m 0s');
+
+      // The background task completes: a notification turn starts and the
+      // wait is over — the card must freeze at its elapsed duration.
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'turn.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 2,
+          origin: { kind: 'task' },
+        } as Event,
+        sendQueued,
+      );
+
+      const frozen = stripSgr(renderTranscript(driver));
+      expect(frozen).toContain('Waited 3s / 1m 0s');
+      expect(frozen).not.toContain('Waiting');
+      expect(frozen).toContain('watching the build');
+
+      // Wall clock keeps moving, but the finalized card must not keep
+      // counting — the elapsed number is frozen at the wake moment. Any
+      // later transcript re-render (notification turn folding, agent
+      // output, AllDone collapse) invalidates the wait card and rebuilds
+      // its header; without the frozen snapshot that would expose the
+      // live-computed elapsed (the visible "Waited 9s" → "Waited 13s"
+      // creep).
+      await vi.advanceTimersByTimeAsync(10_000);
+      driver.state.transcriptContainer.invalidate();
+      const later = stripSgr(renderTranscript(driver));
+      expect(later).toContain('Waited 3s / 1m 0s');
+      expect(later).not.toContain('Waited 13s / 1m 0s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cancels manual compaction from the editor', async () => {
     const { driver, session } = await makeDriver();
     driver.sessionEventHandler.handleEvent(

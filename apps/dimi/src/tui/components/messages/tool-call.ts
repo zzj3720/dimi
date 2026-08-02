@@ -70,6 +70,12 @@ interface WaitForState {
   readonly deadlineAtMs: number;
   ended: boolean;
   timedOut: boolean;
+  /**
+   * Elapsed seconds frozen when the wait ended (notification/user wake).
+   * Without it the header recomputes `Date.now() - startedAtMs` on every
+   * later re-render, so a finalized card keeps counting up.
+   */
+  endedElapsedSeconds?: number;
 }
 
 type SubagentTextKind = 'thinking' | 'text';
@@ -1217,6 +1223,10 @@ export class ToolCallComponent extends Container {
     const wait = this.waitState;
     if (wait === undefined || wait.ended || wait.timedOut) return;
     wait.ended = true;
+    wait.endedElapsedSeconds = Math.min(
+      wait.maxSeconds,
+      Math.max(0, Math.floor((Date.now() - wait.startedAtMs) / 1_000)),
+    );
     this.stopWaitTimer();
     this.headerText.setText(this.buildHeader());
     this.notifySnapshotChange();
@@ -1628,7 +1638,9 @@ export class ToolCallComponent extends Container {
           timerText = `${max} (timeout)`;
         } else if (wait.ended) {
           verb = currentTheme.boldFg('success', 'Waited');
-          timerText = `${formatElapsed(elapsedSeconds)} / ${max}`;
+          // Frozen at the actual wake moment — the wait is over, so the
+          // elapsed time must not keep growing with wall-clock time.
+          timerText = `${formatElapsed(wait.endedElapsedSeconds ?? elapsedSeconds)} / ${max}`;
         } else {
           verb = currentTheme.boldFg('primary', 'Waiting');
           timerText = `${formatElapsed(elapsedSeconds)} / ${max}`;
