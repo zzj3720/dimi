@@ -175,6 +175,10 @@ const GOAL_CONTINUATION_PROMPT = [
   'threshold is met and you cannot make meaningful progress without user input or an',
   'external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while',
   'leaving the goal active. Do not ask the user for input unless a real blocker prevents progress.',
+  'When a blocker needs user input or a decision, ask via AskUserQuestion and wait for the reply;',
+  'if the user is slow to decide, do safe read-only exploration to verify the blocker is still real',
+  'before calling `blocked`. Never call AllDone while the goal is blocked: AllDone is rejected for',
+  'blocked goals; end a blocked goal via UpdateGoal `blocked` or a user decision.',
 ].join(' ');
 
 const GOAL_STEP_CAP_CONTINUATION_PROMPT = [

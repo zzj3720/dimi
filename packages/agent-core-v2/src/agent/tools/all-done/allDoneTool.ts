@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { ALL_DONE_TOOL_NAME } from '#/agent/completion/completion';
+import { IAgentGoalService } from '#/agent/goal/goal';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTaskService } from '#/agent/task/task';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
@@ -33,6 +34,7 @@ export class AllDoneTool implements IAllDoneTool {
 
   constructor(
     @IAgentTaskService private readonly tasks: Pick<IAgentTaskService, 'list'>,
+    @IAgentGoalService private readonly goals: Pick<IAgentGoalService, 'getGoal'>,
   ) {}
 
   resolveExecution(_args: AllDoneInput, context?: ToolResolutionContext): ToolExecution {
@@ -49,6 +51,21 @@ export class AllDoneTool implements IAllDoneTool {
         output: `AllDone cannot complete while background tasks are active: ${summary}. Continue monitoring them or call WaitFor.`,
         isError: true,
       };
+    }
+    // A blocked goal must not be "completed" away: it ends via UpdateGoal
+    // `blocked` (or a user decision), never through AllDone. Subagents have no
+    // goal support — getGoal throws for them, which is fine (ignore).
+    try {
+      const goal = this.goals.getGoal().goal;
+      if (goal?.status === 'blocked') {
+        return {
+          output:
+            'AllDone cannot complete while the goal is blocked. Resolve the blocker, resume the goal (UpdateGoal `active`), or end it via UpdateGoal `blocked` — not AllDone.',
+          isError: true,
+        };
+      }
+    } catch {
+      /* subagent without goal support */
     }
     return {
       accesses: ToolAccesses.none(),

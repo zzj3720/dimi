@@ -4,6 +4,7 @@ import type { IAgentScopeHandle } from "#/_base/di/scope";
 import { LifecycleScope } from "#/_base/di/scope";
 import SYSTEM_PROMPT_TEMPLATE from "../../../src/app/agentProfileCatalog/system.md?raw";
 import { ALL_DONE_TOOL_NAME, COMPLETION_REVIEW_REMINDER } from "#/agent/completion/completion";
+import type { GoalSnapshot } from "#/agent/goal/types";
 import { IAgentProfileService } from "#/agent/profile/profile";
 import type { AgentTaskInfo } from "#/agent/task/task";
 import { AllDoneTool } from "#/agent/tools/all-done/allDoneTool";
@@ -167,13 +168,40 @@ describe("intentional completion", () => {
       toolName: "Probe",
       autoWaitTimeoutSeconds: 20,
     };
-    const tool = new AllDoneTool({ list: () => [activeTask] });
+    const tool = new AllDoneTool({ list: () => [activeTask] }, { getGoal: () => ({ goal: null }) });
 
     expect(
       tool.resolveExecution({}, { toolCalls: [call("call_done", ALL_DONE_TOOL_NAME)] }),
     ).toMatchObject({
       isError: true,
       output: expect.stringContaining("tool-active (running)"),
+    });
+  });
+
+  it("rejects AllDone while the goal is blocked", () => {
+    const tool = new AllDoneTool(
+      { list: () => [] },
+      { getGoal: () => ({ goal: { status: "blocked" } as GoalSnapshot }) },
+    );
+
+    expect(
+      tool.resolveExecution({}, { toolCalls: [call("call_done", ALL_DONE_TOOL_NAME)] }),
+    ).toMatchObject({
+      isError: true,
+      output: expect.stringContaining("goal is blocked"),
+    });
+  });
+
+  it("allows AllDone when no goal is blocked", () => {
+    const tool = new AllDoneTool(
+      { list: () => [] },
+      { getGoal: () => ({ goal: { status: "active" } as GoalSnapshot }) },
+    );
+
+    expect(
+      tool.resolveExecution({}, { toolCalls: [call("call_done", ALL_DONE_TOOL_NAME)] }),
+    ).toMatchObject({
+      execute: expect.any(Function),
     });
   });
 
