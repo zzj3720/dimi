@@ -86,7 +86,6 @@ $DIMI_CODE_HOME  （默认 ~/.dimi）
 会话目录内部包含：
 
 - **`state.json`**：会话标题、`lastPrompt`、创建/更新时间、`forkedFrom` 等元数据。
-- **`upcoming-goals.json`**：由 `/goal next <objective>` 创建的 TUI 专属队列。它不属于 Agent 对话；只有当前目标完成并提升后续目标后，才会进入 Agent 对话。
 - **`agents/main/wire.jsonl`**：主 Agent 的完整通信记录，用于会话恢复和回放。
 - **`agents/<agentId>/wire.jsonl`**：每个子 Agent 都有独立的事件日志。
 - **`agents/<agentId>/plans/<id>.md`**：Plan 模式下可编辑的工作文件。

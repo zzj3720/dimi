@@ -54,49 +54,9 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan clear`     | —      | Clear the current plan                                                                                                                                                                                                            | No               |
 | `/swarm on\|off`  | —      | Turn swarm mode on or off without sending a prompt.                                                                                                                                                                               | Yes              |
 | `/swarm <task>`   | —      | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Dimi asks whether to switch to `auto` or `yolo` before starting. | No               |
-| `/goal [...]`     | —      | Start or manage an autonomous goal                                                                                                                                                                                                | See below        |
-
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
 :::
-
-## Autonomous Goal
-
-`/goal` starts or manages goal mode: a persistent objective that Dimi works toward across automatically continuing turns. For usage guidance and examples, see [Goals](../guides/goals.md).
-
-```sh
-/goal Update the checkout docs, run docs build, and stop if still blocked after 20 turns
-```
-
-| Command                     | Action                                                                                                                                                                                                                                                                                                                                                                  | Availability     |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `/goal` or `/goal status`   | Display the current goal along with its status, elapsed time, turn count, and token count                                                                                                                                                                                                                                                                               | Always available |
-| `/goal pause`               | Pause an active goal and keep it                                                                                                                                                                                                                                                                                                                                        | Always available |
-| `/goal resume`              | Resume a paused or blocked goal                                                                                                                                                                                                                                                                                                                                         | Idle only        |
-| `/goal cancel`              | Remove the current goal                                                                                                                                                                                                                                                                                                                                                 | Always available |
-| `/goal replace <objective>` | Replace the saved goal with a new objective                                                                                                                                                                                                                                                                                                                             | Idle only        |
-| `/goal next <objective>`    | Queue an upcoming goal for this session. If no goal is active, start it immediately. The agent does not see queued goals until the current goal completes                                                                                                                                                                                                               | Always available |
-| `/goal next manage`         | Open the upcoming-goal manager. Use <kbd>↑</kbd> / <kbd>↓</kbd> to browse, <kbd>Space</kbd> to select a goal for moving, selected <kbd>↑</kbd> / <kbd>↓</kbd> to reorder it, <kbd>E</kbd> to edit, <kbd>D</kbd> to delete, and <kbd>Esc</kbd> to cancel. In the edit field, use <kbd>Shift-Enter</kbd> or <kbd>Ctrl-J</kbd> for a new line and <kbd>Enter</kbd> to save | Always available |
-
-The words `status`, `pause`, `resume`, `cancel`, `replace`, and `next` act as subcommands only when they are the first word after `/goal`. If your objective needs to start with one of those words, put `--` before it:
-
-```sh
-/goal -- cancel the old rollout note after the new docs are published
-```
-
-If an upcoming goal needs to start with `manage`, put `--` after `next`:
-
-```sh
-/goal next -- manage the release checklist
-```
-
-In non-interactive prompt mode, only the create forms start goal mode:
-
-```sh
-dimi -p "/goal Fix the failing checkout test"
-```
-
-Prompt mode exits with code `0` when the goal completes, `3` when it blocks, and `6` when it pauses. Other `/goal` subcommands, including `next`, are TUI controls and are not handled by `dimi -p`.
 
 ## Information & Status
 

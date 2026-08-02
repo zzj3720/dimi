@@ -86,7 +86,6 @@ Each session is stored under `sessions/<workspaceId>/<sessionId>/`. The runtime 
 Inside each session directory:
 
 - **`state.json`**: session metadata including title, `lastPrompt`, creation/update timestamps, and `forkedFrom`.
-- **`upcoming-goals.json`**: the TUI-only queue created by `/goal next <objective>`. It is not part of the agent conversation until a queued goal is promoted after the current goal completes.
 - **`agents/main/wire.jsonl`**: the main agent's complete communication record, used for session resumption and replay.
 - **`agents/<agentId>/wire.jsonl`**: every subagent has the same independent event log.
 - **`agents/<agentId>/plans/<id>.md`**: the editable Plan mode working file.
@@ -118,7 +117,6 @@ Terminal input history is saved separately per working directory, at `user-histo
 
 Deleting the data root directory (`~/.dimi/` or the path set by `DIMI_CODE_HOME`) removes all runtime data. To clear only part of the data:
 
-| Goal                                          | Action                                                                               |
 | --------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Reset configuration                           | Delete `~/.dimi/config.toml`                                                    |
 | Reset terminal UI preferences                 | Delete `~/.dimi/tui.toml`                                                       |
