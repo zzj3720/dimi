@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.4.3
+
+### Patch Changes
+
+- [`7d06026`](https://github.com/zzj3720/dimi/commit/7d0602616cb56da9314b554b90722301468556e5) - Add a --legacy flag to use the TypeScript backend instead of the Rust runtime. Pass --legacy to opt out.
+
 ## 0.4.2
 
 ### Patch Changes
