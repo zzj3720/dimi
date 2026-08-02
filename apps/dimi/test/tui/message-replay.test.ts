@@ -17,10 +17,6 @@ import type { SessionEventHandler } from "#/tui/controllers/session-event-handle
 import type { StreamingUIController } from "#/tui/controllers/streaming-ui";
 import { AgentGroupComponent } from "#/tui/components/messages/agent-group";
 import { AssistantMessageComponent } from "#/tui/components/messages/assistant-message";
-import { StepSummaryComponent } from "#/tui/components/messages/step-summary";
-import {
-  TRANSCRIPT_KEEP_RECENT_STEPS,
-} from "#/tui/utils/transcript-window";
 import { ToolCallComponent } from "#/tui/components/messages/tool-call";
 import { ToolCallSequenceComponent } from "#/tui/components/messages/tool-call-sequence";
 import { ReadGroupComponent } from "#/tui/components/messages/read-group";
@@ -1056,22 +1052,23 @@ describe("DimiTUI resume message replay", () => {
     const driver = await replayIntoDriver(replay);
     const children = driver.state.transcriptContainer.children;
 
-    // The oversized turn folds steps to the per-turn cap; assistant texts
-    // are never folded.
-    expect(countToolCalls(children)).toBe(9 + TRANSCRIPT_KEEP_RECENT_STEPS);
+    // The oversized final turn's 40 consecutive tool calls are folded
+    // progressively as they arrive, so only a handful of sequence components
+    // stay mounted; assistant texts are never folded.
+    const sequences = children.filter((child) => child instanceof ToolCallSequenceComponent);
+    expect(sequences.length).toBeGreaterThan(0);
+    expect(
+      children.filter((child) => child instanceof ToolCallComponent),
+    ).toHaveLength(0);
     const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
     expect(assistants).toHaveLength(9 + 5);
 
-    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
-    expect(summaries).toHaveLength(1);
-    const summaryText = stripAnsi(summaries[0]!.render(120).join("\n"));
-    expect(summaryText).toContain(`call ${40 - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
-    expect(summaryText).not.toContain("messages");
+    // Every tool call is still accounted for inside the folded sequences.
+    expect(countToolCalls(children)).toBe(9 + 40);
 
-    // The folded steps are gone from view; every assistant text and the latest
-    // tool work stay.
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join("\n"));
     expect(transcript).toContain("final text 0");
     expect(transcript).toContain("final text 4");
+    expect(transcript).toContain("Used 36 tools");
   });
 });

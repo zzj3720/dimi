@@ -12,6 +12,7 @@ import { hasDispose } from '../utils/component-capabilities';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
+import { TRANSCRIPT_KEEP_TRAILING_TOOL_CALLS } from '../utils/transcript-window';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,
@@ -36,6 +37,7 @@ export interface StreamingUIHost {
   shiftQueuedMessage(): QueuedMessage | undefined;
   pushTranscriptEntry(entry: TranscriptEntry): void;
   collapseTrailingToolCalls(): void;
+  foldTrailingToolCalls(keepExpanded: number): void;
   mergeCurrentTurnSteps(): void;
 }
 
@@ -705,6 +707,10 @@ export class StreamingUIController {
       state.transcriptContainer.addChild(tc);
       state.ui.requestRender();
     }
+
+    // A growing run folds progressively: the newest calls stay expanded and
+    // older finished ones merge into the summary right away.
+    this.host.foldTrailingToolCalls(TRANSCRIPT_KEEP_TRAILING_TOOL_CALLS);
 
     if (toolCall.name === 'ExitPlanMode' && typeof toolCall.args['plan'] !== 'string') {
       const session = this.host.requireSession();

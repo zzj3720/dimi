@@ -1023,6 +1023,24 @@ export class ToolCallComponent extends Container {
     return this.toolCall;
   }
 
+  /**
+   * Whether this call has reached a terminal state. Ordinary tools finish when
+   * their result lands; agent and read cards derive their phase from events
+   * (subagent lifecycle / read status), falling back to the result. Used by
+   * transcript folding to avoid collapsing calls the user still needs to
+   * watch (a running agent would otherwise disappear into the summary line).
+   */
+  isFinished(): boolean {
+    if (this.toolCall.name === 'Agent' || this.toolCall.name === 'AgentSwarm') {
+      const phase = this.getSubagentSnapshot().phase;
+      return phase === 'done' || phase === 'failed' || phase === 'backgrounded';
+    }
+    if (this.toolCall.name === 'Read') {
+      return this.getReadSnapshot().phase !== 'pending';
+    }
+    return this.result !== undefined;
+  }
+
   /** Notifies the listener when internal state changes, if a group is attached. */
   private notifySnapshotChange(): void {
     this.onSnapshotChange?.();

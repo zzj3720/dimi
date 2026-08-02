@@ -149,6 +149,7 @@ import {
   TRANSCRIPT_FOLD_WIDTH,
   TRANSCRIPT_HYSTERESIS,
   TRANSCRIPT_KEEP_RECENT_STEPS,
+  TRANSCRIPT_KEEP_TRAILING_TOOL_CALLS,
   TRANSCRIPT_MAX_TURNS,
   TRANSCRIPT_WINDOW_ENABLED,
   groupTurns,
@@ -1953,6 +1954,11 @@ export class DimiTUI {
       markTranscriptComponent(component, entry);
       this.state.transcriptContainer.addChild(component);
     }
+    if (entry.kind === 'tool_call') {
+      // A growing run folds progressively: keep the newest calls expanded and
+      // merge the older finished ones instead of waiting for the run to end.
+      this.foldTrailingToolCalls(TRANSCRIPT_KEEP_TRAILING_TOOL_CALLS);
+    }
     const trimmed = this.trimTranscriptWindow();
     const merged = this.mergeCurrentTurnSteps();
     if (component || trimmed || merged) {
@@ -2138,6 +2144,22 @@ export class DimiTUI {
   }
 
   collapseTrailingToolCalls(): void {
+    this.foldTrailingToolCalls(0);
+  }
+
+  /**
+   * Fold the trailing contiguous run of tool calls, keeping the most recent
+   * `keepExpanded` calls expanded. `keepExpanded = 0` collapses the whole run
+   * (used when visible content follows, e.g. an assistant message or turn
+   * end); a positive cap folds progressively while the run is still growing
+   * so older calls merge into the summary immediately instead of staying
+   * expanded until the run ends.
+   *
+   * Only finished calls fold — a call that is still running (streaming args,
+   * a live subagent, a pending read) stays visible because its progress is
+   * live information the user is watching.
+   */
+  foldTrailingToolCalls(keepExpanded: number): void {
     const children = this.state.transcriptContainer.children;
     let start = children.length;
     const toolCalls: ToolCallComponent[] = [];
@@ -2173,34 +2195,73 @@ export class DimiTUI {
       toolCalls.filter((call) => standaloneNames.has(call.toolCallView.name)),
     );
     const sequenceCalls = toolCalls.filter((call) => !standaloneCalls.has(call));
+    if (sequenceCalls.length === 0) return;
+
+    const foldCount = sequenceCalls.length - keepExpanded;
+    if (foldCount <= 0) return;
+
     const components = children.slice(start);
     const standalone: Component[] = [];
     const sequenceComponents: Component[] = [];
+    const keptComponents: Component[] = [];
+    let remainingToFold = foldCount;
+    let stoppedAtUnfinished = false;
+
     for (const component of components) {
-      // A previously folded sequence (from an earlier notification-driven turn
-      // with no visible user message between them) must be unwrapped so its
-      // children re-join the merged run instead of nesting inside it. The old
-      // sequence is dropped from the transcript, so clear its child list.
-      if (component instanceof ToolCallSequenceComponent) {
-        sequenceComponents.push(...component.children);
-        component.clear();
+      if (stoppedAtUnfinished) {
+        keptComponents.push(component);
         continue;
       }
+      // Control cards never fold and are re-attached after the summary line.
       if (component instanceof ToolCallComponent && standaloneCalls.has(component)) {
         standalone.push(component);
+        continue;
+      }
+      const calls = toolCallsIn(component);
+      const callCount = calls?.filter((call) => !standaloneCalls.has(call)).length ?? 0;
+      const hasUnfinished = calls?.some((call) => !call.isFinished()) ?? false;
+      if (remainingToFold > 0 && hasUnfinished) {
+        // A still-running call (streaming args, live subagent, pending read)
+        // stays visible — its progress is live information. Everything from
+        // here on keeps its position so the run order stays intact.
+        keptComponents.push(component);
+        stoppedAtUnfinished = true;
+        continue;
+      }
+      if (remainingToFold > 0) {
+        // A previously folded sequence (from an earlier notification-driven turn
+        // with no visible user message between them) must be unwrapped so its
+        // children re-join the merged run instead of nesting inside it. The old
+        // sequence is dropped from the transcript, so clear its child list.
+        if (component instanceof ToolCallSequenceComponent) {
+          sequenceComponents.push(...component.children);
+          component.clear();
+        } else {
+          sequenceComponents.push(component);
+        }
+        remainingToFold -= callCount;
       } else {
-        sequenceComponents.push(component);
+        keptComponents.push(component);
       }
     }
 
-    if (sequenceCalls.length === 0) return;
+    if (sequenceComponents.length === 0) return;
+
+    const foldedCalls: ToolCallComponent[] = [];
+    for (const component of sequenceComponents) {
+      const componentCalls = toolCallsIn(component);
+      if (componentCalls !== undefined) {
+        foldedCalls.push(...componentCalls.filter((call) => !standaloneCalls.has(call)));
+      }
+    }
+    if (foldedCalls.length === 0) return;
 
     const sequence = new ToolCallSequenceComponent(
       sequenceComponents,
-      sequenceCalls,
+      foldedCalls,
       this.state.toolDisplayMode,
     );
-    children.splice(start, components.length, sequence, ...standalone);
+    children.splice(start, components.length, sequence, ...standalone, ...keptComponents);
     this.state.transcriptContainer.invalidate();
   }
 

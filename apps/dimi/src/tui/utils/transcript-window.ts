@@ -49,6 +49,16 @@ export const TRANSCRIPT_KEEP_RECENT_STEPS = readEnvInt('DIMI_CODE_TUI_KEEP_RECEN
  */
 export const TRANSCRIPT_FOLD_WIDTH = 120;
 
+/**
+ * How many trailing tool calls stay expanded while a tool-call run is still
+ * growing. Older calls in the run fold into the trailing summary immediately
+ * (progressive folding) instead of staying expanded until the run ends.
+ */
+export const TRANSCRIPT_KEEP_TRAILING_TOOL_CALLS = readEnvInt(
+  'DIMI_CODE_TUI_KEEP_TRAILING_TOOL_CALLS',
+  2,
+);
+
 export interface TranscriptTurn {
   readonly turnId: string | undefined;
   readonly entries: TranscriptEntry[];

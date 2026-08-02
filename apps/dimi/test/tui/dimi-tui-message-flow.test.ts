@@ -2538,6 +2538,131 @@ command = "vim"
     expect(transcript).toContain('Pipeline complete.');
   });
 
+  it('folds older tool calls progressively while the run keeps growing', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('run the pipeline');
+
+    const emitCall = (id: string, complete: boolean): void => {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          name: 'Bash',
+          args: { command: `echo ${id}` },
+        } as Event,
+        sendQueued,
+      );
+      if (complete) {
+        driver.sessionEventHandler.handleEvent(
+          {
+            type: 'tool.result',
+            agentId: 'main',
+            sessionId: 'ses-1',
+            turnId: 1,
+            toolCallId: id,
+            output: 'ok',
+          } as Event,
+          sendQueued,
+        );
+      }
+    };
+
+    // First two calls stay expanded (at the expanded cap).
+    emitCall('call_1', true);
+    emitCall('call_2', true);
+    let expanded = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallComponent,
+    );
+    expect(expanded).toHaveLength(2);
+    expect(
+      driver.state.transcriptContainer.children.filter(
+        (child) => child instanceof ToolCallSequenceComponent,
+      ),
+    ).toHaveLength(0);
+
+    // The third call folds the oldest one immediately — no visible separator
+    // needed — while the newest two stay expanded.
+    emitCall('call_3', true);
+    let sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    expect((sequences[0] as ToolCallSequenceComponent).toolCount).toBe(1);
+    expanded = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallComponent,
+    );
+    expect(expanded).toHaveLength(2);
+
+    // A fourth call folds the next oldest: the summary grows, two stay open.
+    emitCall('call_4', true);
+    sequences = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallSequenceComponent,
+    );
+    expect(sequences).toHaveLength(1);
+    expect((sequences[0] as ToolCallSequenceComponent).toolCount).toBe(2);
+    expanded = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallComponent,
+    );
+    expect(expanded).toHaveLength(2);
+  });
+
+  it('does not fold a still-running tool call into the summary', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+    driver.handleUserInput('run the pipeline');
+
+    const startCall = (id: string): void => {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          name: 'Bash',
+          args: { command: `echo ${id}` },
+        } as Event,
+        sendQueued,
+      );
+    };
+    const finishCall = (id: string): void => {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.result',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: id,
+          output: 'ok',
+        } as Event,
+        sendQueued,
+      );
+    };
+
+    // call_1 never completes (still streaming / running); call_2 and call_3
+    // finish. The run's first component is unfinished, so progressive folding
+    // stops: nothing disappears into the summary while work is still visible.
+    startCall('call_1');
+    startCall('call_2');
+    finishCall('call_2');
+    startCall('call_3');
+    finishCall('call_3');
+
+    const expanded = driver.state.transcriptContainer.children.filter(
+      (child) => child instanceof ToolCallComponent,
+    );
+    expect(expanded).toHaveLength(3);
+    expect(
+      driver.state.transcriptContainer.children.filter(
+        (child) => child instanceof ToolCallSequenceComponent,
+      ),
+    ).toHaveLength(0);
+  });
+
   it('merges tool calls across a notification-driven turn boundary', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();
