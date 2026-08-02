@@ -35,6 +35,7 @@ const options = {
   outputFormat: undefined,
   prompt: 'say hello',
   skillsDirs: [],
+      legacy: false,
   agent: undefined,
   agentFiles: [],
   addDirs: [],

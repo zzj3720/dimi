@@ -67,6 +67,7 @@ function makeStartupInput(): DimiTUIStartupInput {
       outputFormat: undefined,
       prompt: undefined,
       skillsDirs: [],
+      legacy: false,
       agent: undefined,
       agentFiles: [],
     },
