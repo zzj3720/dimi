@@ -36,6 +36,8 @@ export interface ParsedServerOptions {
   port: number;
   logLevel: ServerLogLevel;
   debugEndpoints: boolean;
+  /** Use the legacy TypeScript backend instead of the Rust runtime. */
+  legacyStore: boolean;
   /** Allow a non-loopback bind without a TLS-terminating reverse proxy. */
   insecureNoTls: boolean;
   /** Allow `POST /api/v1/shutdown` on a non-loopback bind. */
@@ -53,6 +55,8 @@ export interface ServerCliOptions {
   port?: string;
   logLevel?: string;
   debugEndpoints?: boolean;
+  /** Use the legacy TypeScript backend instead of the Rust runtime. */
+  legacyStore?: boolean;
   /** Allow a non-loopback bind without TLS (`--insecure-no-tls`). */
   insecureNoTls?: boolean;
   /** Allow remote shutdown on a non-loopback bind (`--allow-remote-shutdown`). */
@@ -71,6 +75,7 @@ export function parseServerOptions(opts: ServerCliOptions): ParsedServerOptions 
     port: parsePort(opts.port, '--port', DEFAULT_SERVER_PORT),
     logLevel: parseLogLevel(opts.logLevel ?? DEFAULT_FOREGROUND_LOG_LEVEL),
     debugEndpoints: opts.debugEndpoints === true,
+    legacyStore: opts.legacyStore === true,
     insecureNoTls: opts.insecureNoTls !== false,
     allowRemoteShutdown: opts.allowRemoteShutdown === true,
     allowRemoteTerminals: opts.allowRemoteTerminals === true,

@@ -40,6 +40,8 @@ export interface CLIOptions {
   yolo: boolean;
   auto: boolean;
   plan: boolean;
+  /** Use the legacy TypeScript backend instead of the Rust runtime. */
+  legacy: boolean;
   model: string | undefined;
   outputFormat: PromptOutputFormat | undefined;
   prompt: string | undefined;

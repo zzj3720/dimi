@@ -81,6 +81,12 @@ export interface ServerStartOptions {
   readonly logLevel?: ServerLogLevel;
   readonly logger?: ServerLogger;
   readonly debugEndpoints?: boolean;
+  /**
+   * Use the legacy TypeScript transcript backend instead of the Rust
+   * dimi-store (`dimi --legacy`). Defaults to `DIMI_LEGACY_STORE=1`; Rust
+   * otherwise.
+   */
+  readonly legacyStore?: boolean;
   readonly bindClass?: "lan" | "public";
   readonly allowedHosts?: readonly string[];
   readonly corsOrigins?: readonly string[];
@@ -323,7 +329,12 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   };
 
   const connectionRegistry = new ConnectionRegistry();
-  const transcriptService = new TranscriptService({ homeDir, core, logger });
+  const transcriptService = new TranscriptService({
+    homeDir,
+    core,
+    logger,
+    legacyStore: opts.legacyStore,
+  });
   const broadcaster = new SessionEventBroadcaster({
     eventsDir: join(homeDir, "server", "events"),
     core,

@@ -20,6 +20,8 @@ interface RemoteCliOptions {
   relay: string;
   server?: string;
   name: string;
+  /** Use the legacy TypeScript backend instead of the Rust runtime. */
+  legacy?: boolean;
 }
 
 export function registerRemoteCommand(parent: Command): void {
@@ -33,6 +35,7 @@ export function registerRemoteCommand(parent: Command): void {
     )
     .option("--server <url>", "Existing local server URL. Starts one when omitted.")
     .option("--name <name>", "Name shown on paired devices.", hostname())
+    .option("--legacy", "Use the legacy TypeScript backend instead of the Rust runtime.", false)
     .action(async (options: RemoteCliOptions) => {
       await runRemoteCommand(options);
     });
@@ -40,7 +43,7 @@ export function registerRemoteCommand(parent: Command): void {
 
 async function runRemoteCommand(options: RemoteCliOptions): Promise<void> {
   const homeDir = getDataDir();
-  const local = await resolveLocalServer(homeDir, options.server);
+  const local = await resolveLocalServer(homeDir, options.server, options.legacy);
   const bridge = await startRemoteBridge({
     relayUrl: options.relay,
     localOrigin: local.origin,
@@ -68,6 +71,7 @@ async function runRemoteCommand(options: RemoteCliOptions): Promise<void> {
 async function resolveLocalServer(
   homeDir: string,
   requestedOrigin: string | undefined,
+  legacy: boolean | undefined,
 ): Promise<{ origin: string; token: string; owned?: RunningServer }> {
   if (requestedOrigin !== undefined) {
     return {
@@ -89,6 +93,7 @@ async function resolveLocalServer(
     version: getVersion(),
     logLevel: "warn",
     telemetry: true,
+    legacyStore: legacy === true,
   });
   return {
     origin: serverOrigin(owned.host, owned.port),

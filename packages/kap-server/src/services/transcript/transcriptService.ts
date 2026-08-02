@@ -88,22 +88,16 @@ const MAIN_AGENT_ID = 'main';
 const WIRE_FILE = 'wire.jsonl';
 const STATE_FILE = 'state.json';
 
-/**
- * `DIMI_RUST_STORE=1` swaps the transcript storage backend to the Rust
- * `dimi-store` (via the napi bridge) — live store + cold rebuild. The
- * differential suites prove the Rust snapshots are wire-identical to the TS
- * ones; the flag gates the strangler swap while both backends ship.
- */
-const RUST_STORE_ENABLED = process.env['DIMI_RUST_STORE'] === '1';
-
-function createTranscriptStore(sessionId: string): TranscriptStoreLike {
-  return RUST_STORE_ENABLED ? new RustTranscriptStore(sessionId) : new TranscriptStore(sessionId);
-}
-
 export interface TranscriptServiceDeps {
   readonly homeDir: string;
   readonly core: Scope;
   readonly logger?: TranscriptBindingLogger;
+  /**
+   * Use the legacy TypeScript transcript backend instead of the Rust
+   * dimi-store. Falls back to `DIMI_LEGACY_STORE=1`; without either, the
+   * Rust backend is the default.
+   */
+  readonly legacyStore?: boolean;
 }
 
 interface LiveEntry {
@@ -148,7 +142,15 @@ export class TranscriptService {
   /** Debounced post-turn heals: `${sessionId}:${agentId}` → pending ordinals + timer. */
   private readonly healTimers = new Map<string, { ordinals: Set<number>; timer: NodeJS.Timeout }>();
 
+  /** Legacy TS backend when requested (option → `DIMI_LEGACY_STORE=1`); Rust otherwise. */
+  private readonly legacyStore: boolean;
+
+  private createTranscriptStore(sessionId: string): TranscriptStoreLike {
+    return this.legacyStore ? new TranscriptStore(sessionId) : new RustTranscriptStore(sessionId);
+  }
+
   constructor(private readonly deps: TranscriptServiceDeps) {
+    this.legacyStore = deps.legacyStore ?? process.env['DIMI_LEGACY_STORE'] === '1';
     // Live entries must not outlive their session: once it closes or archives,
     // reads should fall through to the cold rebuild from disk.
     const lifecycle = deps.core.accessor.get(ISessionLifecycleService);
@@ -173,7 +175,7 @@ export class TranscriptService {
     }
     const session = this.deps.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) return undefined;
-    const store = createTranscriptStore(sessionId);
+    const store = this.createTranscriptStore(sessionId);
     let binding: TranscriptBinding;
     try {
       binding = bindSessionTranscript(store, session, this.deps.logger, (event) =>
@@ -585,7 +587,7 @@ export class TranscriptService {
       }
       throw error;
     }
-    if (RUST_STORE_ENABLED) {
+    if (!this.legacyStore) {
       // The Rust pipeline is reduce → group → fold in one pass; the
       // differential suite (store-cold-differential.test.ts) proves the
       // output equals the TS three-stage rebuild byte-for-byte.

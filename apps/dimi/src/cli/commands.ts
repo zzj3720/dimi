@@ -116,7 +116,12 @@ export function createProgram(
     )
     .addOption(new Option("--yes").hideHelp().default(false))
     .addOption(new Option("--auto-approve").hideHelp().default(false))
-    .option("--plan", "Start in plan mode.", false);
+    .option("--plan", "Start in plan mode.", false)
+    .option(
+      "--legacy",
+      "Use the legacy TypeScript backend instead of the Rust runtime.",
+      false,
+    );
 
   registerExportCommand(program);
   registerProviderCommand(program);
@@ -149,6 +154,11 @@ export function createProgram(
 
     const raw = program.opts<Record<string, unknown>>();
 
+    // `--legacy` is the process-wide "use the TypeScript backend" switch:
+    // any server started in this process (web/remote, or the main session
+    // once it is server-backed) honors it via DIMI_LEGACY_STORE.
+    if (raw["legacy"] === true) process.env["DIMI_LEGACY_STORE"] = "1";
+
     const rawSession = raw["session"] ?? raw["resume"];
     const sessionValue = rawSession === true ? "" : (rawSession as string | undefined);
     const yoloValue = raw["yolo"] === true || raw["yes"] === true || raw["autoApprove"] === true;
@@ -160,6 +170,7 @@ export function createProgram(
       yolo: yoloValue,
       auto: autoValue,
       plan: raw["plan"] as boolean,
+      legacy: raw["legacy"] === true,
       model: raw["model"] as string | undefined,
       outputFormat: raw["outputFormat"] as CLIOptions["outputFormat"],
       prompt: raw["prompt"] as string | undefined,

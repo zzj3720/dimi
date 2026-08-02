@@ -90,7 +90,7 @@ M6  切换与退役（删 TS、清历史、桥退役）
 - **TS 对应物**：transcript 服务端（L1 store/L2 reducer/持久化）＋ kap-server TranscriptService 存储底座 ＋ persistence wire 记录。
 - **边界**：wire.jsonl 追加日志、冷重建、状态快照、增量读、op-batch 序列（transcriptSeqSchema：seq/watermark/since cursor）。
 - **验证**：同一 wire.jsonl → TS 冷重建 vs Rust 冷重建状态树对比；kap-server transcript 测试换底后全绿。
-- **换入**：kap-server TranscriptService 经桥用 dimi-store；开关 `DIMI_RUST_STORE=1`。
+- **换入**：kap-server TranscriptService 经桥用 dimi-store；**Rust 为默认后端**，`dimi --legacy`（或 `DIMI_LEGACY_STORE=1`）退回 TS。
 - **风险**：wire 记录边角（migration v1.2、unknown record 跳过语义）。
 - **不迁移**：浏览器侧 reducer（dimi-web 用，保留 TS）。
 
@@ -102,7 +102,7 @@ M6  切换与退役（删 TS、清历史、桥退役）
   2. **接口抽象**：`@dimi-agent/transcript` 新增 `TranscriptStoreLike`/`AgentTranscriptLike`（TS 类带 `#private` 字段无法结构兼容，消费方必须面向接口）；kap-server 的 coreBinding/broadcaster/routes 已全部改为接口类型。
   3. **适配器读方法从 snapshot() 派生**（getItems/getTurn/getTasks/…/listPendingInteractions），pendingInteractions 由 interactions 过滤派生（与 TS applyReset 同源）。
   4. **AppliedOps.gap 省略而非 null**（TS 消费方判 `!== undefined`）；`RustAgentTranscriptAdapter.apply` 再归一化一次防御。
-- **换入验证**：`DIMI_RUST_STORE=1 pnpm --filter @dimi-agent/kap-server test` 745/746 绿（唯一失败为预存在的 boot auth provider 环境失败，与 transcript 无关），与默认模式结果一致。
+- **换入验证**：默认模式（Rust）与 `DIMI_LEGACY_STORE=1`（TS）均为 744/744 全绿（boot auth 测试已做环境隔离并改用 deepseek）。
 - 换入期间修掉的 parity bug：RecordTime 接受 string time、冷重建快照无 hasMoreOlder 键（live 有）、tool.call 事件字段是 `args` 非 `arguments`、纯 user turn 的 prompt 丢失（start_turn 签名）、tasks/interactions 保插入序、`Ended.phase.at` 可选、`plan_revision ?? {}` 语义。
 
 ### M2 — dimi-exec（执行层）

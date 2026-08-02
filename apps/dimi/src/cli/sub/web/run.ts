@@ -150,6 +150,11 @@ export function buildWebCommand(cmd: Command): Command {
       'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
       false,
     )
+    .option(
+      '--legacy',
+      'Use the legacy TypeScript backend instead of the Rust runtime.',
+      false,
+    )
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
       try {
@@ -282,6 +287,7 @@ async function runServerInProcess(
     logLevel: options.logLevel,
     logger,
     debugEndpoints: options.debugEndpoints,
+    legacyStore: options.legacyStore,
     insecureNoTls: options.insecureNoTls,
     allowRemoteShutdown: options.allowRemoteShutdown,
     allowRemoteTerminals: options.allowRemoteTerminals,
