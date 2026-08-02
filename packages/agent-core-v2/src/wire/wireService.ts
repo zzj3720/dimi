@@ -219,7 +219,9 @@ export class WireService extends Disposable implements IWireService {
   private replayRecord(record: WireRecord, index: number): void {
     const descriptor = OP_REGISTRY.get(record.type);
     if (descriptor === undefined) {
-      this.reportSkippedRecord(record.type, index);
+      // Unknown record type — expected after a feature is removed (e.g.
+      // legacy goal records): skip silently so old wires keep loading and
+      // working without error noise. Only malformed records are reported.
       return;
     }
     const payload = descriptor.schema.safeParse(wireRecordToPayload(record));

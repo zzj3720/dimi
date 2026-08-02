@@ -243,7 +243,7 @@ describe('WireService', () => {
     }
   });
 
-  it('reports unknown record types during replay and skips them', async () => {
+  it('skips unknown record types during replay silently', async () => {
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
@@ -258,12 +258,11 @@ describe('WireService', () => {
         ],
       );
 
+      // Unknown record types (e.g. records of a removed feature) are skipped
+      // without error so old wires keep loading; only malformed records are
+      // reported.
       expect(wire.getModel(CounterModel)).toEqual({ value: 5 });
-      expect(unexpected).toHaveLength(1);
-      expect(unexpected[0]).toMatchObject({
-        code: 'wire.unknown_record',
-        details: { type: 'no.such.op', index: 1 },
-      });
+      expect(unexpected).toHaveLength(0);
     } finally {
       resetUnexpectedErrorHandler();
     }
