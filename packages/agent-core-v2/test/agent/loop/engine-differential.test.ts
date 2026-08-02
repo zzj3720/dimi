@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { RustEngine } from '@dimi-agent/dimi-native';
+import { RustEngine, RustTurnSession } from '@dimi-agent/dimi-native';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/index';
 import { IEventBus } from '#/app/event/eventBus';
@@ -65,21 +65,26 @@ async function runRustEngine(
   segments: Array<Array<Record<string, unknown>>>,
   turnId = 0,
 ): Promise<{ events: EngineEventLike[]; outcome: { status: string } }> {
-  const engine = new RustEngine(10);
-  const input = JSON.stringify({
-    turnId,
-    messages: [{ role: 'user', content: prompt }],
-    tools: [],
-    provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'mock-model' },
-    maxStepsPerTurn: null,
-    cwd: '/tmp',
-    shell: '/bin/sh',
-  });
-  const batch = JSON.parse(await engine.startTurn(input, JSON.stringify(segments))) as {
+  // Auto policy: tools execute without approval (the differential is about
+  // orchestration; approval flows are covered by the runner tests).
+  const session = new RustTurnSession(
+    JSON.stringify({
+      turnId,
+      messages: [{ role: 'user', content: prompt }],
+      tools: [],
+      provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'mock-model' },
+      maxStepsPerTurn: null,
+      cwd: '/tmp',
+      shell: '/bin/sh',
+    }),
+    JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+    JSON.stringify(segments),
+  );
+  const batch = JSON.parse(await session.run()) as {
     events: EngineEventLike[];
-    outcome: { status: string };
+    progress: { status: string; outcome?: { status: string } };
   };
-  return batch;
+  return { events: batch.events, outcome: { status: batch.progress.outcome?.status ?? batch.progress.status } };
 }
 
 /** The projection-relevant fields of an engine event. */

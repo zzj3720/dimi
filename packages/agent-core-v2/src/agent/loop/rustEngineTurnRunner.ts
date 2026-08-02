@@ -21,20 +21,23 @@
 
 import { randomUUID } from "node:crypto";
 
-import { RustEngine } from "@dimi-agent/dimi-native";
+import { RustEngine, RustTurnSession } from "@dimi-agent/dimi-native";
 
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
 import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
 import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
+import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
+import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
 import { promptTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
+import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import type { ContentPart } from "#/llmProtocol/message";
 import { createToolMessage, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
 
-import { createDecorator } from "#/_base/di/instantiation";
+import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
 import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
 
 export const IRustEngineTurnRunner = createDecorator<IRustEngineTurnRunner>(
@@ -61,6 +64,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IWireService private readonly wire: IWireService,
     @IConfigService private readonly config: IConfigService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
+    @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
 
   static isEnabled(): boolean {
@@ -87,8 +93,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // 2. Assemble LLM messages from the context.
     const messages = this.context.get().map((message) => this.toLlmMessage(message));
 
-    // 3. Run the Rust engine.
-    const engine = new RustEngine(this.maxStepsPerTurn());
+    // 3. Run the Rust engine (session API: approvals pause and resume).
     const provider = this.providerConfig();
     const inputJson = JSON.stringify({
       turnId,
@@ -99,13 +104,69 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       cwd: this.config.get<string>("cwd"),
       shell: "/bin/sh",
     });
-    // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments
-    // (JSON array of segments); production uses the aimux-backed client.
+    const policyJson = JSON.stringify({
+      mode: this.modeService.mode,
+      rules: this.rulesService.rules,
+      sessionApprovedPatterns: this.rulesService.sessionApprovalRulePatterns,
+    });
+    // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments.
     const scripted = process.env["DIMI_RUST_ENGINE_SCRIPTED"];
-    const batchJson = await engine.startTurn(inputJson, scripted ?? undefined);
-    const batch = JSON.parse(batchJson) as {
+    interface EngineProgress {
       events: Array<Record<string, unknown>>;
-      outcome: { status: string; error?: string; errorCode?: string };
+      progress: {
+        status: string;
+        outcome?: { status: string; error?: string; errorCode?: string };
+        approval?: {
+          requestId: string;
+          toolCallId: string;
+          toolName: string;
+          action?: string;
+          display?: unknown;
+          toolInput?: unknown;
+        };
+      };
+    }
+    const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    const allEvents: Array<Record<string, unknown>> = [];
+    const advance = async (): Promise<EngineProgress> => {
+      const next = JSON.parse(await session.run()) as EngineProgress;
+      return next;
+    };
+    let progress: EngineProgress = await advance();
+    allEvents.push(...progress.events);
+    // Approval loop: surface the request, wait for the user, resume.
+    while (progress.progress.status === "needsApproval") {
+      const approval = progress.progress.approval!;
+      const approvalRequest = {
+        sessionId: "session",
+        agentId: "main",
+        turnId,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        action: approval.action ?? `Approve ${approval.toolName}`,
+        display: approval.display as never,
+      } as Parameters<ISessionApprovalService["request"]>[0];
+      this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
+      let response: ApprovalResponse = { decision: "approved" };
+      try {
+        const approvalService = this.instantiation.invokeFunction(
+          (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
+        );
+        response = approvalService !== undefined ? await approvalService.request(approvalRequest) : { decision: "approved" };
+      } catch {
+        response = { decision: "rejected" };
+      }
+      this.eventBus.publish({
+        type: "permission.approval.resolved",
+        ...approvalRequest,
+        decision: response.decision,
+      } as never);
+      progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
+      allEvents.push(...progress.events);
+    }
+    const batch = {
+      events: allEvents,
+      outcome: progress.progress.outcome ?? { status: progress.progress.status },
     };
 
     // 4. Engine events → bus (projection folds them into transcript ops).

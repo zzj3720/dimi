@@ -49,6 +49,8 @@ export interface NativeBinding {
   RustTerminal: RustTerminalConstructor;
   /** Rust engine: one turn of orchestration (M3) — the loop swap-in socket. */
   RustEngine: RustEngineConstructor;
+  /** Rust engine: an in-flight turn with approval pause/resume (M3 slice 2). */
+  RustTurnSession: RustTurnSessionConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -593,4 +595,37 @@ export interface RustEngineConstructor {
 
 export interface RustEngineHandle {
   startTurn(inputJson: string, scriptedSegmentsJson: string | null): Promise<string>;
+}
+
+/**
+ * `RustTurnSession` — an in-flight Rust-engine turn with approval support.
+ * `run()` advances until completion or an approval request; `resume` continues
+ * after the user's decision. Each call resolves with the event batch JSON
+ * `{ events, progress: {status, outcome?|approval?} }`.
+ */
+export class RustTurnSession {
+  readonly #inner: RustTurnSessionHandle;
+
+  constructor(inputJson: string, policyJson: string, scriptedSegmentsJson?: string) {
+    const NativeClass = loadNative().RustTurnSession;
+    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null);
+  }
+
+  async run(): Promise<string> {
+    return this.#inner.run();
+  }
+
+  async resume(decisionJson: string): Promise<string> {
+    return this.#inner.resume(decisionJson);
+  }
+}
+
+/** The napi `RustTurnSession` class. */
+export interface RustTurnSessionConstructor {
+  new (inputJson: string, policyJson: string, scriptedSegmentsJson: string | null): RustTurnSessionHandle;
+}
+
+export interface RustTurnSessionHandle {
+  run(): Promise<string>;
+  resume(decisionJson: string): Promise<string>;
 }

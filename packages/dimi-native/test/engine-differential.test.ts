@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { RustEngine } from '#/index';
+import { RustEngine, RustTurnSession } from '#/index';
 
 interface EngineEventBatch {
   events: Array<Record<string, unknown>>;
@@ -25,7 +25,6 @@ async function runTurn(
   segments: Array<Array<Record<string, unknown>>>,
   options: { maxStepsPerTurn?: number; cwd?: string } = {},
 ): Promise<EngineEventBatch> {
-  const engine = new RustEngine(options.maxStepsPerTurn);
   const input = JSON.stringify({
     turnId: 1,
     messages,
@@ -35,7 +34,24 @@ async function runTurn(
     cwd: options.cwd ?? '/tmp',
     shell: '/bin/sh',
   });
-  return JSON.parse(await engine.startTurn(input, JSON.stringify(segments))) as EngineEventBatch;
+  // Auto policy: tools execute without approval (approval flows are covered
+  // by the agent-core-v2 runner tests).
+  const session = new RustTurnSession(
+    input,
+    JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+    JSON.stringify(segments),
+  );
+  const batch = JSON.parse(await session.run()) as {
+    events: EngineEventBatch['events'];
+    progress: { status: string; outcome?: EngineEventBatch['outcome'] };
+  };
+  return {
+    events: batch.events,
+    outcome: batch.progress.outcome ?? {
+      status: batch.progress.status,
+      steps: 0,
+    },
+  };
 }
 
 function userMessage(text: string): Record<string, unknown> {
