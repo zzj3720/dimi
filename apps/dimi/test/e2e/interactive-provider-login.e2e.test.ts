@@ -6,7 +6,7 @@
  * Run: vp exec vitest run test/e2e/interactive-provider-login.e2e.test.ts
  */
 import { createRequire } from 'node:module';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -21,6 +21,16 @@ const tsxCli = require.resolve('tsx/cli');
 const rawTextLoader = join(appRoot, '..', '..', 'build', 'register-raw-text-loader.mjs');
 const main = join(appRoot, 'src', 'main.ts');
 const tempHomes: string[] = [];
+
+/** The dev-wrapper scenarios need the local `vp` launcher; skip without it. */
+function hasVpLauncher(): boolean {
+  try {
+    execFileSync('which', ['vp'], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 const PTY_BRIDGE = `
 import os, pty, select, sys
 pid, master = pty.fork()
@@ -59,7 +69,7 @@ afterEach(async () => {
 });
 
 describe('interactive provider login', () => {
-  it.skipIf(process.platform === 'win32')(
+  it.skipIf(process.platform === 'win32' || !hasVpLauncher())(
     'restarts the actual dev wrapper with Grok 4.5 thinking and context metadata',
     async () => {
       const home = await mkdtemp(join(tmpdir(), 'dimi-grok-dev-wrapper-e2e-'));
