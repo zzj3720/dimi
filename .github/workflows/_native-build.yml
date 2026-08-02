@@ -78,8 +78,9 @@ jobs:
         # (@dimi-agent/dimi-native-<platform>-<arch>, an optionalDependency of
         # the CLI); build + pack the current platform's binding at the CLI
         # version. The SEA binary embeds the same binding via native assets.
-        run: |
-          DIMI_NATIVE_RELEASE=1 pnpm --filter @dimi-agent/dimi-native run pack:platform
+        env:
+          DIMI_NATIVE_RELEASE: "1"
+        run: pnpm --filter @dimi-agent/dimi-native run pack:platform
 
       - name: Upload binding subpackage
         uses: actions/upload-artifact@v7
