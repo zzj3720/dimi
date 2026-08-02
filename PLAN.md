@@ -111,6 +111,12 @@ M6  切换与退役（删 TS、清历史、桥退役）
 - **验证**：agent-core-v2 os 域测试 + Bash 工具 e2e + 真实命令集成测试。
 - **换入**：ISessionProcessRunner 换桥实现；开关 `DIMI_RUST_EXEC=1`。
 - **风险**：pty 语义（node-pty vs portable-pty）、Windows（parity 要求：TS 产品支持 Windows，Rust 版必须支持；实现顺序可后置，M6 前完成）。
+- **切片进度**（每片 = Rust crate/模块 + napi bridge + TS 适配器 + 差分测试 + `DIMI_RUST_EXEC` 相关测试换入验证）：
+  - [x] 切片 1（2026-08-02 完成，commit fd524e60）：`crates/dimi-exec` 进程 spawn（std-only，进程树 kill/detached/env/cwd/shell/stdin），bridge `RustHostProcess`（4 个 ThreadsafeFunction 位置参数，`CalleeHandled=false` 避免 error 槽位），`IHostProcessService` 换入（`DIMI_RUST_EXEC=1`）。差分 7 场景 + agent-core-v2 processRunner/gitService 双模式 9/9 通过。
+  - [ ] 切片 2：IHostFileSystem（readText/writeText/appendText/readBytes/writeBytes/readLines/createExclusive/stat/lstat/readdir/mkdir/remove/realpath）→ std::fs + tokio（napi async）
+  - [ ] 切片 3：IHostEnvironment（osKind/shellName/shellPath/pathClass/homeDir + login shell PATH 探测，Windows git exec-path）
+  - [ ] 切片 4：IHostFsWatchService → notify crate
+  - [ ] 切片 5：IHostTerminalService（pty）→ portable-pty，最后做（风险最高）
 
 ### M3 — dimi-engine（引擎核心，最大风险区）
 - **TS 对应物**：agent-core-v2 agent/ 域全量（loop、llmRequester、toolExecutor、contextMemory、contextProjector、permissionPolicy/Rules/Mode、profile、plan、goal、swarm、cron、mcp、media、fullCompaction、undo、usage、faultInjection、stepRetry、wait…）。
