@@ -81,10 +81,11 @@ writeFileSync(
 
 const packDestination = join(packageRoot, 'dist-platform');
 mkdirSync(packDestination, { recursive: true });
-// Windows: npm ships as npm.cmd — execFileSync needs the full command name.
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-execFileSync(npmCmd, ['pack', outDir, '--pack-destination', packDestination], {
+// Windows: npm ships as npm.cmd — execFileSync cannot spawn .cmd directly
+// (EINVAL); route it through the shell there. On POSIX shell:true is a no-op.
+execFileSync('npm', ['pack', outDir, '--pack-destination', packDestination], {
   stdio: 'inherit',
+  shell: process.platform === 'win32',
 });
 
 const tgzName = `${packageName.replace('@', '').replace('/', '-')}-${version}.tgz`;
