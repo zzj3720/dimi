@@ -125,11 +125,15 @@ impl RustFileSystem {
     /// `readLines` — returns a handle whose `next()` yields one line at a
     /// time (`null` at EOF); the TS adapter wraps it in an `AsyncGenerator`.
     #[napi]
-    pub fn read_lines(
+    pub async fn read_lines(
         path: String,
         options: Option<RustReadTextOptions>,
     ) -> napi::Result<RustReadLines> {
-        RustReadLines::open(path, options)
+        let options = options.map(|o| fs_core::ReadTextOptions {
+            encoding: o.encoding,
+            errors: o.errors,
+        });
+        spawn_blocking(move || RustReadLines::open(&path, options.as_ref())).await
     }
 
     #[napi]
@@ -198,14 +202,13 @@ pub struct RustReadLines {
 
 #[napi]
 impl RustReadLines {
-    fn open(path: String, options: Option<RustReadTextOptions>) -> napi::Result<Self> {
-        let encoding = options.as_ref().and_then(|o| o.encoding.clone());
-        let errors = options.as_ref().and_then(|o| o.errors.clone());
-        let lines = fs_core::ReadLines::open(&path, encoding.as_deref(), errors.as_deref())
-            .map_err(napi_error)?;
+    fn open(path: &str, options: Option<&fs_core::ReadTextOptions>) -> napi::Result<Self> {
+        let encoding = options.and_then(|o| o.encoding.as_deref());
+        let errors = options.and_then(|o| o.errors.as_deref());
+        let lines = fs_core::ReadLines::open(path, encoding, errors).map_err(napi_error)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(Some(lines))),
-            path,
+            path: path.to_owned(),
         })
     }
 

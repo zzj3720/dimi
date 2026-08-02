@@ -245,7 +245,7 @@ export interface RustFileSystemConstructor {
   appendText(path: string, data: string): Promise<void>;
   readBytes(path: string, n?: number): Promise<Uint8Array>;
   writeBytes(path: string, data: Uint8Array): Promise<void>;
-  readLines(path: string, options?: RustReadTextOptions): RustReadLinesHandle;
+  readLines(path: string, options?: RustReadTextOptions): Promise<RustReadLinesHandle>;
   createExclusive(path: string, data: Uint8Array): Promise<boolean>;
   stat(path: string): Promise<RustFileStat>;
   lstat(path: string): Promise<RustFileStat>;
@@ -276,7 +276,10 @@ export class RustFileSystem {
   static writeBytes(path: string, data: Uint8Array): Promise<void> {
     return loadNative().RustFileSystem.writeBytes(path, data);
   }
-  static readLines(path: string, options?: RustReadTextOptions): RustReadLinesHandle {
+  static async readLines(
+    path: string,
+    options?: RustReadTextOptions,
+  ): Promise<RustReadLinesHandle> {
     return loadNative().RustFileSystem.readLines(path, options);
   }
   static createExclusive(path: string, data: Uint8Array): Promise<boolean> {

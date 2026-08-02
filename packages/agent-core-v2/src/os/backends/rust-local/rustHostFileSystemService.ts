@@ -97,7 +97,7 @@ export class RustHostFileSystem implements IHostFileSystem {
   ): AsyncGenerator<string> {
     let handle: RustReadLinesHandle;
     try {
-      handle = RustFileSystem.readLines(path, toRustOptions(options));
+      handle = await RustFileSystem.readLines(path, toRustOptions(options));
     } catch (error) {
       throw toFsError(error, { path, op: 'read' });
     }

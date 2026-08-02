@@ -115,7 +115,7 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     const tsLines = (await fsp.readFile(file, 'utf8')).split(/(?<=\n)/);
     if (tsLines[tsLines.length - 1] === '') tsLines.pop();
     const rust: string[] = [];
-    const handle = RustFileSystem.readLines(file);
+    const handle = await RustFileSystem.readLines(file);
     for (;;) {
       const line = await handle.next();
       if (line === null) break;
@@ -130,7 +130,7 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     const tsText = await fsp.readFile(file, 'utf8'); // keeps BOM
     const tsLines = tsText.split(/(?<=\n)/);
     const rust: string[] = [];
-    const handle = RustFileSystem.readLines(file);
+    const handle = await RustFileSystem.readLines(file);
     for (;;) {
       const line = await handle.next();
       if (line === null) break;
@@ -145,7 +145,7 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
   test('readLines strict rejects invalid utf-8 like TextDecoder', async () => {
     const file = p('bad-utf8.txt');
     writeFileSync(file, Buffer.from([0x80, 0x0a]));
-    const handle = RustFileSystem.readLines(file, { errors: 'strict' });
+    const handle = await RustFileSystem.readLines(file, { errors: 'strict' });
     await expect(handle.next()).rejects.toThrow();
     // Node TextDecoder fatal throws too (synchronous):
     expect(() =>
@@ -158,7 +158,7 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     writeFileSync(file, Buffer.from([0x41, 0x0a, 0xe9, 0x0a])); // A\né\n
     const ts = (await fsp.readFile(file, 'latin1')).split(/(?<=\n)/);
     const rust: string[] = [];
-    const handle = RustFileSystem.readLines(file, { encoding: 'latin1' });
+    const handle = await RustFileSystem.readLines(file, { encoding: 'latin1' });
     for (;;) {
       const line = await handle.next();
       if (line === null) break;
@@ -270,6 +270,16 @@ suite('fs: TS node:fs/promises vs Rust dimi-exec', () => {
     const tsReal = await fsp.realpath(link);
     const rsReal = await RustFileSystem.realpath(link);
     expect(rsReal).toBe(tsReal);
+  });
+
+  test('unknown encoding rejects on both sides', async () => {
+    const file = p('enc.txt');
+    writeFileSync(file, 'x');
+    // Node Buffer.toString with an unknown encoding throws.
+    await expect(fsp.readFile(file, 'bogus-encoding' as BufferEncoding)).rejects.toThrow();
+    await expect(
+      RustFileSystem.readText(file, { encoding: 'bogus-encoding' }),
+    ).rejects.toThrow();
   });
 
   test('error errno symbols match node codes', async () => {

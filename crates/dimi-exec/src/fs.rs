@@ -338,7 +338,7 @@ pub fn decode_with_errors(
             }
             DecodeErrors::Ignore => Ok(decode_utf16le_ignore(data)),
         },
-        Encoding::Other(name) => Ok(buffer_to_string(data, name)),
+        Encoding::Other(name) => buffer_to_string(data, name),
     }
 }
 
@@ -379,16 +379,15 @@ fn decode_utf16le_replace(data: &[u8]) -> String {
 /// Node `Buffer.toString(encoding)` for the non-web-label encodings.
 /// Empirically verified: `ascii` masks to 7 bits, `latin1`/`binary` map
 /// bytes to U+0000–U+00FF, `base64`/`base64url`/`hex` are ENCODING outputs.
-fn buffer_to_string(data: &[u8], encoding: &str) -> String {
+/// Unknown encodings error like Node's `ERR_UNKNOWN_ENCODING`.
+fn buffer_to_string(data: &[u8], encoding: &str) -> Result<String, String> {
     match encoding {
-        "ascii" => data.iter().map(|&b| (b & 0x7f) as char).collect(),
-        "latin1" | "binary" => data.iter().map(|&b| b as char).collect(),
-        "hex" => data.iter().map(|b| format!("{b:02x}")).collect(),
-        "base64" => base64_encode(data, false),
-        "base64url" => base64_encode(data, true),
-        // Anything else Node does not know falls back to utf8 in
-        // `Buffer.toString`; mirror that default.
-        _ => String::from_utf8_lossy(data).into_owned(),
+        "ascii" => Ok(data.iter().map(|&b| (b & 0x7f) as char).collect()),
+        "latin1" | "binary" => Ok(data.iter().map(|&b| b as char).collect()),
+        "hex" => Ok(data.iter().map(|b| format!("{b:02x}")).collect()),
+        "base64" => Ok(base64_encode(data, false)),
+        "base64url" => Ok(base64_encode(data, true)),
+        _ => Err(format!("Unknown encoding: {encoding}")),
     }
 }
 
@@ -520,7 +519,6 @@ pub struct ReadLines {
     buf_start: usize,
     buf_end: usize,
     pending: Vec<u8>,
-    pending_offset: usize,
     file_offset: usize,
     encoding: Encoding,
     errors: DecodeErrors,
@@ -542,7 +540,6 @@ impl ReadLines {
             buf_start: 0,
             buf_end: 0,
             pending: Vec::new(),
-            pending_offset: 0,
             file_offset: 0,
             encoding,
             errors,
@@ -592,9 +589,6 @@ impl ReadLines {
             // 2. Nothing complete in the chunk: move the tail into pending.
             if self.buf_start < self.buf_end {
                 let tail = self.buf[self.buf_start..self.buf_end].to_vec();
-                if self.pending.is_empty() {
-                    self.pending_offset = self.file_offset + self.buf_start;
-                }
                 self.pending.extend_from_slice(&tail);
                 self.buf_start = self.buf_end;
             }

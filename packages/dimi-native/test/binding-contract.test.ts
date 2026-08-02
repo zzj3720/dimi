@@ -107,6 +107,33 @@ suite('native binding ↔ Rust source ↔ TS wrapper', () => {
       'function',
     );
   });
+
+  test('RustFileSystem / RustReadLines class surfaces match the bridge', () => {
+    const binding = loadNative();
+    const fsClass = binding.RustFileSystem as unknown as Record<string, unknown>;
+    for (const method of [
+      'readText',
+      'writeText',
+      'appendText',
+      'readBytes',
+      'writeBytes',
+      'readLines',
+      'createExclusive',
+      'stat',
+      'lstat',
+      'readdir',
+      'mkdir',
+      'remove',
+      'realpath',
+    ]) {
+      expect(typeof fsClass[method], `RustFileSystem.${method}`).toBe('function');
+    }
+    const linesProto = (
+      binding.RustReadLines as unknown as { prototype: Record<string, unknown> }
+    ).prototype;
+    expect(typeof linesProto['next'], 'RustReadLines.prototype.next').toBe('function');
+    expect(typeof linesProto['dispose'], 'RustReadLines.prototype.dispose').toBe('function');
+  });
 });
 
 if (!nativeAvailable) {
