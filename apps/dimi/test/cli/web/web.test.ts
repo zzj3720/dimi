@@ -391,6 +391,7 @@ describe('`dimi web` option threading', () => {
       allowRemoteTerminals: true,
       dangerousBypassAuth: true,
       allowedHosts: ['.example.com'],
+      legacyStore: false,
     });
   });
 

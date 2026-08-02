@@ -140,8 +140,10 @@ describe('pty differential: node-pty vs Rust', () => {
       collectNodePty({ cwd, cols: 80, rows: 24, resizeTo: { cols: 100, rows: 40 }, script: 'stty size\n' }),
       collectRustPty({ cwd, cols: 80, rows: 24, resizeTo: { cols: 100, rows: 40 }, script: 'stty size\n' }),
     ]);
-    expect(node.data).toMatch(/(?:^|\n)\s*40 100/);
-    expect(rust.data).toMatch(/(?:^|\n)\s*40 100/);
+    // CR-only line endings (CI pty) defeat `(?:^|\n)` — match the size
+    // fields with a whitespace run instead.
+    expect(node.data).toMatch(/40\s+100/);
+    expect(rust.data).toMatch(/40\s+100/);
     await rm(cwd, { recursive: true, force: true });
   });
 
