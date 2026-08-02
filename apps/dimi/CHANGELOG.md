@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.2
+
+### Patch Changes
+
+- [`af12ae9`](https://github.com/zzj3720/dimi/commit/af12ae9925be69b4c9be2fd917b3e8f7b54667e4) - Fold tool calls progressively in the TUI: while a tool-call run is still growing, only the newest two calls stay expanded and older finished ones merge into the summary immediately, instead of everything staying expanded until the run ends. Running calls (streaming args, live subagents, pending reads) are never folded away.
+
 ## 0.6.1
 
 ### Patch Changes
