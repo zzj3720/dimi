@@ -538,9 +538,30 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
           (payloadJson: string) => {
         void (async () => {
-          const payload = JSON.parse(payloadJson) as { requestId: string; toolCallId?: string; name: string; arguments: unknown };
+          const payload = JSON.parse(payloadJson) as {
+            requestId: string;
+            toolCallId?: string;
+            name: string;
+            arguments: unknown;
+            toolCalls?: Array<{ id?: string; name: string; arguments: unknown }>;
+          };
           try {
-            const execution = await tool.resolveExecution(payload.arguments);
+            // The engine carries the full assistant-message batch this call
+            // is part of (`ToolContext.tool_calls` → bridge `payload.toolCalls`):
+            // rebuild the TS `ToolResolutionContext` so same-round validations
+            // (AllDone's "only tool call in its round" / background-task
+            // guards) behave exactly like the TS loop, which passes
+            // `{ toolCalls: allCalls }` (toolExecutorService).
+            const toolCalls = (payload.toolCalls ?? []).map((call) => ({
+              type: "function" as const,
+              id: call.id ?? payload.toolCallId ?? payload.requestId,
+              name: call.name,
+              arguments:
+                typeof call.arguments === "string"
+                  ? call.arguments
+                  : (JSON.stringify(call.arguments) ?? "null"),
+            }));
+            const execution = await tool.resolveExecution(payload.arguments, { toolCalls });
             if (execution.isError === true) {
               session.completeToolCall(
                 payload.requestId,

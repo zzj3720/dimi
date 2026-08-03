@@ -336,6 +336,12 @@ pub struct TurnSession {
 pub struct PendingApproval {
     pub request: ApprovalRequest,
     pub call: ToolCall,
+    /// The full assistant-message batch this call came from — carried across
+    /// the approval pause so a resumed call still sees its same-round
+    /// siblings (TS `ToolResolutionContext.toolCalls` parity; the engine
+    /// executes only the pending call after resume, but AllDone's
+    /// mixed-use guard needs the whole original batch).
+    pub batch: Vec<ToolCall>,
 }
 
 /// Where the turn stands after `run` / `resume`.
@@ -445,7 +451,7 @@ impl TurnSession {
         };
         let result = match decision {
             ApprovalDecision::Approved => {
-                let ctx = self.tool_ctx();
+                let ctx = self.tool_ctx(&pending.batch);
                 tokio::select! {
                     result = execute_tool(self.input.turn_id, pending.call.clone(), tools, &ctx, on_event) => result,
                     _ = self.cancel.cancelled() => {
@@ -513,7 +519,7 @@ impl TurnSession {
         self.run_loop(llm, tools, policy, on_event).await
     }
 
-    fn tool_ctx(&self) -> ToolContext {
+    fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
         ToolContext {
             cwd: self.input.cwd.clone().unwrap_or_else(|| ".".to_string()),
             shell: self
@@ -521,6 +527,7 @@ impl TurnSession {
                 .shell
                 .clone()
                 .unwrap_or_else(dimi_exec::env::default_shell),
+            tool_calls: calls.to_vec(),
         }
     }
 
@@ -958,6 +965,10 @@ impl TurnSession {
                         reasoning: None,
                     });
                     let mut stop_turn = false;
+                    // One context per batch: every call in the assistant
+                    // message sees the full same-batch tool calls (external
+                    // tools build `ToolResolutionContext.toolCalls` from it).
+                    let ctx = self.tool_ctx(&calls);
                     for call in &calls {
                         let input = PolicyInput {
                             mode: policy.mode,
@@ -973,7 +984,6 @@ impl TurnSession {
                         };
                         match evaluate(&input) {
                             PolicyDecision::Approve => {
-                                let ctx = self.tool_ctx();
                                 let result = tokio::select! {
                                     result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
                                     _ = self.cancel.cancelled() => {
@@ -1051,6 +1061,7 @@ impl TurnSession {
                                 self.pending = Some(PendingApproval {
                                     request: request.clone(),
                                     call: call.clone(),
+                                    batch: calls.clone(),
                                 });
                                 return TurnProgress::NeedsApproval(request);
                             }

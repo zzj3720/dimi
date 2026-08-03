@@ -364,7 +364,7 @@ impl ToolExecutor for BridgeExternalTool {
     async fn execute(
         &self,
         call: &dimi_engine::tool::ToolCall,
-        _ctx: &dimi_engine::tool::ToolContext,
+        ctx: &dimi_engine::tool::ToolContext,
     ) -> dimi_engine::tool::ToolResult {
         let request_id = format!(
             "ext-{}",
@@ -379,6 +379,15 @@ impl ToolExecutor for BridgeExternalTool {
             "toolCallId": call.id,
             "name": call.name,
             "arguments": call.arguments,
+            // The full assistant-message batch this call is part of: the TS
+            // side builds `ToolResolutionContext.toolCalls` from it, so
+            // external tools see their same-round siblings (AllDone's
+            // mixed-use / "only tool call in its round" guard needs them).
+            "toolCalls": ctx.tool_calls.iter().map(|sibling| serde_json::json!({
+                "id": sibling.id,
+                "name": sibling.name,
+                "arguments": sibling.arguments,
+            })).collect::<Vec<_>>(),
         }))
         .unwrap_or_default();
         let _ = self
