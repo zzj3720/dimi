@@ -236,6 +236,8 @@ export * from "#/agent/task/taskService";
 export * from "#/agent/wait/wait";
 export * from "#/agent/wait/waitService";
 export * from "#/agent/tools/wait-for/waitForTool";
+export * from "#/agent/tools/agent-output/agent-output";
+import "#/agent/tools/agent-output/agentOutputTool";
 export * from "#/agent/completion/completion";
 export * from "#/agent/tools/all-done/allDoneTool";
 import "#/app/cron/configSection";

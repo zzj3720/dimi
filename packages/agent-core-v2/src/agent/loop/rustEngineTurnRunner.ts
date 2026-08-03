@@ -490,7 +490,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // tools) into the engine; the Rust-native tools stay on the Rust side.
     const engineNativeTools = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
     for (const info of this.toolRegistry.list()) {
-      if (engineNativeTools.has(info.name)) continue;
+      if (engineNativeTools.has(info.name)) {
+        // The Rust-native tools (Agent / AgentOutput / WaitFor) are
+        // registered executor-first on the engine side — without an
+        // LLM-facing def, so the model could not see them in the request
+        // `tools` field. Advertise their defs (name/description/parameters)
+        // through the bridge; the engine re-syncs them into every request
+        // before each run/resume. Bash keeps the bridge's hardcoded def, so
+        // only the three async tools are pushed from here.
+        if (info.name !== 'Bash') {
+          session.registerNativeToolDef(
+            info.name,
+            info.description,
+            JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+          );
+        }
+        continue;
+      }
       const tool = this.toolRegistry.resolve(info.name);
       if (tool === undefined) continue;
       // The def (name/description/parameters) advertises the tool to the

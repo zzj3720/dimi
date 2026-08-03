@@ -809,6 +809,41 @@ impl RustTurnSession {
         Ok(())
     }
 
+    /// Advertise the LLM-facing definition of a Rust-native tool (Agent /
+    /// AgentOutput / WaitFor): the tool is registered executor-first at
+    /// session construction, so the model could not see it in the request
+    /// `tools` field. The registry keeps the executor and only swaps in the
+    /// def, which the engine re-syncs into every request before each
+    /// run/resume.
+    #[napi]
+    pub fn register_native_tool_def(
+        &self,
+        name: String,
+        description: String,
+        parameters_json: String,
+    ) -> napi::Result<()> {
+        let parameters: serde_json::Value = serde_json::from_str(&parameters_json)
+            .map_err(|_| napi::Error::from_reason("invalid tool parameters JSON"))?;
+        let def = serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        });
+        let mut registry = self
+            .tools
+            .try_lock()
+            .map_err(|_| napi::Error::from_reason("session is busy"))?;
+        if !registry.set_def(&name, Some(def)) {
+            return Err(napi::Error::from_reason(format!(
+                "no native tool registered with name: {name}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Steer a running subagent (async-subagent semantics): the message is
     /// queued and drained into the subagent's next request.
     #[napi]

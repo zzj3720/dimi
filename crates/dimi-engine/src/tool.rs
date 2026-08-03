@@ -2145,6 +2145,25 @@ impl ToolRegistry {
         names.sort();
         names
     }
+
+    /// Update the LLM-facing definition of an already-registered tool without
+    /// replacing its executor (the Rust-native tools register executor-first
+    /// and the bridge advertises their defs afterwards). Returns `false` when
+    /// no tool with that name is registered.
+    pub fn set_def(&mut self, name: &str, def: Option<serde_json::Value>) -> bool {
+        if !self.tools.contains_key(name) {
+            return false;
+        }
+        match def {
+            Some(def) => {
+                self.defs.insert(name.to_string(), def);
+            }
+            None => {
+                self.defs.remove(name);
+            }
+        }
+        true
+    }
 }
 
 #[async_trait::async_trait]
@@ -2161,6 +2180,43 @@ impl ToolExecutor for ToolRegistry {
                 updates: vec![],
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tool_registry_tests {
+    use super::*;
+
+    #[test]
+    fn set_def_advertises_a_def_for_an_executor_registered_without_one() {
+        let mut registry = ToolRegistry::new();
+        registry.register("Native", Box::new(BashTool::default()));
+        assert!(
+            registry.tool_defs().is_empty(),
+            "executor-only registration advertises nothing"
+        );
+
+        assert!(registry.set_def(
+            "Native",
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "Native",
+                    "description": "A native tool",
+                    "parameters": { "type": "object", "properties": {} },
+                }
+            })),
+        ));
+        let defs = registry.tool_defs();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0]["function"]["name"], "Native");
+        assert_eq!(defs[0]["function"]["description"], "A native tool");
+        assert_eq!(defs[0]["function"]["parameters"]["type"], "object");
+
+        // Removing the def hides the tool again; unknown names are rejected.
+        assert!(registry.set_def("Native", None));
+        assert!(registry.tool_defs().is_empty());
+        assert!(!registry.set_def("Missing", Some(serde_json::json!({}))));
     }
 }
 

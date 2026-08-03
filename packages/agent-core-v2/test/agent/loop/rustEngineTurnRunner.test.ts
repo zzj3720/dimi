@@ -7,6 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { RustTurnSession } from '@dimi-agent/dimi-native';
+
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner, RustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
@@ -99,6 +101,54 @@ describe('Rust engine turn runner (default)', () => {
     expect(textParts.map((part) => (part as { text?: string }).text)).toContain('<rust-answer>');
     const thinkParts = parts.filter((part) => part.type === 'think');
     expect(thinkParts.map((part) => (part as { think?: string }).think)).toContain('<rust-think>');
+  });
+
+  it('advertises Agent/AgentOutput/WaitFor defs to the model', async () => {
+    // The Rust-native tools are registered executor-first on the engine side
+    // (no LLM-facing def), so the model cannot see them in the request
+    // `tools` field. The runner must push their defs through the bridge —
+    // assert the def registration carries non-empty description + parameters
+    // for each of the three async tools (the engine then carries the defs
+    // into every request's `tools` field; see the engine's
+    // `updated_tools_are_advertised_in_subsequent_requests`).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: '<defs-answer>' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+
+    // Spy on the bridge entry point: the runner calls the wrapper method once
+    // per native tool with its LLM-facing def. The call goes through to the
+    // real napi method so the def lands in the engine registry.
+    const recorded: Array<{ name: string; description: string; parametersJson: string }> = [];
+    const proto = RustTurnSession.prototype as unknown as {
+      registerNativeToolDef?: (name: string, description: string, parametersJson: string) => void;
+    };
+    const original = proto.registerNativeToolDef;
+    proto.registerNativeToolDef = function (name, description, parametersJson) {
+      recorded.push({ name, description, parametersJson });
+      original?.call(this, name, description, parametersJson);
+    };
+    try {
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+      await waitForContext(
+        ctx,
+        (messages) => messages.some((message) => message.role === 'assistant'),
+        'assistant message',
+      );
+    } finally {
+      proto.registerNativeToolDef = original;
+    }
+
+    const byName = new Map(recorded.map((record) => [record.name, record]));
+    for (const name of ['Agent', 'AgentOutput', 'WaitFor']) {
+      const def = byName.get(name);
+      expect(def, `${name} def advertised to the engine`).toBeDefined();
+      expect(def!.description.length).toBeGreaterThan(0);
+      const parameters = JSON.parse(def!.parametersJson) as { type?: unknown; properties?: unknown };
+      expect(parameters.type).toBe('object');
+      expect(parameters.properties).toBeDefined();
+    }
   });
 
   it('mirrors tool execution into the context', async () => {

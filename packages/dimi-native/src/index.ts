@@ -640,6 +640,15 @@ export class RustTurnSession {
     this.#inner.registerExternalTool(name, description, parametersJson, callback);
   }
 
+  /** Advertise the LLM-facing definition (description + JSON parameters
+   *  schema) of a Rust-native tool (Agent / AgentOutput / WaitFor) registered
+   *  executor-first at construction. The executor stays the same; only the
+   *  def is updated, so the engine's request `tools` field carries it from
+   *  the next request on. */
+  registerNativeToolDef(name: string, description: string, parametersJson: string): void {
+    this.#inner.registerNativeToolDef(name, description, parametersJson);
+  }
+
   /** Steer the running turn (drained into its next LLM request). Returns
    *  `false` when the turn has already finished — the caller must start a
    *  new turn instead (the steer is never dropped). */
@@ -690,6 +699,7 @@ export interface RustTurnSessionHandle {
     parametersJson: string,
     callback: (payloadJson: string) => void,
   ): void;
+  registerNativeToolDef(name: string, description: string, parametersJson: string): void;
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
