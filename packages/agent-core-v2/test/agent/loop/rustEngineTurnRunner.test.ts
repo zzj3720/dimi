@@ -110,15 +110,22 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
       'tool message',
     );
     const context = ctx.get(IAgentContextMemoryService).get();
-    const toolMessage = context.find((message) => message.role === 'tool');
-    expect(toolMessage).toBeDefined();
-    const toolText = toolMessage?.content
+    // Exactly one tool message per call, carrying the REAL output (the fold
+    // builds it from tool.result — no placeholder duplicates).
+    const toolMessages = context.filter((message) => message.role === 'tool');
+    expect(toolMessages).toHaveLength(1);
+    const toolText = toolMessages[0]!.content
       .filter((part) => part.type === 'text')
       .map((part) => (part as { text?: string }).text ?? '')
       .join('');
     expect(toolText).toContain('rust-tool-ok');
+    expect(toolText).not.toContain('ran in the Rust engine');
+    // The assistant message carries the tool call with full arguments.
     const assistant = context.find((message) => message.role === 'assistant');
-    expect(assistant?.toolCalls.length).toBeGreaterThan(0);
+    expect(assistant?.toolCalls.length).toBe(1);
+    const call = assistant?.toolCalls[0];
+    expect(call?.name).toBe('Bash');
+    expect(JSON.parse(call?.arguments ?? '{}')).toEqual({ command: 'echo rust-tool-ok' });
   });
 
   it('steers a running turn into the engine (mid-turn injection)', async () => {

@@ -57,6 +57,10 @@ pub trait ToolExecutor: Send + Sync {
     /// Execute one tool call. Async so tools can run nested turns
     /// (subagents), MCP servers and other long-running work.
     async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult;
+
+    /// Best-effort cancellation of an in-flight call (turn cancel). The
+    /// default is a no-op; tools that own processes kill them here.
+    fn abort(&self, _call: &ToolCall) {}
 }
 
 /// Output buffer mirroring `ToolResultBuilder`: 50k total chars, 2k per
@@ -117,9 +121,35 @@ impl Default for OutputBuffer {
 }
 
 /// Bash tool over dimi-exec. Foreground path only (slice 1; backgrounding
-/// lands with the task domain in a later slice).
-#[derive(Debug, Clone, Default)]
-pub struct BashTool;
+/// lands with the task domain in a later slice). Holds the running process
+/// so `abort` (turn cancellation) can kill it.
+#[derive(Default)]
+pub struct BashTool {
+    current: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dimi_exec::ExecProcess>>>>,
+}
+
+impl std::fmt::Debug for BashTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BashTool")
+            .field(
+                "running",
+                &self
+                    .current
+                    .lock()
+                    .map(|guard| guard.is_some())
+                    .unwrap_or(false),
+            )
+            .finish()
+    }
+}
+
+impl Clone for BashTool {
+    fn clone(&self) -> Self {
+        Self {
+            current: std::sync::Arc::clone(&self.current),
+        }
+    }
+}
 
 impl BashTool {
     /// Validate the Bash arguments (`command` required non-empty; `cwd`
@@ -198,7 +228,7 @@ impl ToolExecutor for BashTool {
                 windows_hide: true,
             },
         ) {
-            Ok(process) => process,
+            Ok(process) => std::sync::Arc::new(process),
             Err(error) => {
                 return ToolResult {
                     tool_call_id: call.id.clone(),
@@ -210,6 +240,10 @@ impl ToolExecutor for BashTool {
                 };
             }
         };
+        *self
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(process.clone());
 
         // Drain stdout/stderr until EOF or timeout.
         let started = Instant::now();
@@ -254,6 +288,10 @@ impl ToolExecutor for BashTool {
             }
         }
         let _ = process.wait();
+        *self
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
 
         if timed_out {
             return ToolResult {
@@ -275,6 +313,19 @@ impl ToolExecutor for BashTool {
             is_error: exit_code != Some(0),
             stop_turn: false,
             updates,
+        }
+    }
+
+    /// Kill the running command (turn cancellation): SIGKILL the process
+    /// tree, mirroring the TS bashTool's cancel path.
+    fn abort(&self, _call: &ToolCall) {
+        if let Some(process) = self
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            let _ = process.kill(Some(9));
         }
     }
 }
@@ -356,7 +407,7 @@ mod tests {
 
     #[tokio::test]
     async fn bash_tool_runs_a_real_command() {
-        let tool = BashTool;
+        let tool = BashTool::default();
         let result = tool
             .execute(
                 &ToolCall {
@@ -376,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn bash_tool_reports_nonzero_exit() {
-        let tool = BashTool;
+        let tool = BashTool::default();
         let result = tool
             .execute(
                 &ToolCall {
@@ -400,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     async fn bash_tool_timeout_kills() {
-        let tool = BashTool;
+        let tool = BashTool::default();
         let result = tool
             .execute(
                 &ToolCall {
@@ -1262,7 +1313,7 @@ mod async_agent_tests {
         let tasks = AgentTasks::new();
         let agent = AsyncAgentTool {
             llm: sub_llm,
-            tools: Arc::new(BashTool),
+            tools: Arc::new(BashTool::default()),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -1318,7 +1369,7 @@ mod async_agent_tests {
         let tasks = AgentTasks::new();
         let agent = AsyncAgentTool {
             llm: sub_llm,
-            tools: Arc::new(BashTool),
+            tools: Arc::new(BashTool::default()),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -1398,7 +1449,7 @@ mod async_agent_tests {
             .insert("agent-running".to_string(), Arc::clone(&steer_queue));
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
-            tools: Arc::new(BashTool),
+            tools: Arc::new(BashTool::default()),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -1459,7 +1510,7 @@ mod async_agent_tests {
                     finish_reason: Some("stop".to_string()),
                 },
             ])),
-            tools: Arc::new(BashTool),
+            tools: Arc::new(BashTool::default()),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -1521,7 +1572,7 @@ mod async_agent_tests {
         let tasks = AgentTasks::new();
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
-            tools: Arc::new(BashTool),
+            tools: Arc::new(BashTool::default()),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),

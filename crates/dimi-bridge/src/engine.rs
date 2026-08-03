@@ -67,7 +67,7 @@ impl RustEngine {
                 model: openai_model(&input.provider),
             }),
         };
-        let tools: Box<dyn ToolExecutor> = Box::new(BashTool);
+        let tools: Box<dyn ToolExecutor> = Box::new(BashTool::default());
         let policy = dimi_engine::permission::PolicyConfig {
             mode: dimi_engine::permission::PermissionMode::Manual,
             rules: vec![],
@@ -121,6 +121,10 @@ impl ToolExecutor for BridgeExternalTool {
         );
         let payload = serde_json::to_string(&serde_json::json!({
             "requestId": request_id,
+            // The LLM's streamed tool-call id — the wire `tool.result` must
+            // carry it (the fold matches `tool.result` against `tool.call`
+            // by this id; "ext-N" is only the completion-slot key).
+            "toolCallId": call.id,
             "name": call.name,
             "arguments": call.arguments,
         }))
@@ -134,15 +138,21 @@ impl ToolExecutor for BridgeExternalTool {
             {
                 let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(result_json) = pending.remove(&request_id) {
-                    let parsed: dimi_engine::tool::ToolResult = serde_json::from_str(&result_json)
-                        .unwrap_or_else(|_| dimi_engine::tool::ToolResult {
-                            tool_call_id: call.id.clone(),
-                            tool_name: call.name.clone(),
-                            output: format!("external tool returned invalid result: {result_json}"),
-                            is_error: true,
-                            stop_turn: false,
-                            updates: vec![],
+                    let mut parsed: dimi_engine::tool::ToolResult =
+                        serde_json::from_str(&result_json).unwrap_or_else(|_| {
+                            dimi_engine::tool::ToolResult {
+                                tool_call_id: call.id.clone(),
+                                tool_name: call.name.clone(),
+                                output: format!(
+                                    "external tool returned invalid result: {result_json}"
+                                ),
+                                is_error: true,
+                                stop_turn: false,
+                                updates: vec![],
+                            }
                         });
+                    // The wire tool.result must reference the LLM's call id.
+                    parsed.tool_call_id = call.id.clone();
                     return parsed;
                 }
             }
@@ -228,6 +238,24 @@ fn make_client(
     }
 }
 
+/// Convert the registry's LLM-facing defs into `EngineTool` (the engine's
+/// request `tools` field).
+fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> {
+    registry
+        .tool_defs()
+        .into_iter()
+        .filter_map(|def| {
+            let function = def.get("function")?;
+            serde_json::from_value(serde_json::json!({
+                "name": function.get("name")?.as_str()?,
+                "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
+            }))
+            .ok()
+        })
+        .collect()
+}
+
 #[napi]
 impl RustTurnSession {
     #[napi(constructor)]
@@ -246,7 +274,7 @@ impl RustTurnSession {
         let mut registry = ToolRegistry::new();
         registry.register_with_def(
             "Bash",
-            Box::new(BashTool),
+            Box::new(BashTool::default()),
             Some(serde_json::json!({
                 "type": "function",
                 "function": {
@@ -268,7 +296,7 @@ impl RustTurnSession {
             "Agent",
             Box::new(AsyncAgentTool {
                 llm: std::sync::Arc::clone(&llm),
-                tools: std::sync::Arc::new(BashTool),
+                tools: std::sync::Arc::new(BashTool::default()),
                 policy: policy.clone(),
                 max_steps: input.max_steps_per_turn,
                 shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
@@ -285,24 +313,14 @@ impl RustTurnSession {
         registry.register("WaitFor", Box::new(WaitForTool { tasks }));
         let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
         let mut input = input;
-        // Expose the registry's tool definitions to the LLM.
+        // Expose the registry's tool definitions to the LLM (initial set;
+        // re-synced before every run/resume so tools registered mid-session
+        // become visible to the model).
         {
             let registry = tools
                 .try_lock()
                 .map_err(|_| napi::Error::from_reason("registry busy"))?;
-            input.tools = registry
-                .tool_defs()
-                .into_iter()
-                .filter_map(|def| {
-                    let function = def.get("function")?;
-                    serde_json::from_value(serde_json::json!({
-                        "name": function.get("name")?.as_str()?,
-                        "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-                        "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
-                    }))
-                    .ok()
-                })
-                .collect();
+            input.tools = engine_tools(&registry);
         }
         let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -357,6 +375,12 @@ impl RustTurnSession {
         let mut events: Vec<EngineEvent> = Vec::new();
         let progress = {
             let mut inner = self.inner.lock().await;
+            // Re-sync the LLM-facing tool defs (external tools may have been
+            // registered since the session was constructed).
+            {
+                let registry = self.tools.lock().await;
+                inner.update_tools(engine_tools(&registry));
+            }
             inner
                 .run(
                     self.llm.as_ref(),
@@ -371,19 +395,37 @@ impl RustTurnSession {
 
     /// Register a TS-side tool: the engine routes `name` calls to the
     /// callback; the callback's async execution completes via
-    /// `completeToolCall(requestId, resultJson)`.
+    /// `completeToolCall(requestId, resultJson)`. The LLM-facing definition
+    /// (description + JSON parameters schema) is advertised to the model from
+    /// the next request on.
     #[napi]
-    pub fn register_external_tool(&self, name: String, callback: ToolCallback) -> napi::Result<()> {
+    pub fn register_external_tool(
+        &self,
+        name: String,
+        description: String,
+        parameters_json: String,
+        callback: ToolCallback,
+    ) -> napi::Result<()> {
         let pending = std::sync::Arc::clone(&self.pending_external);
         let tool = BridgeExternalTool {
             callback,
             pending,
             next_request_id: std::sync::atomic::AtomicU64::new(0),
         };
+        let parameters: serde_json::Value = serde_json::from_str(&parameters_json)
+            .map_err(|_| napi::Error::from_reason("invalid tool parameters JSON"))?;
+        let def = serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        });
         self.tools
             .try_lock()
             .map_err(|_| napi::Error::from_reason("session is busy"))
-            .map(|mut registry| registry.register(name, Box::new(tool)))?;
+            .map(|mut registry| registry.register_with_def(name, Box::new(tool), Some(def)))?;
         Ok(())
     }
 
@@ -428,6 +470,10 @@ impl RustTurnSession {
         let mut events: Vec<EngineEvent> = Vec::new();
         let progress = {
             let mut inner = self.inner.lock().await;
+            {
+                let registry = self.tools.lock().await;
+                inner.update_tools(engine_tools(&registry));
+            }
             inner
                 .resume(
                     decision,

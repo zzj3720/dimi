@@ -619,9 +619,16 @@ export class RustTurnSession {
     return this.#inner.resume(decisionJson);
   }
 
-  /** Register a TS-side tool; `completeToolCall` finishes each call. */
-  registerExternalTool(name: string, callback: (payloadJson: string) => void): void {
-    this.#inner.registerExternalTool(name, callback);
+  /** Register a TS-side tool; `completeToolCall` finishes each call. The
+   *  definition (description + JSON parameters schema) is advertised to the
+   *  model from the next request on. */
+  registerExternalTool(
+    name: string,
+    description: string,
+    parametersJson: string,
+    callback: (payloadJson: string) => void,
+  ): void {
+    this.#inner.registerExternalTool(name, description, parametersJson, callback);
   }
 
   /** Steer the running turn (drained into its next LLM request). */
@@ -652,7 +659,12 @@ export interface RustTurnSessionConstructor {
 export interface RustTurnSessionHandle {
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
-  registerExternalTool(name: string, callback: (payloadJson: string) => void): void;
+  registerExternalTool(
+    name: string,
+    description: string,
+    parametersJson: string,
+    callback: (payloadJson: string) => void,
+  ): void;
   steer(message: string): void;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;

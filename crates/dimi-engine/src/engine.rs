@@ -278,6 +278,13 @@ impl TurnSession {
         &self.messages
     }
 
+    /// Replace the LLM-facing tool definitions for subsequent requests
+    /// (the bridge re-syncs them from the registry before each step so
+    /// tools registered mid-session are visible to the model).
+    pub fn update_tools(&mut self, tools: Vec<crate::types::EngineTool>) {
+        self.input.tools = tools;
+    }
+
     /// Resume after an approval decision; returns the next progress state.
     pub async fn resume(
         &mut self,
@@ -301,8 +308,19 @@ impl TurnSession {
             ApprovalDecision::Approved => {
                 let ctx = self.tool_ctx();
                 tokio::select! {
-                    result = execute_tool(pending.call.clone(), tools, &ctx, on_event) => result,
+                    result = execute_tool(self.input.turn_id, pending.call.clone(), tools, &ctx, on_event) => result,
                     _ = self.cancel.cancelled() => {
+                        tools.abort(&pending.call);
+                        emit(
+                            on_event,
+                            EngineEvent::TurnStepInterrupted {
+                                turn_id: self.input.turn_id,
+                                step: self.steps as i64,
+                                step_id: None,
+                                reason: "aborted".to_string(),
+                                message: None,
+                            },
+                        );
                         return self.finish_turn_with_error(
                             TurnEndReason::Cancelled,
                             None,
@@ -571,6 +589,16 @@ impl TurnSession {
             let disposition = match tokio::select! {
                 result = execute_step(turn_id, llm, &request, &mut usage, on_event) => result,
                 _ = self.cancel.cancelled() => {
+                    emit(
+                        on_event,
+                        EngineEvent::TurnStepInterrupted {
+                            turn_id,
+                            step: step_number as i64,
+                            step_id: None,
+                            reason: "aborted".to_string(),
+                            message: None,
+                        },
+                    );
                     return self.finish_turn_with_error(
                         TurnEndReason::Cancelled,
                         None,
@@ -636,6 +664,31 @@ impl TurnSession {
                     return self.finish_turn(TurnEndReason::Completed, on_event);
                 }
                 StepDisposition::Continue(calls) => {
+                    // The assistant message carrying the tool calls must
+                    // precede the tool results (providers reject a `tool`
+                    // message without a preceding `tool_calls`; the TS loop
+                    // pushes it the same way).
+                    self.messages.push(LlmMessage {
+                        role: "assistant".to_string(),
+                        content: serde_json::Value::String(String::new()),
+                        name: None,
+                        tool_call_id: None,
+                        tool_calls: Some(
+                            calls
+                                .iter()
+                                .map(|call| crate::types::LlmToolCall {
+                                    id: call.id.clone(),
+                                    call_type: Some("function".to_string()),
+                                    function: crate::types::LlmToolCallFunction {
+                                        name: call.name.clone(),
+                                        arguments: serde_json::to_string(&call.arguments)
+                                            .unwrap_or_default(),
+                                    },
+                                })
+                                .collect(),
+                        ),
+                        reasoning: None,
+                    });
                     let mut stop_turn = false;
                     for call in &calls {
                         let input = PolicyInput {
@@ -654,8 +707,19 @@ impl TurnSession {
                             PolicyDecision::Approve => {
                                 let ctx = self.tool_ctx();
                                 let result = tokio::select! {
-                                    result = execute_tool(call.clone(), tools, &ctx, on_event) => result,
+                                    result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
                                     _ = self.cancel.cancelled() => {
+                                        tools.abort(&call);
+                                        emit(
+                                            on_event,
+                                            EngineEvent::TurnStepInterrupted {
+                                                turn_id,
+                                                step: step_number as i64,
+                                                step_id: None,
+                                                reason: "aborted".to_string(),
+                                                message: None,
+                                            },
+                                        );
                                         return self.finish_turn_with_error(
                                             TurnEndReason::Cancelled,
                                             None,
@@ -679,6 +743,9 @@ impl TurnSession {
                                 }
                             }
                             PolicyDecision::Deny { reason } => {
+                                // The call still happened (the fold's
+                                // tool.result needs the tool.call record).
+                                emit_tool_call_started(&call, turn_id, on_event);
                                 let result = ToolResult {
                                     tool_call_id: call.id.clone(),
                                     tool_name: call.name.clone(),
@@ -698,6 +765,10 @@ impl TurnSession {
                                 });
                             }
                             PolicyDecision::Ask => {
+                                // The call is announced before the pause (TS
+                                // onToolCall semantics), so a rejected resume
+                                // still folds a proper tool message.
+                                emit_tool_call_started(call, turn_id, on_event);
                                 let request = ApprovalRequest {
                                     request_id: format!("approval-{turn_id}-{}", call.id),
                                     tool_call_id: call.id.clone(),
@@ -790,27 +861,38 @@ impl TurnSession {
 }
 
 async fn execute_tool(
+    turn_id: i64,
     call: ToolCall,
     tools: &dyn ToolExecutor,
     ctx: &ToolContext,
     on_event: &mut (dyn FnMut(EngineEvent) + Send),
 ) -> ToolResult {
-    on_event(EngineEvent::ToolCallStarted {
-        turn_id: 0,
-        tool_call_id: call.id.clone(),
-        name: call.name.clone(),
-        args: Some(call.arguments.clone()),
-        description: None,
-    });
+    emit_tool_call_started(&call, turn_id, on_event);
     let result = tools.execute(&call, ctx).await;
     for update in &result.updates {
         on_event(EngineEvent::ToolProgress {
-            turn_id: 0,
+            turn_id,
             tool_call_id: call.id.clone(),
             update: update.clone(),
         });
     }
     result
+}
+
+/// Announce a tool call (TS `onToolCall`): the fold's `tool.result` needs
+/// the matching `tool.call` record.
+fn emit_tool_call_started(
+    call: &ToolCall,
+    turn_id: i64,
+    on_event: &mut (dyn FnMut(EngineEvent) + Send),
+) {
+    on_event(EngineEvent::ToolCallStarted {
+        turn_id,
+        tool_call_id: call.id.clone(),
+        name: call.name.clone(),
+        args: Some(call.arguments.clone()),
+        description: None,
+    });
 }
 
 fn emit_tool_result(
@@ -993,11 +1075,12 @@ mod tests {
             },
         ]);
         let mut events = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         let outcome = engine
             .run_turn(
                 &input(vec![user_message("hi")]),
                 &llm,
-                &crate::tool::BashTool,
+                &__bash,
                 &crate::permission::PolicyConfig {
                     mode: crate::permission::PermissionMode::Auto,
                     rules: vec![],
@@ -1059,11 +1142,12 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         let outcome = engine
             .run_turn(
                 &input(vec![user_message("run a command")]),
                 &llm,
-                &crate::tool::BashTool,
+                &__bash,
                 &crate::permission::PolicyConfig {
                     mode: crate::permission::PermissionMode::Auto,
                     rules: vec![],
@@ -1121,11 +1205,12 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         let outcome = engine
             .run_turn(
                 &input_with_steps(vec![user_message("loop")], Some(1)),
                 &llm,
-                &crate::tool::BashTool,
+                &__bash,
                 &crate::permission::PolicyConfig {
                     mode: crate::permission::PermissionMode::Auto,
                     rules: vec![],
@@ -1174,11 +1259,12 @@ mod tests {
             ],
         ]);
         let mut events = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         let outcome = engine
             .run_turn(
                 &input(vec![user_message("fail")]),
                 &llm,
-                &crate::tool::BashTool,
+                &__bash,
                 &crate::permission::PolicyConfig {
                     mode: crate::permission::PermissionMode::Auto,
                     rules: vec![],
@@ -1274,8 +1360,9 @@ mod window_tests {
             rules: vec![],
             session_approved_patterns: vec![],
         };
+        let __bash = crate::tool::BashTool::default();
         engine
-            .run_turn(&input, &llm, &crate::tool::BashTool, &policy, &mut |_| {})
+            .run_turn(&input, &llm, &__bash, &policy, &mut |_| {})
             .await;
         let sent = recorded.lock().unwrap();
         assert_eq!(sent.len(), 4); // system + tail 3
@@ -1368,8 +1455,9 @@ mod steer_tests {
             session_approved_patterns: vec![],
         };
         let mut session = TurnSession::with_steer(input, Some(steer));
+        let __bash = crate::tool::BashTool::default();
         let progress = session
-            .run(&llm, &crate::tool::BashTool, &policy, &mut |_| {})
+            .run(&llm, &__bash, &policy, &mut |_| {})
             .await;
         assert!(matches!(progress, TurnProgress::Completed(_)));
         let requests = recorded.lock().unwrap();
@@ -1472,8 +1560,9 @@ mod compaction_tests {
         };
         let mut session = TurnSession::new(input);
         let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         let progress = session
-            .run(&llm, &crate::tool::BashTool, &policy, &mut |event| {
+            .run(&llm, &__bash, &policy, &mut |event| {
                 events.push(event);
             })
             .await;
@@ -1569,8 +1658,9 @@ mod compaction_tests {
         };
         let mut session = TurnSession::new(input);
         let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
         session
-            .run(&llm, &crate::tool::BashTool, &policy, &mut |event| {
+            .run(&llm, &__bash, &policy, &mut |event| {
                 events.push(event);
             })
             .await;
@@ -1596,6 +1686,187 @@ mod cancel_tests {
             tool_calls: None,
             reasoning: None,
         }
+    }
+
+
+
+    #[tokio::test]
+    async fn updated_tools_are_advertised_in_subsequent_requests() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.tools.clone());
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hi")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        // A tool registered after construction (external tool bridge path):
+        // the next request must advertise it.
+        session.update_tools(vec![crate::types::EngineTool {
+            name: "Lookup".to_string(),
+            description: "Look things up".to_string(),
+            args_schema: serde_json::json!({ "type": "object", "properties": {} }),
+        }]);
+        let __bash = crate::tool::BashTool::default();
+        session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await;
+        let requests = recorded.lock().unwrap();
+        let tools = requests[0].as_ref().expect("tools present");
+        assert!(
+            tools.iter().any(|t| t["function"]["name"] == "Lookup"),
+            "request tools must include the registered def: {tools:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_calls_precede_tool_results_in_the_next_request() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1: ask for a Bash run. Call 2: finish.
+                let segment = if calls.len() == 1 {
+                    vec![
+                        LlmStreamEvent::ToolCall {
+                            tool_call_id: "call_bash".to_string(),
+                            name: Some("Bash".to_string()),
+                            arguments_part: Some("{\"command\":\"echo ok\"}".to_string()),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("tool_calls".to_string()),
+                        },
+                    ]
+                } else {
+                    vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }]
+                };
+                let mut tool_calls = Vec::new();
+                for event in &segment {
+                    if let LlmStreamEvent::ToolCall {
+                        tool_call_id,
+                        name,
+                        arguments_part,
+                        ..
+                    } = event
+                    {
+                        tool_calls.push(crate::types::LlmToolCall {
+                            id: tool_call_id.clone(),
+                            call_type: Some("function".to_string()),
+                            function: crate::types::LlmToolCallFunction {
+                                name: name.clone().unwrap_or_default(),
+                                arguments: arguments_part.clone().unwrap_or_default(),
+                            },
+                        });
+                    }
+                }
+                Ok(StreamedTurn {
+                    events: segment,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls,
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "run it")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(5),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+
+        let requests = recorded.lock().unwrap();
+        assert!(requests.len() >= 2, "multi-step turn: {requests:?}");
+        // Second request: the tool message must be preceded by the assistant
+        // message carrying the tool_calls (provider contract).
+        let second = &requests[1];
+        let tool_index = second
+            .iter()
+            .position(|m| m.role == "tool")
+            .expect("tool result present");
+        let assistant_before = &second[tool_index - 1];
+        assert_eq!(assistant_before.role, "assistant");
+        let calls = assistant_before
+            .tool_calls
+            .as_ref()
+            .expect("assistant carries tool_calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_bash");
+        assert_eq!(calls[0].function.name, "Bash");
+        // The tool result matches the call id.
+        assert_eq!(second[tool_index].tool_call_id.as_deref(), Some("call_bash"));
     }
 
     #[tokio::test]
@@ -1648,8 +1919,9 @@ mod cancel_tests {
         let cancel = Arc::new(CancelSignal::new());
         let mut session = TurnSession::with_steer_and_cancel(input, None, Arc::clone(&cancel));
         let handle = tokio::spawn(async move {
+            let __bash = crate::tool::BashTool::default();
             session
-                .run(&client, &crate::tool::BashTool, &policy, &mut |_| {})
+                .run(&client, &__bash, &policy, &mut |_| {})
                 .await
         });
         // Wait until the LLM request is in flight, then cancel.

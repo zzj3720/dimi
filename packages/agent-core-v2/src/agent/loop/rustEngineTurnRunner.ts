@@ -35,6 +35,8 @@ import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
+import { IModelCatalog } from "#/app/modelCatalog/catalog";
+import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
 import { createToolMessage, type ContentPart, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
@@ -82,6 +84,17 @@ function toText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value) ?? "";
 }
 
+/** Resolve once the signal aborts (used to race an approval wait). */
+function abortOnSignal(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
 /** Turn an engine event batch into bus events + context records. */
 export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   declare readonly _serviceBrand: undefined;
@@ -103,6 +116,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   /** turnId of the executing turn (cancel validation). */
   private executingTurnId: number | undefined;
 
+  /** Aborts the in-flight approval wait on cancel. */
+  private approvalAbort: AbortController | undefined;
+
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -114,6 +130,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentUsageService private readonly usageService: IAgentUsageService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
 
@@ -184,6 +202,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       session !== undefined &&
       (turnId === undefined || turnId === this.executingTurnId)
     ) {
+      // Interrupt an in-flight approval wait first (it blocks the runner's
+      // resume loop), then the engine's own cancellation.
+      this.approvalAbort?.abort();
       session.cancel();
       return true;
     }
@@ -205,7 +226,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }): void {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
-    void this.runTurnNow()
+    void this.runTurnNow(entry.turnId)
       .catch(() => undefined)
       .finally(() => {
         this.turnRunning = false;
@@ -217,11 +238,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       });
   }
 
-  private async runTurnNow(): Promise<{ readonly turnId: number }> {
-    // The turn clock was advanced at enqueue time (runTurn); the running
-    // turn's id is the last one it assigned.
-    const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
-
+  private async runTurnNow(turnId: number): Promise<{ readonly turnId: number }> {
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
     //    the context) plus the context history.
@@ -231,7 +248,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     ];
 
     // 3. Run the Rust engine (session API: approvals pause and resume).
-    const provider = this.providerConfig();
+    const provider = await this.providerConfig();
     const inputJson = JSON.stringify({
       turnId,
       messages,
@@ -239,7 +256,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       provider,
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
-      cwd: this.config.get<string>("cwd"),
+      cwd: this.profile.data().cwd ?? process.cwd(),
       shell: "/bin/sh",
     });
     const policyJson = JSON.stringify({
@@ -252,7 +269,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
     this.activeSession = session;
     try {
-      await this.runEngineSession(session, turnId);
+      await this.runEngineSession(session, turnId, provider["model"] as string);
     } finally {
       this.activeSession = undefined;
     }
@@ -263,7 +280,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    * Run one engine session to completion: register the TS tool ecosystem,
    * drive the approval loop, mirror the engine events into the context.
    */
-  private async runEngineSession(session: RustTurnSession, turnId: number): Promise<void> {
+  private async runEngineSession(
+    session: RustTurnSession,
+    turnId: number,
+    providerModel: string,
+  ): Promise<void> {
     interface EngineProgress {
       events: Array<Record<string, unknown>>;
       progress: {
@@ -286,16 +307,22 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       if (engineNativeTools.has(info.name)) continue;
       const tool = this.toolRegistry.resolve(info.name);
       if (tool === undefined) continue;
-      session.registerExternalTool(info.name, (payloadJson: string) => {
+      // The def (name/description/parameters) advertises the tool to the
+      // model; the engine re-syncs it into every request's `tools` field.
+      session.registerExternalTool(
+        info.name,
+        info.description,
+        JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+        (payloadJson: string) => {
         void (async () => {
-          const payload = JSON.parse(payloadJson) as { requestId: string; name: string; arguments: unknown };
+          const payload = JSON.parse(payloadJson) as { requestId: string; toolCallId?: string; name: string; arguments: unknown };
           try {
             const execution = await tool.resolveExecution(payload.arguments);
             if (execution.isError === true) {
               session.completeToolCall(
                 payload.requestId,
                 JSON.stringify({
-                  toolCallId: payload.requestId,
+                  toolCallId: payload.toolCallId ?? payload.requestId,
                   toolName: payload.name,
                   output: toText(execution.output),
                   isError: true,
@@ -307,13 +334,13 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             }
             const result = await execution.execute({
               turnId: 0,
-              toolCallId: payload.requestId,
+              toolCallId: payload.toolCallId ?? payload.requestId,
               signal: new AbortController().signal,
             });
             session.completeToolCall(
               payload.requestId,
               JSON.stringify({
-                toolCallId: payload.requestId,
+                toolCallId: payload.toolCallId ?? payload.requestId,
                 toolName: payload.name,
                 output: toText(result.output),
                 isError: result.isError === true,
@@ -325,7 +352,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             session.completeToolCall(
               payload.requestId,
               JSON.stringify({
-                toolCallId: payload.requestId,
+                toolCallId: payload.toolCallId ?? payload.requestId,
                 toolName: payload.name,
                 output: `Tool "${payload.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
                 isError: true,
@@ -358,13 +385,26 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       } as Parameters<ISessionApprovalService["request"]>[0];
       this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
       let response: ApprovalResponse = { decision: "approved" };
+      // The approval wait is cancellable: `cancel()` aborts it so the turn
+      // resolves as cancelled without waiting for the user (TS abortable
+      // parity).
+      const approvalController = new AbortController();
+      this.approvalAbort = approvalController;
       try {
         const approvalService = this.instantiation.invokeFunction(
           (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
         );
-        response = approvalService !== undefined ? await approvalService.request(approvalRequest) : { decision: "approved" };
+        response =
+          approvalService !== undefined
+            ? await Promise.race([
+                approvalService.request(approvalRequest),
+                abortOnSignal(approvalController.signal).then(() => ({ decision: "cancelled" as const })),
+              ])
+            : { decision: "approved" };
       } catch {
         response = { decision: "rejected" };
+      } finally {
+        this.approvalAbort = undefined;
       }
       this.eventBus.publish({
         type: "permission.approval.resolved",
@@ -380,41 +420,55 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
 
     // 4. Engine events → bus (projection folds them into transcript ops).
-    const stepUuid = randomUUID();
-    let assistantParts: ContentPart[] = [];
+    //    Context mirroring mirrors the TS loop's record stream exactly:
+    //    step.begin (fresh uuid per step) → content.part → tool.call (full
+    //    args) → tool.result → step.end — `loopEventFold` reconstructs the
+    //    assistant + tool messages, so the runner never appends messages by
+    //    hand (that produced duplicated/placeholder history).
+    let stepUuid: string | undefined;
     let openText = "";
     let openThinking = "";
     let usage = emptyUsage();
-    const toolCalls: ToolCall[] = [];
 
     const publish = (event: Record<string, unknown>): void => {
       const { type, ...rest } = event;
       this.eventBus.publish({ type, ...rest } as never);
     };
 
-    const flushText = (): void => {
-      if (openText.length === 0) return;
-      assistantParts.push({ type: "text", text: openText });
-      openText = "";
+    const flushParts = (turnId: number, step: number): void => {
+      const parts: ContentPart[] = [];
+      if (openThinking.length > 0) {
+        parts.push({ type: "think", think: openThinking });
+        openThinking = "";
+      }
+      if (openText.length > 0) {
+        parts.push({ type: "text", text: openText });
+        openText = "";
+      }
+      for (const part of parts) {
+        this.context.appendLoopEvent({
+          type: "content.part",
+          stepUuid: stepUuid!,
+          part,
+          uuid: randomUUID(),
+          turnId: String(turnId),
+          step,
+        });
+      }
     };
 
-    const flushThinking = (): void => {
-      if (openThinking.length === 0) return;
-      assistantParts.push({ type: "think", think: openThinking });
-      openThinking = "";
-    };
-
-    // Context mirroring: step.begin at the first step.
-    let stepBegun = false;
     for (const event of batch.events) {
       publish(event);
       switch (event["type"]) {
         case "turn.step.started": {
           const stepNumber = Number(event["step"] ?? 1);
-          if (!stepBegun) {
-            stepBegun = true;
-            this.context.appendLoopEvent({ type: "step.begin", uuid: stepUuid, turnId: String(turnId), step: stepNumber });
-          }
+          stepUuid = randomUUID();
+          this.context.appendLoopEvent({
+            type: "step.begin",
+            uuid: stepUuid,
+            turnId: String(turnId),
+            step: stepNumber,
+          });
           break;
         }
         case "thinking.delta": {
@@ -426,22 +480,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "tool.call.delta": {
+          // Streamed tool-call arguments: nothing to record per delta; the
+          // full call lands on tool.call.started.
+          break;
+        }
+        case "tool.call.started": {
           const id = toText(event["toolCallId"]);
-          const name = event["name"] as string | undefined;
-          const existing = toolCalls.find((call) => call.id === id);
-          if (existing === undefined && name !== undefined) {
-            const call: ToolCall = { type: "function", id, name, arguments: "" };
-            toolCalls.push(call);
-            this.context.appendLoopEvent({
-              type: "tool.call",
-              stepUuid,
-              toolCallId: id,
-              name,
-              uuid: randomUUID(),
-              turnId: String(turnId),
-              step: 1,
-            });
-          }
+          const name = toText(event["name"]);
+          this.context.appendLoopEvent({
+            type: "tool.call",
+            stepUuid: stepUuid!,
+            toolCallId: id,
+            name,
+            args: event["args"],
+            uuid: randomUUID(),
+            turnId: String(turnId),
+            step: Number(event["step"] ?? 1),
+          });
           break;
         }
         case "tool.result": {
@@ -478,10 +533,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "turn.step.completed": {
-          flushThinking();
-          flushText();
           const stepFinish = toText(event["finishReason"] ?? "end_turn");
           const stepNumber = Number(event["step"] ?? 1);
+          flushParts(turnId, stepNumber);
           // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
           // four-component TokenUsage + wire usage.record.
           const engineUsage = event["usage"] as
@@ -496,14 +550,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               inputCacheCreation: 0,
             };
             this.usageService.record(
-              this.providerConfig()['model'] as string,
+              providerModel,
               usage,
               { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
             );
           }
           this.context.appendLoopEvent({
             type: "step.end",
-            uuid: stepUuid,
+            uuid: stepUuid!,
             turnId: String(turnId),
             step: stepNumber,
             finishReason: stepFinish,
@@ -513,25 +567,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         }
         default:
           break;
-      }
-    }
-
-    // 5. Append the assistant message to the context (loopEventFold folds
-    //    content.part + step.end into the assistant message; the runner
-    //    mirrors the same shape directly).
-    flushThinking();
-    flushText();
-    if (assistantParts.length > 0 || toolCalls.length > 0) {
-      this.context.append({
-        role: "assistant",
-        content: assistantParts,
-        toolCalls,
-        id: randomUUID(),
-      } as ContextMessage);
-      for (const call of toolCalls) {
-        this.context.append(
-          createToolMessage(call.id, `Tool "${call.name}" ran in the Rust engine.`) as ContextMessage,
-        );
       }
     }
   }
@@ -574,16 +609,27 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     return max > 0 ? max : undefined;
   }
 
-  private providerConfig(): Record<string, unknown> {
-    // Slice 1: read the active model's provider config through the LLM
-    // requester's catalog (the TS side owns provider resolution).
-    const model = this.config.get<{ model?: string }>("model")?.model;
-    const apiKey = this.config.get<{ apiKey?: string }>("apiKey")?.apiKey;
+  private async providerConfig(): Promise<Record<string, unknown>> {
+    // Resolve through the product's own provider pipeline (profile + model
+    // catalog + credential store), mirroring what the TS loop's requester
+    // assembles per request — the config sections the slice-1 version read
+    // do not exist.
+    const modelAlias = this.profile.data().modelAlias ?? this.profile.getModel();
+    let baseUrl = "";
+    let apiKey = "";
+    try {
+      const model = this.modelCatalog.get(modelAlias);
+      baseUrl = model.baseUrl;
+      const auth = await this.providerRuntime.getAuth(model);
+      apiKey = auth?.auth.apiKey ?? "";
+    } catch {
+      // Unknown model: fall back to the profile defaults below.
+    }
     return {
-      baseUrl: this.config.get<{ baseUrl?: string }>("baseUrl")?.baseUrl ?? "https://api.openai.com/v1",
-      apiKey: apiKey ?? "",
-      model: model ?? "gpt-4o",
-      thinkingEffort: this.config.get<{ thinkingEffort?: string }>("thinkingEffort")?.thinkingEffort,
+      baseUrl: baseUrl || "https://api.openai.com/v1",
+      apiKey,
+      model: modelAlias || "gpt-4o",
+      thinkingEffort: this.profile.getEffectiveThinkingLevel(),
     };
   }
 }
