@@ -2,6 +2,12 @@ import { type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+// This suite drives the TS loop (`IAgentLoopService`) directly. The Rust
+// engine is the default runtime (`--legacy` sets DIMI_LEGACY=1 to keep the
+// TS loop), so pin legacy mode for this file — otherwise every turn times
+// out waiting on the Rust runner that this suite does not exercise.
+process.env["DIMI_LEGACY"] = "1";
+
 import { IAgentProfileService } from "#/index";
 import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import type { ModelRequestTiming } from "#/app/modelCatalog/modelRequester";
