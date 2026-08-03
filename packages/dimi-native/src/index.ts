@@ -51,6 +51,8 @@ export interface NativeBinding {
   RustEngine: RustEngineConstructor;
   /** Rust engine: an in-flight turn with approval pause/resume (M3 slice 2). */
   RustTurnSession: RustTurnSessionConstructor;
+  /** Release an agent's scoped subagent registry (tasks + steering queues). */
+  dropTaskRegistry: RustDropTaskRegistry;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -697,7 +699,17 @@ export class RustTurnSession {
 
 /** The napi `RustTurnSession` class. */
 export interface RustTurnSessionConstructor {
-  new (inputJson: string, policyJson: string, scriptedSegmentsJson: string | null): RustTurnSessionHandle;
+  new (
+    inputJson: string,
+    policyJson: string,
+    scriptedSegmentsJson: string | null,
+    registryId: string,
+  ): RustTurnSessionHandle;
+}
+
+/** Release an agent's scoped subagent registry. */
+export interface RustDropTaskRegistry {
+  (registryId: string): void;
 }
 
 export interface RustTurnSessionHandle {

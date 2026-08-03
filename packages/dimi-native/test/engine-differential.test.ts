@@ -40,6 +40,7 @@ async function runTurn(
     input,
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
+    'test-registry',
   );
   // The engine streams every event through the per-event callback as it is
   // emitted; the response carries only the progress.
@@ -272,7 +273,8 @@ describe('RustEngine minimal closed loop', () => {
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);
@@ -343,7 +345,8 @@ describe('RustEngine minimal closed loop', () => {
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);
@@ -397,7 +400,8 @@ describe('RustEngine minimal closed loop', () => {
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);

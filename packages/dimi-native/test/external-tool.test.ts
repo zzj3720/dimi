@@ -22,6 +22,7 @@ function makeSession(segments: Array<Array<Record<string, unknown>>>): RustTurnS
     }),
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
+    'test-registry',
   );
   return session;
 }
