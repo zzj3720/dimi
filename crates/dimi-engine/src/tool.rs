@@ -659,10 +659,12 @@ mod agent_tool_tests {
 }
 
 /// `ToolRegistry` — routes tool calls by name to registered executors
-/// (the engine's tool set: Bash + Agent + AgentOutput + WaitFor + …).
+/// (the engine's tool set: Bash + Agent + AgentOutput + WaitFor + …) and
+/// carries the tool definitions handed to the LLM.
 #[derive(Default)]
 pub struct ToolRegistry {
     tools: std::collections::HashMap<String, Box<dyn ToolExecutor>>,
+    defs: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl std::fmt::Debug for ToolRegistry {
@@ -679,7 +681,40 @@ impl ToolRegistry {
     }
 
     pub fn register(&mut self, name: impl Into<String>, tool: Box<dyn ToolExecutor>) {
-        self.tools.insert(name.into(), tool);
+        self.register_with_def(name, tool, None);
+    }
+
+    /// Register a tool with its LLM-facing definition
+    /// (`{name, description, parameters}` — OpenAI `tools` entry).
+    pub fn register_with_def(
+        &mut self,
+        name: impl Into<String>,
+        tool: Box<dyn ToolExecutor>,
+        def: Option<serde_json::Value>,
+    ) {
+        let name = name.into();
+        if let Some(def) = def {
+            self.defs.insert(name.clone(), def);
+        }
+        self.tools.insert(name, tool);
+    }
+
+    /// The tool definitions to send to the LLM (`tools` request field).
+    pub fn tool_defs(&self) -> Vec<serde_json::Value> {
+        let mut defs: Vec<serde_json::Value> = self.defs.values().cloned().collect();
+        defs.sort_by(|a, b| {
+            a.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .cmp(
+                    b.get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or(""),
+                )
+        });
+        defs
     }
 
     pub fn names(&self) -> Vec<String> {

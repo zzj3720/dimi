@@ -236,7 +236,26 @@ impl RustTurnSession {
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
         let tasks = AgentTasks::new();
         let mut registry = ToolRegistry::new();
-        registry.register("Bash", Box::new(BashTool));
+        registry.register_with_def(
+            "Bash",
+            Box::new(BashTool),
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "Bash",
+                    "description": "Run a shell command on the local machine. Use for file operations, running tests, git, and any command-line work.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": { "type": "string", "description": "The shell command to run" },
+                            "cwd": { "type": "string", "description": "Working directory (default: session cwd)" },
+                            "timeout": { "type": "integer", "description": "Timeout in seconds (default 60, max 300)" }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            })),
+        );
         registry.register(
             "Agent",
             Box::new(AsyncAgentTool {
@@ -256,6 +275,26 @@ impl RustTurnSession {
         );
         registry.register("WaitFor", Box::new(WaitForTool { tasks }));
         let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
+        let mut input = input;
+        // Expose the registry's tool definitions to the LLM.
+        {
+            let registry = tools
+                .try_lock()
+                .map_err(|_| napi::Error::from_reason("registry busy"))?;
+            input.tools = registry
+                .tool_defs()
+                .into_iter()
+                .filter_map(|def| {
+                    let function = def.get("function")?;
+                    serde_json::from_value(serde_json::json!({
+                        "name": function.get("name")?.as_str()?,
+                        "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                        "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
+                    }))
+                    .ok()
+                })
+                .collect();
+        }
         Ok(Self {
             inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::new(input)),
             llm,

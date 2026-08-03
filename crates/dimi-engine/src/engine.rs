@@ -353,7 +353,22 @@ impl TurnSession {
             };
             let request = ChatRequest {
                 messages: request_messages,
-                tools: None,
+                tools: Some(
+                    self.input
+                        .tools
+                        .iter()
+                        .map(|tool| {
+                            serde_json::json!({
+                                "type": "function",
+                                "function": {
+                                    "name": tool.name,
+                                    "description": tool.description,
+                                    "parameters": tool.args_schema,
+                                }
+                            })
+                        })
+                        .collect(),
+                ),
                 model: Some(self.input.provider.model.clone()),
                 thinking_effort: self.input.provider.thinking_effort.clone(),
             };
