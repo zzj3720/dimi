@@ -2806,6 +2806,9 @@ impl ToolExecutor for AgentOutputTool {
 }
 
 /// `WaitForTool` — wait for a background subagent to finish (or timeout).
+/// Always ends the turn after executing (`stop_turn: true`), mirroring the
+/// TS `waitForTool.ts` `stopTurn: true`: WaitFor is a deliberate turn stop
+/// (wait for the user/task, then the next turn resumes).
 pub struct WaitForTool {
     pub tasks: AgentTasks,
 }
@@ -2855,7 +2858,7 @@ impl ToolExecutor for WaitForTool {
                         }))
                         .unwrap_or_default(),
                         is_error: false,
-                        stop_turn: false,
+                        stop_turn: true,
                         updates: vec![],
                     };
                 }
@@ -2866,7 +2869,7 @@ impl ToolExecutor for WaitForTool {
                     tool_name: call.name.clone(),
                     output: format!("Wait expired for agent_id: {agent_id}"),
                     is_error: false,
-                    stop_turn: false,
+                    stop_turn: true,
                     updates: vec![],
                 };
             }
@@ -3022,6 +3025,44 @@ mod async_agent_tests {
             .await;
         assert!(!waited.is_error);
         assert!(waited.output.contains("Wait expired"));
+        // Timeout is also a turn stop (TS `stopTurn: true` parity).
+        assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_stops_the_turn_when_task_completes() {
+        // TS parity: waitForTool.ts builds the result with `stopTurn: true` —
+        // WaitFor is a deliberate turn stop (wait for the user/task, resume
+        // on the next turn), so the engine must end the turn after executing.
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-done".to_string(),
+            TaskState {
+                agent_id: "agent-done".to_string(),
+                status: "completed".to_string(),
+                output: "done".to_string(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                cancel: None,
+            },
+        );
+        let wait = WaitForTool { tasks };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-done", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+        assert_eq!(waited_json["output"], "done");
+        assert!(waited.stop_turn);
     }
 
     #[test]
