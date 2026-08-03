@@ -903,6 +903,45 @@ impl TurnSession {
                             },
                         );
                     };
+                    // Completion-review injection (TS loopContinuationService
+                    // parity): a tool-free step at/after the configured
+                    // threshold must NOT end the turn with a plain text reply
+                    // — the engine injects the review reminder into its
+                    // working messages and keeps the turn alive so the model
+                    // must call AllDone (TS appends the system reminder and
+                    // enqueues a continuation step). Filtered / truncated /
+                    // length finishes keep their failure/truncation paths (TS
+                    // short-circuits `finishReason === 'filtered'` before the
+                    // continuation).
+                    if let Some(config) = &self.input.completion_review {
+                        let reviewable = !matches!(
+                            finish,
+                            FinishReason::Filtered
+                                | FinishReason::ContentFilter
+                                | FinishReason::Truncated
+                                | FinishReason::Length
+                        );
+                        if reviewable && self.steps >= config.min_steps {
+                            step_complete();
+                            let reminder = config.reminder.clone();
+                            self.messages.push(LlmMessage {
+                                role: "user".to_string(),
+                                content: serde_json::Value::String(reminder.clone()),
+                                name: None,
+                                tool_call_id: None,
+                                tool_calls: None,
+                                reasoning: None,
+                            });
+                            emit(
+                                on_event,
+                                EngineEvent::CompletionReviewInjected {
+                                    turn_id,
+                                    reminder,
+                                },
+                            );
+                            continue;
+                        }
+                    }
                     if self.has_pending_steer() {
                         // A steer arrived while this step ran (async subagent
                         // finished). The step itself is complete, but the turn
@@ -984,6 +1023,11 @@ impl TurnSession {
                         };
                         match evaluate(&input) {
                             PolicyDecision::Approve => {
+                                // Carry the step's full tool-call batch in the
+                                // context so external tools can validate the
+                                // round (e.g. the TS AllDone tool rejects a
+                                // mixed batch).
+                                let mut ctx = self.tool_ctx(&calls);
                                 let result = tokio::select! {
                                     result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
                                     _ = self.cancel.cancelled() => {
@@ -1364,6 +1408,7 @@ mod tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         }
     }
 
@@ -1695,6 +1740,7 @@ mod window_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1796,6 +1842,7 @@ mod steer_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1817,6 +1864,362 @@ mod steer_tests {
             .filter_map(|m| m.content.as_str())
             .collect();
         assert!(texts.contains(&"steer: change direction"), "second request: {texts:?}");
+    }
+}
+
+#[cfg(test)]
+mod completion_review_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::tool::BashTool;
+    use crate::types::{CompletionReviewConfig, ProviderConfig};
+
+    /// Records every request's messages and returns per-call scripted
+    /// responses: the first `tool_steps` calls return a Bash tool call, the
+    /// rest return a plain text reply (`filtered` turns the reply into a
+    /// provider `content_filter` finish instead).
+    struct RecordingClient {
+        recorded: std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>,
+        calls: std::sync::atomic::AtomicUsize,
+        tool_steps: usize,
+        filtered: bool,
+    }
+
+    impl RecordingClient {
+        fn new(recorded: std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>, tool_steps: usize) -> Self {
+            Self {
+                recorded,
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                tool_steps,
+                filtered: false,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingClient {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, crate::llm::LlmError> {
+            self.recorded.lock().unwrap().push(request.messages.clone());
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < self.tool_steps {
+                let id = format!("call_{n}");
+                let args = "{\"command\":\"echo hi\"}".to_string();
+                return Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::ToolCall {
+                            tool_call_id: id.clone(),
+                            name: Some("Bash".to_string()),
+                            arguments_part: Some(args.clone()),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("tool_calls".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![crate::types::LlmToolCall {
+                            id,
+                            call_type: Some("function".to_string()),
+                            function: crate::types::LlmToolCallFunction {
+                                name: "Bash".to_string(),
+                                arguments: args,
+                            },
+                        }],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                });
+            }
+            if self.filtered {
+                return Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("content_filter".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                });
+            }
+            Ok(StreamedTurn {
+                events: vec![LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                }],
+                assistant: crate::llm::AssistantTurn {
+                    tool_calls: vec![],
+                    text: "done".to_string(),
+                    thinking: String::new(),
+                },
+            })
+        }
+    }
+
+    fn review_input(
+        messages: Vec<LlmMessage>,
+        min_steps: u32,
+        max_steps: Option<u32>,
+    ) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: max_steps,
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            completion_review: Some(CompletionReviewConfig {
+                min_steps,
+                reminder: "<system-reminder>\nreview now\n</system-reminder>".to_string(),
+            }),
+        }
+    }
+
+    fn policy_auto() -> crate::permission::PolicyConfig {
+        crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    fn user_message(text: &str) -> LlmMessage {
+        LlmMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_free_step_at_threshold_injects_reminder_and_keeps_the_turn_alive() {
+        // 9 tool-call steps (1..9) + a text reply at step 10: the step count
+        // crosses the threshold, so the engine must inject the reminder and
+        // keep the turn alive for one more request (max_steps bounds the
+        // scripted model that never calls AllDone).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 9);
+        let input = review_input(vec![user_message("complete the task")], 10, Some(11));
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        // Without the injection the turn would end after the step-10 text
+        // reply (10 requests); the review holds it one request longer.
+        assert_eq!(requests.len(), 11, "requests: {requests:?}");
+        // The step-10 request must NOT carry the reminder; the step-11
+        // request (the one assembled after the injection) must.
+        let request_10 = &requests[9];
+        let texts_10: Vec<&str> = request_10
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            !texts_10.iter().any(|t| t.contains("review now")),
+            "step-10 request must not contain the reminder: {texts_10:?}"
+        );
+        let request_11 = &requests[10];
+        let texts_11: Vec<&str> = request_11
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts_11.contains(&"<system-reminder>\nreview now\n</system-reminder>"),
+            "step-11 request must contain the reminder: {texts_11:?}"
+        );
+        // The injection is announced on the event stream (the runner mirrors
+        // it into the TS context from this event).
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. })),
+            "completion.review.injected event missing: {events:?}"
+        );
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn tool_free_step_below_threshold_ends_naturally_without_reminder() {
+        // 8 tool-call steps + a text reply at step 9: 9 < 10, so the turn
+        // ends at the text reply and no reminder is ever injected.
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 8);
+        let input = review_input(vec![user_message("complete the task")], 10, None);
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let _progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 9);
+        for request in requests.iter() {
+            let texts: Vec<&str> = request
+                .iter()
+                .filter_map(|m| m.content.as_str())
+                .collect();
+            assert!(
+                !texts.iter().any(|t| t.contains("review now")),
+                "no request may contain the reminder: {texts:?}"
+            );
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. })),
+            "no injection event for a short turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn filtered_step_at_threshold_is_not_reviewed() {
+        // A provider safety block must keep its failure path even past the
+        // threshold (TS short-circuits `finishReason === 'filtered'`).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 0);
+        llm.filtered = true;
+        let input = review_input(vec![user_message("go")], 1, None);
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Failed);
+                assert_eq!(outcome.error_code.as_deref(), Some("PROVIDER_FILTERED"));
+            }
+            other => panic!("expected failed outcome, got {other:?}"),
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_context_carries_the_full_step_batch() {
+        // The engine forwards the step's tool-call batch so external tools
+        // can validate the round (AllDone mixed-call rejection).
+        struct CaptureExecutor(std::sync::Arc<std::sync::Mutex<Vec<Vec<ToolCall>>>>);
+        #[async_trait::async_trait]
+        impl ToolExecutor for CaptureExecutor {
+            async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+                self.0.lock().unwrap().push(ctx.tool_calls.clone());
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "ok".to_string(),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+        }
+
+        // One step with TWO tool calls: each execution must see the batch.
+        struct TwoCallsClient(std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TwoCallsClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.messages.clone());
+                let mut events = Vec::new();
+                let mut tool_calls = Vec::new();
+                for i in 0..2 {
+                    let id = format!("call_{i}");
+                    let args = "{}".to_string();
+                    events.push(LlmStreamEvent::ToolCall {
+                        tool_call_id: id.clone(),
+                        name: Some("Probe".to_string()),
+                        arguments_part: Some(args.clone()),
+                    });
+                    tool_calls.push(crate::types::LlmToolCall {
+                        id,
+                        call_type: Some("function".to_string()),
+                        function: crate::types::LlmToolCallFunction {
+                            name: "Probe".to_string(),
+                            arguments: args,
+                        },
+                    });
+                }
+                events.push(LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                });
+                if tool_calls.is_empty() {
+                    // never reached — two-call step always continues
+                    return Ok(StreamedTurn {
+                        events: vec![LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        }],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "done".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                Ok(StreamedTurn {
+                    events,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls,
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = TwoCallsClient(std::sync::Arc::clone(&recorded));
+        let tools = CaptureExecutor(std::sync::Arc::clone(&captured));
+        // max_steps=1: the step with two calls runs; the turn then stops at
+        // the max-steps guard (the second call never happens — the client
+        // would otherwise return text for call 2 and end normally).
+        let input = review_input(vec![user_message("go")], 10, Some(1));
+        let mut session = TurnSession::new(input);
+        let _progress = session
+            .run(&llm, &tools, &policy_auto(), &mut |_| {})
+            .await;
+        let batches = captured.lock().unwrap();
+        assert_eq!(batches.len(), 2, "both calls of the step executed");
+        for batch in batches.iter() {
+            assert_eq!(batch.len(), 2, "each execution sees the full batch");
+            assert_eq!(batch[0].id, "call_0");
+            assert_eq!(batch[1].id, "call_1");
+        }
     }
 }
 
@@ -1907,6 +2310,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2035,6 +2439,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2126,6 +2531,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2201,6 +2607,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2327,6 +2734,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2454,6 +2862,7 @@ mod compaction_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2549,6 +2958,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2646,6 +3056,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2748,6 +3159,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: Some(3),
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2846,6 +3258,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2958,6 +3371,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3041,6 +3455,7 @@ mod cancel_tests {
             subagent_timeout_ms: None,
             max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,

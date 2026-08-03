@@ -46,7 +46,7 @@ pub struct ToolCall {
 }
 
 /// Tool execution context.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolContext {
     pub cwd: String,
     pub shell: String,
@@ -1942,6 +1942,7 @@ impl ToolExecutor for AgentTool {
             subagent_allowlist: None,
             subagent_timeout_ms: None,
             max_running_tasks: None,
+            completion_review: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -2450,6 +2451,7 @@ async fn run_nested_turn(
         subagent_allowlist: None,
         subagent_timeout_ms: None,
         max_running_tasks: None,
+        completion_review: None,
     };
     // The nested turn's own cancellation: the parent session's `cancel_task`
     // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
@@ -3261,8 +3263,8 @@ mod async_agent_tests {
                 error: None,
                 messages: vec![],
                 started_at: 1,
-                cancel: None,
-            },
+                deadline: std::time::Instant::now(),
+                cancel: None,},
         );
         let wait = WaitForTool { tasks };
         let waited = wait

@@ -9,12 +9,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { RustTurnSession } from '@dimi-agent/dimi-native';
 
+import { COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner, RustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
 import {
@@ -1630,5 +1633,152 @@ describe('Rust engine approval flow (manual mode)', () => {
       .join('');
     expect(toolText).toContain('was not run because the user rejected the approval request');
     expect(toolText).toContain('no thanks');
+  });
+
+  it('injects the completion-review reminder after a long tool-free turn and forces AllDone', async () => {
+    // 10 tool-call steps keep the turn running; the text-only reply at step
+    // 11 crosses the short-turn threshold, so the engine must inject the
+    // completion-review reminder and keep the turn alive until the model
+    // calls AllDone (TS loopContinuationService parity). The runner mirrors
+    // the injected reminder into the context as a system_trigger message.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      ...Array.from({ length: 10 }, (_, i) => [
+        {
+          type: 'tool_call',
+          toolCallId: `call_work_${i}`,
+          name: 'Bash',
+          argumentsPart: `{"command":"echo work-${i}"}`,
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ]),
+      [{ type: 'text', delta: 'Everything is verified.' }, { type: 'finish', finishReason: 'stop' }],
+      [
+        { type: 'tool_call', toolCallId: 'call_done', name: 'AllDone', argumentsPart: '{}' },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    // AllDone is contributed only when the profile is runnable
+    // (profileName set); the completion-review gate mirrors that.
+    ctx.get(IAgentProfileService).update({ profileName: 'agent' });
+    await ctx.get(IAgentToolActivationService).activate();
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Complete the task' }] });
+
+    // The AllDone tool result lands in the context only when the engine ran
+    // the final step — without the injection the turn ends at the tool-free
+    // reply and this never happens.
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('All work is complete.'),
+        ),
+      'AllDone tool result',
+    );
+    const context = ctx.get(IAgentContextMemoryService).get();
+    // Exactly one completion-review reminder was injected (TS parity) and it
+    // carries the shared reminder text.
+    const reminders = context.filter(
+      (message) =>
+        message.origin?.kind === 'system_trigger' && message.origin.name === 'completion_review',
+    );
+    expect(reminders).toHaveLength(1);
+    expect(JSON.stringify(reminders)).toContain(COMPLETION_REVIEW_REMINDER.trim());
+    // The review was forced: an assistant step calling AllDone exists.
+    const allDoneCall = context.find(
+      (message) =>
+        message.role === 'assistant' && message.toolCalls.some((call) => call.name === 'AllDone'),
+    );
+    expect(allDoneCall).toBeDefined();
+  }, 30_000);
+
+  it('ends a short turn on a text-only reply without the completion reminder', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'Done — here is the answer.' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentProfileService).update({ profileName: 'agent' });
+    await ctx.get(IAgentToolActivationService).activate();
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'What is 2+2?' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('Done — here is the answer.'),
+        ),
+      'short text reply',
+    );
+    const context = ctx.get(IAgentContextMemoryService).get();
+    const reminders = context.filter(
+      (message) =>
+        message.origin?.kind === 'system_trigger' && message.origin.name === 'completion_review',
+    );
+    expect(reminders).toHaveLength(0);
+    // A quick answer ends the turn directly: exactly one assistant reply.
+    expect(context.filter((message) => message.role === 'assistant')).toHaveLength(1);
+  });
+
+  it('rejects AllDone mixed with another tool through the engine (tool-side validation)', async () => {
+    // The completion review only prompts the model to call AllDone; the
+    // AllDone tool itself validates the round (mixed-call / background-task
+    // rejection). The engine forwards the step's full tool-call batch so the
+    // TS tool can reject a mixed round — and the sibling Bash call still runs.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'tool_call', toolCallId: 'call_done_mixed', name: 'AllDone', argumentsPart: '{}' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bash_mixed',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo mixed-ok"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after mixed round' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentProfileService).update({ profileName: 'agent' });
+    await ctx.get(IAgentToolActivationService).activate();
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Finish after probing' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('after mixed round'),
+        ),
+      'post-mixed reply',
+    );
+    const context = ctx.get(IAgentContextMemoryService).get();
+    const text = JSON.stringify(context);
+    // The AllDone call was rejected by the TOOL (mixed round) — the engine
+    // did not silently accept it — and the sibling Bash call still ran.
+    expect(text).toContain('AllDone must be the only tool call in its round.');
+    expect(text).toContain('mixed-ok');
   });
 });
