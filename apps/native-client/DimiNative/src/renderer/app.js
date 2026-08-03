@@ -29,6 +29,7 @@ export const model = {
   sessions: [],
   sessionsLoading: false,
   sessionsError: '',
+  sessionsHasMore: false,
   pickerOpen: false,
   pickerQuery: '',
   pickerScope: 'all', // all | cwd
@@ -191,6 +192,10 @@ export function update(state, msg) {
       state.busy = false;
       state.phase = 'idle';
       state.statusMsg = `session ${msg.id}`;
+      {
+        const s = state.sessions.find((x) => x.id === msg.id);
+        if (s) window.dimiCwd = s.metadata?.cwd ?? s.cwd ?? '';
+      }
       return;
 
     case 'picker_open':
@@ -764,11 +769,15 @@ export function handleSseEvent(state, evt) {
 export function filteredSessions(state) {
   let list = state.sessions;
   if (state.pickerScope === 'cwd') {
-    list = list.filter((s) => s.cwd === window.dimiCwd);
+    // TUI: filter by the current workspace cwd. Derive it from the active
+    // session's metadata (toWireSession: metadata.cwd).
+    const active = state.sessions.find((s) => s.id === state.currentSessionId);
+    const cwd = active?.metadata?.cwd ?? window.dimiCwd;
+    list = list.filter((s) => (s.metadata?.cwd ?? s.cwd) === cwd);
   }
   // TUI: fuzzyFilter over title (searchable-list.ts) — the query is matched
   // token-wise with fuzzy scoring, not plain substring.
-  return fuzzyFilter(list, state.pickerQuery, (s) => s.title || '');
+  return fuzzyFilter(list, state.pickerQuery, (s) => s.title || s.id || '');
 }
 
 // ------------------------------------------------------------------ slash menu completion

@@ -209,17 +209,27 @@ function renderSessionPicker(root) {
   });
   search.addEventListener('keydown', (evt) => {
     // Picker keys (TUI session-picker.ts): ↑/↓ move, Enter selects,
-    // Esc clears query first then closes.
+    // Esc clears query first then closes, Ctrl+A toggles scope.
     if (evt.key === 'ArrowDown') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_move', delta: 1 } })); }
     else if (evt.key === 'ArrowUp') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_move', delta: -1 } })); }
     else if (evt.key === 'Enter') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_select' } })); }
     else if (evt.key === 'Escape') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'escape' } })); }
+    else if ((evt.metaKey || evt.ctrlKey) && evt.key.toLowerCase() === 'a') {
+      evt.preventDefault();
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_scope', scope: model.pickerScope === 'cwd' ? 'all' : 'cwd' } }));
+    }
   });
   body.appendChild(search);
 
   const listEl = document.createElement('div');
   listEl.style.overflowY = 'auto';
   listEl.style.maxHeight = '320px';
+  // TUI session-picker: near the bottom, load the next page (pageSize=50).
+  listEl.addEventListener('scroll', () => {
+    if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40) {
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_load_more' } }));
+    }
+  });
   if (list.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'list-item';
@@ -234,7 +244,7 @@ function renderSessionPicker(root) {
       title.textContent = s.title || '(untitled)';
       const sub = document.createElement('div');
       sub.className = 'sub';
-      sub.textContent = `${s.id} · ${s.cwd ?? ''}`;
+      sub.textContent = `${s.id} · ${s.metadata?.cwd ?? s.cwd ?? ''}`;
       item.appendChild(title);
       item.appendChild(sub);
       item.addEventListener('mousedown', (evt) => {

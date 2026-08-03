@@ -207,6 +207,15 @@ els.input.addEventListener('keydown', (evt) => {
       }
       return;
     }
+    if (k === 'a') {
+      // TUI: Ctrl+A in the session picker toggles cwd/all scope
+      // (session-picker.ts:172-174).
+      if (model.pickerOpen) {
+        evt.preventDefault();
+        dispatch(Msg.PickerScope(model.pickerScope === 'cwd' ? 'all' : 'cwd'));
+      }
+      return;
+    }
     return;
   }
 
@@ -302,7 +311,14 @@ els.btnQueue.addEventListener('click', () => dispatch(Msg.SetBusyInputMode('queu
 els.btnCancel.addEventListener('click', () => dispatch(Msg.Cancel()));
 
 // Global message channel for view-generated events (dialog clicks etc.).
-window.addEventListener('dimi:msg', (evt) => dispatch(evt.detail));
+window.addEventListener('dimi:msg', (evt) => {
+  const msg = evt.detail;
+  if (msg.type === 'picker_load_more') {
+    loadMoreSessions();
+    return;
+  }
+  dispatch(msg);
+});
 
 // 1s clock tick — drives the exit-confirm and double-Esc undo windows
 // (TUI EXIT_CONFIRM_WINDOW_MS / DOUBLE_ESC_WINDOW_MS use real time).
@@ -322,13 +338,34 @@ export async function loadSessions() {
   model.sessionsLoading = true;
   render();
   try {
-    const data = await api('GET', '/api/v1/sessions?page_size=100');
+    // TUI session-picker: pageSize=50, pages load on scroll (page 1 here).
+    const data = await api('GET', '/api/v1/sessions?page_size=50');
     const items = data?.data?.items ?? [];
+    model.sessions = items;
+    model.sessionsHasMore = !!data?.data?.has_more;
     dispatch(Msg.SessionsLoaded(items));
   } catch (e) {
     model.sessionsLoading = false;
     model.sessionsError = String(e);
     model.statusMsg = `failed to load sessions: ${e.message}`;
+    render();
+  }
+}
+
+export async function loadMoreSessions() {
+  if (model.sessionsLoading || !model.sessionsHasMore) return;
+  model.sessionsLoading = true;
+  render();
+  const last = model.sessions[model.sessions.length - 1];
+  try {
+    const data = await api('GET', `/api/v1/sessions?page_size=50&before_id=${encodeURIComponent(last?.id ?? '')}`);
+    const items = data?.data?.items ?? [];
+    model.sessions = model.sessions.concat(items);
+    model.sessionsHasMore = !!data?.data?.has_more;
+    dispatch(Msg.SessionsLoaded(model.sessions));
+  } catch (e) {
+    model.sessionsLoading = false;
+    model.statusMsg = `load more failed: ${e.message}`;
     render();
   }
 }
