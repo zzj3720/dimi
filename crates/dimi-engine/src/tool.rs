@@ -539,6 +539,10 @@ fn backgrounded_result(
             messages: vec![],
             started_at: now_nanos(),
             cancel: Some(std::sync::Arc::clone(&cancel)),
+            // Bash tasks enforce their own background deadline; the
+            // TaskState deadline defaults to the subagent timeout (unused on
+            // this path).
+            deadline: std::time::Instant::now() + DEFAULT_SUBAGENT_TIMEOUT,
         },
     );
     events.emit(EngineEvent::TaskStarted {
@@ -1904,6 +1908,10 @@ impl ToolExecutor for AgentTool {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -2243,11 +2251,23 @@ pub struct TaskState {
     /// it; the bash poller / subagent worker observes it, stops the work and
     /// settles the task with status "killed".
     pub cancel: Option<std::sync::Arc<crate::engine::CancelSignal>>,
+    /// Wall-clock deadline for the nested subagent turn (TS
+    /// `resolveSubagentTimeoutMs` parity, default 2h): when the worker's
+    /// `tokio::time::timeout_at` fires, the task settles `timed_out`.
+    pub deadline: std::time::Instant,
 }
 
 impl AgentTasks {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of tasks still in `running` status (the engine's view of the
+    /// TS task service's active detached-task count — `max_running_tasks`
+    /// is enforced against it before a subagent launch).
+    pub fn running_count(&self) -> usize {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.values().filter(|state| state.status == "running").count()
     }
 
     pub fn insert(&self, task_id: String, state: TaskState) {
@@ -2321,7 +2341,31 @@ pub struct AsyncAgentTool {
     /// monotonic across turns within a session and never collide with
     /// TS-assigned ids after a server restart.
     pub agent_id_counter: std::sync::atomic::AtomicU64,
+    /// Dedicated LLM client for nested subagent turns, built from the turn
+    /// input's `subagent_model` when it differs from the parent's provider
+    /// (TS `resolveSubagentBinding` parity — a subagent bound to the
+    /// secondary model runs on its own client). `None` = subagents reuse the
+    /// parent's client.
+    pub subagent_llm: Option<Arc<dyn LlmClient>>,
+    /// The resolved subagent provider config (same Some/None condition as
+    /// `subagent_llm`): the nested turn's input provider, so its
+    /// `ChatRequest.model` / thinking effort carry the subagent binding.
+    pub subagent_provider: Option<crate::types::ProviderConfig>,
+    /// Allowed `subagent_type` values (TS `subagentAllowlistFor` parity);
+    /// `None` = unrestricted.
+    pub subagent_allowlist: Option<Vec<String>>,
+    /// Per-subagent timeout in milliseconds (TS `resolveSubagentTimeoutMs`);
+    /// `None` = `DEFAULT_SUBAGENT_TIMEOUT_MS` (2h).
+    pub subagent_timeout_ms: Option<u64>,
+    /// Max concurrently running background tasks (TS `task.maxRunningTasks`);
+    /// `None` = unlimited.
+    pub max_running_tasks: Option<u32>,
 }
+
+/// Default per-subagent timeout: 2 hours, same as v1 / TS
+/// `DEFAULT_SUBAGENT_TIMEOUT_MS`.
+pub const DEFAULT_SUBAGENT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60 * 60);
 
 impl std::fmt::Debug for AsyncAgentTool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2340,6 +2384,7 @@ async fn run_nested_turn(
     tools: Arc<dyn ToolExecutor>,
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
+    provider: crate::types::ProviderConfig,
     steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
     cancel: std::sync::Arc<crate::engine::CancelSignal>,
     // Forward the nested turn's assistant text as it streams (the subagent
@@ -2359,12 +2404,7 @@ async fn run_nested_turn(
         turn_id: 0,
         messages,
         tools: vec![],
-        provider: crate::types::ProviderConfig {
-            base_url: "http://nested".to_string(),
-            api_key: "nested".to_string(),
-            model: "nested".to_string(),
-            thinking_effort: None,
-        },
+        provider,
         max_steps_per_turn: max_steps,
         max_retries_per_step: None,
         cwd: Some(cwd),
@@ -2373,6 +2413,10 @@ async fn run_nested_turn(
         max_context_tokens: None,
         next_agent_id: None,
         kill_grace_ms: None,
+        subagent_model: None,
+        subagent_allowlist: None,
+        subagent_timeout_ms: None,
+        max_running_tasks: None,
     };
     // The nested turn's own cancellation: the parent session's `cancel_task`
     // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
@@ -2400,15 +2444,24 @@ async fn run_nested_turn(
     let messages = session.messages().to_vec();
     match progress {
         crate::engine::TurnProgress::Completed(outcome)
-            if outcome.status == crate::types::TurnEndReason::Completed =>
+            if outcome.status == crate::types::TurnEndReason::Completed
+                && outcome.truncated != Some(true) =>
         {
             (text, String::new(), messages)
         }
-        crate::engine::TurnProgress::Completed(outcome) => (
-            String::new(),
-            outcome.error.unwrap_or_else(|| "failed".to_string()),
-            messages,
-        ),
+        crate::engine::TurnProgress::Completed(outcome) => {
+            // A provider-truncated nested turn (finish reason length /
+            // max_tokens) is a FAILED subagent — TS parity
+            // (`runAgentTurn.classifyTurnResult` throws
+            // `SUBAGENT_MAX_TOKENS_ERROR` on `result.truncated`).
+            let error = if outcome.truncated == Some(true) {
+                "Subagent turn failed before completing its final summary: reason=max_tokens"
+                    .to_string()
+            } else {
+                outcome.error.unwrap_or_else(|| "failed".to_string())
+            };
+            (String::new(), error, messages)
+        }
         crate::engine::TurnProgress::NeedsApproval(_) => (
             String::new(),
             "approval pending in nested turn".to_string(),
@@ -2508,7 +2561,10 @@ impl ToolExecutor for AsyncAgentTool {
                     }))
                     .unwrap_or_default(),
                     is_error: false,
-                    stop_turn: true,
+                    // TS parity: an Agent call never ends the caller's turn —
+                    // the subagent runs in the background and the caller
+                    // continues with other work.
+                    stop_turn: false,
                     updates: vec![],
                 };
             }
@@ -2523,6 +2579,37 @@ impl ToolExecutor for AsyncAgentTool {
                 history,
             )
             .await;
+        }
+
+        // TS `subagentAllowlistFor` parity: an explicitly requested
+        // `subagent_type` outside the caller's allowlist is rejected before
+        // launch (TS `subagentTypeNotAllowedMessage`).
+        let subagent_type = call
+            .arguments
+            .get("subagent_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !subagent_type.is_empty() {
+            if let Some(allowlist) = &self.subagent_allowlist {
+                if !allowlist.iter().any(|allowed| allowed == &subagent_type) {
+                    let allowed = if allowlist.is_empty() {
+                        "none".to_string()
+                    } else {
+                        allowlist.join(", ")
+                    };
+                    return ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output: format!(
+                            "Subagent type \"{subagent_type}\" is not allowed for this agent. Allowed subagent types: {allowed}."
+                        ),
+                        is_error: true,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                }
+            }
         }
 
         let agent_id = self.next_agent_id();
@@ -2543,6 +2630,19 @@ impl AsyncAgentTool {
         format!("agent-{}", self.agent_id_counter.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// The nested turn's input provider: the resolved subagent model when the
+    /// tool has a dedicated subagent client, else the placeholder provider
+    /// (the nested turn reuses the parent's client, whose real model config
+    /// lives on the parent session; the client ignores the placeholder).
+    fn subagent_model_provider(&self) -> crate::types::ProviderConfig {
+        self.subagent_provider.clone().unwrap_or(crate::types::ProviderConfig {
+            base_url: "http://nested".to_string(),
+            api_key: "nested".to_string(),
+            model: "nested".to_string(),
+            thinking_effort: None,
+        })
+    }
+
     /// Spawn the background nested turn and return the launch result.
     async fn launch_subagent(
         &self,
@@ -2553,10 +2653,32 @@ impl AsyncAgentTool {
         agent_id: String,
         history: Vec<crate::types::LlmMessage>,
     ) -> ToolResult {
+        // TS `task.maxRunningTasks` parity: a launch beyond the running-task
+        // cap fails immediately and occupies no slot (the check happens
+        // BEFORE the insert).
+        if let Some(max_running) = self.max_running_tasks {
+            if self.tasks.running_count() >= max_running as usize {
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "Too many background tasks are already running.".to_string(),
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            }
+        }
         // TS `SubagentTask.idPrefix = "agent"` parity: the wire task id for a
         // subagent is `agent-<8>` (bash background tasks keep `bash-<8>`).
         let task_id = format!("agent-{}", uuid_v4_short());
         let cancel = std::sync::Arc::new(crate::engine::CancelSignal::new());
+        // TS `resolveSubagentTimeoutMs` parity: the nested turn must settle
+        // within this deadline or the worker settles the task `timed_out`.
+        let timeout = self
+            .subagent_timeout_ms
+            .map(std::time::Duration::from_millis)
+            .unwrap_or(DEFAULT_SUBAGENT_TIMEOUT);
+        let deadline = std::time::Instant::now() + timeout;
         self.tasks.insert(
             task_id.clone(),
             TaskState {
@@ -2567,6 +2689,7 @@ impl AsyncAgentTool {
                 messages: history.clone(),
                 started_at: now_nanos(),
                 cancel: Some(std::sync::Arc::clone(&cancel)),
+                deadline,
             },
         );
         self.events.emit(EngineEvent::TaskStarted {
@@ -2583,7 +2706,16 @@ impl AsyncAgentTool {
         let task_id_for_worker = task_id.clone();
         let cwd = ctx.cwd.clone();
         let shell = self.shell.clone();
-        let llm = Arc::clone(&self.llm);
+        // Subagent model parity: when the turn input resolved a dedicated
+        // subagent model (secondary-model binding), the nested turn runs on
+        // its own client and its input provider carries the resolved config;
+        // otherwise it reuses the parent's client and the placeholder
+        // provider (the client ignores the placeholder's model).
+        let llm = match &self.subagent_llm {
+            Some(subagent_llm) => Arc::clone(subagent_llm),
+            None => Arc::clone(&self.llm),
+        };
+        let nested_provider = self.subagent_model_provider();
         let tools = Arc::clone(&self.tools);
         let policy = self.policy.clone();
         let max_steps = self.max_steps;
@@ -2647,18 +2779,22 @@ impl AsyncAgentTool {
                     },
                 ) as std::sync::Arc<dyn Fn(&str) + Send + Sync>)
             };
-            let (_output, error, messages) = run_nested_turn(
-                history,
-                prompt,
-                cwd,
-                shell,
-                llm,
-                tools,
-                policy,
-                max_steps,
-                Some(steer_queue),
-                std::sync::Arc::clone(&cancel),
-                on_delta,
+            let nested = tokio::time::timeout_at(
+                tokio::time::Instant::from_std(deadline),
+                run_nested_turn(
+                    history,
+                    prompt,
+                    cwd,
+                    shell,
+                    llm,
+                    tools,
+                    policy,
+                    max_steps,
+                    nested_provider,
+                    Some(steer_queue),
+                    std::sync::Arc::clone(&cancel),
+                    on_delta,
+                ),
             )
             .await;
             // Session torn down while the nested turn ran (TS
@@ -2675,6 +2811,38 @@ impl AsyncAgentTool {
                 });
                 return;
             }
+            let (_output, error, messages) = match nested {
+                Ok(nested) => nested,
+                Err(_elapsed) => {
+                    // TS `resolveSubagentTimeoutMs` parity: the nested turn
+                    // exceeded its deadline. Flip the per-task cancel so the
+                    // dropped nested session's own bash pollers observe the
+                    // cancellation and kill their processes, then settle the
+                    // task `timed_out` (the wire status the TS runner's
+                    // notification builder renders as "<task> timed out.").
+                    cancel.cancel_with_reason(Some("Subagent timed out".to_string()));
+                    tasks.update(&task_id_for_worker, |state| {
+                        state.status = "timed_out".to_string();
+                        state.error = Some(format!(
+                            "Subagent timed out after {} seconds",
+                            timeout.as_secs().max(1)
+                        ));
+                    });
+                    let settled = tasks
+                        .get(&task_id_for_worker)
+                        .expect("launched subagent task must be registered");
+                    events.emit(EngineEvent::TaskSettled {
+                        task_id: task_id_for_worker,
+                        agent_id: settled.agent_id,
+                        kind: "agent".to_string(),
+                        status: settled.status,
+                        output: settled.output,
+                        error: settled.error,
+                        exit_code: None,
+                    });
+                    return;
+                }
+            };
             let output = accumulated_output
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
@@ -2727,7 +2895,10 @@ impl AsyncAgentTool {
             }))
             .unwrap_or_default(),
             is_error: false,
-            stop_turn: true, // the turn yields while the subagent runs
+            // TS parity: an Agent call never ends the caller's turn — the
+            // subagent runs in the background and the caller continues with
+            // other work (the old `stop_turn: true` yielded the turn).
+            stop_turn: false,
             updates: vec![],
         }
     }
@@ -2916,6 +3087,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -2931,7 +3107,9 @@ mod async_agent_tests {
         let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
         let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
         assert_eq!(launch_json["status"], "running");
-        assert!(launch.stop_turn);
+        // Agent launches are non-blocking (same-turn continue parity): the
+        // launching turn keeps going instead of stopping.
+        assert!(!launch.stop_turn);
 
         // WaitFor polls until the background turn completes.
         let wait = WaitForTool {
@@ -2974,6 +3152,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3078,6 +3261,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3141,6 +3329,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3241,6 +3434,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3418,6 +3616,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3564,6 +3767,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3694,6 +3902,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3810,6 +4023,7 @@ mod async_agent_tests {
                 messages: vec![],
                 started_at: 1,
                 cancel: None,
+                deadline: std::time::Instant::now(),
             },
         );
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -3830,6 +4044,11 @@ mod async_agent_tests {
             steer_map,
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(
@@ -3875,6 +4094,7 @@ mod async_agent_tests {
                 }],
                 started_at: 1,
                 cancel: None,
+                deadline: std::time::Instant::now(),
             },
         );
         let agent = AsyncAgentTool {
@@ -3894,6 +4114,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(
@@ -3958,6 +4183,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(

@@ -630,6 +630,25 @@ impl RustTurnSession {
             // tools — Bash, external TS tools, and the async tools).
             let subagent_tools: std::sync::Arc<dyn ToolExecutor> =
                 std::sync::Arc::new(LockedRegistry(std::sync::Arc::clone(&tools)));
+            // Subagent model parity (TS `resolveSubagentBinding`): when the
+            // runner resolved a subagent model that differs from the parent's
+            // provider, build a dedicated aimux client for nested turns so
+            // they run on the bound model instead of inheriting the parent's.
+            // `None` = subagents reuse the parent's client (scripted segments
+            // under test are also reused, keeping the differential harness
+            // deterministic).
+            let (subagent_llm, subagent_provider): (
+                Option<std::sync::Arc<dyn LlmClient>>,
+                Option<dimi_engine::types::ProviderConfig>,
+            ) = match &input.subagent_model {
+                Some(model) if model != &input.provider => (
+                    Some(std::sync::Arc::new(AimuxLlmClient {
+                        model: openai_model(model),
+                    })),
+                    Some(model.clone()),
+                ),
+                _ => (None, None),
+            };
             registry.register(
                 "Agent",
                 Box::new(AsyncAgentTool {
@@ -644,6 +663,11 @@ impl RustTurnSession {
                     agent_id_counter: std::sync::atomic::AtomicU64::new(
                         input.next_agent_id.unwrap_or(0),
                     ),
+                    subagent_llm,
+                    subagent_provider,
+                    subagent_allowlist: input.subagent_allowlist.clone(),
+                    subagent_timeout_ms: input.subagent_timeout_ms,
+                    max_running_tasks: input.max_running_tasks,
                 }),
             );
             registry.register(
@@ -1114,6 +1138,7 @@ mod tests {
                 messages: vec![],
                 started_at: 1,
                 cancel: None,
+                deadline: std::time::Instant::now(),
             },
         );
         // Same registry id → the second session handle sees the task.
