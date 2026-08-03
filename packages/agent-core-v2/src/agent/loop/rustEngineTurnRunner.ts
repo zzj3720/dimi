@@ -58,6 +58,10 @@ import {
   fullCompactionBegin,
   fullCompactionComplete,
 } from "#/agent/fullCompaction/compactionOps";
+import {
+  COMPLETION_REVIEW_MIN_STEPS,
+  COMPLETION_REVIEW_REMINDER,
+} from "#/agent/completion/completion";
 
 import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
 import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
@@ -449,6 +453,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // bash poller waits this long between SIGTERM and SIGKILL so a trap
       // keeps its cleanup window; the TS task service reads the same config.
       killGraceMs: this.killGracePeriodMs(),
+      // Completion-review protocol (TS `COMPLETION_REVIEW_MIN_STEPS`
+      // parity): after a tool-free step at/after the threshold the engine
+      // injects the reminder and keeps the turn alive until AllDone. Always
+      // passed for runnable profiles; short turns below the threshold are
+      // unaffected by the engine.
+      completionReview: {
+        minSteps: COMPLETION_REVIEW_MIN_STEPS,
+        reminder: COMPLETION_REVIEW_REMINDER,
+      },
       cwd: this.profile.data().cwd ?? process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
@@ -713,6 +726,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       }
       if (event["type"] === "task.settled") {
         this.handleTaskSettled(event);
+        return;
+      }
+      if (event["type"] === "completion.review.injected") {
+        // Mirror the completion-review reminder into the context (TS
+        // loopContinuationService parity: origin
+        // `system_trigger`/`completion_review`); NOT published on the bus
+        // (TS emits no bus event for the reminder).
+        this.context.append({
+          role: "user",
+          content: [{ type: "text", text: toText(event["reminder"]) }],
+          toolCalls: [],
+          origin: { kind: "system_trigger", name: "completion_review" },
+          id: randomUUID(),
+        });
         return;
       }
       publish(event);
