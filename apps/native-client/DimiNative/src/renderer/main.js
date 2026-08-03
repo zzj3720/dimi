@@ -51,7 +51,12 @@ function afterDispatch(msg) {
       doSteer();
       break;
     case 'cancel':
-      doCancel();
+      // Only actually abort when the reducer decided to cancel the stream
+      // (first Ctrl+C with a non-empty draft just cleared the text).
+      if (model.cancelStreamRequested) {
+        model.cancelStreamRequested = false;
+        doCancel();
+      }
       break;
     case 'approval_confirm':
       submitApproval();
@@ -67,6 +72,15 @@ function afterDispatch(msg) {
       if (model.undoRequested) {
         model.undoRequested = false;
         runUndo(1);
+      }
+      // Esc on an approval/question panel rejects/dismisses server-side.
+      if (model.approvalRejectRequested) {
+        model.approvalRejectRequested = false;
+        rejectApproval();
+      }
+      if (model.questionDismissRequested) {
+        model.questionDismissRequested = false;
+        dismissQuestion();
       }
       // return focus to composer unless a dialog is open
       if (!model.pickerOpen && !model.currentApproval && !model.currentQuestion && !model.settingsDialogOpen) {
@@ -127,13 +141,37 @@ els.input.addEventListener('keydown', (evt) => {
   // Ctrl / Cmd combos (platform shortcut).
   if (ctrlKey(evt)) {
     const k = evt.key.toLowerCase();
-    if (k === 'c') { evt.preventDefault(); dispatch(Msg.Cancel()); return; }
-    if (k === 'd') { evt.preventDefault(); dispatch(Msg.Cancel()); return; }
+    if (k === 'c' || k === 'd') {
+      // TUI layered Ctrl+C/Ctrl+D (editor-keyboard.ts:123-180): an open
+      // approval/question panel consumes it first (reject/dismiss); then a
+      // non-empty draft clears it (second press cancels); only an empty
+      // draft + idle reaches the exit-confirm window.
+      evt.preventDefault();
+      if (model.currentApproval) {
+        dispatch(Msg.ApprovalReject());
+        return;
+      }
+      if (model.currentQuestion) {
+        dispatch({ type: 'question_dismiss' });
+        return;
+      }
+      dispatch(Msg.Cancel());
+      return;
+    }
     if (k === 's') { evt.preventDefault(); dispatch(Msg.Steer()); return; }
     if (k === 'o') { evt.preventDefault(); dispatch(Msg.ExpandToggle()); return; }
     if (k === 'g') { evt.preventDefault(); openExternalEditor(); return; }
     if (k === 't') { evt.preventDefault(); dispatch({ type: 'todo_toggle' }); return; }
     if (k === '-') { evt.preventDefault(); dispatch({ type: 'undo' }); return; }
+    if (k === 'b') {
+      // TUI onCtrlB: detach the current foreground task while streaming /
+      // shell (idle + compacting fall through to nothing).
+      if (model.busy && model.phase !== 'compacting') {
+        evt.preventDefault();
+        detachCurrentTask();
+      }
+      return;
+    }
     return;
   }
 
@@ -222,6 +260,10 @@ els.btnCancel.addEventListener('click', () => dispatch(Msg.Cancel()));
 // Global message channel for view-generated events (dialog clicks etc.).
 window.addEventListener('dimi:msg', (evt) => dispatch(evt.detail));
 
+// 1s clock tick — drives the exit-confirm and double-Esc undo windows
+// (TUI EXIT_CONFIRM_WINDOW_MS / DOUBLE_ESC_WINDOW_MS use real time).
+setInterval(() => dispatch(Msg.Tick()), 1000);
+
 // ------------------------------------------------------------- server
 
 export async function api(method, path, body) {
@@ -287,6 +329,11 @@ export function subscribeSse(sessionId) {
     // (TUI finalizeTurn drains one queued message per turn end).
     if (type === 'turn.ended' || type === 'prompt.completed' || type === 'prompt.steered') {
       refreshPromptQueue();
+      // TUI drainOneQueuedMessage: after a turn ends, run the first queued
+      // bash command (prompt messages drain via the server prompt queue).
+      if (type === 'turn.ended' && !model.busy) {
+        drainQueuedBash();
+      }
     }
     dispatch(Msg.SseEvent(evt));
   });
@@ -310,7 +357,14 @@ function submitDraft() {
   model.historyIndex = -1;
 
   if (isBashDraft(draft)) {
-    runShellCommand(draft);
+    // TUI (dimi-tui.ts:1007-1015): bash command while busy → enqueue with
+    // mode='bash' (runs after the current task); idle → run immediately.
+    if (model.busy) {
+      model.queued.push({ text: draft, mode: 'bash' });
+      model.statusMsg = `${model.queued.length} queued`;
+    } else {
+      runShellCommand(draft);
+    }
     model.draft = '';
     render();
     return;
@@ -439,7 +493,9 @@ async function sendPrompt(text) {
       content: [{ type: 'text', text }],
     });
     const promptId = data?.data?.prompt_id ?? '';
-    if (model.busy && model.busyInputMode === 'steer' && promptId) {
+    // TUI: isCompacting → enqueue, never steer (dimi-tui.ts:1370-1373).
+    const steering = model.busy && model.busyInputMode === 'steer' && model.phase !== 'compacting' && promptId;
+    if (steering) {
       await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts::steer`, {
         prompt_ids: [promptId],
       });
@@ -491,6 +547,17 @@ function recallLastQueued() {
   els.input.focus();
 }
 
+// TUI drainOneQueuedMessage: after the current task ends, run the first
+// queued bash command (dimi-tui.ts:1126-1137).
+function drainQueuedBash() {
+  const idx = model.queued.findIndex((q) => q.mode === 'bash');
+  if (idx < 0) return;
+  const item = model.queued[idx];
+  model.queued.splice(idx, 1);
+  runShellCommand(item.text);
+  render();
+}
+
 function runUndo(count) {
   if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
   api('POST', `/api/v1/sessions/${model.currentSessionId}:undo`, { count })
@@ -501,6 +568,16 @@ function runUndo(count) {
       connectSession(model.currentSessionId);
     })
     .catch((e) => { model.statusMsg = `undo failed: ${e.message}`; render(); });
+}
+
+function detachCurrentTask() {
+  // TUI detachCurrentForegroundTask: cancel the current foreground action so
+  // it keeps running in the background. On the REST surface the closest is
+  // aborting the active prompt (which the engine then runs detached).
+  if (!model.currentSessionId) return;
+  api('POST', `/api/v1/sessions/${model.currentSessionId}:abort`, {})
+    .then(() => { model.statusMsg = 'detached (running in background)'; render(); })
+    .catch((e) => { model.statusMsg = `detach failed: ${e.message}`; render(); });
 }
 
 // ------------------------------------------------------------- steer/cancel
@@ -575,6 +652,15 @@ function rejectApproval() {
   })
     .then(() => { model.currentApproval = null; render(); })
     .catch(() => { model.currentApproval = null; render(); });
+}
+
+function dismissQuestion() {
+  const q = model.currentQuestion;
+  if (!q) return;
+  // TUI: Esc → onAnswer({answers:[]}) which maps to the dismiss action.
+  api('POST', `/api/v1/sessions/${model.currentSessionId}/questions/${q.id}:dismiss`, {})
+    .catch(() => {})
+    .finally(() => { model.currentQuestion = null; render(); });
 }
 
 function submitQuestion() {

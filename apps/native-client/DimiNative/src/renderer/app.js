@@ -42,6 +42,7 @@ export const model = {
   // chat
   busy: false,
   phase: 'idle', // idle | streaming | shell | compacting
+  planMode: false,
   queued: [], // { text, mode }
   busyInputMode: DefaultBusyInputMode,
   draft: '',
@@ -87,6 +88,9 @@ export const model = {
   pendingUndoEscTicks: -1, // TUI double-Esc undo window (DOUBLE_ESC_WINDOW_MS)
   btwAgentId: '',
   undoRequested: false,
+  approvalRejectRequested: false,
+  questionDismissRequested: false,
+  cancelStreamRequested: false,
 };
 
 // ------------------------------------------------------------------ msgs
@@ -129,6 +133,7 @@ export const Msg = {
   ApprovalReject: () => ({ type: 'approval_reject' }),
   ApprovalFeedback: (text) => ({ type: 'approval_feedback', text }),
   QuestionMove: (delta) => ({ type: 'question_move', delta }),
+  QuestionDismiss: () => ({ type: 'question_dismiss' }),
   QuestionToggle: (index) => ({ type: 'question_toggle', index }),
   QuestionConfirm: () => ({ type: 'question_confirm' }),
   QuestionOther: (text) => ({ type: 'question_other', text }),
@@ -275,7 +280,13 @@ export function update(state, msg) {
         return;
       }
       if (state.busy) {
-        if (state.draft) state.draft = '';
+        // TUI layered cancel: first Ctrl+C clears a non-empty draft only;
+        // only a second press (or already-empty draft) cancels the stream.
+        if (state.draft) {
+          state.draft = '';
+          return;
+        }
+        state.cancelStreamRequested = true;
         state.statusMsg = 'cancelling…';
         return;
       }
@@ -283,7 +294,7 @@ export function update(state, msg) {
         state.draft = '';
         return;
       }
-      // idle + empty composer → exit confirm (double-press window)
+      // idle + empty composer → exit confirm (1.5s window via 1s ticks)
       if (state.exitConfirmTicks >= 0 && state.tipTicks - state.exitConfirmTicks <= 2) {
         window.close();
         return;
@@ -353,8 +364,15 @@ export function update(state, msg) {
 
     case 'approval_reject':
       if (state.currentApproval) {
-        state.currentApproval = null;
-        state.approvalFeedbackMode = false;
+        // Reject server-side (Esc/Ctrl+C/Ctrl+D all route here).
+        state.approvalRejectRequested = true;
+      }
+      return;
+
+    case 'question_dismiss':
+      if (state.currentQuestion) {
+        // Dismiss server-side (Esc/Ctrl+C/Ctrl+D).
+        state.questionDismissRequested = true;
       }
       return;
 
@@ -439,12 +457,14 @@ export function update(state, msg) {
         return;
       }
       if (state.currentApproval) {
-        state.currentApproval = null;
-        state.approvalFeedbackMode = false;
+        // TUI: Esc rejects the approval and tells the server
+        // (approval-panel.ts:261-269 → {response:'rejected'}).
+        state.approvalRejectRequested = true;
         return;
       }
       if (state.currentQuestion) {
-        state.currentQuestion = null;
+        // TUI: Esc dismisses the question server-side (question-dialog.ts:128-131).
+        state.questionDismissRequested = true;
         return;
       }
       if (state.btwOpen) {
@@ -471,6 +491,19 @@ export function update(state, msg) {
     case 'expand_toggle':
       state.displayMode =
         state.displayMode === 'summary' ? 'tools' : state.displayMode === 'tools' ? 'full' : 'summary';
+      return;
+
+    case 'plan_mode_toggle':
+      state.planMode = !state.planMode;
+      state.statusMsg = state.planMode ? 'plan mode on' : 'plan mode off';
+      return;
+
+    case 'todo_toggle':
+      state.todoExpanded = !state.todoExpanded;
+      return;
+
+    case 'undo':
+      state.statusMsg = 'undo';
       return;
 
     case 'tick':
