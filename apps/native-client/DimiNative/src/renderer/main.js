@@ -124,7 +124,7 @@ els.input.addEventListener('keydown', (evt) => {
   }
 
   // Question dialog: number keys select options, space toggles multi, Enter
-  // confirms (TUI question-dialog.ts:161-194).
+  // confirms, ←/→/Tab switch tabs (TUI question-dialog.ts:161-194).
   if (model.currentQuestion) {
     if (/^[1-9]$/.test(evt.key)) {
       evt.preventDefault();
@@ -146,6 +146,8 @@ els.input.addEventListener('keydown', (evt) => {
       dispatch({ type: 'question_toggle', index: model.questionSelectedIndex });
       return;
     }
+    if (evt.key === 'ArrowLeft') { evt.preventDefault(); dispatch(Msg.QuestionTab(-1)); return; }
+    if (evt.key === 'ArrowRight' || evt.key === 'Tab') { evt.preventDefault(); dispatch(Msg.QuestionTab(1)); return; }
   }
 
   // Approval dialog: number keys select+confirm (TUI approval-panel.ts:313-317).
@@ -729,17 +731,21 @@ function dismissQuestion() {
 function submitQuestion() {
   const q = model.currentQuestion;
   if (!q) return;
-  const itemId = q.itemId || q.id;
-  const selected = (q.options ?? []).filter((o) => o.selected).map((o) => o.id);
+  // Collect answers for every question (TUI review page submits all tabs).
   const answers = {};
-  if (q.kind === 'multi' && selected.length > 0) {
-    answers[itemId] = { kind: 'multi', option_ids: selected };
-  } else if (selected.length === 1) {
-    answers[itemId] = { kind: 'single', option_id: selected[0] };
-  } else if (q.questionOtherText && q.questionOtherText.trim().length > 0) {
-    answers[itemId] = { kind: 'other', text: q.questionOtherText.trim() };
-  } else {
-    answers[itemId] = { kind: 'skipped' };
+  const all = q.allQuestions ?? [q];
+  for (const qq of all) {
+    const itemId = qq.itemId || qq.id;
+    const selected = (qq.options ?? []).filter((o) => o.selected).map((o) => o.id);
+    if ((qq.kind === 'multi' || qq.kind === 'multi_with_other') && selected.length > 0) {
+      answers[itemId] = { kind: 'multi', option_ids: selected };
+    } else if (selected.length === 1) {
+      answers[itemId] = { kind: 'single', option_id: selected[0] };
+    } else if (qq.allowOther && qq.otherText && qq.otherText.trim().length > 0) {
+      answers[itemId] = { kind: 'other', text: qq.otherText.trim() };
+    } else {
+      answers[itemId] = { kind: 'skipped' };
+    }
   }
   api('POST', `/api/v1/sessions/${model.currentSessionId}/questions/${q.id}`, { answers })
     .then(() => { model.currentQuestion = null; render(); })

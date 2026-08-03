@@ -341,7 +341,60 @@ function renderQuestion(root) {
   body.style.display = 'flex';
   body.style.flexDirection = 'column';
   body.style.gap = '6px';
-  body.style.maxWidth = '520px';
+  body.style.maxWidth = '560px';
+
+  // Tabs: one per question + Submit (TUI question-dialog.ts:604-627).
+  const total = (q.allQuestions?.length ?? 1) + 1;
+  const cur = q.questionTabIndex ?? 0;
+  const tabs = document.createElement('div');
+  tabs.style.display = 'flex';
+  tabs.style.gap = '4px';
+  tabs.style.flexWrap = 'wrap';
+  (q.allQuestions ?? [q]).forEach((qq, i) => {
+    const t = document.createElement('span');
+    t.className = 'badge' + (i === cur ? ' badge-primary' : ' badge-outline');
+    t.textContent = `Q${i + 1}${hasAnswer(qq) ? ' ✓' : ''}`;
+    t.style.cursor = 'pointer';
+    t.addEventListener('mousedown', (evt) => {
+      evt.preventDefault();
+      model.currentQuestion.questionTabIndex = i;
+      syncQuestionView();
+    });
+    tabs.appendChild(t);
+  });
+  const submitTab = document.createElement('span');
+  submitTab.className = 'badge' + (cur === total - 1 ? ' badge-primary' : ' badge-outline');
+  submitTab.textContent = 'Submit';
+  submitTab.style.cursor = 'pointer';
+  submitTab.addEventListener('mousedown', (evt) => {
+    evt.preventDefault();
+    model.currentQuestion.questionTabIndex = total - 1;
+    syncQuestionView();
+  });
+  tabs.appendChild(submitTab);
+  body.appendChild(tabs);
+
+  // Submit tab: review answers (TUI review page).
+  if (cur === total - 1) {
+    const review = document.createElement('div');
+    review.style.display = 'flex';
+    review.style.flexDirection = 'column';
+    review.style.gap = '4px';
+    for (const qq of q.allQuestions ?? [q]) {
+      const row = document.createElement('div');
+      const answered = hasAnswer(qq);
+      row.className = 'list-item' + (answered ? '' : '');
+      row.textContent = `${answered ? '✓' : '○'} ${qq.question}${answered ? '' : ' — Not answered'}`;
+      review.appendChild(row);
+    }
+    body.appendChild(review);
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.textContent = 'Submit';
+    btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_confirm' } })));
+    root.appendChild(dialog('Question', body, [btn]));
+    return;
+  }
 
   const title = document.createElement('div');
   title.className = 'title';
@@ -355,25 +408,53 @@ function renderQuestion(root) {
   (q.options ?? []).forEach((opt, i) => {
     const o = document.createElement('div');
     o.className = 'list-item' + (i === model.questionSelectedIndex ? ' selected' : '');
-    const marker = opt.selected ? (q.kind === 'multi' || q.kind === 'multi_with_other' ? '✓ ' : '● ') : (q.kind === 'multi' || q.kind === 'multi_with_other' ? '○ ' : '○ ');
+    const multi = q.kind === 'multi' || q.kind === 'multi_with_other';
+    const marker = opt.selected ? (multi ? '✓ ' : '● ') : (multi ? '○ ' : '○ ');
     o.textContent = marker + opt.label;
     o.addEventListener('mousedown', (evt) => {
       evt.preventDefault();
-      if (q.kind === 'multi' || q.kind === 'multi_with_other') {
+      if (multi) {
         window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_toggle', index: i } }));
       } else {
         window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_select', index: i } }));
+        window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_confirm' } }));
       }
     });
     options.appendChild(o);
   });
   body.appendChild(options);
 
+  // Other input (TUI question-dialog.ts:696-712).
+  if (q.allowOther) {
+    const other = document.createElement('input');
+    other.className = 'search-input';
+    other.placeholder = q.otherLabel || 'Other…';
+    other.value = q.otherText ?? model.questionOtherText ?? '';
+    other.addEventListener('input', () => {
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_other', text: other.value } }));
+    });
+    body.appendChild(other);
+  }
+
+  const hint = document.createElement('div');
+  hint.className = 'sub';
+  hint.textContent = '←/→ tabs · 1-9 select · space toggle · Enter confirm';
+  body.appendChild(hint);
+
   const btn = document.createElement('button');
   btn.className = 'btn btn-primary';
-  btn.textContent = 'Submit';
-  btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_confirm' } })));
+  btn.textContent = 'Next';
+  btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_tab', delta: 1 } })));
   root.appendChild(dialog('Question', body, [btn]));
+}
+
+function hasAnswer(qq) {
+  return (qq.options ?? []).some((o) => o.selected) || (qq.otherText && qq.otherText.trim().length > 0);
+}
+
+function syncQuestionView() {
+  // Re-render after a tab click (the reducer handles keyboard-driven tabs).
+  render();
 }
 
 export { els };

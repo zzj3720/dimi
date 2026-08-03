@@ -137,6 +137,7 @@ export const Msg = {
   ApprovalFeedback: (text) => ({ type: 'approval_feedback', text }),
   QuestionMove: (delta) => ({ type: 'question_move', delta }),
   QuestionDismiss: () => ({ type: 'question_dismiss' }),
+  QuestionTab: (delta) => ({ type: 'question_tab', delta }),
   QuestionToggle: (index) => ({ type: 'question_toggle', index }),
   QuestionConfirm: () => ({ type: 'question_confirm' }),
   QuestionOther: (text) => ({ type: 'question_other', text }),
@@ -397,6 +398,16 @@ export function update(state, msg) {
       }
       return;
 
+    case 'question_tab': {
+      if (!state.currentQuestion) return;
+      const total = (state.currentQuestion.allQuestions?.length ?? 1) + 1; // +1 submit tab
+      const cur = state.currentQuestion.questionTabIndex ?? 0;
+      state.currentQuestion.questionTabIndex = ((cur + msg.delta) % total + total) % total;
+      // Sync the active question into the top-level fields for the view.
+      syncQuestionTab(state);
+      return;
+    }
+
     case 'question_select':
       if (!state.currentQuestion) return;
       {
@@ -428,6 +439,15 @@ export function update(state, msg) {
 
     case 'question_other':
       state.questionOtherText = msg.text;
+      // Keep the per-question copy so tab switches don't lose it.
+      {
+        const q = state.currentQuestion;
+        if (q) {
+          const all = q.allQuestions ?? [q];
+          const cur = Math.min(q.questionTabIndex ?? 0, all.length - 1);
+          all[cur].otherText = msg.text;
+        }
+      }
       return;
 
     // --------------------------------------------------------------- ui
@@ -691,13 +711,24 @@ export function handleSseEvent(state, evt) {
     case 'event.question.requested': {
       const questions = p.questions ?? [];
       if (questions.length === 0) return;
-      const q0 = questions[0];
+      // Support multiple questions with tabs (TUI question-dialog.ts:604-627).
       state.currentQuestion = {
         id: p.question_id ?? p.id ?? '',
-        itemId: q0.id ?? '',
-        question: q0.question ?? '',
-        kind: q0.multi_select ? 'multi' : 'single',
-        options: (q0.options ?? []).map((o) => ({ ...o, selected: false })),
+        itemId: questions[0].id ?? '',
+        question: questions[0].question ?? '',
+        kind: questions[0].multi_select ? 'multi' : 'single',
+        options: (questions[0].options ?? []).map((o) => ({ ...o, selected: false })),
+        allowOther: !!questions[0].allow_other,
+        otherLabel: questions[0].other_label ?? 'Other',
+        allQuestions: questions.map((qq) => ({
+          itemId: qq.id ?? '',
+          question: qq.question ?? '',
+          kind: qq.multi_select ? 'multi' : 'single',
+          options: (qq.options ?? []).map((o) => ({ ...o, selected: false })),
+          allowOther: !!qq.allow_other,
+          otherLabel: qq.other_label ?? 'Other',
+        })),
+        questionTabIndex: 0,
       };
       state.questionSelectedIndex = 0;
       state.questionOtherText = '';
@@ -925,6 +956,26 @@ function closeCompletion(state) {
   state.completionPrefix = '';
   state.atMentionOpen = false;
   state.atMentionPrefix = 0;
+}
+
+// Sync the active question tab into the top-level currentQuestion fields
+// the view reads (mirror of TUI gotoTab updating the visible question).
+function syncQuestionTab(state) {
+  const q = state.currentQuestion;
+  if (!q || !q.allQuestions) return;
+  const idx = q.questionTabIndex ?? 0;
+  const total = q.allQuestions.length + 1;
+  if (idx >= total) return; // submit tab — keep the last question visible
+  const qq = q.allQuestions[idx];
+  if (!qq) return;
+  q.itemId = qq.itemId;
+  q.question = qq.question;
+  q.kind = qq.kind;
+  q.options = qq.options;
+  q.allowOther = qq.allowOther;
+  q.otherLabel = qq.otherLabel;
+  state.questionSelectedIndex = 0;
+  state.questionOtherText = '';
 }
 
 export function isBashDraft(text) {
