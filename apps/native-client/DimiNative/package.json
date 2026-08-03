@@ -1,0 +1,15 @@
+{
+  "name": "dimi-native",
+  "version": "0.1.0",
+  "description": "Dimi native desktop client (Electron) — 1:1 TUI feature parity",
+  "private": true,
+  "type": "module",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

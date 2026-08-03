@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; img-src 'self' data:;" />
+  <title>Dimi Client</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- Header -->
+    <header class="header">
+      <span class="brand">Dimi</span>
+      <span id="connection-badge" class="badge badge-secondary">connecting…</span>
+      <span id="busy-badge" class="badge badge-primary hidden">busy</span>
+      <span id="phase-badge" class="badge badge-outline hidden"></span>
+      <span id="status-msg" class="status-msg"></span>
+      <span class="spacer"></span>
+      <button id="btn-sessions" class="btn btn-ghost">Sessions</button>
+      <button id="btn-refresh" class="btn btn-ghost">Refresh</button>
+    </header>
+
+    <!-- Transcript -->
+    <main id="transcript" class="transcript" tabindex="-1"></main>
+
+    <!-- Composer -->
+    <footer class="composer">
+      <div id="completion" class="completion hidden"></div>
+      <div class="composer-row">
+        <div class="prompt-token" id="prompt-token">&gt;</div>
+        <textarea id="input" class="input" rows="1" placeholder="Message…" autofocus></textarea>
+        <div class="composer-actions">
+          <span id="queued-count" class="queued-count hidden"></span>
+          <button id="btn-steer" class="btn btn-ghost hidden">steer</button>
+          <button id="btn-queue" class="btn btn-ghost hidden">queue</button>
+          <button id="btn-cancel" class="btn btn-ghost hidden">Cancel</button>
+          <button id="btn-send" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+      <div class="footer-line">
+        <span id="hint" class="hint"></span>
+        <span class="spacer"></span>
+        <span id="footer-right" class="footer-right"></span>
+      </div>
+    </footer>
+
+    <!-- Dialogs (modal overlays) -->
+    <div id="dialog-root" class="dialog-root"></div>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
