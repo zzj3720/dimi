@@ -21,7 +21,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { RustEngine, RustTurnSession } from "@dimi-agent/dimi-native";
+import { RustTurnSession } from "@dimi-agent/dimi-native";
 
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
 import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
@@ -35,9 +35,7 @@ import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
-import type { TokenUsage } from "#/llmProtocol/usage";
-import type { ContentPart } from "#/llmProtocol/message";
-import { createToolMessage, type ToolCall } from "#/llmProtocol/message";
+import { createToolMessage, type ContentPart, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
 import { buildCompactionSummaryText } from "#/agent/contextMemory/compactionHandoff";
@@ -67,6 +65,11 @@ export interface IRustEngineTurnRunner {
 
 function rustEngineEnabled(): boolean {
   return process.env["DIMI_RUST_ENGINE"] === "1";
+}
+
+/** Render an engine event/tool value as text (strings pass through). */
+function toText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value) ?? "";
 }
 
 /** Turn an engine event batch into bus events + context records. */
@@ -206,7 +209,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                 JSON.stringify({
                   toolCallId: payload.requestId,
                   toolName: payload.name,
-                  output: String(execution.output),
+                  output: toText(execution.output),
                   isError: true,
                   stopTurn: execution.stopTurn === true,
                   updates: [],
@@ -224,7 +227,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               JSON.stringify({
                 toolCallId: payload.requestId,
                 toolName: payload.name,
-                output: String(result.output),
+                output: toText(result.output),
                 isError: result.isError === true,
                 stopTurn: result.stopTurn === true,
                 updates: [],
@@ -294,7 +297,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     let openText = "";
     let openThinking = "";
     let usage = emptyUsage();
-    let finishReason: string | undefined;
     const toolCalls: ToolCall[] = [];
 
     const publish = (event: Record<string, unknown>): void => {
@@ -327,15 +329,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "thinking.delta": {
-          openThinking += String(event["delta"] ?? "");
+          openThinking += toText(event["delta"]);
           break;
         }
         case "assistant.delta": {
-          openText += String(event["delta"] ?? "");
+          openText += toText(event["delta"]);
           break;
         }
         case "tool.call.delta": {
-          const id = String(event["toolCallId"] ?? "");
+          const id = toText(event["toolCallId"]);
           const name = event["name"] as string | undefined;
           const existing = toolCalls.find((call) => call.id === id);
           if (existing === undefined && name !== undefined) {
@@ -354,8 +356,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "tool.result": {
-          const id = String(event["toolCallId"] ?? "");
-          const output = String(event["output"] ?? "");
+          const id = toText(event["toolCallId"]);
+          const output = toText(event["output"]);
           const isError = event["isError"] === true;
           this.context.appendLoopEvent({
             type: "tool.result",
@@ -369,7 +371,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           // The engine compacted its working history mid-turn: mirror the
           // same wire record + context shape the TS fullCompaction service
           // applies (live projections and cold rebuilds stay consistent).
-          const summary = String(event["summary"] ?? "");
+          const summary = toText(event["summary"]);
           const tokensBefore = Number(event["tokensBefore"] ?? 0);
           const compactedCount = Number(event["compactedCount"] ?? 0);
           this.wire.dispatch(fullCompactionBegin({ source: "auto" }));
@@ -389,8 +391,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         case "turn.step.completed": {
           flushThinking();
           flushText();
-          const stepFinish = String(event["finishReason"] ?? "end_turn");
-          finishReason = stepFinish;
+          const stepFinish = toText(event["finishReason"] ?? "end_turn");
           // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
           // four-component TokenUsage + wire usage.record.
           const engineUsage = event["usage"] as
@@ -406,7 +407,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             };
             this.usageService.record(
               this.providerConfig()['model'] as string,
-              usage as TokenUsage,
+              usage,
               { kind: "loop", turnId: String(turnId), step: 1 } as never,
             );
           }
@@ -487,7 +488,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // Slice 1: read the active model's provider config through the LLM
     // requester's catalog (the TS side owns provider resolution).
     const model = this.config.get<{ model?: string }>("model")?.model;
-    const provider = this.config.get<{ provider?: string }>("provider")?.provider;
     const apiKey = this.config.get<{ apiKey?: string }>("apiKey")?.apiKey;
     return {
       baseUrl: this.config.get<{ baseUrl?: string }>("baseUrl")?.baseUrl ?? "https://api.openai.com/v1",
