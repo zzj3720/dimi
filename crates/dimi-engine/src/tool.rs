@@ -481,6 +481,7 @@ impl ToolExecutor for AgentTool {
             cwd: Some(ctx.cwd.clone()),
             shell: Some(ctx.shell.clone()),
             context_window: None,
+            max_context_tokens: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -844,6 +845,7 @@ async fn run_nested_turn(
         cwd: Some(cwd),
         shell: Some(shell),
         context_window: None,
+        max_context_tokens: None,
     };
     let mut session = crate::engine::TurnSession::with_steer(input, steer);
     let mut events: Vec<crate::events::EngineEvent> = Vec::new();

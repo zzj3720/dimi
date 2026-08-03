@@ -34,11 +34,17 @@ import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
+import { IAgentProfileService } from "#/agent/profile/profile";
 import type { TokenUsage } from "#/llmProtocol/usage";
 import type { ContentPart } from "#/llmProtocol/message";
 import { createToolMessage, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
+import { buildCompactionSummaryText } from "#/agent/contextMemory/compactionHandoff";
+import {
+  fullCompactionBegin,
+  fullCompactionComplete,
+} from "#/agent/fullCompaction/compactionOps";
 
 import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
 import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
@@ -80,6 +86,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentUsageService private readonly usageService: IAgentUsageService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
 
@@ -140,6 +147,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       tools: [],
       provider,
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
+      maxContextTokens: this.maxContextTokens() ?? null,
       cwd: this.config.get<string>("cwd"),
       shell: "/bin/sh",
     });
@@ -357,6 +365,27 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           });
           break;
         }
+        case "context.compacted": {
+          // The engine compacted its working history mid-turn: mirror the
+          // same wire record + context shape the TS fullCompaction service
+          // applies (live projections and cold rebuilds stay consistent).
+          const summary = String(event["summary"] ?? "");
+          const tokensBefore = Number(event["tokensBefore"] ?? 0);
+          const compactedCount = Number(event["compactedCount"] ?? 0);
+          this.wire.dispatch(fullCompactionBegin({ source: "auto" }));
+          const result = this.context.applyCompaction({
+            summary,
+            contextSummary: buildCompactionSummaryText(summary),
+            compactedCount,
+            tokensBefore,
+          });
+          this.wire.dispatch(fullCompactionComplete({}));
+          this.eventBus.publish({
+            type: "compaction.completed",
+            result,
+          } as never);
+          break;
+        }
         case "turn.step.completed": {
           flushThinking();
           flushText();
@@ -446,6 +475,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   private maxStepsPerTurn(): number | undefined {
     return this.config.get<{ maxStepsPerTurn?: number }>("loop_control")?.maxStepsPerTurn;
+  }
+
+  private maxContextTokens(): number | undefined {
+    const capability = this.profile.data().modelCapabilities;
+    const max = capability.max_input_tokens ?? capability.max_context_tokens;
+    return max > 0 ? max : undefined;
   }
 
   private providerConfig(): Record<string, unknown> {

@@ -160,6 +160,11 @@ pub struct TurnSession {
     /// Steering messages injected while the turn runs (async subagent
     /// semantics): drained into the request assembly before each step.
     steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
+    /// Token count right after the last compaction (TS
+    /// `lastCompactedTokenCount`): while the estimate has not grown past it,
+    /// compaction is skipped — prevents immediate re-compaction loops when
+    /// the summary message itself approaches the window.
+    last_compacted_tokens: Option<u64>,
 }
 
 /// A tool call waiting for the user's approval decision.
@@ -207,6 +212,7 @@ impl TurnSession {
             started_at: Instant::now(),
             pending: None,
             steer,
+            last_compacted_tokens: None,
         }
     }
 
@@ -307,6 +313,81 @@ impl TurnSession {
             .unwrap_or(false)
     }
 
+    /// Estimate the next request's tokens: messages + tool definitions
+    /// (mirrors `estimateRequestTokens` minus the injected system prompt,
+    /// which the runner already folds into the first message).
+    fn estimate_request_tokens(&self) -> u64 {
+        let mut total = crate::context::estimate_tokens_for_messages(&self.messages);
+        for tool in &self.input.tools {
+            total += crate::context::estimate_tokens(&tool.name);
+            total += crate::context::estimate_tokens(&tool.description);
+            total += crate::context::estimate_tokens(
+                &serde_json::to_string(&tool.args_schema).unwrap_or_default(),
+            );
+        }
+        total
+    }
+
+    /// Run the compaction round: ask the LLM to summarize the history, then
+    /// replace the working messages with the compacted shape. Empty summary
+    /// responses drop the oldest message and retry (bounded); LLM failures
+    /// fail soft (the turn continues without compacting).
+    async fn compact(
+        &mut self,
+        llm: &dyn LlmClient,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        let turn_id = self.input.turn_id;
+        let tokens_before = crate::context::estimate_tokens_for_messages(&self.messages);
+        let instruction = crate::compaction::compaction_instruction_message();
+
+        let mut history = self.messages.clone();
+        let mut summary = String::new();
+        for _ in 0..=crate::compaction::COMPACTION_MAX_SHRINK_ATTEMPTS {
+            let mut messages = history.clone();
+            messages.push(instruction.clone());
+            let request = ChatRequest {
+                messages,
+                tools: None,
+                model: Some(self.input.provider.model.clone()),
+                thinking_effort: None,
+            };
+            match llm.stream_chat(&request).await {
+                Ok(turn) => {
+                    let text = turn.assistant.text.trim().to_string();
+                    if !text.is_empty() {
+                        summary = text;
+                        break;
+                    }
+                    if history.len() <= 1 {
+                        break;
+                    }
+                    history.remove(0);
+                }
+                Err(_) => return,
+            }
+        }
+        if summary.is_empty() {
+            return;
+        }
+
+        let (messages, tokens_after) =
+            crate::compaction::compacted_shape(&self.messages, &summary);
+        let compacted_count = self.messages.len() as u64;
+        self.last_compacted_tokens = Some(tokens_after);
+        self.messages = messages;
+        emit(
+            on_event,
+            EngineEvent::ContextCompacted {
+                turn_id,
+                summary,
+                tokens_before,
+                tokens_after,
+                compacted_count,
+            },
+        );
+    }
+
     async fn run_loop(
         &mut self,
         llm: &dyn LlmClient,
@@ -359,6 +440,24 @@ impl TurnSession {
                 let mut drained = steer.lock().unwrap();
                 if !drained.is_empty() {
                     self.messages.append(&mut drained);
+                }
+            }
+
+            // Full-history compaction (TS `fullCompaction` parity): when the
+            // assembled request would cross the model window, run an LLM
+            // summary round and replace the working messages before this
+            // step's request is built. The last-compacted guard skips until
+            // the estimate grows past the post-compaction size (TS
+            // `lastCompactedTokenCount`), avoiding re-compaction loops.
+            if let Some(max) = self.input.max_context_tokens {
+                if max > 0 {
+                    let estimated = self.estimate_request_tokens();
+                    let already_compacted = self
+                        .last_compacted_tokens
+                        .is_some_and(|last| estimated <= last);
+                    if crate::compaction::should_compact(estimated, max) && !already_compacted {
+                        self.compact(llm, on_event).await;
+                    }
                 }
             }
 
@@ -756,6 +855,7 @@ mod tests {
             cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
             shell: Some("/bin/sh".to_string()),
             context_window: None,
+            max_context_tokens: None,
         }
     }
 
@@ -1074,6 +1174,7 @@ mod window_tests {
             cwd: Some("/tmp".to_string()),
             shell: Some("/bin/sh".to_string()),
             context_window: Some(3),
+            max_context_tokens: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1166,6 +1267,7 @@ mod steer_tests {
             cwd: Some("/tmp".to_string()),
             shell: Some("/bin/sh".to_string()),
             context_window: None,
+            max_context_tokens: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1186,5 +1288,202 @@ mod steer_tests {
             .filter_map(|m| m.content.as_str())
             .collect();
         assert!(texts.contains(&"steer: change direction"), "second request: {texts:?}");
+    }
+}
+
+#[cfg(test)]
+mod compaction_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::types::ProviderConfig;
+
+    fn msg(role: &str, text: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn compaction_runs_before_the_step_when_the_window_is_crossed() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1 = the compaction round: answer with the summary.
+                // Call 2 = the actual step: finish, no tool calls.
+                let segment = if calls.len() == 1 {
+                    vec![LlmStreamEvent::Text {
+                        delta: "compacted summary".to_string(),
+                    }]
+                } else {
+                    vec![]
+                };
+                let mut text = String::new();
+                for event in &segment {
+                    if let LlmStreamEvent::Text { delta } = event {
+                        text.push_str(delta);
+                    }
+                }
+                Ok(StreamedTurn {
+                    events: segment,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // History of assistant/tool exchanges that only the summary keeps:
+        // ~1830 tokens against a 2000-token window (trigger 1700).
+        let tool_blob = "z".repeat(300); // 75 tokens per tool result
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &crate::tool::BashTool, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+
+        // Compaction happened: summary event emitted.
+        let compacted = events.iter().find_map(|event| match event {
+            EngineEvent::ContextCompacted {
+                summary,
+                tokens_before,
+                tokens_after,
+                compacted_count,
+                ..
+            } => Some((summary.clone(), *tokens_before, *tokens_after, *compacted_count)),
+            _ => None,
+        });
+        let (summary, tokens_before, tokens_after, compacted_count) =
+            compacted.expect("context.compacted event");
+        assert_eq!(summary, "compacted summary");
+        assert!(tokens_before > tokens_after, "before={tokens_before} after={tokens_after}");
+        assert_eq!(compacted_count, 42); // system + u2 + 20 assistant/tool pairs
+
+        // Two LLM calls: compaction round first, then the real step.
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        let texts: Vec<&str> = requests[0]
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("Write a first-person handoff note")),
+            "first request should carry the compaction instruction: {texts:?}"
+        );
+        // The step request uses the compacted shape: recent user message u2
+        // + summary message, and the assistant/tool exchanges are gone.
+        let step_texts: Vec<&str> = requests[1]
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(step_texts.iter().any(|t| t.contains("compacted to free up context")));
+        assert!(
+            !step_texts.iter().any(|t| t.contains(&tool_blob)),
+            "tool results must be folded into the summary"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_compaction_within_the_window() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                *self.0.lock().unwrap() += 1;
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "".to_string(),
+                        thinking: "".to_string(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(std::sync::Mutex::new(0usize));
+        let llm = RecordingClient(Arc::clone(&calls));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "small")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(1000),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        session
+            .run(&llm, &crate::tool::BashTool, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert_eq!(*calls.lock().unwrap(), 1, "single LLM call, no compaction");
+        assert!(
+            !events.iter().any(|e| matches!(e, EngineEvent::ContextCompacted { .. }))
+        );
     }
 }

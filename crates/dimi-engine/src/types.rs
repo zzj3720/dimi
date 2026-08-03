@@ -105,6 +105,12 @@ pub struct EngineTurnInput {
     /// `None` = no projection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<usize>,
+    /// Model context limit (tokens) driving full-history compaction; when
+    /// set and the assembled request estimate crosses the trigger ratio, the
+    /// engine runs a compaction round before the request (TS
+    /// `fullCompaction` parity). `None` = compaction disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_tokens: Option<u32>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).

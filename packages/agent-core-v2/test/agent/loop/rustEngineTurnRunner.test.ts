@@ -161,6 +161,58 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     const assistant = context.find((message) => message.role === 'assistant');
     expect(assistant).toBeDefined();
   });
+
+  it('compacts the context mid-turn when the model window is crossed', async () => {
+    // Call 1 = the engine's compaction round (summary); call 2 = the step.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'engine compaction summary' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+      [
+        { type: 'text', delta: 'answer after compaction' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    // A 2000-token window: 85% trigger = 1700 tokens.
+    ctx.configure({ modelCapabilities: {
+      image_in: false,
+      video_in: false,
+      audio_in: false,
+      thinking: false,
+      tool_use: true,
+      max_context_tokens: 2000,
+      dynamically_loaded_tools: false,
+    } });
+    ctx.get(IAgentLoopService);
+
+    // Seed ~1830 tokens of assistant/tool exchanges (only the summary keeps).
+    const blob = 'z'.repeat(300);
+    const contextService = ctx.get(IAgentContextMemoryService);
+    contextService.append({ role: 'user', content: [{ type: 'text', text: 'u2' }], toolCalls: [], origin: { kind: 'user' }, id: 'u2-id' });
+    for (let i = 0; i < 20; i++) {
+      contextService.append({ role: 'assistant', content: [{ type: 'text', text: `a${i}${'y'.repeat(60)}` }], toolCalls: [], origin: { kind: 'system_trigger', name: 'seed' }, id: `a${i}-id` });
+      contextService.append({ role: 'tool', content: [{ type: 'text', text: blob }], toolCalls: [], origin: { kind: 'system_trigger', name: 'seed' }, id: `t${i}-id`, toolCallId: `c${i}` });
+    }
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
+
+    const context = ctx.get(IAgentContextMemoryService).get();
+    // The compaction summary message carries the prefix; tool blobs are gone.
+    const summaryMessage = context.find((message) => message.origin?.kind === 'compaction_summary');
+    expect(summaryMessage).toBeDefined();
+    const allText = context
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === 'text')
+      .map((part) => (part as { text?: string }).text ?? '')
+      .join('\n');
+    expect(allText).toContain('engine compaction summary');
+    expect(allText).not.toContain(blob);
+    // The post-compaction step answer is present.
+    expect(allText).toContain('answer after compaction');
+    // Recent user input survives the compaction.
+    expect(allText).toContain('u2');
+  });
 });
 
 describe('Rust engine approval flow (manual mode)', () => {

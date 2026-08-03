@@ -109,6 +109,16 @@ pub enum EngineEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         synthetic: Option<bool>,
     },
+    /// Full-history compaction ran between steps: the engine replaced its
+    /// working messages with the LLM summary (TS `fullCompaction` parity).
+    #[serde(rename = "context.compacted", rename_all = "camelCase")]
+    ContextCompacted {
+        turn_id: i64,
+        summary: String,
+        tokens_before: u64,
+        tokens_after: u64,
+        compacted_count: u64,
+    },
 }
 
 /// `ToolUpdate` — the streaming tool output shape (toolExecutorEvents.ts).

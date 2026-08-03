@@ -10,6 +10,7 @@
 //! tool domains land in later slices (see `DESIGN-slice1.md`).
 
 pub mod aimux;
+pub mod compaction;
 pub mod context;
 pub mod engine;
 pub mod events;
