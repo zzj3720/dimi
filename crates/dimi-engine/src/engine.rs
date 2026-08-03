@@ -1873,6 +1873,187 @@ mod compaction_tests {
     }
 
     #[tokio::test]
+    async fn compact_retries_with_dropped_prefix_when_summary_is_empty() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1 = compaction round returns an EMPTY summary → the
+                // engine must drop the oldest message and retry.
+                // Call 2 = compaction retry returns the real summary.
+                // Call 3+ = the actual step.
+                let (delta, is_retry) = match calls.len() {
+                    1 => (String::new(), false),
+                    2 => ("retried summary".to_string(), true),
+                    _ => (String::new(), false),
+                };
+                let segment = if !delta.is_empty() || !is_retry {
+                    vec![LlmStreamEvent::Text {
+                        delta: delta.clone(),
+                    }]
+                } else {
+                    vec![]
+                };
+                let text = delta;
+                Ok(StreamedTurn {
+                    events: segment,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // ~1830 tokens against a 2000-token window (trigger 1700).
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+
+        // Compaction succeeded with the retried summary.
+        let summary = events.iter().find_map(|event| match event {
+            EngineEvent::ContextCompacted { summary, .. } => Some(summary.clone()),
+            _ => None,
+        });
+        assert_eq!(summary.as_deref(), Some("retried summary"));
+        // Three LLM calls: empty compaction round, retried compaction round,
+        // then the real step.
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        // The retry dropped the oldest message: the second compaction request
+        // has one fewer message than the first.
+        assert!(
+            requests[1].len() < requests[0].len(),
+            "retry must drop the oldest message: {} -> {}",
+            requests[0].len(),
+            requests[1].len()
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_fails_soft_when_every_summary_is_empty() {
+        use std::sync::{Arc, Mutex};
+        struct EmptySummaryClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for EmptySummaryClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                // Every compaction round returns an empty summary; the final
+                // call is the actual step.
+                Ok(StreamedTurn {
+                    events: vec![],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = EmptySummaryClient(Arc::clone(&calls));
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        // No compaction happened (fail soft): the turn still completes.
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::ContextCompacted { .. })),
+            "empty summaries must not emit context.compacted"
+        );
+        // COMPACTION_MAX_SHRINK_ATTEMPTS + 1 compaction rounds (0..=3 = 4),
+        // then the real step.
+        assert_eq!(*calls.lock().unwrap(), 5);
+    }
+
+    #[tokio::test]
     async fn no_compaction_within_the_window() {
         use std::sync::{Arc, Mutex};
         struct RecordingClient(Arc<Mutex<usize>>);
