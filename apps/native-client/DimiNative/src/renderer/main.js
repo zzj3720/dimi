@@ -105,8 +105,8 @@ els.input.addEventListener('keydown', (evt) => {
     if (k === 's') { evt.preventDefault(); dispatch(Msg.Steer()); return; }
     if (k === 'o') { evt.preventDefault(); dispatch(Msg.ExpandToggle()); return; }
     if (k === 'g') { evt.preventDefault(); openExternalEditor(); return; }
-    if (k === 't') { evt.preventDefault(); dispatch(Msg({ type: 'todo_toggle' })); return; }
-    if (k === '-') { evt.preventDefault(); dispatch(Msg({ type: 'undo' })); return; }
+    if (k === 't') { evt.preventDefault(); dispatch({ type: 'todo_toggle' }); return; }
+    if (k === '-') { evt.preventDefault(); dispatch({ type: 'undo' }); return; }
     return;
   }
 
@@ -123,9 +123,9 @@ els.input.addEventListener('keydown', (evt) => {
       // Explicit completion trigger when the menu is closed (TUI handleTabCompletion).
       evt.preventDefault();
       if (evt.shiftKey) {
-        dispatch(Msg({ type: 'plan_mode_toggle' }));
+        dispatch({ type: 'plan_mode_toggle' });
       } else {
-        dispatch(Msg({ type: 'completion_tab' }));
+        dispatch({ type: 'completion_tab' });
       }
       return;
 
@@ -205,9 +205,9 @@ export async function loadSessions() {
   model.sessionsLoading = true;
   render();
   try {
-    const data = await api('GET', '/api/v1/sessions');
-    const list = data?.data ?? data?.sessions ?? [];
-    dispatch(Msg.SessionsLoaded(list));
+    const data = await api('GET', '/api/v1/sessions?page_size=100');
+    const items = data?.data?.items ?? [];
+    dispatch(Msg.SessionsLoaded(items));
   } catch (e) {
     model.sessionsLoading = false;
     model.sessionsError = String(e);
@@ -219,8 +219,8 @@ export async function loadSessions() {
 export async function connectSession(sessionId) {
   // Load transcript baseline then subscribe to SSE.
   try {
-    const data = await api('GET', `/api/v1/sessions/${sessionId}/messages`);
-    const msgs = data?.data ?? data?.messages ?? [];
+    const data = await api('GET', `/api/v1/sessions/${sessionId}/messages?page_size=100`);
+    const msgs = data?.data?.items ?? [];
     model.entries = msgsToEntries(msgs);
     model.entryCount = model.entries.length;
     render();
@@ -229,6 +229,19 @@ export async function connectSession(sessionId) {
     render();
   }
   subscribeSse(sessionId);
+  fetchStatus(sessionId);
+}
+
+export async function fetchStatus(sessionId) {
+  try {
+    const data = await api('GET', `/api/v1/sessions/${sessionId}/status`);
+    const st = data?.data;
+    if (st) {
+      model.busy = !!st.busy;
+      model.phase = st.busy ? 'streaming' : 'idle';
+      render();
+    }
+  } catch { /* non-fatal */ }
 }
 
 export function subscribeSse(sessionId) {
@@ -350,7 +363,11 @@ function runSlashCommand(resolved) {
 async function sendPrompt(text) {
   if (!model.currentSessionId) return;
   try {
-    await api('POST', `/api/v1/sessions/${model.currentSessionId}/messages`, { text });
+    // Sending goes through the prompts route (REST): content is the parts
+    // array with a single text part (mirror of the TUI's session.prompt).
+    await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
+      content: [{ type: 'text', text }],
+    });
     model.statusMsg = '';
     render();
   } catch (e) {
@@ -388,7 +405,16 @@ function doSteer() {
 
 function doCancel() {
   if (model.busy) {
-    api('POST', `/api/v1/sessions/${model.currentSessionId}/messages/cancel`, {})
+    // Abort the active prompt: POST /sessions/{id}/prompts/{prompt_id}:abort
+    // (the session carries current_prompt_id from the list/metadata).
+    const pid = model.currentPromptId;
+    if (!pid) {
+      // Fall back to the session-level abort action when unknown.
+      api('POST', `/api/v1/sessions/${model.currentSessionId}:abort`, {})
+        .catch(() => {});
+      return;
+    }
+    api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts/${pid}:abort`, {})
       .catch(() => {});
   }
 }
@@ -400,7 +426,9 @@ function submitApproval() {
   if (!a) return;
   const opt = a.options?.[model.approvalSelectedIndex];
   api('POST', `/api/v1/sessions/${model.currentSessionId}/approvals/${a.id}`, {
-    optionId: opt?.id ?? opt?.value ?? null,
+    decision: 'approved',
+    scope: 'session',
+    selected_label: opt?.label,
   })
     .then(() => { model.currentApproval = null; render(); })
     .catch((e) => { model.statusMsg = `approval failed: ${e.message}`; render(); });
@@ -409,7 +437,9 @@ function submitApproval() {
 function rejectApproval() {
   const a = model.currentApproval;
   if (!a) return;
-  api('POST', `/api/v1/sessions/${model.currentSessionId}/approvals/${a.id}/reject`, {})
+  api('POST', `/api/v1/sessions/${model.currentSessionId}/approvals/${a.id}`, {
+    decision: 'rejected',
+  })
     .then(() => { model.currentApproval = null; render(); })
     .catch(() => { model.currentApproval = null; render(); });
 }
@@ -417,10 +447,15 @@ function rejectApproval() {
 function submitQuestion() {
   const q = model.currentQuestion;
   if (!q) return;
-  const answers = (q.options ?? [])
-    .filter((o) => o.selected)
-    .map((o) => o.id ?? o.value);
-  api('POST', `/api/v1/sessions/${model.currentSessionId}/questions/${q.id}/answer`, { answers })
+  const answers = {};
+  for (const o of q.options ?? []) {
+    if (o.selected) {
+      answers[q.id] = { kind: 'multi', option_ids: (q.options ?? []).filter((x) => x.selected).map((x) => x.id) };
+      break;
+    }
+  }
+  if (!answers[q.id]) answers[q.id] = { kind: 'skipped' };
+  api('POST', `/api/v1/sessions/${model.currentSessionId}/questions/${q.id}`, { answers })
     .then(() => { model.currentQuestion = null; render(); })
     .catch((e) => { model.statusMsg = `question failed: ${e.message}`; render(); });
 }
@@ -430,8 +465,27 @@ function submitQuestion() {
 function msgsToEntries(msgs) {
   return msgs.map((m) => ({
     kind: m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'status',
-    text: m.content ?? '',
+    text: contentToText(m.content),
   }));
+}
+
+// MessageContent[] → plain text (text parts joined; tool parts flattened).
+function contentToText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (!part) return '';
+      if (part.type === 'text') return part.text ?? '';
+      if (part.type === 'thinking') return '';
+      if (part.type === 'tool_use') return `[tool: ${part.tool_name}]`;
+      if (part.type === 'tool_result') {
+        return typeof part.output === 'string' ? part.output : JSON.stringify(part.output ?? '');
+      }
+      return '';
+    })
+    .filter((s) => s.length > 0)
+    .join('\n');
 }
 
 async function createSession() {
@@ -453,7 +507,7 @@ function openExternalEditor() {
 // ------------------------------------------------------------- boot
 
 async function boot() {
-  dispatch(Msg({ type: 'boot' }));
+  dispatch({ type: 'boot' });
   try {
     const meta = await api('GET', '/api/v1/meta');
     const serverVersion = meta?.data?.server_version ?? meta?.data?.version ?? meta?.serverVersion ?? '';

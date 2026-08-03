@@ -25,6 +25,7 @@ export const model = {
 
   // session
   currentSessionId: '',
+  currentPromptId: '',
   sessions: [],
   sessionsLoading: false,
   sessionsError: '',
@@ -162,6 +163,10 @@ export function update(state, msg) {
       }
       return;
 
+    case 'sse_event':
+      handleSseEvent(state, msg.evt);
+      return;
+
     case 'sessions_loaded':
       state.sessions = msg.sessions;
       state.sessionsLoading = false;
@@ -241,8 +246,9 @@ export function update(state, msg) {
       {
         const item = state.completionItems[state.completionSelected];
         if (!item) return;
-        // Replace the completion prefix with the accepted value.
-        state.draft = state.draft.slice(0, state.completionPrefix.length) + item.value;
+        // Replace from the completion prefix start (TUI applyCompletion:
+        // prefix is the byte offset where the accepted value lands).
+        state.draft = state.draft.slice(0, state.completionPrefix) + item.value;
         closeCompletion(state);
       }
       return;
@@ -463,6 +469,143 @@ export function update(state, msg) {
 
 // ------------------------------------------------------------------ helpers
 
+// SSE event → model. Mirrors the TUI's routeEvent (streaming-ui.ts): the
+// envelope carries `type` on the payload (envelope.type is the SSE event
+// name, payload.type is the event kind).
+export function handleSseEvent(state, evt) {
+  const p = evt.payload ?? evt;
+  const type = p.type ?? evt.type;
+  if (!type) return;
+
+  switch (type) {
+    case 'event.session.work_changed': {
+      if (p.busy !== undefined) state.busy = !!p.busy;
+      if (p.main_turn_active !== undefined) state.phase = p.main_turn_active ? 'streaming' : state.phase;
+      if (p.pending_interaction !== undefined && p.pending_interaction !== 'none') {
+        state.statusMsg = `waiting for ${p.pending_interaction}…`;
+      }
+      return;
+    }
+
+    case 'turn.started':
+      state.busy = true;
+      state.phase = 'streaming';
+      state.statusMsg = '';
+      state.currentPromptId = p.promptId ?? state.currentPromptId;
+      return;
+
+    case 'turn.ended': {
+      state.busy = false;
+      state.phase = 'idle';
+      // Seal the final streaming entry.
+      const last = state.entries[state.entries.length - 1];
+      if (last && (last.kind === 'assistant' || last.kind === 'thinking') && last.streaming) {
+        last.streaming = false;
+      }
+      if (p.reason === 'cancelled') state.statusMsg = 'cancelled';
+      else if (p.reason === 'failed') state.statusMsg = `turn failed: ${p.error ?? ''}`;
+      else state.statusMsg = '';
+      return;
+    }
+
+    case 'assistant.delta': {
+      const text = p.text ?? p.delta ?? '';
+      if (!text) return;
+      const last = state.entries[state.entries.length - 1];
+      if (last && last.kind === 'assistant' && last.streaming) {
+        last.text += text;
+      } else {
+        state.entries.push({ kind: 'assistant', text, streaming: true });
+      }
+      state.entryCount = state.entries.length;
+      return;
+    }
+
+    case 'thinking.delta': {
+      const text = p.text ?? p.delta ?? '';
+      if (!text) return;
+      const last = state.entries[state.entries.length - 1];
+      if (last && last.kind === 'thinking' && last.streaming) {
+        last.text += text;
+      } else {
+        state.entries.push({ kind: 'thinking', text, streaming: true });
+      }
+      return;
+    }
+
+    case 'tool.call.started': {
+      state.entries.push({
+        kind: 'tool',
+        toolName: p.toolName ?? p.name ?? 'tool',
+        toolCallId: p.toolCallId ?? p.id ?? '',
+        text: '',
+        streaming: false,
+      });
+      state.entryCount = state.entries.length;
+      return;
+    }
+
+    case 'tool.result': {
+      for (let i = state.entries.length - 1; i >= 0; i--) {
+        const e = state.entries[i];
+        if (e.kind === 'tool' && e.toolCallId === (p.toolCallId ?? p.id ?? '')) {
+          e.text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
+          e.streaming = false;
+          return;
+        }
+      }
+      return;
+    }
+
+    case 'prompt.submitted':
+      state.currentPromptId = p.promptId ?? state.currentPromptId;
+      state.statusMsg = '';
+      return;
+
+    case 'prompt.completed':
+      state.currentPromptId = '';
+      return;
+
+    case 'prompt.aborted':
+      state.currentPromptId = '';
+      state.busy = false;
+      state.phase = 'idle';
+      return;
+
+    case 'compaction.started':
+      state.busy = true;
+      state.phase = 'compacting';
+      state.entries.push({ kind: 'compaction', text: 'compacting context…', streaming: false });
+      return;
+
+    case 'compaction.completed':
+      state.busy = false;
+      state.phase = 'idle';
+      return;
+
+    case 'compaction.cancelled':
+      state.phase = 'idle';
+      return;
+
+    case 'error': {
+      const message = p.msg ?? p.message ?? 'server error';
+      state.statusMsg = `error: ${message}`;
+      return;
+    }
+
+    case 'session.meta.updated': {
+      const s = state.sessions.find((x) => x.id === state.currentSessionId);
+      if (s && p.title) s.title = p.title;
+      return;
+    }
+
+    default:
+      // Unknown event kinds are ignored by the POC (TUI ignores them too
+      // unless a panel cares).
+      return;
+  }
+}
+
 export function filteredSessions(state) {
   const q = state.pickerQuery.trim().toLowerCase();
   let list = state.sessions;
@@ -608,6 +751,7 @@ export function updateCompletion(state) {
     const filtered = fuzzyFilter(args, argPrefix, (a) => a);
     if (filtered.length === 0) { closeCompletion(state); return; }
     state.completionOpen = true;
+    // Prefix = start of the argument being completed (after "/cmd ").
     state.completionPrefix = text.length - argPrefix.length;
     state.completionItems = filtered.map((a) => ({
       value: a,
@@ -629,7 +773,8 @@ export function updateCompletion(state) {
   const filtered = fuzzyFilter(slashCommands, needle, (c) => c.name);
   if (filtered.length === 0) { closeCompletion(state); return; }
   state.completionOpen = true;
-  state.completionPrefix = 1; // keep the leading '/'
+  // Prefix = 0: the whole "/prefix" is replaced by the accepted value.
+  state.completionPrefix = 0;
   state.completionItems = filtered.map((c) => ({
     value: `/${c.name}`,
     label: `/${c.name}`,
