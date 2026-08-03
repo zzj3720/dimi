@@ -875,6 +875,31 @@ describe("DimiTUI resume message replay", () => {
     expect(transcript).toContain("Compacted transcript summary.");
   });
 
+  it("renders replayed compaction summary user messages as compaction blocks, not user messages", async () => {
+    const driver = await replayIntoDriver([
+      message("user", [{ type: "text", text: "prompt before compaction" }]),
+      message("user", [{ type: "text", text: "Compacted transcript summary." }], {
+        origin: { kind: "compaction_summary" },
+      }),
+      message("user", [{ type: "text", text: "prompt after compaction" }]),
+    ]);
+
+    const compactionEntry = driver.state.transcriptEntries.find(
+      (entry) => entry.compactionData !== undefined,
+    );
+    expect(compactionEntry?.compactionData).toEqual({
+      summary: "Compacted transcript summary.",
+    });
+    const collapsed = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(collapsed).toContain("Compaction complete");
+    expect(collapsed).not.toContain("Compacted transcript summary.");
+
+    driver.state.editor.onToggleToolExpand?.();
+    driver.state.editor.onToggleToolExpand?.();
+    const expanded = stripAnsi(driver.state.transcriptContainer.render(120).join("\n"));
+    expect(expanded).toContain("Compacted transcript summary.");
+  });
+
   it("renders replayed cancelled compaction records as cancelled compaction blocks", async () => {
     const driver = await replayIntoDriver([
       message("user", [{ type: "text", text: "prompt before cancellation" }]),

@@ -31,6 +31,7 @@ import {
   applyPromptMetadataUpdate,
   bootstrap,
   BUILTIN_SKILLS,
+  createContextTranscriptReducer,
   DEFAULT_AGENT_PROFILE_NAME,
   ensureDimiHome,
   ensureMainAgent,
@@ -45,9 +46,11 @@ import {
   IAgentProfileService,
   configuredRoots,
   IAgentRPCService,
+  IAgentScopeContext,
   IAgentSkillService,
   IAgentSwarmService,
   IAgentTaskService,
+  IAppendLogStore,
   IBootstrapService,
   IConfigService,
   IEventService,
@@ -73,6 +76,7 @@ import {
   ISkillCatalogRuntimeOptions,
   ISkillDiscovery,
   ITelemetryService,
+  IWireService,
   IWorkspaceAliases,
   logSeed,
   MAIN_AGENT_ID,
@@ -83,6 +87,7 @@ import {
   ProfileErrors,
   projectRoots,
   promptMetadataTextFromSkill,
+  readContextCompactionRecord,
   resolveAgentTaskConfig,
   resolveConfigPath,
   resolveDimiHome,
@@ -91,12 +96,15 @@ import {
   skillCatalogRuntimeOptionsSeed,
   summarizeSkill,
   userRoots,
+  AGENT_WIRE_RECORD_KEY,
+  type AgentReplayRecord,
   type IAgentScopeHandle,
   type IDisposable,
   type ISessionScopeHandle,
   type Scope,
   type SecondaryModelConfig,
   type ServicesAccessor,
+  type WireRecord,
 } from "@dimi-agent/agent-core-v2";
 import type { AgentHandle, Klient } from "@dimi-agent/klient";
 import { createKlient } from "@dimi-agent/klient/memory";
@@ -663,8 +671,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
 
   /**
    * Build one canonical v2 resume snapshot from the live restored scopes.
-   * Replay is the restored context history; task and todo state come from
-   * their owning services instead of a second pass over the wire journal.
+   * Replay is the full message history folded from the agent's wire journal —
+   * NOT the live context memory, which after a compaction collapses into
+   * `[...keptUserMessages, compaction_summary]` and would lose the compacted
+   * prefix. `context` keeps the folded (live) context for token accounting;
+   * task and todo state come from their owning services instead of a second
+   * pass over the wire journal.
    */
   private async resumedAgentState(
     session: ISessionScopeHandle,
@@ -674,11 +686,12 @@ export class SDKRpcClient extends SDKRpcClientBase {
   ): Promise<ResumedAgentState> {
     const facade = this.klient.session(session.id).agent(agent.id);
     const ctx = session.accessor.get(ISessionContext);
-    const [context, plan, usage, tasks] = await Promise.all([
+    const [context, plan, usage, tasks, replay] = await Promise.all([
       facade.getContext(),
       facade.getPlan(),
       facade.getUsage(),
       facade.getTasks({ activeOnly: false }),
+      this.buildReplayFromWire(agent),
     ]);
     const profile = agent.accessor.get(IAgentProfileService).data();
     return {
@@ -692,10 +705,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
         systemPrompt: profile.systemPrompt,
       },
       context: context as AgentContextData,
-      replay: limitAgentReplayByTurns(
-        context.history.map((message, time) => ({ type: "message" as const, message, time })),
-        replayTurnLimit,
-      ),
+      replay: limitAgentReplayByTurns(replay, replayTurnLimit),
       permission: {
         mode: agent.accessor.get(IAgentPermissionModeService).mode,
         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
@@ -707,6 +717,64 @@ export class SDKRpcClient extends SDKRpcClientBase {
       tasks: tasks as ResumedAgentState["tasks"],
       todos: session.accessor.get(ISessionTodoService).getTodos(),
     };
+  }
+
+  /**
+   * Fold the agent's full message history from its wire journal.
+   *
+   * The wire journal is the source of truth for message history: it keeps
+   * every `context.append_message` / `context.append_loop_event` record, and
+   * a `context.apply_compaction` record only marks a compaction point instead
+   * of rewriting the past. Folding it yields the complete pre-compaction
+   * history with a summary marker at each compaction, which is what replay
+   * should render. The live context memory (`facade.getContext()`) is the
+   * model's folded context and is deliberately NOT used here — it would hide
+   * everything compacted away.
+   */
+  private async buildReplayFromWire(agent: IAgentScopeHandle): Promise<AgentReplayRecord[]> {
+    await agent.accessor.get(IWireService).flush();
+    const scope = agent.accessor.get(IAgentScopeContext).scope();
+    const reducer = createContextTranscriptReducer();
+    const applyCompactionRecords: WireRecord[] = [];
+    for await (const record of this.engineAccessor
+      .get(IAppendLogStore)
+      .read<WireRecord>(scope, AGENT_WIRE_RECORD_KEY)) {
+      if (record.type === "context.apply_compaction") applyCompactionRecords.push(record);
+      reducer.add(record);
+    }
+    const { entries, times } = reducer.result();
+    const replay: AgentReplayRecord[] = [];
+    let compactionIndex = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const message = entries[i]!;
+      const time = times[i];
+      if (message.origin?.kind === "compaction_summary") {
+        const record = applyCompactionRecords[compactionIndex];
+        compactionIndex += 1;
+        if (record !== undefined) {
+          const compaction = readContextCompactionRecord(record);
+          replay.push({
+            type: "compaction",
+            result: {
+              summary: compaction.summary,
+              contextSummary: compaction.contextSummary,
+              compactedCount: compaction.compactedCount,
+              tokensBefore: compaction.tokensBefore,
+              tokensAfter: compaction.tokensAfter,
+              keptUserMessageCount: compaction.keptUserMessageCount,
+              keptHeadUserMessageCount: compaction.keptHeadUserMessageCount,
+              droppedCount: compaction.droppedCount,
+            },
+            time: time ?? 0,
+          });
+          continue;
+        }
+        // No matching compaction record (e.g. a manually inserted summary
+        // marker): still keep it as a message so nothing is dropped.
+      }
+      replay.push({ type: "message", message, time: time ?? 0 });
+    }
+    return replay;
   }
 
   /**

@@ -247,6 +247,13 @@ export class SessionReplayRenderer {
     if (message.origin?.kind === 'injection') {
       return;
     }
+    if (message.origin?.kind === 'compaction_summary') {
+      // A compaction folded into the model context still shows up in replay
+      // history as a summary marker. Render it as a compaction block instead
+      // of leaking the model-facing summary as a user message.
+      this.renderCompactionSummary(context, message);
+      return;
+    }
     if (message.origin?.kind === 'task') {
       this.flushAssistant(context);
       const info = this.host.sessionEventHandler.backgroundTasks.get(message.origin.taskId);
@@ -464,6 +471,24 @@ export class SessionReplayRenderer {
         tokensBefore: record.result.tokensBefore,
         tokensAfter: record.result.tokensAfter,
         instruction: record.instruction,
+      },
+    });
+  }
+
+  /**
+   * Render a `compaction_summary` user message folded into the model context
+   * (the resume snapshot's context history carries it after compaction). The
+   * message text is the model-facing summary; token counts are unknown here,
+   * so only the summary is surfaced. The snapshot is still rebuilt from the
+   * wire journal on resume (see `resumedAgentState`), so this branch is a
+   * fallback for snapshots that were built from a folded context.
+   */
+  private renderCompactionSummary(context: ReplayRenderContext, message: ContextMessage): void {
+    this.flushAssistant(context);
+    this.host.appendTranscriptEntry({
+      ...replayEntry(context, 'status', 'Compaction complete', 'plain'),
+      compactionData: {
+        summary: contentPartsToText(message.content),
       },
     });
   }

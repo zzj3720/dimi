@@ -214,6 +214,106 @@ describe("Session plan, compact, usage, and resume APIs", () => {
   });
 
 
+  it("resumes a compacted session with full pre-compaction history and a compaction marker", async () => {
+    const homeDir = await makeTempDir(tempDirs, "dimi-sdk-compact-resume-history-home-");
+    const workDir = await makeTempDir(tempDirs, "dimi-sdk-compact-resume-history-work-");
+    await writeTestConfig(homeDir);
+    // Direct base harness: the file-level `createDimiHarness` wrapper pins its
+    // own provider runtime, which would replace the mock stream below.
+    const harness = createBaseHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      providerRuntime: createTestProviderRuntime({
+        providerId: "local",
+        modelId: "test-model",
+        stream: async function* () {
+          const timestamp = Date.now();
+          const pending = {
+            role: "assistant" as const,
+            content: [],
+            api: "openai-completions",
+            provider: "local",
+            model: "test-model",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "pending" as const,
+            timestamp,
+          };
+          const message = {
+            ...pending,
+            content: [{ type: "text" as const, text: "Compacted summary." }],
+            usage: { ...pending.usage, output: 1, totalTokens: 1 },
+            stopReason: "stop" as const,
+            finishReason: "completed" as const,
+            rawStopReason: "stop",
+          };
+          yield { type: "start", partial: pending };
+          yield { type: "text_delta", delta: "Compacted summary.", partial: message };
+          yield { type: "done", reason: "stop", message };
+        },
+      }),
+    });
+
+    try {
+      const session = await harness.createSession({ id: "ses_compact_resume_history", workDir });
+      const firstEnded = waitForSessionEvent(session, (event) => event.type === "turn.ended");
+      await session.prompt("first user message");
+      await firstEnded;
+      const secondEnded = waitForSessionEvent(session, (event) => event.type === "turn.ended");
+      await session.prompt("second user message");
+      await secondEnded;
+
+      const compacted = waitForSessionEvent(session, (event) => event.type === "compaction.completed");
+      await session.compact({ instruction: "keep it short" });
+      await compacted;
+      await session.close();
+
+      const resumed = await harness.resumeSession({ id: "ses_compact_resume_history" });
+      const replay = resumed.getResumeState()?.agents["main"]?.replay;
+
+      // Message history is preserved across compaction: the resume replay must
+      // still contain both pre-compaction user messages (the live context only
+      // keeps the most recent ones + the summary marker).
+      expect(replay).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "message",
+            message: expect.objectContaining({
+              role: "user",
+              content: [{ type: "text", text: "first user message" }],
+            }),
+          }),
+          expect.objectContaining({
+            type: "message",
+            message: expect.objectContaining({
+              role: "user",
+              content: [{ type: "text", text: "second user message" }],
+            }),
+          }),
+        ]),
+      );
+      // The compaction point renders as a compaction record, not as a
+      // model-facing summary user message.
+      expect(replay).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "compaction",
+            result: expect.objectContaining({ summary: "Compacted summary." }),
+          }),
+        ]),
+      );
+      expect(replay?.some((record) => record.type === "compaction")).toBe(true);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("rejects an empty resume id", async () => {
     const homeDir = await makeTempDir(tempDirs, "dimi-sdk-resume-empty-home-");
     const harness = createDimiHarness({ homeDir, identity: TEST_IDENTITY });
