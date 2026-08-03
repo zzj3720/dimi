@@ -95,16 +95,17 @@ const DEFAULT_CONTROL_ACK_TIMEOUT_MS = 5_000;
 
 /**
  * Per-request stateless session controls that the server REST surface
- * requires on every prompt submission. Scenarios that don't care about
+ * accepts on every prompt submission. Scenarios that don't care about
  * these can leave them at the defaults; tests that exercise switching
  * model / thinking / permission / plan mode override only the field
  * they need.
  *
- * `model` matches what the existing server-e2e scenarios assume (the
- * default provider exposes `dimi/kimi-for-coding`).
+ * `model` is intentionally NOT defaulted statically: the harness adopts the
+ * server's advertised `default_model` (`GET /auth`) on the first prompt
+ * that doesn't override it, so it stays provider-agnostic instead of
+ * hardcoding the fork's provider.
  */
 export const DEFAULT_PROMPT_CONTROLS = {
-  model: 'dimi/kimi-for-coding',
   thinking: 'off' as PromptThinking,
   permission_mode: 'manual' as PromptPermissionMode,
   plan_mode: false,
@@ -112,9 +113,9 @@ export const DEFAULT_PROMPT_CONTROLS = {
 
 /**
  * Looser input shape for `submitPrompt` / `submitAndWait`. `content` is
- * required; the four stateless controls fall back to
- * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
- * verbatim.
+ * required; the stateless controls fall back to `DEFAULT_PROMPT_CONTROLS`
+ * when omitted, and `model` falls back to the server's `default_model`.
+ * `metadata` carries through verbatim.
  */
 export type PromptSubmitInput =
   Pick<PromptSubmission, 'content'>
@@ -150,10 +151,6 @@ export interface TerminalCloseResult {
   closed: true;
 }
 
-function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
-  return { ...DEFAULT_PROMPT_CONTROLS, ...input };
-}
-
 export class DaemonClient {
   readonly baseUrl: string;
   readonly apiPrefix: string;
@@ -170,6 +167,8 @@ export class DaemonClient {
   private readonly _controlAckTimeoutMs: number;
   private _ws: WsClient | null = null;
   private _serverHello: ServerHelloMessage['payload'] | null = null;
+  /** Lazily-resolved server `default_model` (`null` when the server has none). */
+  private _defaultModel: string | null | undefined;
   private readonly _subscribed = new Set<string>();
   private readonly _disposers: Array<() => void> = [];
 
@@ -305,8 +304,31 @@ export class DaemonClient {
   ): Promise<{ items: Message[]; has_more: boolean }> {
     return this.http.listMessages(sid, query);
   }
+  /**
+   * Resolve the server's advertised default model once, then reuse it.
+   * `null` is cached too, so a server with no default doesn't re-probe on
+   * every prompt.
+   */
+  private async resolveDefaultModel(): Promise<string | undefined> {
+    if (this._defaultModel === undefined) {
+      const auth = await this.http.getAuth();
+      this._defaultModel = auth.default_model ?? null;
+    }
+    return this._defaultModel ?? undefined;
+  }
+
+  /** Merge stateless defaults + the server's default model into a submission. */
+  private async fillPromptDefaults(input: PromptSubmitInput): Promise<PromptSubmission> {
+    const model = input.model ?? (await this.resolveDefaultModel());
+    return {
+      ...DEFAULT_PROMPT_CONTROLS,
+      ...(model === undefined ? {} : { model }),
+      ...input,
+    };
+  }
+
   submitPrompt(sid: string, input: PromptSubmitInput): Promise<PromptSubmitResult> {
-    return this.http.submitPrompt(sid, fillPromptDefaults(input));
+    return this.fillPromptDefaults(input).then((body) => this.http.submitPrompt(sid, body));
   }
   /**
    * Stateful-session submit — sends `body` to `POST /sessions/{sid}/prompts`
@@ -617,7 +639,7 @@ export class DaemonClient {
     // The WS layer queues every frame from the moment we open, so any events
     // that arrive between this POST and the `waitForFrame` below are still
     // there to be matched (they're drained from the queue, not dropped).
-    const submit = await this.http.submitPrompt(sid, fillPromptDefaults(input));
+    const submit = await this.http.submitPrompt(sid, await this.fillPromptDefaults(input));
 
     const finalFrame = await ws.waitForFrame((f) => {
       if (f.type !== waitFor) return false;

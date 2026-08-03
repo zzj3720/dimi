@@ -22,6 +22,7 @@ import {
   type ContextInjectionProvider,
 } from '#/agent/contextInjector/contextInjector';
 import { IAgentTaskService, type AgentTask, type AgentTaskInfo } from '#/agent/task/task';
+import { DEFAULT_KILL_GRACE_MS } from '#/agent/task/configSection';
 import { renderNotificationXml } from '#/agent/task/notificationXml';
 import { AgentTaskService } from '#/agent/task/taskService';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
@@ -475,6 +476,17 @@ describe('AgentTaskService', () => {
 
     expect(forceStopped).toBe(true);
     expect(info?.status).toBe('killed');
+  });
+
+  it('pins DEFAULT_KILL_GRACE_MS at 5000 (Rust engine parity)', () => {
+    // F5 (review note): `DEFAULT_KILL_GRACE_MS` here and the Rust constant in
+    // `crates/dimi-engine/src/tool.rs` are only comment-linked. The runner
+    // wires this TS value into the engine turn input's `killGraceMs`, so the
+    // Rust value is only a fallback for direct/nested construction — but if
+    // the two ever diverge, this pin (plus the Rust-side pin in
+    // tool.rs `default_kill_grace_ms_is_pinned_at_the_ts_default`) fails and
+    // the mismatch is caught.
+    expect(DEFAULT_KILL_GRACE_MS).toBe(5_000);
   });
 
   function mapBackedDocs(): IAtomicDocumentStore {

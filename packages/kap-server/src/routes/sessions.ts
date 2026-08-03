@@ -322,6 +322,15 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         if (typeof body.title === "string") {
           await handle.accessor.get(ISessionMetadata).setTitle(body.title);
         }
+        // Persist the caller's metadata verbatim (cwd + any custom keys) so
+        // it round-trips through `Session.metadata` and is inherited by
+        // forks (`forkCustomMetadata` merges it). Only `metadata.cwd` was
+        // read for workdir resolution before; the rest was dropped.
+        if (body.metadata !== undefined && Object.keys(body.metadata).length > 0) {
+          await handle.accessor
+            .get(ISessionMetadata)
+            .update({ custom: { ...(body.metadata as Record<string, unknown>) } });
+        }
         const meta = await handle.accessor.get(ISessionMetadata).read();
         const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root, {
           busy: false,

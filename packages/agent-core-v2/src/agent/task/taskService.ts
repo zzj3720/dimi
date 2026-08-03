@@ -86,7 +86,7 @@ import {
   type IAgentTaskEntry,
   type RegisterAgentTaskOptions,
 } from "./task";
-import { resolveAgentTaskConfig } from "./configSection";
+import { DEFAULT_KILL_GRACE_MS, resolveAgentTaskConfig } from "./configSection";
 import { AgentTaskPersistence } from "./persist";
 import { TaskModel, taskStarted, taskTerminated } from "./taskOps";
 import { formatTaskList } from "#/agent/tools/task/task-list/taskListTool";
@@ -180,7 +180,6 @@ function outputLimitReason(): string {
   );
 }
 
-const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 const SESSION_CLOSED_REASON = "Session closed";
 const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
@@ -467,7 +466,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     };
     this.assertCanRegister(detached);
     const entry: ManagedTask = {
-      taskId: generateTaskId(task.idPrefix),
+      taskId: options.taskId ?? generateTaskId(task.idPrefix),
       task,
       handle: undefined,
       outputChunks: [],
@@ -868,7 +867,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       entry.abortController.abort(options.abortReason);
     }
 
-    const graceMs = resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? SIGTERM_GRACE_MS;
+    const graceMs = resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? DEFAULT_KILL_GRACE_MS;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const graceful = await Promise.race([
       entry.lifecyclePromise.then(

@@ -25,6 +25,7 @@ import { IAgentSkillService } from '#/agent/skill/skill';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IRustEngineTurnRunner, RustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
 import type {
   ActivatePluginCommandPayload,
   ActivateSkillPayload,
@@ -82,6 +83,7 @@ export class AgentRPCService implements IAgentRPCService {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @IRustEngineTurnRunner private readonly rustEngineTurnRunner: IRustEngineTurnRunner,
   ) { }
 
   async prompt(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
@@ -96,6 +98,16 @@ export class AgentRPCService implements IAgentRPCService {
       }
     }
     await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
+    // M3 slice-1 swap-in: DIMI_RUST_ENGINE=1 routes the turn through the
+    // Rust engine instead of the TS loop. `undefined` = queued behind the
+    // running turn (TS `state === 'pending'` parity).
+    if (RustEngineTurnRunner.isEnabled()) {
+      const launched = await this.rustEngineTurnRunner.runTurn({
+        input: [...payload.input],
+        origin: { kind: "user" },
+      });
+      return launched === undefined ? undefined : { turn_id: launched.turnId };
+    }
     const handle = await this.promptService.enqueue({ message: {
       role: 'user',
       content: [...payload.input],
@@ -109,6 +121,20 @@ export class AgentRPCService implements IAgentRPCService {
 
   async steer(payload: SteerPayload): Promise<PromptLaunchResult | undefined> {
     this.telemetry.track2('input_steer', { parts: payload.input.length });
+    // M3 steering: with the Rust engine the running turn lives in the engine,
+    // so steer into it directly; when idle, start a normal Rust turn (the TS
+    // queue would otherwise double-run a concurrent turn).
+    if (RustEngineTurnRunner.isEnabled()) {
+      if (this.rustEngineTurnRunner.steer({ input: [...payload.input], origin: { kind: 'user' } })) {
+        return { turn_id: 0 };
+      }
+      // Idle target: a normal Rust turn (TS enqueueOrSteer fallback).
+      const launched = await this.rustEngineTurnRunner.runTurn({
+        input: [...payload.input],
+        origin: { kind: 'user' },
+      });
+      return launched === undefined ? undefined : { turn_id: launched.turnId };
+    }
     const submitted = await this.promptService.enqueueOrSteer({ message: {
       role: 'user',
       content: [...payload.input],
@@ -120,6 +146,12 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancel({ turnId }: CancelPayload): void {
+    if (RustEngineTurnRunner.isEnabled()) {
+      // The Rust engine owns the running turn: cancel it directly (queued
+      // turns are cancelled by id).
+      this.rustEngineTurnRunner.cancel(turnId);
+      return;
+    }
     if (this.loop.status().state === 'running') {
       this.telemetry.track2('cancel', {
         from: 'streaming',

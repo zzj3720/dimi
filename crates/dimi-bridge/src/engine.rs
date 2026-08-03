@@ -1,0 +1,982 @@
+//! `RustEngine` — the M3 swap-in socket: one turn of the Rust orchestration
+//! core exposed to Node.
+//!
+//! `start_turn` runs a full turn and returns the collected engine event
+//! batch plus the outcome (the synchronous differential-suite surface).
+//! `RustTurnSession` is the in-flight-turn surface: it streams every engine
+//! event to the TS side as it is emitted (per-event `ThreadsafeFunction`
+//! registered via `setOnEvent`) while `run`/`resume` resolve with only the
+//! final progress — the TS adapter publishes each event on the existing
+//! event bus as it arrives, so the transcript projection/broadcast layers
+//! keep working unchanged.
+//!
+//! LLM injection: `scripted_segments` (JSON array of segments) selects the
+//! scripted client for the differential suite; `null` selects the real
+//! OpenAI-compatible client (transport lands in the slice-1 tail).
+
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::{Status, Unknown};
+use napi_derive::napi;
+
+use dimi_engine::aimux::{AimuxLlmClient, openai_model};
+use dimi_engine::events::{EngineEvent, EventSink};
+use dimi_engine::llm::{LlmClient, LlmStreamEvent, ScriptedLlmClient};
+use dimi_engine::permission::{ApprovalDecision, PolicyConfig};
+use dimi_engine::tool::{
+    AgentOutputTool, AgentTasks, AsyncAgentTool, BashTool, ToolExecutor, ToolRegistry, WaitForTool,
+};
+use dimi_engine::types::EngineTurnInput;
+
+use crate::wire_error;
+
+#[napi]
+pub struct RustEngine {
+    inner: dimi_engine::Engine,
+}
+
+#[napi]
+impl RustEngine {
+    #[napi(constructor)]
+    pub fn new(max_steps_per_turn: Option<i32>) -> Self {
+        Self {
+            inner: dimi_engine::Engine {
+                max_steps_per_turn: max_steps_per_turn.map(|n| n.max(0) as u32),
+                max_retries_per_step: None,
+                shell: dimi_exec::env::default_shell(),
+            },
+        }
+    }
+
+    /// Run one turn. `input_json` is an `EngineTurnInput` document;
+    /// `scripted_segments_json` (optional) is a JSON array of LLM event
+    /// segments for the differential suite — when absent the aimux-backed
+    /// client is used. Returns an `EngineEventBatch` document
+    /// (`{ events: [...], outcome: {...} }`).
+    #[napi]
+    pub async fn start_turn(
+        &self,
+        input_json: String,
+        scripted_segments_json: Option<String>,
+    ) -> napi::Result<String> {
+        let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
+
+        let llm: Box<dyn LlmClient> = match scripted_segments_json {
+            Some(segments_json) => {
+                let segments: Vec<Vec<LlmStreamEvent>> =
+                    serde_json::from_str(&segments_json).map_err(wire_error)?;
+                Box::new(ScriptedLlmClient::new(segments))
+            }
+            None => Box::new(AimuxLlmClient {
+                model: openai_model(&input.provider),
+            }),
+        };
+        let tools: Box<dyn ToolExecutor> = Box::new(BashTool::kill_on_timeout());
+        let policy = dimi_engine::permission::PolicyConfig {
+            mode: dimi_engine::permission::PermissionMode::Manual,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let outcome = self
+            .inner
+            .run_turn(
+                &input,
+                llm.as_ref(),
+                tools.as_ref(),
+                &policy,
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        let batch = dimi_engine::events::EngineEventBatch { events, outcome };
+        serde_json::to_string(&batch).map_err(wire_error)
+    }
+}
+
+/// `RustTurnSession` — an in-flight Rust-engine turn with approval support.
+///
+/// `run()` advances the turn until it completes or needs an approval;
+/// `resume(decisionJson)` continues after the user's decision. The event
+/// batch JSON carries `progress`: `{status:"completed", outcome}` or
+/// `{status:"needsApproval", approval}`.
+type ToolCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
+
+/// Per-event streaming sink: every engine event is pushed through this
+/// callback as a JSON string, in emission order, as it happens (registered
+/// via `set_on_event` before `run`/`resume`). `MaxQueueSize` is bounded so
+/// the forwarder's Blocking calls block only when the napi queue is actually
+/// full (with `0` = unbounded, Node's Blocking mode would wait forever).
+type EventCallback = ThreadsafeFunction<
+    String,
+    Unknown<'static>,
+    String,
+    Status,
+    false,
+    false,
+    { EVENT_TSFN_QUEUE_CAP },
+>;
+
+/// The event queue's capacity: the engine can run ahead of the JS event loop
+/// by at most this many events before emitters block (backpressure). 4096
+/// covers a chatty turn (assistant deltas, tool progress, task output) while
+/// bounding memory.
+const EVENT_QUEUE_CAP: usize = 4096;
+
+/// The napi ThreadsafeFunction's own queue capacity: the forwarder submits
+/// one event at a time (Blocking mode), so this only bounds how far the JS
+/// event loop can lag behind the forwarder before it blocks — the Rust queue
+/// then backs up and emitters apply backpressure.
+const EVENT_TSFN_QUEUE_CAP: usize = 1024;
+
+/// Bounded FIFO for engine events en route to the TS side (F6 fix).
+///
+/// The bridge previously forwarded every engine event with a NonBlocking
+/// ThreadsafeFunction call and ignored the returned `Status`: under queue
+/// pressure a dropped `task.output` would silently shift the TS adapter's
+/// byte-offset tail arithmetic and corrupt TaskOutput's retained buffer. All
+/// engine events now flow through this bounded queue into a dedicated
+/// forwarding thread that calls the ThreadsafeFunction in **Blocking** mode:
+///
+/// - **No silent drops.** `send` waits for queue space and the forwarder
+///   waits for the napi queue, so the only events discarded are the ones
+///   emitted after the session is closed — the teardown behavior the old
+///   `EventSink::close` path already had. Under sustained pressure the
+///   system buffers (bounded) and then blocks, never dropping mid-stream.
+/// - **Bounded memory.** The queue holds at most `cap` events.
+/// - **FIFO.** One queue, one forwarder — event order is preserved.
+///
+/// The forwarder is a dedicated **std thread**, not a tokio task: a Blocking
+/// TSFN call must never occupy a tokio worker that engine workers (bash
+/// pollers / subagent workers) run on — on a single-worker runtime a tokio
+/// forwarder blocked on the napi queue would deadlock the engine.
+struct EngineEventChannel {
+    queue: std::sync::Mutex<std::collections::VecDeque<EngineEvent>>,
+    cap: usize,
+    not_empty: std::sync::Condvar,
+    not_full: std::sync::Condvar,
+    /// Wakes `wait_caught_up` waiters when `delivered` advances.
+    caught_up: std::sync::Condvar,
+    /// Events pushed into the queue (monotonic). Guarded by `queue` (like
+    /// `delivered`): `wait_caught_up` evaluates the `delivered == pushed`
+    /// predicate under the queue mutex, so every counter mutation must
+    /// happen under that same mutex or the check-then-wait pattern loses
+    /// notifications.
+    pushed: std::sync::atomic::AtomicU64,
+    /// Events submitted to the ThreadsafeFunction's queue by the forwarder
+    /// (monotonic; submission is guaranteed, the JS callback executing is
+    /// not — Blocking TSFN calls return once the item is queued).
+    /// `run`/`resume` wait until `delivered == pushed` before resolving, so
+    /// every turn event is submitted to the TSFN queue BEFORE the
+    /// `run`/`resume` promise continuation — the ordering the old
+    /// direct-push path had. Guarded by `queue`.
+    delivered: std::sync::atomic::AtomicU64,
+    closed: std::sync::atomic::AtomicBool,
+}
+
+impl EngineEventChannel {
+    fn new(cap: usize) -> Self {
+        Self {
+            queue: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            cap,
+            not_empty: std::sync::Condvar::new(),
+            not_full: std::sync::Condvar::new(),
+            caught_up: std::sync::Condvar::new(),
+            pushed: std::sync::atomic::AtomicU64::new(0),
+            delivered: std::sync::atomic::AtomicU64::new(0),
+            closed: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn pushed_count(&self) -> u64 {
+        self.pushed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn delivered_count(&self) -> u64 {
+        self.delivered.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Push one event, blocking until there is room (or the channel is
+    /// closed). Returns `false` only when closed — the teardown path, never
+    /// queue pressure.
+    fn send(&self, event: EngineEvent) -> bool {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while queue.len() >= self.cap && !self.is_closed() {
+            queue = self
+                .not_full
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+        if self.is_closed() {
+            return false;
+        }
+        queue.push_back(event);
+        self.pushed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.not_empty.notify_one();
+        true
+    }
+
+    /// Pop the oldest event, blocking until one is available (or the channel
+    /// is closed). Returns `None` when closed and empty — the forwarder's
+    /// exit signal.
+    fn recv(&self) -> Option<EngineEvent> {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while queue.is_empty() && !self.is_closed() {
+            queue = self
+                .not_empty
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+        let event = queue.pop_front();
+        if event.is_some() {
+            self.not_full.notify_one();
+        }
+        event
+    }
+
+    /// The forwarder calls this after each event is submitted to the
+    /// ThreadsafeFunction (successfully or not — a `Closing` status means
+    /// the session is tearing down and `wait_caught_up` is already released
+    /// by `close`).
+    ///
+    /// Takes the queue mutex so the counter update is mutually exclusive
+    /// with `wait_caught_up`'s predicate evaluation: if the final
+    /// `mark_delivered` could land between the predicate check and the
+    /// `caught_up.wait()` registration, its notify would be lost and
+    /// `run`/`resume` would hang forever (lost-wakeup; `send`/`recv` already
+    /// mutate their predicate state under the queue mutex — this closes the
+    /// one path that did not).
+    fn mark_delivered(&self) {
+        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        self.delivered
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.caught_up.notify_all();
+    }
+
+    /// Block until every pushed event has been submitted to the
+    /// ThreadsafeFunction (or the channel closed). Called by `run`/`resume`
+    /// after the engine loop finishes, before the promise resolves.
+    ///
+    /// This is a blocking std-condvar wait: call it from a non-tokio thread
+    /// (`spawn_blocking` in `run`/`resume`) so it never occupies a tokio
+    /// worker that engine workers (bash pollers / subagent workers) run on.
+    fn wait_caught_up(&self) {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while self.delivered_count() < self.pushed_count() && !self.is_closed() {
+            queue = self
+                .caught_up
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+    }
+
+    /// Stop the channel: wakes every blocked sender and the forwarder; they
+    /// observe `closed` and exit. Called from session `close()` / `Drop`.
+    ///
+    /// Takes the queue mutex like `send`/`recv`/`mark_delivered` so the
+    /// `closed` state is mutually exclusive with every condvar predicate
+    /// check — a `close` notifying in the window between a waiter's
+    /// predicate evaluation and its `wait()` registration must not be lost
+    /// either.
+    fn close(&self) {
+        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.not_empty.notify_all();
+        self.not_full.notify_all();
+        self.caught_up.notify_all();
+    }
+}
+
+/// A TS-registered tool: the engine calls the napi callback, the TS side
+/// executes the tool and completes the call via `completeToolCall`.
+struct BridgeExternalTool {
+    callback: ToolCallback,
+    pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    next_request_id: std::sync::atomic::AtomicU64,
+}
+
+/// Bridge-local deadline for an external (TS-side) tool result, seconds. TS
+/// applies no blanket timeout to external tool execution (MCP tools carry
+/// their own configurable `toolTimeoutMs`); this guard only prevents a
+/// dropped TS callback (a completion that never arrives) from hanging the
+/// turn forever.
+const EXTERNAL_TOOL_DEADLINE_S: u64 = 120;
+
+#[async_trait::async_trait]
+impl ToolExecutor for BridgeExternalTool {
+    async fn execute(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        _ctx: &dimi_engine::tool::ToolContext,
+    ) -> dimi_engine::tool::ToolResult {
+        let request_id = format!(
+            "ext-{}",
+            self.next_request_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let payload = serde_json::to_string(&serde_json::json!({
+            "requestId": request_id,
+            // The LLM's streamed tool-call id — the wire `tool.result` must
+            // carry it (the fold matches `tool.result` against `tool.call`
+            // by this id; "ext-N" is only the completion-slot key).
+            "toolCallId": call.id,
+            "name": call.name,
+            "arguments": call.arguments,
+        }))
+        .unwrap_or_default();
+        let _ = self
+            .callback
+            .call(payload, ThreadsafeFunctionCallMode::NonBlocking);
+        // Poll for the TS side's completion.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(EXTERNAL_TOOL_DEADLINE_S);
+        loop {
+            {
+                let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(result_json) = pending.remove(&request_id) {
+                    let mut parsed: dimi_engine::tool::ToolResult =
+                        serde_json::from_str(&result_json).unwrap_or_else(|_| {
+                            dimi_engine::tool::ToolResult {
+                                tool_call_id: call.id.clone(),
+                                tool_name: call.name.clone(),
+                                output: format!(
+                                    "external tool returned invalid result: {result_json}"
+                                ),
+                                is_error: true,
+                                stop_turn: false,
+                                updates: vec![],
+                            }
+                        });
+                    // The wire tool.result must reference the LLM's call id.
+                    parsed.tool_call_id = call.id.clone();
+                    return parsed;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return dimi_engine::tool::ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: format!(
+                        "Tool \"{}\" timed out waiting for the external result",
+                        call.name
+                    ),
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// `RustTurnSession` — an in-flight Rust-engine turn with approval support.
+#[napi]
+pub struct RustTurnSession {
+    inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
+    llm: std::sync::Arc<dyn LlmClient>,
+    tools: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+    policy: PolicyConfig,
+    /// TS tool call completions keyed by request id.
+    pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    /// Subagent steering queues keyed by agent id.
+    steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>>,
+    /// This turn's own steering queue (drained into the next request).
+    steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
+    /// Cooperative cancellation (TS RPC cancel).
+    cancel: std::sync::Arc<dimi_engine::engine::CancelSignal>,
+    /// Set by the engine when the turn ends (every finish path): `steer`
+    /// refuses to queue into a dead turn, so the TS runner falls back to
+    /// starting a new turn instead of silently dropping the steer.
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Bounded engine-event queue drained by the dedicated forwarding thread
+    /// (see `EngineEventChannel`): every event emitted by `run`/`resume` and
+    /// by the tools' task-event sink flows through it, in emission order, to
+    /// the TS-side callback. `Arc` so the sink callback and the forwarder
+    /// share it across `run`/`resume` calls.
+    event_channel: std::sync::Arc<EngineEventChannel>,
+    /// Whether the forwarding thread was started (`set_on_event` spawns it
+    /// once per session; the TS side registers the callback once before the
+    /// first run).
+    forwarder_started: std::sync::atomic::AtomicBool,
+    /// Task lifecycle event sink handed to the tools (Bash / async subagent
+    /// tools): `set_on_event` points it at the same bounded queue, so
+    /// `task.started` / `task.settled` emitted from spawned workers/pollers
+    /// ride the session's event stream.
+    event_sink: EventSink,
+    /// Shared background-task registry (Bash / AgentOutput / WaitFor / the
+    /// subagent tool): retained so `cancel_task` (TaskStop parity) can flip a
+    /// task's cancel signal.
+    tasks: AgentTasks,
+}
+
+/// Session teardown (TS `taskService.dispose` parity): once the runner
+/// closes the session (or the napi object is dropped — the runner holds
+/// every session until its own dispose, so Drop only fires at teardown),
+/// the EventSink stops forwarding late task settles and the in-flight turn
+/// is cancelled, so background workers/pollers cannot fire into a disposed
+/// runner.
+impl Drop for RustTurnSession {
+    fn drop(&mut self) {
+        self.event_sink.close();
+        self.event_channel.close();
+        self.cancel.cancel();
+    }
+}
+
+/// Mutex-wrapped registry implementing ToolExecutor.
+struct LockedRegistry(std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>);
+
+#[async_trait::async_trait]
+impl ToolExecutor for LockedRegistry {
+    async fn execute(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        ctx: &dimi_engine::tool::ToolContext,
+    ) -> dimi_engine::tool::ToolResult {
+        let registry = self.0.lock().await;
+        registry.execute(call, ctx).await
+    }
+}
+
+fn progress_json(progress: dimi_engine::engine::TurnProgress) -> napi::Result<String> {
+    let progress = match progress {
+        dimi_engine::engine::TurnProgress::Completed(outcome) => {
+            serde_json::json!({ "status": "completed", "outcome": outcome })
+        }
+        dimi_engine::engine::TurnProgress::NeedsApproval(approval) => {
+            serde_json::json!({ "status": "needsApproval", "approval": approval })
+        }
+    };
+    // Events are streamed through the `set_on_event` callback as they are
+    // emitted; the response carries only the final progress.
+    serde_json::to_string(&serde_json::json!({ "events": [], "progress": progress }))
+        .map_err(wire_error)
+}
+
+fn make_client(
+    input: &EngineTurnInput,
+    scripted_segments_json: Option<String>,
+) -> napi::Result<Box<dyn LlmClient>> {
+    match scripted_segments_json {
+        Some(segments_json) => {
+            let segments: Vec<Vec<LlmStreamEvent>> =
+                serde_json::from_str(&segments_json).map_err(wire_error)?;
+            Ok(Box::new(ScriptedLlmClient::new(segments)))
+        }
+        None => Ok(Box::new(AimuxLlmClient {
+            model: openai_model(&input.provider),
+        })),
+    }
+}
+
+/// Convert the registry's LLM-facing defs into `EngineTool` (the engine's
+/// request `tools` field).
+fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> {
+    registry
+        .tool_defs()
+        .into_iter()
+        .filter_map(|def| {
+            let function = def.get("function")?;
+            serde_json::from_value(serde_json::json!({
+                "name": function.get("name")?.as_str()?,
+                "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
+            }))
+            .ok()
+        })
+        .collect()
+}
+
+#[napi]
+impl RustTurnSession {
+    #[napi(constructor)]
+    pub fn new(
+        input_json: String,
+        policy_json: String,
+        scripted_segments_json: Option<String>,
+    ) -> napi::Result<Self> {
+        let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
+        let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
+        let llm: std::sync::Arc<dyn LlmClient> =
+            std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
+        let tasks = AgentTasks::new();
+        let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let event_sink = EventSink::new();
+        let mut registry = ToolRegistry::new();
+        // The Bash def mirrors the TS tool's advertised contract
+        // (`BASH_PARAMETERS` minus `stdin_mode`/`disable_timeout`, which only
+        // apply to the TS-only TaskInput/background paths): same description
+        // (rendered with the TS constants, background paragraphs adapted to
+        // the engine's capabilities), same properties, same descriptions,
+        // same required. `run_in_background` stays in the schema for model
+        // compatibility; the executor rejects it with a clear error.
+        registry.register_with_def(
+            "Bash",
+            Box::new(
+                BashTool::with_tasks(tasks.clone())
+                    .with_events(event_sink.clone())
+                    .with_kill_grace(std::time::Duration::from_millis(
+                        input.kill_grace_ms.unwrap_or(dimi_engine::tool::DEFAULT_KILL_GRACE_MS),
+                    )),
+            ),
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "Bash",
+                    "description": "Execute a bash command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\n\n**Translate these to a dedicated tool instead:**\n- `cat` / `head` / `tail` (known path) → `Read`\n- `sed` / `awk` (in-place edit) → `Edit`\n- `echo > file` / `cat <<EOF` → `Write`\n- `find` / recursive `ls` to locate files by name pattern → `Glob` (plain `ls <known-directory>` is fine for listing a directory)\n- `grep` / `rg` (search file contents) → `Grep`\n- `echo` / `printf` (talk to the user) → just output text directly\n\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\n\n**Output:**\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command exits non-zero, the output ends with a `Command failed with exit code: N` line; a command killed by its timeout or interrupted by the user ends with its own message instead.\n\nBackground execution (`run_in_background=true`) is not supported by this engine. Do not set it.\n\n**Guidelines for safety and security:**\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the `cwd` argument (or use absolute paths) rather than relying on a `cd` from an earlier call.\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running foreground commands, set the `timeout` argument in seconds. Foreground commands default to 60s and allow up to 300s. When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.\n- Avoid using `..` to access files or directories outside of the working directory.\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\n\n**Guidelines for efficiency:**\n- Use `&&` to chain commands that genuinely depend on each other, e.g. `npm install && npm test`. Independent read-only commands (separate `git show`, `ls`, or status checks) should be issued as separate parallel Bash calls in one response, not chained into a single call — chaining serializes their execution and mixes their output. Do not stitch outputs together with `echo` separators.\n- Use `;` to run commands sequentially regardless of success/failure\n- Use `||` for conditional execution (run second command only if first fails)\n- Use pipe operations (`|`) and redirections (`>`, `>>`) to chain input and output between commands\n- Always quote file paths containing spaces with double quotes (e.g., cd \"/path with spaces/\")\n- Compose multi-step logic in a single call with `if` / `case` / `for` / `while` control flows.\n\n**Commands available:**\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run `which <command>` first to confirm a command exists before relying on it.\n- Navigation and inspection: `ls`, `pwd`, `cd`, `stat`, `file`, `du`, `df`, `tree`\n- File and directory management: `cp`, `mv`, `rm`, `mkdir`, `touch`, `ln`, `chmod`, `chown`\n- Text and data processing: `wc`, `sort`, `uniq`, `cut`, `tr`, `diff`, `xargs`\n- Archives and compression: `tar`, `gzip`, `gunzip`, `zip`, `unzip`\n- Networking and transfer: `curl`, `wget`, `ping`, `ssh`, `scp`\n- Version control: `git`; for GitHub-hosted work (PRs, issues, CI runs, API queries) prefer the `gh` CLI when installed — it carries the user's GitHub auth and can return structured JSON\n- Process and system: `ps`, `kill`, `top`, `env`, `date`, `uname`, `whoami`\n- Language and package toolchains: `node`, `npm`, `pnpm`, `yarn`, `python`, `pip` (use whichever the project actually relies on)",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": { "type": "string", "description": "The command to execute." },
+                            "cwd": { "type": "string", "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory." },
+                            "timeout": { "type": "number", "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s." },
+                            "description": { "type": "string", "description": "A short description for the background task. Required when run_in_background is true." },
+                            "run_in_background": { "type": "boolean", "description": "Whether to run the command as a background task. Not supported by this engine; do not set it to true." }
+                        },
+                        "required": ["command"],
+                        "additionalProperties": false
+                    }
+                }
+            })),
+        );
+        let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
+        {
+            let mut registry = tools
+                .try_lock()
+                .map_err(|_| napi::Error::from_reason("registry busy"))?;
+            // Subagents execute through the same registry (all registered
+            // tools — Bash, external TS tools, and the async tools).
+            let subagent_tools: std::sync::Arc<dyn ToolExecutor> =
+                std::sync::Arc::new(LockedRegistry(std::sync::Arc::clone(&tools)));
+            registry.register(
+                "Agent",
+                Box::new(AsyncAgentTool {
+                    llm: std::sync::Arc::clone(&llm),
+                    tools: subagent_tools,
+                    policy: policy.clone(),
+                    max_steps: input.max_steps_per_turn,
+                    shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
+                    tasks: tasks.clone(),
+                    steer_map: std::sync::Arc::clone(&steer_map),
+                    events: event_sink.clone(),
+                    agent_id_counter: std::sync::atomic::AtomicU64::new(
+                        input.next_agent_id.unwrap_or(0),
+                    ),
+                }),
+            );
+            registry.register(
+                "AgentOutput",
+                Box::new(AgentOutputTool {
+                    tasks: tasks.clone(),
+                }),
+            );
+            registry.register("WaitFor", Box::new(WaitForTool { tasks: tasks.clone() }));
+        }
+        // Expose the registry's tool definitions to the LLM (initial set;
+        // re-synced before every run/resume so tools registered mid-session
+        // become visible to the model).
+        let mut input = input;
+        {
+            let registry = tools
+                .try_lock()
+                .map_err(|_| napi::Error::from_reason("registry busy"))?;
+            input.tools = engine_tools(&registry);
+        }
+        let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancel = std::sync::Arc::new(dimi_engine::engine::CancelSignal::new());
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        Ok(Self {
+            inner: napi::tokio::sync::Mutex::new(
+                dimi_engine::engine::TurnSession::with_steer_and_cancel(
+                    input,
+                    Some(std::sync::Arc::clone(&steer_queue)),
+                    std::sync::Arc::clone(&cancel),
+                    std::sync::Arc::clone(&finished),
+                ),
+            ),
+            llm,
+            tools,
+            policy,
+            pending_external: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            steer_map,
+            steer_queue,
+            cancel,
+            finished,
+            event_channel: std::sync::Arc::new(EngineEventChannel::new(EVENT_QUEUE_CAP)),
+            forwarder_started: std::sync::atomic::AtomicBool::new(false),
+            event_sink,
+            tasks,
+        })
+    }
+
+    /// Cancel the running turn: the engine stops at the next step boundary
+    /// (or races the in-flight LLM/tool await) and finishes as `cancelled`.
+    #[napi]
+    pub fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
+    /// Cancel a background task (TaskStop parity): flips the task's cancel
+    /// signal — carrying the TS stop reason, so the worker/poller settles
+    /// "killed" with the actual reason on the wire — the subagent worker /
+    /// bash poller observes it, stops the work (kills the process / cancels
+    /// the nested turn) and settles the task with status "killed".
+    #[napi]
+    pub fn cancel_task(&self, task_id: String, reason: Option<String>) -> napi::Result<()> {
+        let state = self
+            .tasks
+            .get(&task_id)
+            .or_else(|| self.tasks.find_by_agent_id(&task_id));
+        let Some(state) = state else {
+            return Err(napi::Error::from_reason(format!(
+                "no background task with task_id: {task_id}"
+            )));
+        };
+        if let Some(cancel) = state.cancel {
+            cancel.cancel_with_reason(reason);
+        }
+        Ok(())
+    }
+
+    /// Close the session (TS `taskService.dispose` parity): the task event
+    /// sink stops forwarding, the in-flight turn is cancelled, the event
+    /// channel closes (waking the forwarder / blocked emitters), and
+    /// `steer` refuses. Called by the TS runner when the agent is disposed;
+    /// background workers/pollers observe `is_closed` and stop their work.
+    #[napi]
+    pub fn close(&self) {
+        self.event_sink.close();
+        self.event_channel.close();
+        self.cancel.cancel();
+    }
+
+    /// Register the per-event callback: every engine event emitted by `run`
+    /// /`resume` is pushed through it as JSON, in emission order, as it
+    /// happens. The `run`/`resume` response then carries only the final
+    /// progress. Register before the first `run`; the callback stays active
+    /// across `resume` phases. Events flow through a bounded queue drained
+    /// by a dedicated forwarding thread using Blocking ThreadsafeFunction
+    /// calls — nothing is dropped under queue pressure (F6 fix).
+    #[napi]
+    pub fn set_on_event(&mut self, callback: EventCallback) {
+        let tsfn = std::sync::Arc::new(callback);
+        // One forwarder per session: the first `set_on_event` starts it;
+        // later calls only re-point the sink (the TS side registers once
+        // before the first run). The thread exits when the channel closes
+        // (session `close()` / `Drop`, or the napi queue going `Closing`).
+        if !self
+            .forwarder_started
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let channel = std::sync::Arc::clone(&self.event_channel);
+            std::thread::spawn(move || {
+                while let Some(event) = channel.recv() {
+                    if let Ok(json) = serde_json::to_string(&event) {
+                        let status =
+                            tsfn.call(json, ThreadsafeFunctionCallMode::Blocking);
+                        if status == Status::Closing || status == Status::Unknown {
+                            // The JS side is gone (env teardown): stop
+                            // forwarding; wake blocked emitters so they
+                            // observe the close and exit.
+                            channel.close();
+                            break;
+                        }
+                    }
+                    // Count the event as submitted to the ThreadsafeFunction
+                    // so `run`/`resume` can wait for full delivery before
+                    // resolving their promise.
+                    channel.mark_delivered();
+                }
+            });
+        }
+        let sink_channel = std::sync::Arc::clone(&self.event_channel);
+        let sink_callback: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync> =
+            std::sync::Arc::new(move |event| {
+                let _ = sink_channel.send(event);
+            });
+        self.event_sink.set(sink_callback);
+    }
+
+    /// Steer the running turn: the message is queued and drained into the
+    /// next LLM request (async-subagent semantics). Returns `false` when the
+    /// turn has already finished — the queue would never be drained again —
+    /// so the TS runner falls back to starting a new turn with the message
+    /// (a steer racing the teardown must not be silently dropped).
+    #[napi]
+    pub fn steer(&self, message: String) -> bool {
+        if self.finished.load(std::sync::atomic::Ordering::Relaxed) || self.event_sink.is_closed() {
+            return false;
+        }
+        self.steer_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(dimi_engine::types::LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(message),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            });
+        true
+    }
+
+    /// Advance the turn until completion or an approval request. Every
+    /// engine event is streamed to the `set_on_event` callback as it is
+    /// emitted (through the bounded event queue); the response carries only
+    /// the progress.
+    #[napi]
+    pub async fn run(&self) -> napi::Result<String> {
+        let progress = {
+            let mut inner = self.inner.lock().await;
+            // Re-sync the LLM-facing tool defs (external tools may have been
+            // registered since the session was constructed).
+            {
+                let registry = self.tools.lock().await;
+                inner.update_tools(engine_tools(&registry));
+            }
+            let channel = std::sync::Arc::clone(&self.event_channel);
+            inner
+                .run(
+                    self.llm.as_ref(),
+                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
+                    &self.policy,
+                    &mut move |event| {
+                        let _ = channel.send(event);
+                    },
+                )
+                .await
+        };
+        // Every event emitted during the turn is now in the channel; wait for
+        // the forwarding thread to submit each one to the ThreadsafeFunction
+        // before the promise resolves — the TS side is guaranteed the turn's
+        // events are SUBMITTED to the TSFN queue before the `run`
+        // continuation (the ordering the old synchronous push had; the JS
+        // callbacks themselves run on the Node event loop and are drained
+        // before this promise's microtask in practice, but the guarantee the
+        // channel enforces is submission, not JS-side observation). The wait
+        // is a blocking condvar wait, so it runs on the blocking pool — it
+        // must never occupy a tokio worker that engine workers (bash
+        // pollers / subagent workers) run on.
+        let channel = std::sync::Arc::clone(&self.event_channel);
+        napi::tokio::task::spawn_blocking(move || channel.wait_caught_up())
+            .await
+            .map_err(|error| napi::Error::from_reason(error.to_string()))?;
+        progress_json(progress)
+    }
+
+    /// Register a TS-side tool: the engine routes `name` calls to the
+    /// callback; the callback's async execution completes via
+    /// `completeToolCall(requestId, resultJson)`. The LLM-facing definition
+    /// (description + JSON parameters schema) is advertised to the model from
+    /// the next request on.
+    #[napi]
+    pub fn register_external_tool(
+        &self,
+        name: String,
+        description: String,
+        parameters_json: String,
+        callback: ToolCallback,
+    ) -> napi::Result<()> {
+        let pending = std::sync::Arc::clone(&self.pending_external);
+        let tool = BridgeExternalTool {
+            callback,
+            pending,
+            next_request_id: std::sync::atomic::AtomicU64::new(0),
+        };
+        let parameters: serde_json::Value = serde_json::from_str(&parameters_json)
+            .map_err(|_| napi::Error::from_reason("invalid tool parameters JSON"))?;
+        let def = serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        });
+        self.tools
+            .try_lock()
+            .map_err(|_| napi::Error::from_reason("session is busy"))
+            .map(|mut registry| registry.register_with_def(name, Box::new(tool), Some(def)))?;
+        Ok(())
+    }
+
+    /// Steer a running subagent (async-subagent semantics): the message is
+    /// queued and drained into the subagent's next request.
+    #[napi]
+    pub fn steer_subagent(&self, agent_id: String, message: String) -> napi::Result<()> {
+        let steer_map = self.steer_map.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(queue) = steer_map.get(&agent_id) else {
+            return Err(napi::Error::from_reason(format!(
+                "no running subagent with agent_id: {agent_id}"
+            )));
+        };
+        queue.lock().unwrap_or_else(|p| p.into_inner()).push(
+            dimi_engine::types::LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(message),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Complete a pending external tool call (called by the TS callback).
+    #[napi]
+    pub fn complete_tool_call(&self, request_id: String, result_json: String) {
+        self.pending_external
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(request_id, result_json);
+    }
+
+    /// Resume after the user's approval decision
+    /// (`{decision:"approved"|"rejected", feedback?}`). Events stream to the
+    /// `set_on_event` callback as they are emitted (through the bounded
+    /// event queue); the response carries only the progress.
+    #[napi]
+    pub async fn resume(&self, decision_json: String) -> napi::Result<String> {
+        let decision: ApprovalDecision =
+            serde_json::from_str(&decision_json).map_err(wire_error)?;
+        let progress = {
+            let mut inner = self.inner.lock().await;
+            {
+                let registry = self.tools.lock().await;
+                inner.update_tools(engine_tools(&registry));
+            }
+            let channel = std::sync::Arc::clone(&self.event_channel);
+            inner
+                .resume(
+                    decision,
+                    self.llm.as_ref(),
+                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
+                    &self.policy,
+                    &mut move |event| {
+                        let _ = channel.send(event);
+                    },
+                )
+                .await
+        };
+        // See `run`: every emitted event is submitted to the TSFN queue
+        // before the `resume` continuation (blocking-pool wait, same
+        // reasoning as above).
+        let channel = std::sync::Arc::clone(&self.event_channel);
+        napi::tokio::task::spawn_blocking(move || channel.wait_caught_up())
+            .await
+            .map_err(|error| napi::Error::from_reason(error.to_string()))?;
+        progress_json(progress)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_started(i: i64) -> EngineEvent {
+        EngineEvent::TaskStarted {
+            task_id: format!("task-{i}"),
+            agent_id: format!("agent-{i}"),
+            kind: "bash".to_string(),
+            description: "d".to_string(),
+            pid: None,
+            parent_tool_call_id: None,
+        }
+    }
+
+    #[test]
+    fn event_channel_preserves_fifo_and_applies_backpressure() {
+        // F6: the bounded queue must never drop an event under pressure —
+        // a full queue blocks the sender until the forwarder drains, and
+        // FIFO order is preserved end-to-end.
+        let channel = std::sync::Arc::new(EngineEventChannel::new(2));
+        assert!(channel.send(task_started(0)));
+        assert!(channel.send(task_started(1)));
+        assert_eq!(channel.pushed_count(), 2);
+        assert_eq!(channel.delivered_count(), 0);
+
+        // The queue is full (cap 2): a third send blocks until a recv frees
+        // a slot — no event is dropped.
+        let sender = std::thread::spawn({
+            let channel = std::sync::Arc::clone(&channel);
+            move || channel.send(task_started(2))
+        });
+        // Give the sender time to hit the full queue, then drain: the
+        // blocked send lands and the order stays 0, 1, 2.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-0"));
+        assert!(
+            sender.join().expect("sender completes"),
+            "the blocked send must land, not be dropped"
+        );
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-1"));
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-2"));
+        assert_eq!(channel.pushed_count(), 3);
+        // recv pops without counting: delivery is the forwarder's job (it
+        // calls mark_delivered after each ThreadsafeFunction submit).
+        assert_eq!(channel.delivered_count(), 0);
+
+        // `wait_caught_up` (what run/resume call before resolving) blocks
+        // until every pushed event is marked delivered; marking all three
+        // releases it. This is the guarantee that every turn event is
+        // submitted to the TSFN queue before the run/resume promise
+        // continuation.
+        let waited = std::thread::spawn({
+            let channel = std::sync::Arc::clone(&channel);
+            move || channel.wait_caught_up()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        channel.mark_delivered();
+        channel.mark_delivered();
+        channel.mark_delivered();
+        waited.join().expect("wait_caught_up returns");
+        assert_eq!(channel.delivered_count(), 3);
+
+        // Closed: sends are refused and an empty recv returns None (the
+        // forwarder's exit signal).
+        channel.close();
+        assert!(!channel.send(task_started(3)), "closed channels refuse sends");
+        assert_eq!(channel.recv(), None);
+    }
+
+    #[test]
+    fn wait_caught_up_survives_deliveries_racing_waiter_registration() {
+        // Lost-wakeup regression: `mark_delivered` used to update the
+        // delivered counter WITHOUT the queue mutex, so the forwarder's final
+        // delivery could land between `wait_caught_up`'s predicate
+        // evaluation and its `caught_up.wait()` registration — the notify
+        // was lost and `run`/`resume` hung forever (the turn promise never
+        // resolves). Repeat the push → immediate-deliver → wait cycle so the
+        // delivery races the waiter registration on every iteration: with
+        // the counters guarded by the queue mutex the waiter either observes
+        // the delivery in its predicate or is already registered when the
+        // notify fires, so `wait_caught_up` always returns.
+        let channel = std::sync::Arc::new(EngineEventChannel::new(16));
+        for i in 0..1_000i64 {
+            assert!(channel.send(task_started(i)));
+            // Deliver on a fresh thread (like the real forwarder) so the
+            // mark_delivered can complete before, during, or after the main
+            // thread's wait registration.
+            let deliverer = std::thread::spawn({
+                let channel = std::sync::Arc::clone(&channel);
+                move || channel.mark_delivered()
+            });
+            channel.wait_caught_up();
+            deliverer
+                .join()
+                .expect("deliverer completes without hanging");
+            // Drain so the queue never fills across iterations.
+            assert!(channel.recv().is_some());
+        }
+    }
+}

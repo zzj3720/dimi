@@ -47,6 +47,10 @@ export interface NativeBinding {
   RustFsWatchHandle: RustFsWatchHandleConstructor;
   /** Rust exec layer: terminal pty (M2) — the IHostTerminalService socket. */
   RustTerminal: RustTerminalConstructor;
+  /** Rust engine: one turn of orchestration (M3) — the loop swap-in socket. */
+  RustEngine: RustEngineConstructor;
+  /** Rust engine: an in-flight turn with approval pause/resume (M3 slice 2). */
+  RustTurnSession: RustTurnSessionConstructor;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -560,4 +564,136 @@ export class RustTerminalProcess {
   kill(): void {
     this.#inner.kill();
   }
+}
+
+/**
+ * `RustEngine` — the M3 swap-in socket: one Rust-orchestrated turn.
+ *
+ * `startTurn` runs the full turn (LLM stream + Bash tool execution) and
+ * returns the collected engine event batch — the same event shapes the TS
+ * loop publishes on its event bus. Slice 1 is synchronous: the TS adapter
+ * publishes the returned events after the turn completes.
+ */
+export class RustEngine {
+  readonly #inner: RustEngineHandle;
+
+  constructor(maxStepsPerTurn?: number) {
+    const NativeClass = loadNative().RustEngine;
+    this.#inner = new NativeClass(maxStepsPerTurn);
+  }
+
+  /** Run one turn; resolves with the `EngineEventBatch` JSON. */
+  async startTurn(inputJson: string, scriptedSegmentsJson?: string): Promise<string> {
+    return this.#inner.startTurn(inputJson, scriptedSegmentsJson ?? null);
+  }
+}
+
+/** The napi `RustEngine` class. */
+export interface RustEngineConstructor {
+  new (maxStepsPerTurn?: number): RustEngineHandle;
+}
+
+export interface RustEngineHandle {
+  startTurn(inputJson: string, scriptedSegmentsJson: string | null): Promise<string>;
+}
+
+/**
+ * `RustTurnSession` — an in-flight Rust-engine turn with approval support.
+ * `run()` advances until completion or an approval request; `resume` continues
+ * after the user's decision. Every engine event is streamed through the
+ * `setOnEvent` callback as a JSON string, in emission order, as it happens;
+ * each call then resolves with `{ events: [], progress: {status, outcome?|
+ * approval?} }` (the response no longer carries the events).
+ */
+export class RustTurnSession {
+  readonly #inner: RustTurnSessionHandle;
+
+  constructor(inputJson: string, policyJson: string, scriptedSegmentsJson?: string) {
+    const NativeClass = loadNative().RustTurnSession;
+    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null);
+  }
+
+  /** Register the per-event callback: every engine event emitted by `run()` /
+   *  `resume()` is pushed through it as a JSON string, in emission order, as
+   *  it happens. Register before the first `run()`. */
+  setOnEvent(callback: (eventJson: string) => void): void {
+    this.#inner.setOnEvent(callback);
+  }
+
+  async run(): Promise<string> {
+    return this.#inner.run();
+  }
+
+  async resume(decisionJson: string): Promise<string> {
+    return this.#inner.resume(decisionJson);
+  }
+
+  /** Register a TS-side tool; `completeToolCall` finishes each call. The
+   *  definition (description + JSON parameters schema) is advertised to the
+   *  model from the next request on. */
+  registerExternalTool(
+    name: string,
+    description: string,
+    parametersJson: string,
+    callback: (payloadJson: string) => void,
+  ): void {
+    this.#inner.registerExternalTool(name, description, parametersJson, callback);
+  }
+
+  /** Steer the running turn (drained into its next LLM request). Returns
+   *  `false` when the turn has already finished — the caller must start a
+   *  new turn instead (the steer is never dropped). */
+  steer(message: string): boolean {
+    return this.#inner.steer(message);
+  }
+
+  /** Steer a background subagent spawned by the `Agent` tool. */
+  steerSubagent(agentId: string, message: string): void {
+    this.#inner.steerSubagent(agentId, message);
+  }
+
+  /** Cancel the running turn (engine stops at the next boundary). */
+  cancel(): void {
+    this.#inner.cancel();
+  }
+
+  /** Cancel a background task (TaskStop parity): the engine kills the
+   *  subagent nested turn / backgrounded bash command and settles "killed",
+   *  carrying the stop reason on the wire. */
+  cancelTask(taskId: string, reason?: string): void {
+    this.#inner.cancelTask(taskId, reason);
+  }
+
+  /** Close the session (agent dispose): task events stop forwarding, the
+   *  in-flight turn is cancelled. Background workers observe the close. */
+  close(): void {
+    this.#inner.close();
+  }
+
+  completeToolCall(requestId: string, resultJson: string): void {
+    this.#inner.completeToolCall(requestId, resultJson);
+  }
+}
+
+/** The napi `RustTurnSession` class. */
+export interface RustTurnSessionConstructor {
+  new (inputJson: string, policyJson: string, scriptedSegmentsJson: string | null): RustTurnSessionHandle;
+}
+
+export interface RustTurnSessionHandle {
+  setOnEvent(callback: (eventJson: string) => void): void;
+  run(): Promise<string>;
+  resume(decisionJson: string): Promise<string>;
+  registerExternalTool(
+    name: string,
+    description: string,
+    parametersJson: string,
+    callback: (payloadJson: string) => void,
+  ): void;
+  steer(message: string): boolean;
+  steerSubagent(agentId: string, message: string): void;
+  cancel(): void;
+  cancelTask(taskId: string, reason?: string): void;
+  close(): void;
+  completeToolCall(requestId: string, resultJson: string): void;
 }

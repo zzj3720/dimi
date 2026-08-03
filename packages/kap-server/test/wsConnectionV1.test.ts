@@ -90,6 +90,9 @@ function makeConn(socket: FakeSocket, opts: Partial<WsConnectionV1Options> = {})
     socket: socket as unknown as WebSocket,
     broadcaster: makeBroadcaster(),
     connectionRegistry: makeRegistry(),
+    // Terminal controls are not exercised here; a bare stub satisfies the
+    // required core scope.
+    core: { accessor: { get: () => undefined } } as unknown as WsConnectionV1Options['core'],
     remoteAddress: null,
     userAgent: null,
     ...opts,
