@@ -467,10 +467,12 @@ impl ToolExecutor for BashTool {
 }
 
 /// Truncate `text` to at most `cap` BYTES without splitting a multi-byte
-/// UTF-8 character — the same budget `OutputBuffer`/`append_task_output*`
-/// enforce (they compare `String::len()`, i.e. bytes). Iterating chars keeps
-/// the result on a char boundary, so the truncated prefix is always valid
-/// UTF-8 and delta == settle holds byte-for-byte.
+/// UTF-8 character — the single truncation path for every site that enforces
+/// the `DEFAULT_MAX_CHARS` output budget via `String::len()` (i.e. bytes):
+/// the backgrounded-bash seed, `append_task_output*`, and the subagent
+/// accumulator. Iterating chars keeps the result on a char boundary, so the
+/// truncated prefix is always valid UTF-8 and delta == settle holds
+/// byte-for-byte.
 fn truncate_utf8_to_bytes(text: &str, cap: usize) -> String {
     let mut capped = String::new();
     for ch in text.chars() {
@@ -749,8 +751,11 @@ fn backgrounded_result(
 }
 
 /// Append a decoded output chunk to the task state, capped at the
-/// result-builder char limit (mirrors the TS task service's retained output
-/// cap so a chatty background command cannot grow unbounded).
+/// result-builder byte limit (mirrors the TS task service's retained output
+/// cap so a chatty background command cannot grow unbounded). The byte cap is
+/// enforced by `truncate_utf8_to_bytes` on the remaining budget, so a
+/// multi-byte char straddling the boundary is never split and
+/// `state.output` stays within `DEFAULT_MAX_CHARS` bytes.
 fn append_task_output(state: &mut TaskState, chunk: &[u8]) {
     if state.output.len() >= DEFAULT_MAX_CHARS {
         return;
@@ -759,13 +764,13 @@ fn append_task_output(state: &mut TaskState, chunk: &[u8]) {
     let remaining = DEFAULT_MAX_CHARS - state.output.len();
     state
         .output
-        .push_str(&text.chars().take(remaining).collect::<String>());
+        .push_str(&truncate_utf8_to_bytes(&text, remaining));
 }
 
 /// Append a drained chunk and emit a `task.output` event with exactly the
 /// appended delta, so the TS side can stream live output into TaskOutput
 /// while the task is still running (TS ProcessTask parity). The delta is the
-/// same `take(remaining)` substring `append_task_output` appends, so the sum
+/// same byte-capped substring `append_task_output` appends, so the sum
 /// of deltas equals the final settle output byte-for-byte.
 fn append_task_output_and_emit(tasks: &AgentTasks, events: &EventSink, task_id: &str, chunk: &[u8]) {
     let Some(state) = tasks.get(task_id) else {
@@ -776,7 +781,7 @@ fn append_task_output_and_emit(tasks: &AgentTasks, events: &EventSink, task_id: 
     }
     let text = String::from_utf8_lossy(chunk);
     let remaining = DEFAULT_MAX_CHARS - state.output.len();
-    let delta: String = text.chars().take(remaining).collect();
+    let delta: String = truncate_utf8_to_bytes(&text, remaining);
     if delta.is_empty() {
         return;
     }
@@ -2536,8 +2541,8 @@ impl AsyncAgentTool {
         // `task.output` deltas the TS adapter streamed (the adapter's
         // documented byte-for-byte invariant; previously only the success
         // branch carried the text and a TaskStopped/failed subagent settled
-        // with an empty output). Capped at DEFAULT_MAX_CHARS (F4): the same
-        // limit the bash path enforces (`append_task_output_and_emit`), so a
+        // with an empty output). Capped at DEFAULT_MAX_CHARS BYTES (F4): the
+        // same limit the bash path enforces (`append_task_output_and_emit`), so a
         // chatty subagent cannot grow `state.output` / AgentOutput / WaitFor
         // JSON without bound on the agent path.
         let accumulated_output: Arc<std::sync::Mutex<String>> =
@@ -2550,10 +2555,11 @@ impl AsyncAgentTool {
             // this accumulated text, so the TS adapter's delta-prefix
             // invariant holds byte-for-byte on every path. The cap mirrors
             // `append_task_output_and_emit`: once the accumulated string is
-            // at DEFAULT_MAX_CHARS no further delta is appended OR emitted,
-            // and a delta that would cross the cap is truncated to the
-            // remaining budget and emitted with exactly the appended
-            // substring — so `sum(emitted deltas) == accumulated ==
+            // at DEFAULT_MAX_CHARS BYTES no further delta is appended OR
+            // emitted, and a delta that would cross the cap is truncated to
+            // the remaining byte budget via `truncate_utf8_to_bytes` (never
+            // splitting a multi-byte char) and emitted with exactly the
+            // appended substring — so `sum(emitted deltas) == accumulated ==
             // settle output` still holds byte-for-byte.
             let on_delta = {
                 let events = events.clone();
@@ -2571,7 +2577,7 @@ impl AsyncAgentTool {
                             return;
                         }
                         let remaining = DEFAULT_MAX_CHARS - acc.len();
-                        let capped: String = delta.chars().take(remaining).collect();
+                        let capped: String = truncate_utf8_to_bytes(delta, remaining);
                         if capped.is_empty() {
                             return;
                         }
@@ -3515,12 +3521,17 @@ mod async_agent_tests {
         // F4 (adversarial review): the agent-path output accumulator must cap
         // at DEFAULT_MAX_CHARS the same way the bash path does, so a chatty
         // subagent cannot grow `state.output` / WaitFor JSON without bound.
-        // The cap preserves the delta == settle invariant: a delta that
-        // crosses the cap is truncated to the remaining budget (appended AND
-        // emitted identically), and once the cap is reached later deltas are
-        // dropped from BOTH the accumulator and the emitted stream.
-        let fill = "x".repeat(DEFAULT_MAX_CHARS - 1_000);
-        let over = "y".repeat(2_000);
+        // The cap is BYTE-based (`String::len()`, like the bash path): the
+        // over-budget delta is 2-byte chars, so a char-based take would push
+        // the settle output to 49_000 + 2_000 = 51_000 bytes; the byte cap
+        // must truncate at the char boundary and stay within
+        // DEFAULT_MAX_CHARS BYTES. The cap preserves the delta == settle
+        // invariant: a delta that crosses the cap is truncated to the
+        // remaining byte budget (appended AND emitted identically), and once
+        // the cap is reached later deltas are dropped from BOTH the
+        // accumulator and the emitted stream.
+        let fill = "x".repeat(DEFAULT_MAX_CHARS - 1_000); // 49_000 ASCII bytes
+        let over = "é".repeat(2_000); // 2_000 chars, 4_000 bytes
         let after_cap = "z".repeat(500);
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = EventSink::new();
@@ -3587,17 +3598,20 @@ mod async_agent_tests {
             "the subagent must complete: {waited_json}"
         );
         let output = waited_json["output"].as_str().unwrap();
-        assert_eq!(
-            output.chars().count(),
-            DEFAULT_MAX_CHARS,
-            "the settle output must be capped at DEFAULT_MAX_CHARS ({} chars, not {})",
-            DEFAULT_MAX_CHARS,
-            output.chars().count()
+        // Byte-based cap (`String::len`): a char-based take of the 2-byte
+        // over-delta would let the settle output reach 51_000 bytes; the
+        // byte cap must keep it within DEFAULT_MAX_CHARS BYTES and land on a
+        // char boundary (500 × 'é' = 1_000 bytes fills the remaining budget).
+        assert!(
+            output.len() <= DEFAULT_MAX_CHARS,
+            "the settle output must stay within the BYTE cap ({} bytes, cap {})",
+            output.len(),
+            DEFAULT_MAX_CHARS
         );
         assert_eq!(
             output,
-            format!("{fill}{}", "y".repeat(1_000)),
-            "the over-budget delta must be truncated to the remaining budget"
+            format!("{fill}{}", "é".repeat(500)),
+            "the over-budget multi-byte delta must be truncated to the remaining BYTE budget"
         );
         assert!(
             !output.contains('z'),
