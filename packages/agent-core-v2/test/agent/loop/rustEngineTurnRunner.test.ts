@@ -1065,6 +1065,168 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     );
   }, 30_000);
 
+  it('settles a TaskStopped subagent killed mid-stream with the streamed output (wire + TaskOutput + notification)', async () => {
+    // F3 (adversarial review nit): engine-level tests cover killed subagents
+    // settling with streamed output, but no runner-side test asserts the wire
+    // `task.terminated` outputTail / the TaskOutput retained buffer / the
+    // notification body for a KILLED subagent that streamed text. Segment 0
+    // launches the subagent (stop_turn ends the main turn); segment 1 is the
+    // nested turn — it streams text, then blocks in a foreground Bash so the
+    // TaskStop lands mid-run. The adapter streams the deltas into the
+    // task-service sink live, and the engine settle carries the same text, so
+    // outputTail == retained buffer == notification preview all show the
+    // streamed text (delta == settle on the killed path).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      // Seg 0: main turn — spawn the subagent.
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_sub_stream',
+          name: 'Agent',
+          argumentsPart: '{"prompt":"stream then block","description":"streaming sub"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 1: the subagent's nested turn — stream text, then block in a
+      // foreground Bash so the test can TaskStop it mid-run.
+      [
+        { type: 'text', delta: 'part one ' },
+        { type: 'text', delta: 'part two' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_nested_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 30"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    // Capture the dispatched wire ops: the `task.terminated` outputTail is
+    // fold-only (taskOps.ts) — it never enters TaskModel — so assert it
+    // straight off the dispatch.
+    const wire = ctx.get(IWireService);
+    const dispatched: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const originalDispatch = wire.dispatch.bind(wire);
+    wire.dispatch = ((...ops) => {
+      for (const op of ops) {
+        dispatched.push({ type: op.type, payload: op.payload as Record<string, unknown> });
+      }
+      originalDispatch(...ops);
+    }) as typeof wire.dispatch;
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'task.started' || type === 'task.terminated' || type === 'task.notified') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn streaming sub' }] });
+    // The subagent is live once its `task.started` (kind agent) arrives.
+    await waitForContext(
+      ctx,
+      () =>
+        dispatched.some(
+          (op) =>
+            op.type === 'task.started' &&
+            (op.payload['info'] as { kind?: string } | undefined)?.kind === 'agent',
+        ),
+      'subagent task.started wire op',
+    );
+    const started = dispatched.find(
+      (op) =>
+        op.type === 'task.started' &&
+        (op.payload['info'] as { kind?: string } | undefined)?.kind === 'agent',
+    );
+    const taskId = (started?.payload['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^agent-[0-9a-f]{8}$/);
+
+    // Wait until the streamed deltas reached the task-service sink (by then
+    // the nested turn is blocked in its foreground Bash — TaskStop lands
+    // after the text has streamed, so the killed settle carries it).
+    const taskService = ctx.get(IAgentTaskService);
+    for (let i = 0; i < 600; i++) {
+      if ((await taskService.readOutput(taskId!)).includes('part two')) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(await taskService.readOutput(taskId!)).toContain('part two');
+
+    // TaskStop parity: kill through the service entry (the adapter bridges
+    // into session.cancelTask → the engine's per-task cancel → the nested
+    // turn aborts and the worker settles "killed"). No notification
+    // suppression, so the terminal notification still fires.
+    const result = await taskService.stop(taskId!, 'Stopped by TaskStop');
+    expect(result?.status).toBe('killed');
+
+    // The wire `task.terminated` carries the info and the outputTail; the
+    // streamed text is small so the tail is the FULL output (delta == settle
+    // byte-for-byte on the killed path).
+    await waitForContext(
+      ctx,
+      () =>
+        dispatched.some(
+          (op) =>
+            op.type === 'task.terminated' &&
+            (op.payload['info'] as { taskId?: string } | undefined)?.taskId === taskId,
+        ),
+      'subagent task.terminated wire op',
+    );
+    const terminated = dispatched.find(
+      (op) =>
+        op.type === 'task.terminated' &&
+        (op.payload['info'] as { taskId?: string } | undefined)?.taskId === taskId,
+    );
+    expect(terminated?.payload['info']).toMatchObject({
+      taskId,
+      kind: 'agent',
+      status: 'killed',
+      stopReason: 'Stopped by TaskStop',
+    });
+    expect((terminated?.payload['info'] as { agentId?: string } | undefined)?.agentId).toMatch(
+      /^agent-\d+$/,
+    );
+    expect(terminated?.payload['outputTail']).toBe('part one part two');
+
+    // The wire record (TaskModel) reflects the killed settle.
+    await waitForContext(
+      ctx,
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'killed',
+        ),
+      'subagent killed wire record',
+    );
+    expect(taskService.list(false).some((task) => task.taskId === taskId)).toBe(true);
+
+    // TaskOutput retained buffer: the live-streamed deltas plus the settle
+    // tail equal the full streamed text exactly once (no duplication).
+    expect(await taskService.readOutput(taskId!)).toBe('part one part two');
+
+    // The terminal notification fired for the kill and its output preview
+    // carries the streamed text into the context.
+    const notified = busEvents.find((event) => event['type'] === 'task.notified');
+    expect(notified?.['notificationType']).toBe('task.killed');
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.origin?.kind === 'task' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('part one part two'),
+        ),
+      'killed-subagent notification with streamed output preview',
+    );
+    expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(true);
+  }, 30_000);
+
   it('cancels background work and drops late settles when the agent is disposed', async () => {
     // The main turn launches a background subagent whose nested turn blocks in
     // Bash (`sleep 2`). Disposing the agent while the subagent is still

@@ -2278,7 +2278,10 @@ impl AsyncAgentTool {
         // `task.output` deltas the TS adapter streamed (the adapter's
         // documented byte-for-byte invariant; previously only the success
         // branch carried the text and a TaskStopped/failed subagent settled
-        // with an empty output).
+        // with an empty output). Capped at DEFAULT_MAX_CHARS (F4): the same
+        // limit the bash path enforces (`append_task_output_and_emit`), so a
+        // chatty subagent cannot grow `state.output` / AgentOutput / WaitFor
+        // JSON without bound on the agent path.
         let accumulated_output: Arc<std::sync::Mutex<String>> =
             Arc::new(std::sync::Mutex::new(String::new()));
         tokio::spawn(async move {
@@ -2287,23 +2290,38 @@ impl AsyncAgentTool {
             // text while it still runs, and accumulate them for the settle
             // output. The success/killed/failed branches all settle with
             // this accumulated text, so the TS adapter's delta-prefix
-            // invariant holds byte-for-byte on every path.
+            // invariant holds byte-for-byte on every path. The cap mirrors
+            // `append_task_output_and_emit`: once the accumulated string is
+            // at DEFAULT_MAX_CHARS no further delta is appended OR emitted,
+            // and a delta that would cross the cap is truncated to the
+            // remaining budget and emitted with exactly the appended
+            // substring — so `sum(emitted deltas) == accumulated ==
+            // settle output` still holds byte-for-byte.
             let on_delta = {
                 let events = events.clone();
                 let task_id = task_id_for_worker.clone();
                 let accumulated = Arc::clone(&accumulated_output);
                 Some(std::sync::Arc::new(
                     move |delta: &str| {
-                        if !delta.is_empty() {
-                            accumulated
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .push_str(delta);
-                            events.emit(EngineEvent::TaskOutput {
-                                task_id: task_id.clone(),
-                                delta: delta.to_string(),
-                            });
+                        if delta.is_empty() {
+                            return;
                         }
+                        let mut acc = accumulated
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner());
+                        if acc.len() >= DEFAULT_MAX_CHARS {
+                            return;
+                        }
+                        let remaining = DEFAULT_MAX_CHARS - acc.len();
+                        let capped: String = delta.chars().take(remaining).collect();
+                        if capped.is_empty() {
+                            return;
+                        }
+                        acc.push_str(&capped);
+                        events.emit(EngineEvent::TaskOutput {
+                            task_id: task_id.clone(),
+                            delta: capped,
+                        });
                     },
                 ) as std::sync::Arc<dyn Fn(&str) + Send + Sync>)
             };
@@ -3206,6 +3224,148 @@ mod async_agent_tests {
             deltas.concat(),
             settled,
             "streamed deltas must concatenate exactly to the failed settle output: {deltas:?} / {settled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_output_accumulator_caps_at_default_max_chars() {
+        // F4 (adversarial review): the agent-path output accumulator must cap
+        // at DEFAULT_MAX_CHARS the same way the bash path does, so a chatty
+        // subagent cannot grow `state.output` / WaitFor JSON without bound.
+        // The cap preserves the delta == settle invariant: a delta that
+        // crosses the cap is truncated to the remaining budget (appended AND
+        // emitted identically), and once the cap is reached later deltas are
+        // dropped from BOTH the accumulator and the emitted stream.
+        let fill = "x".repeat(DEFAULT_MAX_CHARS - 1_000);
+        let over = "y".repeat(2_000);
+        let after_cap = "z".repeat(500);
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: fill.clone(),
+                },
+                LlmStreamEvent::Text {
+                    delta: over.clone(),
+                },
+                LlmStreamEvent::Text {
+                    delta: after_cap.clone(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: sink,
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a_cap".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "stream a lot" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_wc".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(
+            waited_json["status"], "completed",
+            "the subagent must complete: {waited_json}"
+        );
+        let output = waited_json["output"].as_str().unwrap();
+        assert_eq!(
+            output.chars().count(),
+            DEFAULT_MAX_CHARS,
+            "the settle output must be capped at DEFAULT_MAX_CHARS ({} chars, not {})",
+            DEFAULT_MAX_CHARS,
+            output.chars().count()
+        );
+        assert_eq!(
+            output,
+            format!("{fill}{}", "y".repeat(1_000)),
+            "the over-budget delta must be truncated to the remaining budget"
+        );
+        assert!(
+            !output.contains('z'),
+            "deltas past the cap must not reach the settle output"
+        );
+
+        // Wire invariant under the cap: the emitted `task.output` deltas
+        // still concatenate byte-for-byte to the settle output, and the
+        // deltas past the cap were not emitted at all.
+        let emitted = events.lock().unwrap();
+        let task_id = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskStarted { task_id, kind, .. }
+                    if kind == "agent" =>
+                {
+                    Some(task_id.clone())
+                }
+                _ => None,
+            })
+            .expect("subagent task.started emitted");
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                crate::events::EngineEvent::TaskOutput {
+                    task_id: id,
+                    delta,
+                } if id == &task_id => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        let settled = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskSettled {
+                    task_id: id,
+                    output,
+                    ..
+                } if id == &task_id => Some(output.clone()),
+                _ => None,
+            })
+            .expect("subagent task.settled emitted");
+        assert_eq!(
+            deltas.len(),
+            2,
+            "only the deltas within the budget are emitted: {deltas:?}"
+        );
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "capped deltas must still concatenate exactly to the capped settle output: {deltas:?} / {settled:?}"
         );
     }
 
