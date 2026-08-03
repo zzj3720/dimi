@@ -29,19 +29,57 @@ use dimi_engine::types::EngineTurnInput;
 
 use crate::wire_error;
 
-/// Process-level shared subagent task registry (code-review P1-1): every
-/// `RustTurnSession` (one per turn) shares this instance. The Agent tool
-/// hardcodes `stop_turn: true`, so the launching turn ends immediately and
-/// the NEXT turn runs in a NEW session — a per-session registry would make
-/// the launched subagent invisible to AgentOutput / WaitFor ("No subagent
-/// found"). Task ids are globally unique (`agent-<8>` uuid suffixes / engine
-/// `agent-<n>` counters seeded across turns), so the shared table never
-/// collides.
-static SHARED_AGENT_TASKS: std::sync::OnceLock<AgentTasks> = std::sync::OnceLock::new();
+/// Process-level subagent registries, scoped per agent (code-review P1-1/P1-3
+/// fix): every `RustTurnSession` of the same agent shares ONE `SessionRegistry`
+/// (subagent tasks + steering queues). The Agent tool hardcodes `stop_turn:
+/// true`, so the launching turn ends immediately and the NEXT turn runs in a
+/// NEW session — a per-session registry would make the launched subagent
+/// invisible to AgentOutput / WaitFor / Agent(resume). Scoping by an explicit
+/// registry id (the TS runner passes a per-agent uuid) keeps different agents
+/// (and different sessions in a server) from seeing each other's subagents —
+/// agent ids like `agent-0` are only unique within one agent, so a process-
+/// wide table would leak tasks across sessions. The runner calls
+/// `drop_task_registry` when the agent scope is disposed.
+struct SessionRegistry {
+    tasks: AgentTasks,
+    steer_map: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
+            >,
+        >,
+    >,
+}
 
-/// A clone of the process-wide task registry (all sessions see all tasks).
-fn shared_agent_tasks() -> AgentTasks {
-    SHARED_AGENT_TASKS.get_or_init(AgentTasks::default).clone()
+static REGISTRIES: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<SessionRegistry>>>,
+> = std::sync::OnceLock::new();
+
+fn session_registry(registry_id: &str) -> std::sync::Arc<SessionRegistry> {
+    let map = REGISTRIES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard
+        .entry(registry_id.to_string())
+        .or_insert_with(|| {
+            std::sync::Arc::new(SessionRegistry {
+                tasks: AgentTasks::new(),
+                steer_map: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
+            })
+        })
+        .clone()
+}
+
+/// Release an agent's subagent registry (tasks + steering queues) when its
+/// scope is disposed. In-flight tasks settle against a registry that is no
+/// longer shared; the task states are dropped with the map.
+#[napi]
+pub fn drop_task_registry(registry_id: String) {
+    let map = REGISTRIES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.remove(&registry_id);
 }
 
 #[napi]
@@ -536,14 +574,15 @@ impl RustTurnSession {
         input_json: String,
         policy_json: String,
         scripted_segments_json: Option<String>,
+        registry_id: String,
     ) -> napi::Result<Self> {
         let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
         let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
         let llm: std::sync::Arc<dyn LlmClient> =
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
-        let tasks = shared_agent_tasks();
-        let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let registry = session_registry(&registry_id);
+        let tasks = registry.tasks.clone();
+        let steer_map = registry.steer_map.clone();
         let event_sink = EventSink::new();
         let mut registry = ToolRegistry::new();
         // The Bash def mirrors the TS tool's advertised contract
@@ -1054,17 +1093,18 @@ mod tests {
     }
 
     #[test]
-    fn shared_agent_tasks_is_process_wide() {
-        // P1-1 (review): every `RustTurnSession` (one per turn) must share
-        // ONE subagent task registry — the Agent tool hardcodes
+    fn task_registry_is_scoped_per_agent_and_shared_within_it() {
+        // P1-1/P1-3 (review): every `RustTurnSession` of the SAME agent must
+        // share ONE subagent task registry — the Agent tool hardcodes
         // `stop_turn: true`, so the launching turn ends immediately and the
         // NEXT turn (a new session) must still resolve the task via
-        // AgentOutput / WaitFor. Two clones of the shared table must observe
-        // the same underlying map.
-        let first = shared_agent_tasks();
-        let second = shared_agent_tasks();
+        // AgentOutput / WaitFor. Different agents must NOT see each other's
+        // tasks (agent ids like `agent-0` are only unique within an agent).
+        let first = session_registry("agent-a");
+        let second = session_registry("agent-a");
+        let other = session_registry("agent-b");
         let task_id = "agent-shared-table-test".to_string();
-        first.insert(
+        first.tasks.insert(
             task_id.clone(),
             dimi_engine::tool::TaskState {
                 agent_id: "agent-0".to_string(),
@@ -1076,10 +1116,21 @@ mod tests {
                 cancel: None,
             },
         );
+        // Same registry id → the second session handle sees the task.
         let state = second
+            .tasks
             .get(&task_id)
             .expect("a task inserted via one session handle must be visible via another");
         assert_eq!(state.agent_id, "agent-0");
         assert_eq!(state.status, "running");
+        // Different registry id → isolated.
+        assert!(
+            other.tasks.get(&task_id).is_none(),
+            "a different agent's registry must not see the task"
+        );
+        // drop_task_registry removes the scope.
+        drop_task_registry("agent-a".to_string());
+        let fresh = session_registry("agent-a");
+        assert!(fresh.tasks.get(&task_id).is_none(), "drop must clear the scope");
     }
 }

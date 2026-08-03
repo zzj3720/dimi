@@ -272,7 +272,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ILogService private readonly log: ILogService,
-  ) {}
+  ) {
+    // Agent-scoped subagent registry id: every RustTurnSession of this agent
+    // shares one registry (subagent tasks + steering queues), and no other
+    // agent can see them. Released on dispose.
+    this.registryId = randomUUID();
+  }
+
+  /** Agent-scoped Rust subagent registry id (see constructor). */
+  private readonly registryId: string;
 
   static isEnabled(): boolean {
     return rustEngineEnabled();
@@ -387,6 +395,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.sessions.clear();
     this.taskSessions.clear();
     this.engineTaskAdapters.clear();
+    // Release the agent-scoped subagent registry (tasks + steering queues).
+    RustTurnSession.dropTaskRegistry(this.registryId);
   }
 
   private startQueuedTurn(entry: {
@@ -452,7 +462,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     });
     // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments.
     const scripted = process.env["DIMI_RUST_ENGINE_SCRIPTED"];
-    const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    const session = new RustTurnSession(
+      inputJson,
+      policyJson,
+      scripted ?? undefined,
+      this.registryId,
+    );
     this.sessions.add(session);
     this.activeSession = session;
     try {
@@ -576,13 +591,28 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           // A native-def registration failure (unknown native tool name /
           // malformed parameter JSON / registry lock busy) is a config/code
           // error: the model would silently lose Agent/AgentOutput/WaitFor
-          // for the whole turn. Log it and fail the turn explicitly — the
-          // caller's `.catch(() => undefined)` still clears the queue, so the
-          // turn ends instead of hanging with the prompt op already recorded.
+          // for the whole turn. Log it, surface a failed turn.ended + error
+          // on the bus (TS loopService parity — the activity view's busy
+          // flag and pending interactions reset on turn.ended), then fail
+          // the turn explicitly.
           this.log.error('[rustEngineTurnRunner] failed to register native tool def', {
             name: info.name,
             error,
           });
+          this.eventBus.publish({
+            type: 'turn.ended',
+            turnId,
+            reason: 'failed',
+            error: {
+              name: 'ToolRegistrationError',
+              message: `Failed to register native tool def "${info.name}"`,
+            },
+          } as never);
+          this.eventBus.publish({
+            type: 'error',
+            name: 'ToolRegistrationError',
+            message: `Failed to register native tool def "${info.name}"`,
+          } as never);
           throw error;
         }
         // An external-tool registration failure is transient (the same list

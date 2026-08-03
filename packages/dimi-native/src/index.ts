@@ -608,9 +608,20 @@ export interface RustEngineHandle {
 export class RustTurnSession {
   readonly #inner: RustTurnSessionHandle;
 
-  constructor(inputJson: string, policyJson: string, scriptedSegmentsJson?: string) {
+  constructor(
+    inputJson: string,
+    policyJson: string,
+    scriptedSegmentsJson: string | undefined,
+    registryId: string,
+  ) {
     const NativeClass = loadNative().RustTurnSession;
-    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null);
+    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null, registryId);
+  }
+
+  /** Release the agent-scoped subagent registry (tasks + steering queues).
+   *  Call when the owning agent scope is disposed. */
+  static dropTaskRegistry(registryId: string): void {
+    loadNative().dropTaskRegistry(registryId);
   }
 
   /** Register the per-event callback: every engine event emitted by `run()` /

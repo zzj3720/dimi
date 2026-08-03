@@ -2664,7 +2664,15 @@ impl AsyncAgentTool {
             // Session torn down while the nested turn ran (TS
             // `taskService.dispose` parity): skip the settle + notification —
             // the sink is closed, so nothing would reach the runner anyway.
+            // Mark the task non-running and drop its full message history so
+            // the shared registry cannot hold a permanently-"running" entry
+            // (review P1-2: boundedness + privacy).
             if events.is_closed() {
+                tasks.update(&task_id_for_worker, |state| {
+                    state.status = "killed".to_string();
+                    state.error = Some("Agent disposed before the subagent settled".to_string());
+                    state.messages = Vec::new();
+                });
                 return;
             }
             let output = accumulated_output
