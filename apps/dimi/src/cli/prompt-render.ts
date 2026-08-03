@@ -34,6 +34,17 @@ export interface PromptOutput {
 const PROMPT_BLOCK_BULLET = '• ';
 const PROMPT_BLOCK_INDENT = '  ';
 
+// Text `-p` transcript decorations. Tool lines go to stderr (diagnostics),
+// mirroring where thinking and tool progress already go, so stdout stays
+// machine-parseable assistant text only.
+const TOOL_CALL_MARK = '⚒ ';
+const TOOL_RESULT_MARK = '⚒ result: ';
+const RETRY_MARK = '↻ retry';
+
+// Cap tool lines so a huge argument blob or result cannot flood the terminal.
+const MAX_TOOL_CALL_ARGS_CHARS = 500;
+const MAX_TOOL_RESULT_CHARS = 2_000;
+
 export interface PromptTurnWriter {
   writeAssistantDelta(delta: string): void;
   writeHookResult(event: HookResultEventLike): void;
@@ -87,10 +98,12 @@ interface PromptJsonRetryMetaMessage {
 export class PromptTranscriptWriter implements PromptTurnWriter {
   private readonly assistantWriter: PromptBlockWriter;
   private readonly thinkingWriter: PromptBlockWriter;
+  private readonly toolWriter: PromptBlockWriter;
 
   constructor(stdout: PromptOutput, stderr: PromptOutput) {
     this.assistantWriter = new PromptBlockWriter(stdout);
     this.thinkingWriter = new PromptBlockWriter(stderr);
+    this.toolWriter = new PromptBlockWriter(stderr);
   }
 
   writeAssistantDelta(delta: string): void {
@@ -109,16 +122,37 @@ export class PromptTranscriptWriter implements PromptTurnWriter {
     this.thinkingWriter.write(delta);
   }
 
-  writeToolCall(): void {}
+  writeToolCall(toolCallId: string, name: string, args: unknown): void {
+    this.thinkingWriter.finish();
+    this.assistantWriter.finish();
+    this.toolWriter.write(
+      `${TOOL_CALL_MARK}${name}(${truncateChars(stringifyToolArgs(args), MAX_TOOL_CALL_ARGS_CHARS)})`,
+    );
+    this.toolWriter.finish();
+  }
 
   writeToolCallDelta(): void {}
 
-  writeToolResult(): void {}
+  writeToolResult(toolCallId: string, output: unknown): void {
+    this.toolWriter.finish();
+    this.toolWriter.write(
+      `${TOOL_RESULT_MARK}${truncateChars(stringifyToolOutput(output), MAX_TOOL_RESULT_CHARS)}`,
+    );
+    this.toolWriter.finish();
+  }
 
-  // Text `-p` keeps retries silent: only the failed attempt's partial assistant
-  // text is discarded (handled by the caller). No human-readable retry line is
-  // emitted, matching the prior behavior.
-  writeRetrying(): void {}
+  // Text `-p` announces transient provider retries so a visible pause does not
+  // look like a hang. The failed attempt's partial assistant text was already
+  // discarded by the caller.
+  writeRetrying(event: RetryingEventLike): void {
+    this.thinkingWriter.finish();
+    this.assistantWriter.finish();
+    const error = [event.errorName, event.errorMessage].filter(Boolean).join(': ');
+    this.toolWriter.write(
+      `${RETRY_MARK} ${event.failedAttempt}/${event.maxAttempts} (${error}) — ${event.delayMs}ms`,
+    );
+    this.toolWriter.finish();
+  }
 
   flushAssistant(): void {
     this.assistantWriter.finish();
@@ -129,6 +163,7 @@ export class PromptTranscriptWriter implements PromptTurnWriter {
   finish(): void {
     this.thinkingWriter.finish();
     this.assistantWriter.finish();
+    this.toolWriter.finish();
   }
 }
 
@@ -339,6 +374,19 @@ function stringifyToolOutput(output: unknown): string {
   if (typeof output === 'string') return output;
   const json = JSON.stringify(output);
   return json ?? String(output);
+}
+
+function stringifyToolArgs(args: unknown): string {
+  // Tool args are usually a JSON object; keep them inline like `Bash({"command": "ls"})`.
+  if (typeof args === 'string') return args;
+  const json = JSON.stringify(args);
+  return json ?? String(args);
+}
+
+function truncateChars(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const suffix = `… (${text.length - max} more chars)`;
+  return `${text.slice(0, max - suffix.length)}${suffix}`;
 }
 
 interface PromptJsonResumeMetaMessage {
