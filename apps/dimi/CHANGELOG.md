@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.5
+
+### Patch Changes
+
+- [`18f506a`](https://github.com/zzj3720/dimi/commit/18f506ac591d2a18eaee60cb8fdfeb95eaa1ac3c) - Make the WaitFor guidance surface watcher errors: a background poll script must print failures and exit non-zero so the wait wakes with the real reason instead of silently timing out.
+
 ## 0.6.4
 
 ### Patch Changes
