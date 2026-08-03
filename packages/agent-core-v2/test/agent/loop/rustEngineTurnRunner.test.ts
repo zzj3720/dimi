@@ -649,6 +649,206 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     expect(busEvents.some((event) => event['type'] === 'task.notified')).toBe(false);
   }, 30_000);
 
+  it('TaskStop reaches a task launched by a background subagent after the turn ended', async () => {
+    // F1 (review P1): turn 1 launches subagent A (stop_turn ends the turn).
+    // A's nested turn backgrounds a bash command (`sleep 30`, timeout 1)
+    // whose `task.started` arrives AFTER turn 1 ended — the runner is idle,
+    // so `activeSession` is undefined when the adapter is registered, and
+    // the engine's per-task cancel signal lives on the OWNING session's task
+    // map (`RustTurnSession` creates a fresh map per turn). TaskStop must
+    // therefore cancel through the owning session recorded at
+    // `task.started`, not through `activeSession`. The test stops B directly
+    // through IAgentTaskService (the same entry point the TaskStop tool
+    // uses; a real second model turn would replay the scripted segments from
+    // cursor 0 and cascade — verified). A stays alive in a foreground Bash
+    // so no A completion notification pollutes the assertions.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      // Seg 0: main turn 1 — launch subagent A (stop_turn ends the turn).
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_sub_a',
+          name: 'Agent',
+          argumentsPart: '{"prompt":"spawn bg bash","description":"sub A"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 1: subagent A's nested turn — background a bash command (its
+      // `task.started` fires ~1s later, after turn 1 already ended).
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_nested_bg',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 30","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 2: subagent A's nested turn — block in a foreground Bash so A
+      // stays alive until the test disposes (no completion notification).
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_nested_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 30"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (
+        type === 'subagent.spawned' ||
+        type === 'task.started' ||
+        type === 'task.terminated' ||
+        type === 'task.notified'
+      ) {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn worker bash' }] });
+    await waitForContext(
+      ctx,
+      () =>
+        busEvents.some(
+          (event) =>
+            event['type'] === 'task.started' &&
+            (event['info'] as { kind?: string } | undefined)?.kind === 'process',
+        ),
+      'worker-launched bash task start',
+    );
+    // Subagent A's own start (agent kind) fires first, mid-turn; the
+    // worker-launched bash start (process kind) fires ~1s later, after turn
+    // 1 ended — select the bash one.
+    const started = busEvents.find(
+      (event) =>
+        event['type'] === 'task.started' &&
+        (event['info'] as { kind?: string } | undefined)?.kind === 'process',
+    );
+    const taskId = (started?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-f]{8}$/);
+    // The launching subagent (agent kind) also rode the lifecycle events.
+    expect(busEvents.some((event) => event['type'] === 'subagent.spawned')).toBe(true);
+
+    // TaskStopTool parity: suppress the terminal notification, then stop the
+    // worker-launched task. The adapter's forceStop must reach the OWNING
+    // session's task map (recorded at task.started), not the idle runner.
+    const taskService = ctx.get(IAgentTaskService);
+    expect(taskService.list(true).some((task) => task.taskId === taskId)).toBe(true);
+    await taskService.suppressTerminalNotification(taskId!);
+    const result = await taskService.stop(taskId!, 'Stopped by TaskStop');
+    expect(result?.status).toBe('killed');
+
+    // The engine settled the worker-launched task as killed (its poller
+    // killed the process) — the wire record reflects it, proving the cancel
+    // reached the owning session.
+    await waitForContext(
+      ctx,
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'killed',
+        ),
+      'worker-launched bash task killed wire record',
+    );
+    expect(taskService.list(true).some((task) => task.taskId === taskId)).toBe(false);
+    const registered = taskService.list(false).find((task) => task.taskId === taskId);
+    expect(registered).toMatchObject({ kind: 'process', status: 'killed', detached: true });
+    // No completion notification for the stopped task (suppressed), and A is
+    // still blocked — nothing fired.
+    expect(busEvents.some((event) => event['type'] === 'task.notified')).toBe(false);
+  }, 30_000);
+
+  it('streams live output into TaskOutput while a backgrounded bash runs', async () => {
+    // F2 (review nit): the engine emits `task.output` deltas as the poller
+    // drains a backgrounded command (`mid` at ~2s, `done` at ~4s), and the
+    // runner forwards them to the adapter's sink — so TaskOutput shows
+    // partial output BEFORE the settle (TS ProcessTask parity), not only at
+    // settle. The main turn stays alive (seg 1 blocks ~3.5s) so the
+    // completion notification steers into the running turn and no
+    // notification turn (which would replay segments) is created.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      // Seg 0: background a command that produces output while running.
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bg_stream',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2; echo mid; sleep 2; echo done","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 1: block the turn past the settle (~4s) so the notification
+      // steers into the running turn.
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 3.5"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 2: final answer.
+      [{ type: 'text', delta: 'stream turn done' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'task.started' || type === 'task.terminated') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run bg stream' }] });
+    await waitForContext(
+      ctx,
+      () => busEvents.some((event) => event['type'] === 'task.started'),
+      'bash task start',
+    );
+    const started = busEvents.find((event) => event['type'] === 'task.started');
+    const taskId = (started?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-f]{8}$/);
+
+    // The engine streams `mid` at ~2s; the task settles only at ~4s (after
+    // `done`), so `mid` MUST be readable while the task is still active.
+    const taskService = ctx.get(IAgentTaskService);
+    let sawMidWhileRunning = false;
+    for (let i = 0; i < 600; i++) {
+      const output = await taskService.readOutput(taskId!);
+      if (output.includes('mid')) {
+        sawMidWhileRunning = taskService
+          .list(true)
+          .some((task) => task.taskId === taskId);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(sawMidWhileRunning).toBe(true);
+
+    // After the settle the full output is present (the settle appended only
+    // the not-yet-streamed tail — no duplication).
+    await waitForContext(
+      ctx,
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'completed',
+        ),
+      'bash task completed wire record',
+    );
+    const output = await taskService.readOutput(taskId!);
+    expect(output).toContain('mid');
+    expect(output).toContain('done');
+  }, 30_000);
+
   it('delivers the TS-parity recovery line for a failed subagent notification', async () => {
     // Segment 0: the main turn asks the Agent tool to spawn a subagent
     // (stop_turn ends the main turn immediately). Segment 1: the nested

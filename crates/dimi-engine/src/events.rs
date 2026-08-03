@@ -155,6 +155,18 @@ pub enum EngineEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exit_code: Option<i64>,
     },
+    /// A background task produced more output while still running: emitted
+    /// from the bash poller when it appends a drained chunk to the task
+    /// state, so the TS side can stream live output into TaskOutput (TS
+    /// ProcessTask parity — TS streams chunks as they arrive; the engine's
+    /// settle-only event left TaskOutput empty until the task ended).
+    #[serde(rename = "task.output", rename_all = "camelCase")]
+    TaskOutput {
+        task_id: String,
+        /// The exact chunk appended to the task state (utf8-lossy decoded,
+        /// already capped by the result-builder limits).
+        delta: String,
+    },
 }
 
 /// Cloneable sink for task lifecycle events emitted by tools (subagent

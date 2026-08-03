@@ -15,10 +15,14 @@
  * - `start(sink)` (called by the service at registration) captures the sink,
  *   bridges an abort (TaskStop / session close) into the engine's per-task
  *   cancel, and resolves when the runner settles the task (`complete`).
+ * - `appendOutput(delta)` (called by the runner on the engine's `task.output`
+ *   events) streams live output into the sink, so TaskOutput shows partial
+ *   output while the task is still running (TS ProcessTask parity). Deltas
+ *   arriving before `start` are buffered.
  * - `complete(output, settlement, exitCode?)` (called by the runner on the
- *   engine's `task.settled`) pushes the final output into the sink (so
- *   TaskOutput / the notification preview can read it) and settles the
- *   registry entry, so TaskList stops showing it as running.
+ *   engine's `task.settled`) appends only the not-yet-streamed tail of the
+ *   final output (the streamed deltas already landed in the sink) and settles
+ *   the registry entry, so TaskList stops showing it as running.
  * - `forceStop()` (the service's kill path) re-invokes the engine cancel —
  *   the abort listener already fired it, this is the graceful-exit fallback.
  */
@@ -59,6 +63,10 @@ export class EngineTaskAdapter implements AgentTask {
   private settleResolve: (() => void) | undefined;
   private readonly settled: Promise<void>;
   private removeAbortListener: (() => void) | undefined;
+  /** UTF-8 bytes already pushed to the sink (or buffered pre-start). The
+   *  engine's `task.output` deltas concatenate exactly to the settle's full
+   *  output, so `complete` appends only the not-yet-streamed tail. */
+  private streamedBytes = 0;
 
   constructor(private readonly options: EngineTaskAdapterOptions) {
     this.idPrefix = options.kind === "agent" ? "agent" : "bash";
@@ -92,18 +100,43 @@ export class EngineTaskAdapter implements AgentTask {
     this.options.forceStop();
   }
 
+  /** Runner-side live output (engine `task.output` events): stream the delta
+   *  straight into the service sink so TaskOutput shows partial output while
+   *  the task runs. Deltas racing `start()` (settle/stream before the
+   *  service invoked start) are buffered and flushed with the settle. */
+  appendOutput(delta: string): void {
+    this.streamedBytes += Buffer.byteLength(delta, "utf-8");
+    if (this.sink !== undefined) {
+      this.sink.appendOutput(delta);
+    } else {
+      this.pendingOutput += delta;
+    }
+  }
+
   /** Runner-side settle: record the final output/exit code and settle the
    *  registry entry (the runner dispatches the wire `task.terminated` and
    *  delivers the notification itself — the service's `recorded: false`
-   *  entry only drives TaskList/TaskStop). */
+   *  entry only drives TaskList/TaskStop). The settle output is the engine's
+   *  full accumulated output; the deltas streamed during the run already
+   *  landed in the sink, so only the not-yet-streamed tail is appended (the
+   *  concatenated deltas equal the settle output byte-for-byte). */
   complete(
     output: string,
     settlement: AgentTaskSettlement,
     exitCode?: number | null,
   ): void {
-    this.pendingOutput = output;
     this.pendingSettlement = settlement;
     this.pendingExitCode = exitCode ?? null;
+    const fullBytes = Buffer.byteLength(output, "utf-8");
+    const streamed = this.streamedBytes;
+    if (streamed < fullBytes) {
+      const tail = Buffer.from(output, "utf-8").subarray(streamed).toString("utf-8");
+      if (this.sink !== undefined) {
+        this.sink.appendOutput(tail);
+      } else {
+        this.pendingOutput += tail;
+      }
+    }
     this.flush();
   }
 

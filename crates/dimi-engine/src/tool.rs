@@ -21,6 +21,11 @@ pub const MAX_TIMEOUT_S: u64 = 300;
 /// Default deadline for a command moved to the background by a foreground
 /// timeout (bash.ts `DEFAULT_BACKGROUND_TIMEOUT_S`).
 pub const DEFAULT_BACKGROUND_TIMEOUT_S: u64 = 600;
+/// TaskStop SIGTERM grace, seconds (TS `SIGTERM_GRACE_MS` = 5_000): a
+/// cancelled background command gets SIGTERM first and SIGKILL only if it
+/// has not exited after the grace — processes that trap SIGTERM keep their
+/// cleanup window (TS `terminateWithGrace` parity).
+pub const CANCEL_TERM_GRACE_S: u64 = 5;
 
 /// Truncation constants (result-builder.ts).
 pub const DEFAULT_MAX_CHARS: usize = 50_000;
@@ -508,9 +513,25 @@ fn backgrounded_result(
         let background_timeout = Duration::from_secs(DEFAULT_BACKGROUND_TIMEOUT_S);
         loop {
             if task_is_cancelled(&tasks, &worker_task_id) {
-                // TaskStop parity: kill the command and settle "killed"
-                // (the sink may be closed — `emit` is then a no-op).
-                let _ = poller_process.kill(Some(9));
+                // TaskStop parity: TS `terminateWithGrace` — SIGTERM first,
+                // escalate to SIGKILL after the grace. A process that traps
+                // SIGTERM gets its cleanup window; one that ignores it (or
+                // outlives the grace) is force-killed. On Windows the kill
+                // signal is ignored (taskkill /T /F) so the grace loop just
+                // waits out the already-dead tree.
+                let _ = poller_process.kill(Some(15)); // SIGTERM
+                let grace_deadline = Instant::now() + Duration::from_secs(CANCEL_TERM_GRACE_S);
+                loop {
+                    if poller_process.exit_code().is_some() {
+                        break;
+                    }
+                    if Instant::now() >= grace_deadline {
+                        let _ = poller_process.kill(Some(9)); // SIGKILL
+                        let _ = poller_process.wait();
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
                 let _ = poller_process.wait();
                 tasks.update(&worker_task_id, |state| {
                     state.status = "killed".to_string();
@@ -531,11 +552,11 @@ fn backgrounded_result(
             let mut any = false;
             while let Some(chunk) = poller_process.try_recv_stdout() {
                 any = true;
-                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
             }
             while let Some(chunk) = poller_process.try_recv_stderr() {
                 any = true;
-                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
             }
             if !any {
                 if poller_process.exit_code().is_some() {
@@ -586,11 +607,11 @@ fn backgrounded_result(
             let mut any = false;
             while let Some(chunk) = poller_process.try_recv_stdout() {
                 any = true;
-                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
             }
             while let Some(chunk) = poller_process.try_recv_stderr() {
                 any = true;
-                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
             }
             if !any || Instant::now() >= drain_deadline {
                 break;
@@ -658,6 +679,31 @@ fn append_task_output(state: &mut TaskState, chunk: &[u8]) {
     state
         .output
         .push_str(&text.chars().take(remaining).collect::<String>());
+}
+
+/// Append a drained chunk and emit a `task.output` event with exactly the
+/// appended delta, so the TS side can stream live output into TaskOutput
+/// while the task is still running (TS ProcessTask parity). The delta is the
+/// same `take(remaining)` substring `append_task_output` appends, so the sum
+/// of deltas equals the final settle output byte-for-byte.
+fn append_task_output_and_emit(tasks: &AgentTasks, events: &EventSink, task_id: &str, chunk: &[u8]) {
+    let Some(state) = tasks.get(task_id) else {
+        return;
+    };
+    if state.output.len() >= DEFAULT_MAX_CHARS {
+        return;
+    }
+    let text = String::from_utf8_lossy(chunk);
+    let remaining = DEFAULT_MAX_CHARS - state.output.len();
+    let delta: String = text.chars().take(remaining).collect();
+    if delta.is_empty() {
+        return;
+    }
+    tasks.update(task_id, |state| append_task_output(state, chunk));
+    events.emit(EngineEvent::TaskOutput {
+        task_id: task_id.to_string(),
+        delta,
+    });
 }
 
 /// TS `foregroundDescription` preview: the command truncated at 60 chars.
@@ -1045,6 +1091,225 @@ mod tests {
         assert!(
             waited_json["output"].as_str().unwrap().contains("after-bg"),
             "post-timeout output must be captured: {}",
+            waited.output
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_tool_streams_task_output_before_settle() {
+        // TS ProcessTask parity: output produced while the backgrounded
+        // command still runs is streamed as `task.output` events (so the TS
+        // adapter can show live TaskOutput), and the mid chunk arrives
+        // BEFORE the settle — not only at settle.
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let tool = BashTool {
+            tasks: tasks.clone(),
+            events: sink,
+            ..BashTool::default()
+        };
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_stream".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": "sleep 2; echo mid; sleep 2; echo done",
+                        "timeout": 1,
+                        "description": "stream probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_ws".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+
+        let emitted = events.lock().unwrap();
+        let mid = emitted.iter().position(|event| {
+            matches!(event, EngineEvent::TaskOutput { delta, .. } if delta.contains("mid"))
+        });
+        let done = emitted.iter().position(|event| {
+            matches!(event, EngineEvent::TaskOutput { delta, .. } if delta.contains("done"))
+        });
+        let settled = emitted
+            .iter()
+            .position(|event| matches!(event, EngineEvent::TaskSettled { .. }));
+        assert!(
+            mid.is_some(),
+            "mid must be streamed as task.output before settle: {emitted:?}"
+        );
+        assert!(done.is_some(), "done must be streamed: {emitted:?}");
+        assert!(
+            mid.unwrap() < settled.expect("task.settled emitted"),
+            "mid must arrive before the settle: {emitted:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_tool_cancel_sends_sigterm_before_sigkill() {
+        // TS `terminateWithGrace` parity: TaskStop sends SIGTERM first; a
+        // command that traps SIGTERM gets its cleanup window and exits before
+        // any SIGKILL is needed.
+        let dir = std::env::temp_dir().join(format!("dimi-bash-term-grace-{}", uuid_v4_short()));
+        std::fs::create_dir_all(&dir).expect("create marker dir");
+        let marker = dir.join("cleanup-ran");
+        let tasks = AgentTasks::new();
+        let tool = BashTool::with_tasks(tasks.clone());
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_term".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": format!(
+                            "trap 'echo cleaned > \"{}\"; exit 0' TERM; sleep 30",
+                            marker.display()
+                        ),
+                        "timeout": 1,
+                        "description": "term grace probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        // TaskStop parity: flip the per-task cancel signal.
+        let state = tasks.get(&task_id).expect("backgrounded task registered");
+        state.cancel.expect("cancel signal").cancel();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wt".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "killed");
+        assert_eq!(
+            waited_json["error"].as_str(),
+            Some("Stopped by TaskStop"),
+            "{}",
+            waited.output
+        );
+        assert!(
+            marker.exists(),
+            "SIGTERM must be delivered before any SIGKILL (trap cleanup ran)"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn bash_tool_cancel_escalates_to_sigkill_after_grace() {
+        // A command that ignores SIGTERM (`trap '' TERM`) survives the grace
+        // window and is force-killed with SIGKILL — the settle still lands as
+        // "killed" (TS `terminateWithGrace` escalation).
+        let tasks = AgentTasks::new();
+        let tool = BashTool::with_tasks(tasks.clone());
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_kill".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": "trap '' TERM; sleep 30",
+                        "timeout": 1,
+                        "description": "sigkill escalation probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let state = tasks.get(&task_id).expect("backgrounded task registered");
+        state.cancel.expect("cancel signal").cancel();
+
+        // 20s > the 5s grace: WaitFor resolves only after the SIGKILL lands.
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wk".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "killed");
+        assert_eq!(
+            waited_json["error"].as_str(),
+            Some("Stopped by TaskStop"),
+            "{}",
             waited.output
         );
     }

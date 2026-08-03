@@ -218,6 +218,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    *  task settles (a task settles exactly once), so the map stays bounded. */
   private readonly engineTaskAdapters = new Map<string, EngineTaskAdapter>();
 
+  /** Owning RustTurnSession per engine task id (F1): recorded at
+   *  `task.started` from the session whose EventSink delivered the event.
+   *  Tasks launched from background workers (a subagent spawning a
+   *  sub-subagent, or a subagent launching a backgrounded bash) emit their
+   *  start AFTER the launching turn ended, when `activeSession` is undefined
+   *  or a newer turn's session — and the engine's per-task cancel signal
+   *  lives on the OWNING session's task map (`RustTurnSession::new` creates
+   *  a fresh map per turn), so TaskStop must cancel through this session.
+   *  Removed once the task settles, so the map stays bounded. */
+  private readonly taskSessions = new Map<string, RustTurnSession>();
+
   /** Every subagent agent id this runner has handed out (the engine's
    *  `agent-<n>` ids across turns): the next-turn seed must continue past
    *  them so ids stay monotonic within the session (TS
@@ -368,6 +379,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       session.close();
     }
     this.sessions.clear();
+    this.taskSessions.clear();
+    this.engineTaskAdapters.clear();
   }
 
   private startQueuedTurn(entry: {
@@ -575,7 +588,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // `task.started` / `task.terminated` session events (which carry the
       // folded `info`).
       if (event["type"] === "task.started") {
+        // F1: record the session whose event sink delivered the start — the
+        // engine's per-task cancel signal lives on THIS session's task map
+        // (`RustTurnSession::new` creates a fresh map per turn), so TaskStop
+        // on a worker-launched task (sub-subagent / subagent-launched bash)
+        // must cancel through it, not through `activeSession` (which is
+        // undefined or a newer turn's session by then).
+        this.taskSessions.set(toText(event["taskId"]), session);
         this.handleTaskStarted(event);
+        return;
+      }
+      if (event["type"] === "task.output") {
+        // Live output stream (TS ProcessTask parity): forward the delta into
+        // the task-service entry's sink so TaskOutput shows output while the
+        // engine task is still running, not only at settle.
+        this.handleTaskOutput(event);
         return;
       }
       if (event["type"] === "task.settled") {
@@ -863,6 +890,29 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }
 
   /**
+   * `task.output` (engine transport) → the task-service entry's live sink:
+   * append the streamed delta so TaskOutput shows partial output while the
+   * engine task is still running (TS ProcessTask parity — TS streams chunks
+   * as they arrive; the adapter's settle also appends only the not-yet-
+   * streamed tail, so nothing is duplicated). No wire op / bus event: the
+   * live output is the service's retained buffer, the wire `task.terminated`
+   * tail comes from the settle's full output.
+   */
+  private handleTaskOutput(event: Record<string, unknown>): void {
+    const taskId = toText(event["taskId"]);
+    const delta = toText(event["delta"]);
+    if (delta.length === 0) return;
+    const adapter = this.engineTaskAdapters.get(taskId);
+    if (adapter !== undefined) {
+      adapter.appendOutput(delta);
+      return;
+    }
+    // The adapter may be absent when registration failed (teardown race) or
+    // when the delta raced the settle — the settle's full output covers it.
+    this.log.debug("[rustEngineTurnRunner] task.output for unregistered task", { taskId });
+  }
+
+  /**
    * Register an engine background task with `IAgentTaskService` (TaskList /
    * TaskStop / TaskOutput parity). The adapter bridges TaskStop into the
    * engine's per-task cancel (`session.cancelTask`) — the launching session's
@@ -877,7 +927,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     description: string,
     pid: number | undefined,
   ): void {
-    const session = this.activeSession;
+    // F1: resolve the task's OWNING session — the one whose event sink
+    // delivered `task.started` (recorded in `handleEngineEvent`). Tasks
+    // launched from background workers arrive after the launching turn
+    // ended, when `activeSession` is undefined or a newer turn's session,
+    // and the engine's per-session task map holds the cancel signal on the
+    // owning session only. Fall back to `activeSession` (the normal case:
+    // top-level tasks start mid-turn).
+    const session = this.taskSessions.get(taskId) ?? this.activeSession;
     const adapter = new EngineTaskAdapter({
       taskId,
       agentId,
@@ -997,6 +1054,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // A settled task never settles again — drop the launch facts so the
     // mirror stays bounded by the in-flight task count.
     this.taskInfos.delete(taskId);
+    this.taskSessions.delete(taskId);
     // TS `buildAgentTaskNotificationContext` parity: a TaskStop-suppressed
     // task (the tool suppressed the notification before stopping) delivers
     // no notification — the tool result is the only answer the model sees.
@@ -1143,7 +1201,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       for (const id of Object.keys(persisted)) consider(id);
     } catch {
       // Metadata unreadable — the in-session ids above still seed the
-      // counter monotonically across turns.
+      // counter monotonically across turns, but the seed can collide with
+      // TS-assigned agent ids persisted before a server restart (review
+      // nit): surface the degraded mode instead of failing silently.
+      this.log.warn(
+        "[rustEngineTurnRunner] failed to read session metadata; seeding next agent id from in-session engine ids only",
+      );
     }
     return maxSuffix + 1;
   }
