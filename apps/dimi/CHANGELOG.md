@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.3
+
+### Patch Changes
+
+- [`67c5a66`](https://github.com/zzj3720/dimi/commit/67c5a66607979ca2ebbfb942630f86af227d3543) - Fix resumed sessions showing a compaction summary as a user message and hiding pre-compaction history after context compaction.
+
 ## 0.6.2
 
 ### Patch Changes
