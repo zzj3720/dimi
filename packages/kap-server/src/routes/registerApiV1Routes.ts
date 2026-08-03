@@ -27,6 +27,7 @@ import { registerMessagesRoutes } from './messages';
 import type { IGuiStoreService } from '../services/guiStore/guiStore';
 import type { ISnapshotReader } from '../services/snapshot';
 import { registerDebugRoutes } from '../transport/registerDebugRoutes';
+import { registerEventsRoute } from './events';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
@@ -34,6 +35,7 @@ import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
 import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionsRoutes } from './sessions';
+import { registerShellRoute } from './shell';
 import { registerShutdownRoutes } from './shutdown';
 import { registerSnapshotRoutes } from './snapshot';
 import { registerSkillsRoutes } from './skills';
@@ -111,6 +113,11 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
       );
+      registerShellRoute(apiV1 as unknown as Parameters<typeof registerShellRoute>[0], core);
+      registerEventsRoute(apiV1 as unknown as Parameters<typeof registerEventsRoute>[0], {
+        broadcaster: opts.broadcaster,
+        core,
+      });
       registerSessionExportRoute(
         apiV1 as unknown as Parameters<typeof registerSessionExportRoute>[0],
         core,
