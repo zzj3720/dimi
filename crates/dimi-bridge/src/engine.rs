@@ -177,6 +177,8 @@ pub struct RustTurnSession {
     steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>>,
     /// This turn's own steering queue (drained into the next request).
     steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
+    /// Cooperative cancellation (TS RPC cancel).
+    cancel: std::sync::Arc<dimi_engine::engine::CancelSignal>,
 }
 
 /// Mutex-wrapped registry implementing ToolExecutor.
@@ -304,11 +306,15 @@ impl RustTurnSession {
         }
         let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cancel = std::sync::Arc::new(dimi_engine::engine::CancelSignal::new());
         Ok(Self {
-            inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::with_steer(
-                input,
-                Some(std::sync::Arc::clone(&steer_queue)),
-            )),
+            inner: napi::tokio::sync::Mutex::new(
+                dimi_engine::engine::TurnSession::with_steer_and_cancel(
+                    input,
+                    Some(std::sync::Arc::clone(&steer_queue)),
+                    std::sync::Arc::clone(&cancel),
+                ),
+            ),
             llm,
             tools,
             policy,
@@ -317,7 +323,15 @@ impl RustTurnSession {
             )),
             steer_map,
             steer_queue,
+            cancel,
         })
+    }
+
+    /// Cancel the running turn: the engine stops at the next step boundary
+    /// (or races the in-flight LLM/tool await) and finishes as `cancelled`.
+    #[napi]
+    pub fn cancel(&self) {
+        self.cancel.cancel();
     }
 
     /// Steer the running turn: the message is queued and drained into the

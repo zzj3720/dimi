@@ -99,13 +99,14 @@ export class AgentRPCService implements IAgentRPCService {
     }
     await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
     // M3 slice-1 swap-in: DIMI_RUST_ENGINE=1 routes the turn through the
-    // Rust engine instead of the TS loop.
+    // Rust engine instead of the TS loop. `undefined` = queued behind the
+    // running turn (TS `state === 'pending'` parity).
     if (RustEngineTurnRunner.isEnabled()) {
-      await this.rustEngineTurnRunner.runTurn({
+      const launched = await this.rustEngineTurnRunner.runTurn({
         input: [...payload.input],
         origin: { kind: "user" },
       });
-      return { turn_id: 0 };
+      return launched === undefined ? undefined : { turn_id: launched.turnId };
     }
     const handle = await this.promptService.enqueue({ message: {
       role: 'user',
@@ -127,11 +128,12 @@ export class AgentRPCService implements IAgentRPCService {
       if (this.rustEngineTurnRunner.steer({ input: [...payload.input], origin: { kind: 'user' } })) {
         return { turn_id: 0 };
       }
-      await this.rustEngineTurnRunner.runTurn({
+      // Idle target: a normal Rust turn (TS enqueueOrSteer fallback).
+      const launched = await this.rustEngineTurnRunner.runTurn({
         input: [...payload.input],
         origin: { kind: 'user' },
       });
-      return { turn_id: 0 };
+      return launched === undefined ? undefined : { turn_id: launched.turnId };
     }
     const submitted = await this.promptService.enqueueOrSteer({ message: {
       role: 'user',
@@ -144,6 +146,12 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancel({ turnId }: CancelPayload): void {
+    if (RustEngineTurnRunner.isEnabled()) {
+      // The Rust engine owns the running turn: cancel it directly (queued
+      // turns are cancelled by id).
+      this.rustEngineTurnRunner.cancel(turnId);
+      return;
+    }
     if (this.loop.status().state === 'running') {
       this.telemetry.track2('cancel', {
         from: 'streaming',

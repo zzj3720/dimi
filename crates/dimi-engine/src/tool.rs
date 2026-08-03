@@ -248,7 +248,9 @@ impl ToolExecutor for BashTool {
                     let _ = process.kill(Some(9)); // SIGKILL
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(10));
+                // Yield to the runtime so cooperative cancellation (the
+                // run loop's tokio::select) can fire while the command runs.
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
         let _ = process.wait();

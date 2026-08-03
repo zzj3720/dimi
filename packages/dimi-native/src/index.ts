@@ -634,6 +634,11 @@ export class RustTurnSession {
     this.#inner.steerSubagent(agentId, message);
   }
 
+  /** Cancel the running turn (engine stops at the next boundary). */
+  cancel(): void {
+    this.#inner.cancel();
+  }
+
   completeToolCall(requestId: string, resultJson: string): void {
     this.#inner.completeToolCall(requestId, resultJson);
   }
@@ -650,5 +655,6 @@ export interface RustTurnSessionHandle {
   registerExternalTool(name: string, callback: (payloadJson: string) => void): void;
   steer(message: string): void;
   steerSubagent(agentId: string, message: string): void;
+  cancel(): void;
   completeToolCall(requestId: string, resultJson: string): void;
 }

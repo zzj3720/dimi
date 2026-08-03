@@ -149,6 +149,39 @@ impl Engine {
     }
 }
 
+/// Cooperative cancellation for a running turn: `cancel()` flips the flag and
+/// stores a notify permit; the run loop checks the flag at step boundaries and
+/// the LLM/tool awaits race `cancelled()`. `notify_one` keeps a permit when no
+/// waiter is parked, so a cancel landing between the flag check and the await
+/// is never missed.
+#[derive(Debug, Default)]
+pub struct CancelSignal {
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    notify: std::sync::Arc<tokio::sync::Notify>,
+}
+
+impl CancelSignal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.notify.notify_one();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Resolves once the turn has been cancelled (immediately if already so).
+    pub async fn cancelled(&self) {
+        if !self.is_cancelled() {
+            self.notify.notified().await;
+        }
+    }
+}
+
 /// One in-flight turn: messages, step counter and the pending approval (if
 /// the policy asked and the turn paused).
 pub struct TurnSession {
@@ -165,6 +198,8 @@ pub struct TurnSession {
     /// compaction is skipped — prevents immediate re-compaction loops when
     /// the summary message itself approaches the window.
     last_compacted_tokens: Option<u64>,
+    /// Cooperative cancellation (RPC cancel → engine).
+    cancel: std::sync::Arc<CancelSignal>,
 }
 
 /// A tool call waiting for the user's approval decision.
@@ -205,6 +240,14 @@ impl TurnSession {
         input: EngineTurnInput,
         steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
     ) -> Self {
+        Self::with_steer_and_cancel(input, steer, std::sync::Arc::new(CancelSignal::new()))
+    }
+
+    pub fn with_steer_and_cancel(
+        input: EngineTurnInput,
+        steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
+        cancel: std::sync::Arc<CancelSignal>,
+    ) -> Self {
         Self {
             input,
             messages: Vec::new(),
@@ -213,6 +256,7 @@ impl TurnSession {
             pending: None,
             steer,
             last_compacted_tokens: None,
+            cancel,
         }
     }
 
@@ -249,7 +293,18 @@ impl TurnSession {
         };
         let result = match decision {
             ApprovalDecision::Approved => {
-                execute_tool(pending.call.clone(), tools, &self.tool_ctx(), on_event).await
+                let ctx = self.tool_ctx();
+                tokio::select! {
+                    result = execute_tool(pending.call.clone(), tools, &ctx, on_event) => result,
+                    _ = self.cancel.cancelled() => {
+                        return self.finish_turn_with_error(
+                            TurnEndReason::Cancelled,
+                            None,
+                            None,
+                            on_event,
+                        );
+                    }
+                }
             }
             ApprovalDecision::Rejected { feedback } => ToolResult {
                 tool_call_id: pending.call.id.clone(),
@@ -408,6 +463,12 @@ impl TurnSession {
         );
 
         loop {
+            // Cancellation (RPC cancel → engine): checked at every step
+            // boundary; the in-flight LLM/tool awaits race it too.
+            if self.cancel.is_cancelled() {
+                return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
+            }
+
             // max-steps guard.
             if let Some(max) = self.input.max_steps_per_turn {
                 if max > 0 && self.steps >= max {
@@ -501,10 +562,27 @@ impl TurnSession {
                 thinking_effort: self.input.provider.thinking_effort.clone(),
             };
 
-            let disposition = match execute_step(turn_id, llm, &request, &mut usage, on_event).await
-            {
+            let disposition = match tokio::select! {
+                result = execute_step(turn_id, llm, &request, &mut usage, on_event) => result,
+                _ = self.cancel.cancelled() => {
+                    return self.finish_turn_with_error(
+                        TurnEndReason::Cancelled,
+                        None,
+                        None,
+                        on_event,
+                    );
+                }
+            } {
                 Ok(disposition) => disposition,
                 Err(error) => {
+                    if self.cancel.is_cancelled() {
+                        return self.finish_turn_with_error(
+                            TurnEndReason::Cancelled,
+                            None,
+                            None,
+                            on_event,
+                        );
+                    }
                     let message = error.message.clone();
                     emit(
                         on_event,
@@ -568,9 +646,18 @@ impl TurnSession {
                         };
                         match evaluate(&input) {
                             PolicyDecision::Approve => {
-                                let result =
-                                    execute_tool(call.clone(), tools, &self.tool_ctx(), on_event)
-                                        .await;
+                                let ctx = self.tool_ctx();
+                                let result = tokio::select! {
+                                    result = execute_tool(call.clone(), tools, &ctx, on_event) => result,
+                                    _ = self.cancel.cancelled() => {
+                                        return self.finish_turn_with_error(
+                                            TurnEndReason::Cancelled,
+                                            None,
+                                            None,
+                                            on_event,
+                                        );
+                                    }
+                                };
                                 emit_tool_result(&result, turn_id, on_event);
                                 self.messages.push(LlmMessage {
                                     role: "tool".to_string(),
@@ -1485,5 +1572,89 @@ mod compaction_tests {
         assert!(
             !events.iter().any(|e| matches!(e, EngineEvent::ContextCompacted { .. }))
         );
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::types::ProviderConfig;
+
+    fn msg(role: &str, text: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_the_turn_with_a_cancelled_outcome() {
+        use std::sync::Arc;
+        // The client blocks on the first request until told to answer;
+        // the test cancels while it is in flight.
+        #[async_trait::async_trait]
+        impl LlmClient for BlockingClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                if let Some(tx) = self.started.lock().await.take() {
+                    let _ = tx.send(());
+                }
+                std::future::pending::<()>().await;
+                unreachable!("blocking client never returns");
+            }
+        }
+        struct BlockingClient {
+            started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+        let client = BlockingClient {
+            started: tokio::sync::Mutex::new(Some(started_tx)),
+        };
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hello")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(10),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let cancel = Arc::new(CancelSignal::new());
+        let mut session = TurnSession::with_steer_and_cancel(input, None, Arc::clone(&cancel));
+        let handle = tokio::spawn(async move {
+            session
+                .run(&client, &crate::tool::BashTool, &policy, &mut |_| {})
+                .await
+        });
+        // Wait until the LLM request is in flight, then cancel.
+        started_rx.await.expect("request started");
+        cancel.cancel();
+        let progress = handle.await.expect("run completes");
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Cancelled);
+            }
+            TurnProgress::NeedsApproval(_) => panic!("no approval in auto mode"),
+        }
     }
 }

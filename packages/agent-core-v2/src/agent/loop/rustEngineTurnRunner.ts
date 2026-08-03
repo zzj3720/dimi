@@ -29,7 +29,7 @@ import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
-import { promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
+import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
@@ -52,15 +52,25 @@ export const IRustEngineTurnRunner = createDecorator<IRustEngineTurnRunner>(
 );
 
 export interface IRustEngineTurnRunner {
+  /**
+   * Run one turn through the Rust engine. Resolves once the turn is
+   * launched (TS `launched` parity): `undefined` when the turn is queued
+   * behind an active one (TS `state === 'pending'`).
+   */
   runTurn(input: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): Promise<{
     readonly turnId: number;
-  }>;
+  } | undefined>;
   /**
    * Steer the currently running Rust-engine turn (mid-turn injection).
    * Returns `false` when no turn is active — the caller then starts a new
    * turn with the input instead.
    */
   steer(input: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): boolean;
+  /**
+   * Cancel the active turn (RPC cancel parity); with `turnId`, also cancels
+   * a queued turn. Returns whether something was cancelled.
+   */
+  cancel(turnId?: number): boolean;
 }
 
 function rustEngineEnabled(): boolean {
@@ -76,8 +86,22 @@ function toText(value: unknown): string {
 export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   declare readonly _serviceBrand: undefined;
 
-  /** The in-flight Rust session, while a turn is running (steer target). */
+  /** The in-flight Rust session, while a turn is running (steer/cancel target). */
   private activeSession: RustTurnSession | undefined;
+
+  /** FIFO queue of turns waiting behind the running one (TS loop queue
+   *  parity): prompts during an active turn wait for it to finish. */
+  private readonly queued: Array<{
+    readonly turnId: number;
+    readonly payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin };
+    cancelled: boolean;
+  }> = [];
+
+  /** Whether a turn is currently executing (queue gate). */
+  private turnRunning = false;
+
+  /** turnId of the executing turn (cancel validation). */
+  private executingTurnId: number | undefined;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -122,10 +146,16 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     return true;
   }
 
+  /**
+   * Run one turn through the Rust engine. The turn clock advances at enqueue
+   * time (TS parity); the turn itself either starts immediately (resolves
+   * with its id) or waits behind the running turn (resolves `undefined`,
+   * like TS `state === 'pending'`).
+   */
   async runTurn(payload: {
     readonly input: readonly ContentPart[];
     readonly origin: PromptOrigin;
-  }): Promise<{ readonly turnId: number }> {
+  }): Promise<{ readonly turnId: number } | undefined> {
     // 1. Turn clock + user message (mirrors loopService.startTurn).
     this.wire.dispatch(promptTurn({ input: [...payload.input], origin: payload.origin }));
     const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
@@ -139,8 +169,69 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
     this.context.append(userMessage);
 
-    // 2. Assemble LLM messages from the context.
-    const messages = this.context.get().map((message) => this.toLlmMessage(message));
+    if (this.turnRunning) {
+      this.queued.push({ turnId, payload, cancelled: false });
+      return undefined;
+    }
+    this.startQueuedTurn({ turnId, payload, cancelled: false });
+    return { turnId };
+  }
+
+  /** Cancel the active turn; with `turnId`, also cancels a queued turn. */
+  cancel(turnId?: number): boolean {
+    const session = this.activeSession;
+    if (
+      session !== undefined &&
+      (turnId === undefined || turnId === this.executingTurnId)
+    ) {
+      session.cancel();
+      return true;
+    }
+    let cancelled = false;
+    for (const entry of this.queued) {
+      if (entry.turnId === turnId) {
+        entry.cancelled = true;
+        this.wire.dispatch(cancelTurn({ turnId }));
+        cancelled = true;
+      }
+    }
+    return cancelled;
+  }
+
+  private startQueuedTurn(entry: {
+    readonly turnId: number;
+    readonly payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin };
+    cancelled: boolean;
+  }): void {
+    this.turnRunning = true;
+    this.executingTurnId = entry.turnId;
+    void this.runTurnNow(entry.payload)
+      .catch(() => undefined)
+      .finally(() => {
+        this.turnRunning = false;
+        this.executingTurnId = undefined;
+        const next = this.queued.find((queued) => !queued.cancelled);
+        if (next === undefined) return;
+        this.queued.splice(this.queued.indexOf(next), 1);
+        this.startQueuedTurn(next);
+      });
+  }
+
+  private async runTurnNow(payload: {
+    readonly input: readonly ContentPart[];
+    readonly origin: PromptOrigin;
+  }): Promise<{ readonly turnId: number }> {
+    // The turn clock was advanced at enqueue time (runTurn); the running
+    // turn's id is the last one it assigned.
+    const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
+
+    // 2. Assemble LLM messages: the profile system prompt (the TS loop
+    //    injects it per-request through `generate(systemPrompt, …)`, not via
+    //    the context) plus the context history.
+    const messages = [
+      { role: "system", content: this.profile.getSystemPrompt() },
+      ...this.context.get().map((message) => this.toLlmMessage(message)),
+    ];
 
     // 3. Run the Rust engine (session API: approvals pause and resume).
     const provider = this.providerConfig();
@@ -322,9 +413,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       publish(event);
       switch (event["type"]) {
         case "turn.step.started": {
+          const stepNumber = Number(event["step"] ?? 1);
           if (!stepBegun) {
             stepBegun = true;
-            this.context.appendLoopEvent({ type: "step.begin", uuid: stepUuid, turnId: String(turnId), step: 1 });
+            this.context.appendLoopEvent({ type: "step.begin", uuid: stepUuid, turnId: String(turnId), step: stepNumber });
           }
           break;
         }
@@ -392,6 +484,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           flushThinking();
           flushText();
           const stepFinish = toText(event["finishReason"] ?? "end_turn");
+          const stepNumber = Number(event["step"] ?? 1);
           // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
           // four-component TokenUsage + wire usage.record.
           const engineUsage = event["usage"] as
@@ -408,14 +501,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             this.usageService.record(
               this.providerConfig()['model'] as string,
               usage,
-              { kind: "loop", turnId: String(turnId), step: 1 } as never,
+              { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
             );
           }
           this.context.appendLoopEvent({
             type: "step.end",
             uuid: stepUuid,
             turnId: String(turnId),
-            step: 1,
+            step: stepNumber,
             finishReason: stepFinish,
             usage,
           });
