@@ -40,6 +40,7 @@ import { type ISessionContext, makeSessionContext } from '#/session/sessionConte
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
+import type { DetachedProcessInfo } from '#/agent/tools/os/bash/bashTool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import { stubFlag } from '../../../../app/flag/stubs';
 
@@ -739,6 +740,26 @@ function bashTool(
   return new BashTool(runner, env, ctx, background, toolPolicy, config, flags);
 }
 
+/** BashTool subclass that stubs the detached-process probe. */
+class BashToolWithDetachProbe extends BashTool {
+  constructor(
+    runner: ISessionProcessRunner,
+    private readonly probe: (pid: number) => Promise<readonly DetachedProcessInfo[]>,
+    env: IHostEnvironment = createTestEnv(),
+    ctx: ISessionContext = createTestCtx(),
+    background: IAgentTaskService = createFakeTaskService().service,
+    toolPolicy: IAgentToolPolicyService = stubToolPolicy(),
+    config: IConfigService = stubConfig(),
+    flags: IFlagService = stubFlag(),
+  ) {
+    super(runner, env, ctx, background, toolPolicy, config, flags);
+  }
+
+  protected override detectDetached(pid: number): Promise<readonly DetachedProcessInfo[]> {
+    return this.probe(pid);
+  }
+}
+
 
 describe('BashTool', () => {
   it('exposes current metadata and schema', () => {
@@ -999,6 +1020,32 @@ describe('BashTool', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('appends a detached-process notice when the command leaves a survivor', async () => {
+    const proc = processWithOutput({ stdout: 'ok\n' });
+    const { runner } = createTestRunner(proc);
+    const tool = new BashToolWithDetachProbe(runner, async () => [
+      { pid: 4242, ppid: 1, command: 'node server.js' },
+    ]);
+
+    const result = await executeTool(tool, context({ command: 'start-server', timeout: 60 }));
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain('ok\n');
+    expect(result.output).toContain('outside dimi control');
+    expect(result.output).toContain('node server.js');
+    expect(result.output).toContain('run_in_background=true');
+  });
+
+  it('does not append a detached-process notice when the session is clean', async () => {
+    const proc = processWithOutput({ stdout: 'ok\n' });
+    const { runner } = createTestRunner(proc);
+    const tool = new BashToolWithDetachProbe(runner, async () => []);
+
+    const result = await executeTool(tool, context({ command: 'echo ok', timeout: 60 }));
+    expect(result.isError).toBe(false);
+    expect(result.output).toBe('ok\n');
+    expect(result.output).not.toContain('outside dimi control');
   });
 
   it('interprets small timeout values as seconds at runtime', async () => {

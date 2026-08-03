@@ -52,6 +52,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { ExecutableToolResult, ToolExecution, ToolUpdate } from '#/tool/toolContract';
+import type { ContentPart } from '#/llmProtocol/message';
 import {
   type ExecutableToolResultBuilderResult,
   ToolResultBuilder,
@@ -392,7 +393,34 @@ export class BashTool implements IBashTool {
         brief: `Failed with exit code: ${String(exitCode)}`,
       });
     }
-    return this.addForegroundOutputReference(taskId, result);
+    const withReference = await this.addForegroundOutputReference(taskId, result);
+    return this.addDetachedProcessNotice(proc, withReference);
+  }
+
+  /**
+   * After a foreground command finishes, check whether it left processes
+   * running in the command's process group (e.g. `nohup … &`) that dimi can
+   * no longer track. When it did, append an informational notice to the
+   * result — the exit code / error status is untouched, and the agent
+   * decides whether the detach was intended. Processes that actively escape
+   * to their own session/group (setsid, daemonizers) cannot be detected
+   * after the shell exits and are out of scope.
+   */
+  private async addDetachedProcessNotice(
+    proc: IProcess,
+    result: ExecutableToolResult,
+  ): Promise<ExecutableToolResult> {
+    const infos = await this.detectDetached(proc.pid);
+    if (infos.length === 0) return result;
+    const output = result.output;
+    const text =
+      typeof output === 'string' ? output : output.map(partToResultText).join('');
+    return { ...result, output: `${text}${formatDetachedProcessNotice(infos)}` };
+  }
+
+  /** Overridable seam for tests: probe for processes that escaped the session. */
+  protected detectDetached(pid: number): Promise<readonly DetachedProcessInfo[]> {
+    return detectDetachedProcesses(pid);
   }
 
   private async addForegroundOutputReference(
@@ -486,6 +514,96 @@ function foregroundDescription(args: BashInput): string {
   return `Bash: ${preview}`;
 }
 
+/**
+ * A detached process left behind by a finished command: it escaped the
+ * command's session/process group, so dimi can no longer track or notify it.
+ */
+export interface DetachedProcessInfo {
+  readonly pid: number;
+  readonly ppid: number;
+  readonly command: string;
+}
+
+/**
+ * Detect processes that outlived the command's process group on Unix.
+ *
+ * dimi spawns every shell in its own session/process group (`setsid`, pid ==
+ * sid == pgid), so `nohup`/`&`/`disown` children that survive the shell stay
+ * in that same process group. Probing `kill(-pid, 0)` (process-group kill)
+ * tells us whether any process is still there after the command finished;
+ * `ps -g <pid>` then lists who.
+ *
+ * Scope: this covers processes that stayed in the command's process group
+ * (the common accidental detach: `nohup … &`, `… &`, `disown`). A process
+ * that actively escapes (calls `setsid`, or moves to its own group with
+ * `setpgid`/`setpgrp`, e.g. daemonizers, `start_new_session=True`, node
+ * `{detached:true}`) leaves the group entirely and cannot be attributed back
+ * after the shell exits — such escapes are typically intentional and are out
+ * of scope here. Windows has no session/process-group kill, so detection is
+ * skipped there (returns []).
+ */
+export async function detectDetachedProcesses(pid: number): Promise<readonly DetachedProcessInfo[]> {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return [];
+  let alive = false;
+  try {
+    process.kill(-pid, 0);
+    alive = true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // ESRCH = process group empty; EPERM = still has processes but no
+    // permission to signal them — either way something is still there.
+    alive = code === 'EPERM';
+  }
+  if (!alive) return [];
+
+  return listProcessGroupProcesses(pid);
+}
+
+async function listProcessGroupProcesses(pid: number): Promise<readonly DetachedProcessInfo[]> {
+  const { execFile } = await import('node:child_process');
+  const ps = await new Promise<string>((resolve) => {
+    execFile('ps', ['-o', 'pid=,ppid=,command=', '-g', String(pid)], (error, stdout) => {
+      resolve(error === null ? stdout : '');
+    });
+  });
+  const infos: DetachedProcessInfo[] = [];
+  for (const line of ps.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const match = /^(\d+)\s+(\d+)\s+(.*)$/.exec(trimmed);
+    if (match === null) continue;
+    const childPid = Number(match[1]);
+    if (childPid === pid) continue; // the command's own shell already exited
+    infos.push({
+      pid: childPid,
+      ppid: Number(match[2]),
+      command: match[3] ?? '',
+    });
+  }
+  return infos;
+}
+
+/**
+ * Rendered guidance appended to a Bash result when the finished command left
+ * detached processes behind. Informational only — the command result itself
+ * is unchanged; the agent decides whether the detach was intended.
+ */
+export function formatDetachedProcessNotice(
+  infos: readonly DetachedProcessInfo[],
+): string {
+  const lines = infos.map(
+    (info) => `  - pid ${String(info.pid)} (ppid ${String(info.ppid)}): ${info.command}`,
+  );
+  return (
+    '\n\n⚠ Command left processes running outside dimi control:\n' +
+    `${lines.join('\n')}\n` +
+    'These processes are NOT tracked by dimi: dimi cannot notify you when they finish, ' +
+    'cannot stop them with TaskStop, and a WaitFor will only wake on timeout. ' +
+    'If this was intentional (e.g. starting a daemon), ignore this notice. ' +
+    'Otherwise, prefer running the command with run_in_background=true so dimi manages it.'
+  );
+}
+
 async function killSpawnedProcess(proc: IProcess): Promise<void> {
   try {
     await proc.kill('SIGTERM');
@@ -497,6 +615,21 @@ async function killSpawnedProcess(proc: IProcess): Promise<void> {
 
 function shellQuote(s: string): string {
   return `'${s.replaceAll("'", "'\\''")}'`;
+}
+
+function partToResultText(part: ContentPart): string {
+  switch (part.type) {
+    case 'text':
+      return part.text;
+    case 'think':
+      return part.think;
+    case 'image_url':
+      return '[image]';
+    case 'audio_url':
+      return '[audio]';
+    case 'video_url':
+      return '[video]';
+  }
 }
 
 function windowsPathToPosixPath(path: string): string {
