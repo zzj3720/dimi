@@ -488,34 +488,40 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     }
     // Register the TS tool ecosystem (MCP / plugins / skills / built-in file
     // tools) into the engine; the Rust-native tools stay on the Rust side.
+    // Registration is a synchronous napi call that can throw (unknown native
+    // tool name / malformed parameter JSON / registry lock busy) — a throw
+    // here must NOT escape into `startQueuedTurn`'s `.catch(() => undefined)`
+    // (the prompt op is already recorded, so the turn would never end): log
+    // it, then skip the tool, or fail the turn for the native-def path.
     const engineNativeTools = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
     for (const info of this.toolRegistry.list()) {
-      if (engineNativeTools.has(info.name)) {
-        // The Rust-native tools (Agent / AgentOutput / WaitFor) are
-        // registered executor-first on the engine side — without an
-        // LLM-facing def, so the model could not see them in the request
-        // `tools` field. Advertise their defs (name/description/parameters)
-        // through the bridge; the engine re-syncs them into every request
-        // before each run/resume. Bash keeps the bridge's hardcoded def, so
-        // only the three async tools are pushed from here.
-        if (info.name !== 'Bash') {
-          session.registerNativeToolDef(
-            info.name,
-            info.description,
-            JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
-          );
+      try {
+        if (engineNativeTools.has(info.name)) {
+          // The Rust-native tools (Agent / AgentOutput / WaitFor) are
+          // registered executor-first on the engine side — without an
+          // LLM-facing def, so the model could not see them in the request
+          // `tools` field. Advertise their defs (name/description/parameters)
+          // through the bridge; the engine re-syncs them into every request
+          // before each run/resume. Bash keeps the bridge's hardcoded def, so
+          // only the three async tools are pushed from here.
+          if (info.name !== 'Bash') {
+            session.registerNativeToolDef(
+              info.name,
+              info.description,
+              JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+            );
+          }
+          continue;
         }
-        continue;
-      }
-      const tool = this.toolRegistry.resolve(info.name);
-      if (tool === undefined) continue;
-      // The def (name/description/parameters) advertises the tool to the
-      // model; the engine re-syncs it into every request's `tools` field.
-      session.registerExternalTool(
-        info.name,
-        info.description,
-        JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
-        (payloadJson: string) => {
+        const tool = this.toolRegistry.resolve(info.name);
+        if (tool === undefined) continue;
+        // The def (name/description/parameters) advertises the tool to the
+        // model; the engine re-syncs it into every request's `tools` field.
+        session.registerExternalTool(
+          info.name,
+          info.description,
+          JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+          (payloadJson: string) => {
         void (async () => {
           const payload = JSON.parse(payloadJson) as { requestId: string; toolCallId?: string; name: string; arguments: unknown };
           try {
@@ -565,6 +571,28 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           }
         })();
       });
+      } catch (error) {
+        if (engineNativeTools.has(info.name) && info.name !== 'Bash') {
+          // A native-def registration failure (unknown native tool name /
+          // malformed parameter JSON / registry lock busy) is a config/code
+          // error: the model would silently lose Agent/AgentOutput/WaitFor
+          // for the whole turn. Log it and fail the turn explicitly — the
+          // caller's `.catch(() => undefined)` still clears the queue, so the
+          // turn ends instead of hanging with the prompt op already recorded.
+          this.log.error('[rustEngineTurnRunner] failed to register native tool def', {
+            name: info.name,
+            error,
+          });
+          throw error;
+        }
+        // An external-tool registration failure is transient (the same list
+        // is re-registered on the next turn's fresh session): log and skip
+        // the tool so the rest of the turn can proceed.
+        this.log.error('[rustEngineTurnRunner] failed to register external tool', {
+          name: info.name,
+          error,
+        });
+      }
     }
     // 4. Engine events → bus (projection folds them into transcript ops).
     //    Context mirroring mirrors the TS loop's record stream exactly:

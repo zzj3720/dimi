@@ -106,15 +106,36 @@ describe('Rust engine turn runner (default)', () => {
   it('advertises Agent/AgentOutput/WaitFor defs to the model', async () => {
     // The Rust-native tools are registered executor-first on the engine side
     // (no LLM-facing def), so the model cannot see them in the request
-    // `tools` field. The runner must push their defs through the bridge —
-    // assert the def registration carries non-empty description + parameters
-    // for each of the three async tools (the engine then carries the defs
-    // into every request's `tools` field; see the engine's
-    // `updated_tools_are_advertised_in_subsequent_requests`).
+    // `tools` field. The runner must push their defs through the bridge.
+    //
+    // The request `tools` field itself is NOT directly observable from the
+    // TS side: the TS harness's scripted-generate records LLM requests only
+    // for the TS loop (llmRequester), not the Rust path, and the engine's
+    // scripted client (`ScriptedLlmClient`) ignores the request. The chain
+    // from these calls to the request is engine/bridge-side — the bridge's
+    // `engine_tools()` converts the registry written by `registerNativeToolDef`
+    // and `run()`/`resume()` re-sync it into every request — and is pinned by
+    // the engine's own `updated_tools_are_advertised_in_subsequent_requests`
+    // unit test. What the runner test CAN assert truthfully: (a) exactly the
+    // three native defs are pushed (no Bash, no extras, one call each), (b)
+    // each def is well-formed, and (c) the calls go through the REAL napi
+    // method without throwing and with no registration error logged — a
+    // bridge rejection (unknown native name / malformed JSON / busy lock)
+    // would now fail the turn explicitly (P2-1), not hang.
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       [{ type: 'text', delta: '<defs-answer>' }, { type: 'finish', finishReason: 'stop' }],
     ]);
-    ctx = createTestAgent();
+    const errors: Array<{ message: string; payload?: unknown }> = [];
+    const logger = {
+      error: (message: string, payload?: unknown) => {
+        errors.push({ message, payload });
+      },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+      child: () => logger,
+    };
+    ctx = createTestAgent([logServices(logger)]);
     ctx.get(IAgentLoopService);
 
     // Spy on the bridge entry point: the runner calls the wrapper method once
@@ -140,6 +161,13 @@ describe('Rust engine turn runner (default)', () => {
       proto.registerNativeToolDef = original;
     }
 
+    // Exactly the three async tools — one def each, never Bash, nothing else.
+    const names = recorded.map((record) => record.name).sort();
+    expect(names).toEqual(['Agent', 'AgentOutput', 'WaitFor']);
+    // The real napi accepted every def (the spy calls through): a rejected
+    // def would have failed the turn, and P2-1 would surface it as a logged
+    // registration error — assert none fired.
+    expect(errors).toEqual([]);
     const byName = new Map(recorded.map((record) => [record.name, record]));
     for (const name of ['Agent', 'AgentOutput', 'WaitFor']) {
       const def = byName.get(name);
@@ -148,6 +176,83 @@ describe('Rust engine turn runner (default)', () => {
       const parameters = JSON.parse(def!.parametersJson) as { type?: unknown; properties?: unknown };
       expect(parameters.type).toBe('object');
       expect(parameters.properties).toBeDefined();
+    }
+  });
+
+  it('fails the turn explicitly instead of hanging when a native def registration throws', async () => {
+    // P2-1: `registerNativeToolDef` is a synchronous napi call. A throw
+    // (unknown native name / malformed parameter JSON / registry lock busy)
+    // used to escape `runTurnNow`, get swallowed by `startQueuedTurn`'s
+    // `.catch(() => undefined)` and leave the turn hanging forever (the
+    // prompt op was already recorded). The runner must log the failure with
+    // the tool name and fail the turn so the queue advances — the next prompt
+    // starts a fresh turn instead of queueing behind a dead one.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: 'second turn answer' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    const errors: Array<{ message: string; payload?: unknown }> = [];
+    const logger = {
+      error: (message: string, payload?: unknown) => {
+        errors.push({ message, payload });
+      },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+      child: () => logger,
+    };
+    ctx = createTestAgent([logServices(logger)]);
+    ctx.get(IAgentLoopService);
+
+    const proto = RustTurnSession.prototype as unknown as {
+      registerNativeToolDef?: (name: string, description: string, parametersJson: string) => void;
+    };
+    const original = proto.registerNativeToolDef;
+    let throwOnce = true;
+    proto.registerNativeToolDef = function (name, description, parametersJson) {
+      // Simulate a napi-layer rejection (e.g. "no native tool registered with
+      // name" / invalid parameters JSON / registry lock busy) for the FIRST
+      // registration only — the first turn fails at it, and the second turn
+      // (fresh session, re-registration) must succeed to prove the runner is
+      // not stuck.
+      if (throwOnce) {
+        throwOnce = false;
+        throw new Error(`simulated registerNativeToolDef failure for ${name}`);
+      }
+      original?.call(this, name, description, parametersJson);
+    };
+    try {
+      const first = await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first' }] });
+      expect(first).toEqual({ turn_id: 0 });
+      // The first turn failed at registration: the failure is logged with the
+      // tool name (P2-1) before the queue is released.
+      await waitForContext(ctx, () => errors.length > 0, 'registration failure log');
+      expect(errors[0]!.message).toContain('[rustEngineTurnRunner] failed to register native tool def');
+      expect(['Agent', 'AgentOutput', 'WaitFor']).toContain(
+        (errors[0]!.payload as { name?: string } | undefined)?.name,
+      );
+      expect(String((errors[0]!.payload as { error?: unknown } | undefined)?.error)).toContain(
+        'simulated registerNativeToolDef failure',
+      );
+
+      // The runner is NOT stuck: the second prompt starts a fresh turn (id 1)
+      // instead of queueing behind the dead first turn (a hang would return
+      // `undefined` here and never produce an assistant message).
+      const second = await ctx.rpc.prompt({ input: [{ type: 'text', text: 'second' }] });
+      expect(second).toEqual({ turn_id: 1 });
+      await waitForContext(
+        ctx,
+        (messages) =>
+          messages.some((message) =>
+            message.role === 'assistant' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('second turn answer')),
+        'second turn answer',
+      );
+    } finally {
+      proto.registerNativeToolDef = original;
     }
   });
 

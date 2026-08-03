@@ -577,17 +577,23 @@ describe('Rust engine implemented-but-untested behaviors', () => {
     expect(wireOps.some((entry) => entry.event === 'full_compaction.complete')).toBe(true);
   }, 15_000);
 
-  it('lets a nested subagent turn use Bash and mirrors the outcome into the main context', async () => {
+  it('lets a nested subagent turn use Bash and mirrors the REAL command output into the main context', async () => {
     // The subagent's nested turn calls Bash (shared tool registry) and then
-    // answers; the nested turn's assistant deltas stream out as `task.output`,
-    // and the settle delivers the completion notification into the main
-    // context (the runner-visible mirror: nested tool events themselves stay
-    // engine-local — only assistant text + the settle output cross the
-    // bridge; the engine-level fact that the nested Bash actually executed is
-    // pinned by `agent_nested_turn_can_use_bash` in crates/dimi-engine).
-    // The nested Bash is slow (sleep 2) so the first notification's assertions
-    // run well before the idle-path notification turn replays seg 0 and
-    // spawns a second subagent (~2s later; dispose kills it).
+    // answers. Nested tool events themselves stay engine-local — only
+    // assistant text + task lifecycle cross the bridge — so a plain
+    // foreground Bash's real output is unobservable from the TS side (the old
+    // test's `bash echoed: nested-bash-ok` came from a scripted segment and
+    // passed even if the nested Bash failed). The engine's only
+    // TS-observable backgroundable path is Bash-with-`timeout`: the command is
+    // moved to the background and its `task.started` / `task.output` /
+    // `task.settled` ride the shared task pipeline through the parent's
+    // EventSink. The command prints a RANDOM marker that appears in NO
+    // scripted segment, so asserting the marker reaches TaskOutput after the
+    // settle proves the nested Bash REALLY executed and its real stdout
+    // crossed the bridge. The engine-level fact that a nested turn can use
+    // Bash at all is additionally pinned by `agent_nested_turn_can_use_bash`
+    // in crates/dimi-engine.
+    const marker = `nested-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       // Seg 0: main turn — spawn the subagent (stop_turn ends the turn).
       [
@@ -599,19 +605,21 @@ describe('Rust engine implemented-but-untested behaviors', () => {
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
-      // Seg 1: the subagent's nested turn — Bash (foreground).
+      // Seg 1: the subagent's nested turn — Bash, backgrounded by the 1s
+      // timeout (the engine's `timeout` is a positive-integer number of
+      // seconds; the command runs ~1.5s); `marker` is the real stdout.
       [
         {
           type: 'tool_call',
           toolCallId: 'call_nested_bash',
           name: 'Bash',
-          argumentsPart: '{"command":"sleep 2; echo nested-bash-ok"}',
+          argumentsPart: JSON.stringify({ command: `sleep 1.5; echo ${marker}`, timeout: 1 }),
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
-      // Seg 2: the subagent's final answer.
+      // Seg 2: the subagent's final answer — scripted, contains no marker.
       [
-        { type: 'text', delta: 'bash echoed: nested-bash-ok' },
+        { type: 'text', delta: 'nested bash done' },
         { type: 'finish', finishReason: 'stop' },
       ],
     ]);
@@ -633,29 +641,60 @@ describe('Rust engine implemented-but-untested behaviors', () => {
     });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn nested bash' }] });
-    // The subagent's completion notification mirrors into the context with
-    // the subagent's output (which consumed the nested Bash result).
-    await waitForContext(
-      ctx,
-      (messages) =>
-        messages.some(
-          (message) =>
-            message.origin?.kind === 'task' && messageText(message).includes('nested-bash-ok'),
+    // The nested bash backgrounds ~1s after the subagent spawn (the 1s
+    // timeout): its `task.started` (process kind) crosses the parent's
+    // EventSink — the runner-visible proof that the nested turn really
+    // invoked Bash.
+    await waitFor(
+      () =>
+        busEvents.some(
+          (event) =>
+            event['type'] === 'task.started' &&
+            (event['info'] as { kind?: string } | undefined)?.kind === 'process',
         ),
-      'subagent completion notification message',
+      'nested bash task start',
     );
+    const processStarted = busEvents.find(
+      (event) =>
+        event['type'] === 'task.started' &&
+        (event['info'] as { kind?: string } | undefined)?.kind === 'process',
+    );
+    const processTaskId = (processStarted?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(processTaskId).toMatch(/^bash-[0-9a-f]{8}$/);
+    // Suppress the process task's terminal notification before it settles
+    // (~1.5s) so the idle-path replay stays bounded to the subagent's own
+    // notification (the current test already tolerates that one replay).
+    const taskService = ctx.get(IAgentTaskService);
+    await taskService.suppressTerminalNotification(processTaskId!);
 
+    // The subagent spawned and completed with its scripted answer (which does
+    // NOT contain the marker — the marker can only come from real Bash).
+    await waitFor(
+      () => busEvents.some((event) => event['type'] === 'subagent.completed'),
+      'subagent completion',
+    );
     const spawned = busEvents.find((event) => event['type'] === 'subagent.spawned');
     expect(spawned).toBeDefined();
     const subagentId = String(spawned?.['subagentId']);
     expect(subagentId).toMatch(/^agent-\d+$/);
-    // The nested turn RAN Bash and the subagent completed (a nested Bash
-    // failure would surface through the settle output / failed status).
     const completed = busEvents.find((event) => event['type'] === 'subagent.completed');
-    expect(completed).toBeDefined();
     expect(String(completed?.['subagentId'])).toBe(subagentId);
-    expect(String(completed?.['resultSummary'])).toContain('bash echoed: nested-bash-ok');
-    // The wire task record settled completed.
+    expect(String(completed?.['resultSummary'])).toContain('nested bash done');
+    expect(String(completed?.['resultSummary'])).not.toContain(marker);
+
+    // The nested bash task settles completed and its REAL output (the marker)
+    // is readable via TaskOutput — the assertion the old test could not make.
+    await waitFor(
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === processTaskId && task.status === 'completed',
+        ),
+      'nested bash completed wire record',
+    );
+    const processOutput = await taskService.readOutput(processTaskId!);
+    expect(processOutput).toContain(marker);
+
+    // The subagent's own wire record settled completed (agent kind).
     await waitFor(
       () =>
         [...ctx.get(IWireService).getModel(TaskModel).values()].some(
@@ -667,19 +706,42 @@ describe('Rust engine implemented-but-untested behaviors', () => {
       (task) => task.kind === 'agent' && task.status === 'completed',
     );
     expect(settledTask).toMatchObject({ agentId: subagentId });
-    // The streamed nested-turn text is readable via TaskOutput.
-    const taskService = ctx.get(IAgentTaskService);
-    expect(await taskService.readOutput(settledTask!.taskId)).toContain('bash echoed: nested-bash-ok');
-    // Exactly one notification message mirrored into the context at this
-    // point (the idle-path replay's second subagent settles ~2s later).
-    const taskOriginMessages = ctx
+    // The streamed nested-turn text is readable via TaskOutput too.
+    expect(await taskService.readOutput(settledTask!.taskId)).toContain('nested bash done');
+
+    // The subagent's completion notification mirrored into the context; its
+    // body carries the scripted answer and NOT the marker (the marker arrived
+    // only through the real bash task's output stream above — a cascade
+    // replay's later subagent notifications carry the same scripted answer
+    // and still no marker).
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.origin?.kind === 'task' && messageText(message).includes('nested bash done'),
+        ),
+      'subagent completion notification message',
+    );
+    const subagentNotificationText = ctx
       .get(IAgentContextMemoryService)
       .get()
-      .filter((message) => message.origin?.kind === 'task');
-    expect(taskOriginMessages).toHaveLength(1);
-    expect(messageText(taskOriginMessages[0]!)).toContain('nested-bash-ok');
+      .filter((message) => message.origin?.kind === 'task')
+      .map(messageText)
+      .find((text) => text.includes('nested bash done'));
+    expect(subagentNotificationText).toBeDefined();
+    expect(subagentNotificationText).not.toContain(marker);
+    // The process task's own notification was suppressed (keeps the idle-path
+    // replay bounded); the subagent's notification is the task.completed one.
     const notified = busEvents.find((event) => event['type'] === 'task.notified');
     expect(notified?.['notificationType']).toBe('task.completed');
+    expect(
+      busEvents.some(
+        (event) =>
+          event['type'] === 'task.notified' &&
+          (event['sourceId'] as string | undefined) === processTaskId,
+      ),
+    ).toBe(false);
   }, 30_000);
 
   it('fails the main turn when the provider filters the response (PROVIDER_FILTERED)', async () => {
