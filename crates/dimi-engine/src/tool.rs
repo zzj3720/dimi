@@ -46,10 +46,15 @@ pub struct ToolCall {
 }
 
 /// Tool execution context.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolContext {
     pub cwd: String,
     pub shell: String,
+    /// The step's full tool-call batch (including the call being executed):
+    /// external tools see their siblings so batch-level validation works —
+    /// e.g. the TS AllDone tool rejects a mixed round. Empty outside a step
+    /// (approval-resume re-execution).
+    pub calls: Vec<ToolCall>,
 }
 
 /// Tool result fed back to the LLM (and emitted as `tool.result`).
@@ -912,6 +917,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -936,6 +942,7 @@ mod tests {
                 &ToolContext {
                     cwd: dir.to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -990,6 +997,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1018,6 +1026,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1047,6 +1056,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1107,6 +1117,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1132,6 +1143,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1162,6 +1174,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1191,6 +1204,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1235,6 +1249,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1259,6 +1274,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1314,6 +1330,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1342,6 +1359,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1381,6 +1399,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1409,6 +1428,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1445,6 +1465,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1476,6 +1497,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1526,6 +1548,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1550,6 +1573,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1633,6 +1657,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1657,6 +1682,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1780,6 +1806,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -1808,6 +1835,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                calls: vec![],
             },
         )
         .await;
@@ -1904,6 +1932,7 @@ impl ToolExecutor for AgentTool {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            completion_review: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -2002,6 +2031,7 @@ mod agent_tool_tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -2048,6 +2078,7 @@ mod agent_tool_tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -2073,6 +2104,7 @@ mod agent_tool_tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    calls: vec![],
                 },
             )
             .await;
@@ -2373,6 +2405,7 @@ async fn run_nested_turn(
         max_context_tokens: None,
         next_agent_id: None,
         kill_grace_ms: None,
+        completion_review: None,
     };
     // The nested turn's own cancellation: the parent session's `cancel_task`
     // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
@@ -2892,7 +2925,8 @@ mod async_agent_tests {
         ToolContext {
             cwd: std::env::temp_dir().to_string_lossy().to_string(),
             shell: "/bin/sh".to_string(),
-        }
+            calls: vec![],
+    }
     }
 
     #[tokio::test]

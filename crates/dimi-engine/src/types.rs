@@ -69,6 +69,23 @@ pub struct EngineTool {
     pub args_schema: serde_json::Value,
 }
 
+/// Completion-review injection (TS `loopContinuationService` parity): after a
+/// tool-free step at/after `min_steps`, the engine injects the reminder
+/// message into its working history and keeps the turn alive so the model
+/// must call `AllDone` instead of ending with a plain text reply. `None` =
+/// disabled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionReviewConfig {
+    /// Step threshold (1-based, TS `COMPLETION_REVIEW_MIN_STEPS`): a tool-free
+    /// step with `steps >= min_steps` triggers the review.
+    pub min_steps: u32,
+    /// The reminder message content (the TS `COMPLETION_REVIEW_REMINDER`
+    /// wrapped as a user `<system-reminder>` message — the runner assembles
+    /// the same text the TS `appendSystemReminder` would append).
+    pub reminder: String,
+}
+
 /// Provider configuration for the LLM effect boundary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,6 +147,13 @@ pub struct EngineTurnInput {
     /// command keeps its SIGTERM cleanup window. `None` = engine default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kill_grace_ms: Option<u64>,
+    /// Completion-review injection (TS `loopContinuationService` parity):
+    /// after a tool-free step at/after the configured threshold the engine
+    /// injects the reminder and keeps the turn alive until the model calls
+    /// `AllDone`. `None` = disabled (the runner always passes it for runnable
+    /// profiles; short turns below the threshold are unaffected).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_review: Option<CompletionReviewConfig>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).

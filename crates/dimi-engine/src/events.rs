@@ -138,6 +138,18 @@ pub enum EngineEvent {
         tokens_after: u64,
         compacted_count: u64,
     },
+    /// The completion-review reminder was injected after a tool-free step at/
+    /// after the configured threshold (TS `loopContinuationService` parity):
+    /// the engine kept the turn alive and folded the reminder into its
+    /// working messages, so the next LLM request carries it. The TS runner
+    /// mirrors the message into its context (origin
+    /// `system_trigger`/`completion_review`) — it is NOT published on the
+    /// event bus (TS emits no bus event for the reminder).
+    #[serde(rename = "completion.review.injected", rename_all = "camelCase")]
+    CompletionReviewInjected {
+        turn_id: i64,
+        reminder: String,
+    },
     /// A background task (subagent or timeout-backgrounded bash command) was
     /// registered: emitted from the launch site (AsyncAgentTool /
     /// BashTool backgrounding) so the TS side can record `task.started` /
