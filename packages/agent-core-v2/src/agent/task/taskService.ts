@@ -467,7 +467,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     };
     this.assertCanRegister(detached);
     const entry: ManagedTask = {
-      taskId: generateTaskId(task.idPrefix),
+      taskId: options.taskId ?? generateTaskId(task.idPrefix),
       task,
       handle: undefined,
       outputChunks: [],

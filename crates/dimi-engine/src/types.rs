@@ -111,6 +111,13 @@ pub struct EngineTurnInput {
     /// `fullCompaction` parity). `None` = compaction disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_context_tokens: Option<u32>,
+    /// First subagent agent-id number to hand out (TS `nextAvailableAgentId`
+    /// parity): the runner seeds it from the session's persisted agents plus
+    /// the ids this runner already handed out, so `agent-<n>` stays monotonic
+    /// across turns and server restarts and never collides with TS-assigned
+    /// ids. `None` = start at agent-0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_agent_id: Option<u64>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).

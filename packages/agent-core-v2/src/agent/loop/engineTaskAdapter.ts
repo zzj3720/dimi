@@ -1,0 +1,143 @@
+/**
+ * `EngineTaskAdapter` — the `AgentTask` adapter the Rust-engine runner
+ * registers with `IAgentTaskService` for every engine background task
+ * (`task.started` transport event), so TaskList / TaskOutput / TaskStop can
+ * see and control engine tasks exactly like TS-owned tasks.
+ *
+ * The engine is the wire-op owner: the runner dispatches `task.started` /
+ * `task.terminated` itself and delivers the completion notification itself,
+ * so the adapter registers `detached: false` (the task service then skips its
+ * own start/terminated records and notification — `recorded: false`) and the
+ * adapter's `toInfo` marks the task `detached: true` (it IS a background
+ * task) for TaskList rendering.
+ *
+ * Lifecycle:
+ * - `start(sink)` (called by the service at registration) captures the sink,
+ *   bridges an abort (TaskStop / session close) into the engine's per-task
+ *   cancel, and resolves when the runner settles the task (`complete`).
+ * - `complete(output, settlement, exitCode?)` (called by the runner on the
+ *   engine's `task.settled`) pushes the final output into the sink (so
+ *   TaskOutput / the notification preview can read it) and settles the
+ *   registry entry, so TaskList stops showing it as running.
+ * - `forceStop()` (the service's kill path) re-invokes the engine cancel —
+ *   the abort listener already fired it, this is the graceful-exit fallback.
+ */
+
+import type {
+  AgentTask,
+  AgentTaskInfo,
+  AgentTaskInfoBase,
+  AgentTaskSettlement,
+  AgentTaskSink,
+} from "#/agent/task/types";
+
+export interface EngineTaskAdapterOptions {
+  /** The engine's wire task id (`agent-<8>` / `bash-<8>`). */
+  readonly taskId: string;
+  /** The engine's subagent id (`agent-<n>`) — `kind === "agent"` only. */
+  readonly agentId?: string;
+  readonly kind: "agent" | "process";
+  readonly description: string;
+  /** Bash background tasks carry a pid from `task.started`. */
+  readonly pid?: number;
+  /** Subagent profile-ish label (the Agent-tool description today). */
+  readonly subagentType?: string;
+  /** Bridge the engine's per-task cancel (TaskStop parity). */
+  readonly forceStop: () => void;
+}
+
+export class EngineTaskAdapter implements AgentTask {
+  readonly idPrefix: string;
+  readonly kind: "agent" | "process";
+  readonly description: string;
+
+  private sink: AgentTaskSink | undefined;
+  private pendingOutput = "";
+  private pendingSettlement: AgentTaskSettlement | undefined;
+  private pendingExitCode: number | null | undefined;
+  private exitCode: number | null | undefined;
+  private settleResolve: (() => void) | undefined;
+  private readonly settled: Promise<void>;
+  private removeAbortListener: (() => void) | undefined;
+
+  constructor(private readonly options: EngineTaskAdapterOptions) {
+    this.idPrefix = options.kind === "agent" ? "agent" : "bash";
+    this.kind = options.kind;
+    this.description = options.description;
+    this.settled = new Promise<void>((resolve) => {
+      this.settleResolve = resolve;
+    });
+  }
+
+  async start(sink: AgentTaskSink): Promise<void> {
+    this.sink = sink;
+    const requestStop = (): void => {
+      this.options.forceStop();
+    };
+    if (sink.signal.aborted) {
+      requestStop();
+    } else {
+      sink.signal.addEventListener("abort", requestStop, { once: true });
+      this.removeAbortListener = () => {
+        sink.signal.removeEventListener("abort", requestStop);
+      };
+    }
+    // The runner may have settled the task before the service invoked start
+    // (engine `task.settled` raced registration): flush the buffered state.
+    this.flush();
+    await this.settled;
+  }
+
+  async forceStop(): Promise<void> {
+    this.options.forceStop();
+  }
+
+  /** Runner-side settle: record the final output/exit code and settle the
+   *  registry entry (the runner dispatches the wire `task.terminated` and
+   *  delivers the notification itself — the service's `recorded: false`
+   *  entry only drives TaskList/TaskStop). */
+  complete(
+    output: string,
+    settlement: AgentTaskSettlement,
+    exitCode?: number | null,
+  ): void {
+    this.pendingOutput = output;
+    this.pendingSettlement = settlement;
+    this.pendingExitCode = exitCode ?? null;
+    this.flush();
+  }
+
+  toInfo(base: AgentTaskInfoBase): AgentTaskInfo {
+    if (this.kind === "agent") {
+      return {
+        ...base,
+        kind: "agent",
+        agentId: this.options.agentId ?? "",
+        subagentType: this.options.subagentType ?? this.options.description,
+        detached: true,
+      } as AgentTaskInfo;
+    }
+    return {
+      ...base,
+      kind: "process",
+      command: this.description,
+      pid: this.options.pid ?? 0,
+      exitCode: this.exitCode ?? null,
+      detached: true,
+    } as AgentTaskInfo;
+  }
+
+  private flush(): void {
+    const sink = this.sink;
+    const settlement = this.pendingSettlement;
+    if (sink === undefined || settlement === undefined) return;
+    this.exitCode = this.pendingExitCode ?? null;
+    if (this.pendingOutput.length > 0) sink.appendOutput(this.pendingOutput);
+    this.pendingOutput = "";
+    this.pendingSettlement = undefined;
+    this.removeAbortListener?.();
+    this.removeAbortListener = undefined;
+    void sink.settle(settlement);
+    this.settleResolve?.();
+  }
+}

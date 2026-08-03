@@ -45,6 +45,11 @@ export interface AgentTaskOutputSnapshot {
 }
 
 export interface RegisterAgentTaskOptions {
+  /** Explicit task id (the engine's `agent-<8>` / `bash-<8>` wire id) — the
+   *  registry entry keys on it so TaskList/TaskStop address engine tasks by
+   *  the same id the wire ops and notifications carry. Default: a fresh
+   *  `generateTaskId(idPrefix)` id. */
+  readonly taskId?: string;
   readonly detached?: boolean;
   readonly timeoutMs?: number;
   readonly detachTimeoutMs?: number;

@@ -31,9 +31,11 @@ import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
+import { EngineTaskAdapter } from "#/agent/loop/engineTaskAdapter";
 import { renderNotificationXml } from "#/agent/task/notificationXml";
 import { taskStarted, taskTerminated } from "#/agent/task/taskOps";
-import type { AgentTaskInfo, AgentTaskStatus } from "#/agent/task/types";
+import { IAgentTaskService } from "#/agent/task/task";
+import type { AgentTaskInfo, AgentTaskSettlement, AgentTaskStatus } from "#/agent/task/types";
 import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
@@ -45,6 +47,7 @@ import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
 import { IModelCatalog } from "#/app/modelCatalog/catalog";
 import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
 import { ISessionContext } from "#/session/sessionContext/sessionContext";
+import { ISessionMetadata } from "#/session/sessionMetadata/sessionMetadata";
 import type { ContentPart } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
@@ -101,7 +104,7 @@ function toOptionalNumber(value: unknown): number | undefined {
 const TERMINAL_OUTPUT_TAIL_CHARS = 4 * 1024;
 
 /** Notification output preview cap (taskService NOTIFICATION_FALLBACK_PREVIEW_BYTES). */
-const NOTIFICATION_OUTPUT_PREVIEW_CHARS = 3_000;
+const NOTIFICATION_OUTPUT_PREVIEW_BYTES = 3_000;
 
 /** Mirrors the task domain's `buildAgentTaskNotificationBody` (minus the
  *  output-file block — the engine carries the tail inline). */
@@ -116,25 +119,42 @@ function buildTaskNotificationBody(task: {
   const baseLine =
     task.status === "timed_out"
       ? `${task.description} timed out.`
-      : task.status === "failed" && task.error !== undefined
-        ? `${task.description} failed. Reason: ${task.error}`
-        : `${task.description} ${task.status}.`;
+      : task.status === "killed" && task.error !== undefined
+        ? `${task.description} was stopped. Reason: ${task.error}`
+        : task.status === "failed" && task.error !== undefined
+          ? `${task.description} failed. Reason: ${task.error}`
+          : `${task.description} ${task.status}.`;
   if (task.kind !== "agent" || task.status === "completed") return baseLine;
   const recovery = [
     "",
     `To recover or continue this subagent, call Agent(resume="${task.agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
     `Use agent_id ("${task.agentId}"), NOT source_id / task_id ("${task.taskId}") — the two look alike but only agent_id is accepted by the resume parameter.`,
+    "Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.",
     "The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.",
   ].join("\n");
   return `${baseLine}${recovery}`;
 }
 
-/** Mirrors the task domain's `renderOutputPreviewBlock` (tail inline). */
+/** Mirrors the task domain's `renderOutputPreviewBlock` (tail inline): the
+ *  engine's accumulated output is the "currently buffered" output, so the
+ *  preview is the last `NOTIFICATION_OUTPUT_PREVIEW_BYTES` bytes with the
+ *  same heading / `truncated` / `bytes` semantics the TS service renders. */
 function renderOutputPreviewBlock(output: string): string {
+  const fullBytes = Buffer.byteLength(output, "utf-8");
+  const previewBytes = Math.min(NOTIFICATION_OUTPUT_PREVIEW_BYTES, fullBytes);
+  const truncated = fullBytes > previewBytes;
+  const preview =
+    previewBytes > 0
+      ? Buffer.from(output, "utf-8")
+          .subarray(fullBytes - previewBytes)
+          .toString("utf-8")
+      : "";
   return [
-    `<output-preview bytes="${String(output.length)}" total_bytes="${String(output.length)}" truncated="false">`,
-    "Task output tail.",
-    escapeXml(output),
+    `<output-preview bytes="${String(previewBytes)}" total_bytes="${String(fullBytes)}" truncated="${String(truncated)}">`,
+    truncated
+      ? `Showing the last ${String(previewBytes)} bytes. No persisted full output is available.`
+      : "No persisted full output is available; this preview is the currently buffered task output.",
+    escapeXml(preview),
     "</output-preview>",
   ].join("\n");
 }
@@ -177,15 +197,32 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   /**
    * Rust-side task registry mirror: taskId → launch facts (description /
    * startedAt / pid) recorded from `task.started`, used to build the
-   * terminal `task.terminated` info from `task.settled`.
+   * terminal `task.terminated` info from `task.settled`. Entries are removed
+   * once the settle is handled (a task settles exactly once), so the map
+   * stays bounded by the number of tasks in flight.
    */
   private readonly taskInfos = new Map<
     string,
     { readonly description: string; readonly startedAt: number; readonly pid?: number }
   >();
 
-  /** Notification dedupe (TS `deliveredNotificationKeys` parity). */
+  /** Notification dedupe (TS `deliveredNotificationKeys` parity): guards a
+   *  single settle from being delivered twice. Keys are removed after the
+   *  delivery completes — a settled task never settles again — so the set
+   *  stays bounded; the mid-turn+idle double-delivery guard is the
+   *  single-call structure of `deliverTaskNotification`, not this set. */
   private readonly deliveredNotificationKeys = new Set<string>();
+
+  /** Registry entries for engine background tasks (TaskList/TaskStop parity):
+   *  taskId → adapter registered with `IAgentTaskService`. Removed once the
+   *  task settles (a task settles exactly once), so the map stays bounded. */
+  private readonly engineTaskAdapters = new Map<string, EngineTaskAdapter>();
+
+  /** Every subagent agent id this runner has handed out (the engine's
+   *  `agent-<n>` ids across turns): the next-turn seed must continue past
+   *  them so ids stay monotonic within the session (TS
+   *  `nextAvailableAgentId` parity). */
+  private readonly engineAgentIds = new Set<string>();
 
   /** Every RustTurnSession this runner created. Held until the agent scope
    *  is disposed so a session's EventSink stays open while its background
@@ -212,6 +249,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ISessionContext private readonly sessionContext: ISessionContext,
+    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
@@ -375,6 +414,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       provider,
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
+      nextAgentId: await this.computeNextAgentId(),
       cwd: this.profile.data().cwd ?? process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
@@ -755,7 +795,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const kind = toText(event["kind"]);
     const description = toText(event["description"]);
     const startedAt = Date.now();
-    this.taskInfos.set(taskId, { description, startedAt, pid: toOptionalNumber(event["pid"]) });
+    const pid = toOptionalNumber(event["pid"]);
+    this.taskInfos.set(taskId, { description, startedAt, pid });
+    // Subagent agent ids are engine-issued (`agent-<n>`): remember them so
+    // the next turn's seed continues past them (TS `nextAvailableAgentId`
+    // parity; the wire TaskModel also records them, this is the live mirror).
+    if (kind === "agent" && agentId !== "") this.engineAgentIds.add(agentId);
     const info = (
       kind === "agent"
         ? {
@@ -773,7 +818,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             taskId,
             kind: "process",
             command: description,
-            pid: toOptionalNumber(event["pid"]) ?? 0,
+            pid: pid ?? 0,
             exitCode: null,
             description,
             status: "running",
@@ -783,6 +828,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           }
     ) as AgentTaskInfo;
     this.wire.dispatch(taskStarted({ info }));
+    // TaskList / TaskStop / TaskOutput parity: register the engine task with
+    // the agent task service (explicit engine task id so the tools address it
+    // by the wire-visible id). The service entry is `detached: false` —
+    // `recorded: false` — so it dispatches no wire ops and no notification
+    // (the runner owns those); the adapter marks the info `detached: true`
+    // for TaskList rendering. TaskStop reaches the engine through the
+    // adapter's `forceStop` → `session.cancelTask(taskId)`.
+    this.registerEngineTask(taskId, agentId, kind, description, pid);
     if (kind === "agent") {
       // TS `emitAgentRunSpawned` parity minus the profile concept: the
       // engine has no subagent profiles (it ignores `subagent_type`), so
@@ -810,6 +863,59 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }
 
   /**
+   * Register an engine background task with `IAgentTaskService` (TaskList /
+   * TaskStop / TaskOutput parity). The adapter bridges TaskStop into the
+   * engine's per-task cancel (`session.cancelTask`) — the launching session's
+   * worker/poller kills its work and settles "killed" — and its `start`
+   * streams the settle output into the service's sink so TaskOutput and the
+   * terminal info see it.
+   */
+  private registerEngineTask(
+    taskId: string,
+    agentId: string,
+    kind: string,
+    description: string,
+    pid: number | undefined,
+  ): void {
+    const session = this.activeSession;
+    const adapter = new EngineTaskAdapter({
+      taskId,
+      agentId,
+      kind: kind === "agent" ? "agent" : "process",
+      description,
+      pid,
+      subagentType: kind === "agent" ? description : undefined,
+      forceStop: () => {
+        // TaskStop / dispose parity: the engine cancels the background work
+        // (nested subagent turn or backgrounded bash command). The session
+        // may already be closed — `cancelTask` still flips the task's cancel
+        // signal, and the settle is dropped by the closed sink.
+        try {
+          session?.cancelTask(taskId);
+        } catch (error) {
+          this.log.error("[rustEngineTurnRunner] failed to cancel engine task", {
+            taskId,
+            error,
+          });
+        }
+      },
+    });
+    this.engineTaskAdapters.set(taskId, adapter);
+    try {
+      this.tasks.registerTask(adapter, { taskId, detached: false });
+    } catch (error) {
+      // Registration can fail (e.g. the agent scope is being torn down): the
+      // wire ops still record the lifecycle; TaskList/TaskStop lose the live
+      // entry, matching a task that was never registered.
+      this.log.error("[rustEngineTurnRunner] failed to register engine task", {
+        taskId,
+        error,
+      });
+      this.engineTaskAdapters.delete(taskId);
+    }
+  }
+
+  /**
    * `task.settled` (engine transport) → TS records: the persisted
    * `task.terminated` wire op (bounded output tail), the `subagent.completed`
    * / `subagent.failed` session events, and the completion notification
@@ -828,6 +934,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         : toText(event["error"]);
     const launch = this.taskInfos.get(taskId);
     const endedAt = Date.now();
+    const stopReason =
+      status === "failed" || status === "timed_out" || status === "killed"
+        ? error
+        : undefined;
     const base = {
       taskId,
       description: launch?.description ?? "",
@@ -835,7 +945,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       detached: true,
       startedAt: launch?.startedAt ?? endedAt,
       endedAt,
-      stopReason: status === "failed" || status === "timed_out" ? error : undefined,
+      stopReason,
     };
     const info = (
       kind === "agent"
@@ -863,10 +973,34 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           error: error ?? status,
         } as never);
       }
-      // Any other status (e.g. `timed_out`): no failure event — TS parity
-      // (`mirrorAgentRun` suppresses failure events for aborted/timed-out
-      // runs; only the completion notification is delivered).
+      // Any other status (e.g. `timed_out` / `killed`): no failure event —
+      // TS parity (`mirrorAgentRun` suppresses failure events for
+      // aborted/timed-out runs; only the completion notification is
+      // delivered).
     }
+    // Settle the task-service entry (TaskList stops listing it as running;
+    // the final output lands in the service's retained buffer so TaskOutput
+    // can read it). The service entry is `recorded: false`, so this fires no
+    // wire ops and no duplicate notification.
+    const adapter = this.engineTaskAdapters.get(taskId);
+    if (adapter !== undefined) {
+      adapter.complete(
+        output,
+        {
+          status: status as AgentTaskSettlement["status"],
+          stopReason,
+        },
+        toOptionalNumber(event["exitCode"]),
+      );
+      this.engineTaskAdapters.delete(taskId);
+    }
+    // A settled task never settles again — drop the launch facts so the
+    // mirror stays bounded by the in-flight task count.
+    this.taskInfos.delete(taskId);
+    // TS `buildAgentTaskNotificationContext` parity: a TaskStop-suppressed
+    // task (the tool suppressed the notification before stopping) delivers
+    // no notification — the tool result is the only answer the model sees.
+    if (this.tasks.getTask(taskId)?.terminalNotificationSuppressed === true) return;
     this.deliverTaskNotification({
       taskId,
       agentId,
@@ -911,7 +1045,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       body: buildTaskNotificationBody(task),
       children:
         task.output.length > 0
-          ? [renderOutputPreviewBlock(task.output.slice(-NOTIFICATION_OUTPUT_PREVIEW_CHARS))]
+          ? [renderOutputPreviewBlock(task.output)]
           : undefined,
     };
     const xml = renderNotificationXml(notification);
@@ -921,36 +1055,44 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       status: task.status as AgentTaskStatus,
       notificationId: key,
     };
-    // The notification message lands in the context exactly once (TS parity:
-    // the loop materializes the request once). Mid-turn: append here, then
-    // steer (the engine drains the message into the running turn's next
-    // request). Idle: leave the append to `runTurn`, which records the
-    // message as the notification turn's user input. When the engine refuses
-    // the steer (its turn already ended — a notification racing the
-    // teardown), the same idle fallback applies: no pre-append and no
-    // `turn.steer` op, and `runTurn` launches/queues a new turn, so the
-    // message is never recorded twice and no steer is lost.
-    if (this.turnRunning && this.activeSession !== undefined && this.activeSession.steer(xml)) {
-      this.context.append({
-        role: "user",
-        content: [{ type: "text", text: xml }],
-        toolCalls: [],
-        origin,
-        id: randomUUID(),
-      });
-      this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
-    } else {
-      void this.runTurn({ input: [{ type: "text", text: xml }], origin }).catch(() => undefined);
+    try {
+      // The notification message lands in the context exactly once (TS
+      // parity: the loop materializes the request once). Mid-turn: append
+      // here, then steer (the engine drains the message into the running
+      // turn's next request). Idle: leave the append to `runTurn`, which
+      // records the message as the notification turn's user input. When the
+      // engine refuses the steer (its turn already ended — a notification
+      // racing the teardown), the same idle fallback applies: no pre-append
+      // and no `turn.steer` op, and `runTurn` launches/queues a new turn, so
+      // the message is never recorded twice and no steer is lost.
+      if (this.turnRunning && this.activeSession !== undefined && this.activeSession.steer(xml)) {
+        this.context.append({
+          role: "user",
+          content: [{ type: "text", text: xml }],
+          toolCalls: [],
+          origin,
+          id: randomUUID(),
+        });
+        this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
+      } else {
+        void this.runTurn({ input: [{ type: "text", text: xml }], origin }).catch(() => undefined);
+      }
+      this.eventBus.publish({
+        type: "task.notified",
+        notificationType: `task.${task.status}`,
+        title: notification.title,
+        body: notification.body,
+        severity: notification.severity,
+        sourceKind: notification.source_kind,
+        sourceId: notification.source_id,
+      } as never);
+    } finally {
+      // A settled task never settles again, so the dedupe key is no longer
+      // needed once the delivery is done — dropping it keeps the set bounded
+      // by the notifications in flight. The mid-turn+idle double-delivery
+      // guard is the single-call structure above, not this set.
+      this.deliveredNotificationKeys.delete(key);
     }
-    this.eventBus.publish({
-      type: "task.notified",
-      notificationType: `task.${task.status}`,
-      title: notification.title,
-      body: notification.body,
-      severity: notification.severity,
-      sourceKind: notification.source_kind,
-      sourceId: notification.source_id,
-    } as never);
   }
 
   private toLlmMessage(message: ContextMessage): Record<string, unknown> {
@@ -979,6 +1121,31 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         ? { toolCallId: message.toolCallId }
         : {}),
     };
+  }
+
+  /**
+   * The next subagent agent-id number to hand to the engine for this turn
+   * (TS `nextAvailableAgentId` parity): the max known `agent-<n>` suffix
+   * among (a) the ids this runner's engine has already handed out across
+   * turns and (b) the session's persisted agents, plus one. The engine seeds
+   * its per-session counter from it, so ids stay monotonic across turns and
+   * server restarts and never collide with TS-assigned ids.
+   */
+  private async computeNextAgentId(): Promise<number> {
+    let maxSuffix = -1;
+    const consider = (id: string): void => {
+      const match = /^agent-(\d+)$/.exec(id);
+      if (match !== null) maxSuffix = Math.max(maxSuffix, Number(match[1]));
+    };
+    for (const id of this.engineAgentIds) consider(id);
+    try {
+      const persisted = (await this.sessionMetadata.read()).agents ?? {};
+      for (const id of Object.keys(persisted)) consider(id);
+    } catch {
+      // Metadata unreadable — the in-session ids above still seed the
+      // counter monotonically across turns.
+    }
+    return maxSuffix + 1;
   }
 
   private maxStepsPerTurn(): number | undefined {

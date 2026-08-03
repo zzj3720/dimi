@@ -470,6 +470,10 @@ fn backgrounded_result(
         foreground_output.push_str(&stderr.text);
     }
 
+    // Per-task cancel (TaskStop parity): the poller checks it on every pass
+    // and kills the process instead of waiting for the deadline/exit.
+    let cancel = std::sync::Arc::new(crate::engine::CancelSignal::new());
+
     tasks.insert(
         task_id.clone(),
         TaskState {
@@ -479,6 +483,7 @@ fn backgrounded_result(
             error: None,
             messages: vec![],
             started_at: now_nanos(),
+            cancel: Some(std::sync::Arc::clone(&cancel)),
         },
     );
     events.emit(EngineEvent::TaskStarted {
@@ -502,6 +507,27 @@ fn backgrounded_result(
         let started = Instant::now();
         let background_timeout = Duration::from_secs(DEFAULT_BACKGROUND_TIMEOUT_S);
         loop {
+            if task_is_cancelled(&tasks, &worker_task_id) {
+                // TaskStop parity: kill the command and settle "killed"
+                // (the sink may be closed — `emit` is then a no-op).
+                let _ = poller_process.kill(Some(9));
+                let _ = poller_process.wait();
+                tasks.update(&worker_task_id, |state| {
+                    state.status = "killed".to_string();
+                    state.error = Some("Stopped by TaskStop".to_string());
+                });
+                let settled = tasks.get(&worker_task_id).expect("backgrounded bash task must be registered");
+                events.emit(EngineEvent::TaskSettled {
+                    task_id: worker_task_id,
+                    agent_id: settled.agent_id,
+                    kind: "bash".to_string(),
+                    status: settled.status,
+                    output: settled.output,
+                    error: settled.error,
+                    exit_code: None,
+                });
+                return;
+            }
             let mut any = false;
             while let Some(chunk) = poller_process.try_recv_stdout() {
                 any = true;
@@ -1085,6 +1111,7 @@ impl ToolExecutor for AgentTool {
             shell: Some(ctx.shell.clone()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -1355,7 +1382,7 @@ pub struct AgentTasks {
 #[derive(Debug, Clone)]
 pub struct TaskState {
     pub agent_id: String,
-    pub status: String, // running | completed | failed
+    pub status: String, // running | completed | failed | killed | timed_out
     pub output: String,
     pub error: Option<String>,
     /// Full message history of the subagent's latest turn (resume carries
@@ -1364,6 +1391,10 @@ pub struct TaskState {
     /// Monotonic launch timestamp (nanos) — disambiguates tasks that share
     /// an agent id (resume): the newest wins for lookups.
     pub started_at: u128,
+    /// Per-task cancel (TaskStop parity): the bridge's `cancel_task` flips
+    /// it; the bash poller / subagent worker observes it, stops the work and
+    /// settles the task with status "killed".
+    pub cancel: Option<std::sync::Arc<crate::engine::CancelSignal>>,
 }
 
 impl AgentTasks {
@@ -1437,6 +1468,11 @@ pub struct AsyncAgentTool {
     /// Task lifecycle event sink: `task.started` on launch, `task.settled`
     /// from the spawned worker when the nested turn completes.
     pub events: EventSink,
+    /// Subagent agent-id counter (`agent-<n>`), seeded from the turn input's
+    /// `next_agent_id` (TS `nextAvailableAgentId` parity) so ids stay
+    /// monotonic across turns within a session and never collide with
+    /// TS-assigned ids after a server restart.
+    pub agent_id_counter: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for AsyncAgentTool {
@@ -1457,6 +1493,7 @@ async fn run_nested_turn(
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
     steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
+    cancel: std::sync::Arc<crate::engine::CancelSignal>,
 ) -> (String, String, Vec<crate::types::LlmMessage>) {
     let mut messages = history;
     messages.push(crate::types::LlmMessage {
@@ -1482,8 +1519,13 @@ async fn run_nested_turn(
         shell: Some(shell),
         context_window: None,
         max_context_tokens: None,
+        next_agent_id: None,
     };
-    let mut session = crate::engine::TurnSession::with_steer(input, steer);
+    // The nested turn's own cancellation: the parent session's `cancel_task`
+    // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
+    // the nested turn instead of letting it run to completion.
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut session = crate::engine::TurnSession::with_steer_and_cancel(input, steer, cancel, finished);
     let mut events: Vec<crate::events::EngineEvent> = Vec::new();
     let progress = session
         .run(llm.as_ref(), tools.as_ref(), &policy, &mut |event| {
@@ -1625,13 +1667,24 @@ impl ToolExecutor for AsyncAgentTool {
             .await;
         }
 
-        let agent_id = next_agent_id();
+        let agent_id = self.next_agent_id();
         self.launch_subagent(call, ctx, prompt, description, agent_id, Vec::new())
             .await
     }
 }
 
 impl AsyncAgentTool {
+    /// The next agent id: `agent-<n>` with a monotonically increasing counter
+    /// seeded from the turn input's `next_agent_id` (TS
+    /// `nextAvailableAgentId` parity). Each turn session's tool seeds from
+    /// the runner's computed next id, so ids stay monotonic across turns
+    /// within a session and never collide with TS-assigned ids (which
+    /// continue from persisted session metadata across restarts).
+    fn next_agent_id(&self) -> String {
+        use std::sync::atomic::Ordering;
+        format!("agent-{}", self.agent_id_counter.fetch_add(1, Ordering::Relaxed))
+    }
+
     /// Spawn the background nested turn and return the launch result.
     async fn launch_subagent(
         &self,
@@ -1645,6 +1698,7 @@ impl AsyncAgentTool {
         // TS `SubagentTask.idPrefix = "agent"` parity: the wire task id for a
         // subagent is `agent-<8>` (bash background tasks keep `bash-<8>`).
         let task_id = format!("agent-{}", uuid_v4_short());
+        let cancel = std::sync::Arc::new(crate::engine::CancelSignal::new());
         self.tasks.insert(
             task_id.clone(),
             TaskState {
@@ -1654,6 +1708,7 @@ impl AsyncAgentTool {
                 error: None,
                 messages: history.clone(),
                 started_at: now_nanos(),
+                cancel: Some(std::sync::Arc::clone(&cancel)),
             },
         );
         self.events.emit(EngineEvent::TaskStarted {
@@ -1691,6 +1746,7 @@ impl AsyncAgentTool {
                 policy,
                 max_steps,
                 Some(steer_queue),
+                std::sync::Arc::clone(&cancel),
             )
             .await;
             // Session torn down while the nested turn ran (TS
@@ -1701,7 +1757,12 @@ impl AsyncAgentTool {
             }
             tasks.update(&task_id_for_worker, |state| {
                 state.messages = messages;
-                if error.is_empty() {
+                if cancel.is_cancelled() {
+                    // TaskStop parity: a per-task cancel settles "killed"
+                    // (TS `terminateWithGrace` final status), not "failed".
+                    state.status = "killed".to_string();
+                    state.error = Some("Stopped by TaskStop".to_string());
+                } else if error.is_empty() {
                     state.status = "completed".to_string();
                     state.output = output;
                 } else {
@@ -1750,13 +1811,15 @@ fn uuid_v4_short() -> String {
     simple[..8].to_string()
 }
 
-/// The next agent id: `agent-<n>` with a monotonically increasing counter —
-/// the TS lifecycle scheme (`nextAvailableAgentId`); process-local is fine
-/// because agent ids are only referenced within a session.
-fn next_agent_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    format!("agent-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+/// Whether a background task was cancelled via the bridge's per-task cancel
+/// (TaskStop parity): the bash poller checks this on every quiet pass and
+/// kills the process instead of waiting for the deadline/exit.
+fn task_is_cancelled(tasks: &AgentTasks, task_id: &str) -> bool {
+    tasks
+        .get(task_id)
+        .and_then(|state| state.cancel)
+        .map(|cancel| cancel.is_cancelled())
+        .unwrap_or(false)
 }
 
 /// Monotonic launch timestamp for `TaskState` (nanos since the epoch).
@@ -1922,6 +1985,7 @@ mod async_agent_tests {
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let launch = agent
             .execute(
@@ -1979,6 +2043,7 @@ mod async_agent_tests {
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let launch = agent
             .execute(
@@ -2068,6 +2133,7 @@ mod async_agent_tests {
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let launch = agent
             .execute(
@@ -2146,6 +2212,7 @@ mod async_agent_tests {
                 error: None,
                 messages: vec![],
                 started_at: 1,
+                cancel: None,
             },
         );
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -2165,6 +2232,7 @@ mod async_agent_tests {
             tasks: tasks.clone(),
             steer_map,
             events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let result = agent
             .execute(
@@ -2209,6 +2277,7 @@ mod async_agent_tests {
                     reasoning: None,
                 }],
                 started_at: 1,
+                cancel: None,
             },
         );
         let agent = AsyncAgentTool {
@@ -2227,6 +2296,7 @@ mod async_agent_tests {
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let result = agent
             .execute(
@@ -2290,6 +2360,7 @@ mod async_agent_tests {
             tasks,
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
         };
         let result = agent
             .execute(

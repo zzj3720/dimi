@@ -11,6 +11,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
@@ -444,6 +445,15 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     const settled = tasks.find((task) => task.status === 'completed');
     expect(settled).toBeDefined();
     expect(settled).toMatchObject({ kind: 'agent', agentId: spawned?.['subagentId'] });
+    // The engine task is registered with IAgentTaskService (TaskList /
+    // TaskStop parity): the task-service entry carries the SAME wire task id
+    // (`agent-<8>`, not a re-generated one), is marked detached, and is no
+    // longer listed as active once settled.
+    const serviceTasks = ctx.get(IAgentTaskService).list(false);
+    const registered = serviceTasks.find((task) => task.taskId === settled?.taskId);
+    expect(registered).toBeDefined();
+    expect(registered).toMatchObject({ kind: 'agent', status: 'completed', detached: true });
+    expect(ctx.get(IAgentTaskService).list(true).some((task) => task.taskId === settled?.taskId)).toBe(false);
     // The idle-path notification launches a notification turn — the XML lands
     // in the context EXACTLY ONCE (P1-1: the old code pre-appended AND let
     // runTurn append it again). No `turn.steer` op is recorded because the
@@ -454,6 +464,18 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
       .get()
       .filter((message) => message.origin?.kind === 'task');
     expect(taskOriginMessages).toHaveLength(1);
+    // The notification preview mirrors the TS `renderOutputPreviewBlock`
+    // wording/attrs (the engine output is the "currently buffered" tail).
+    const notificationText = taskOriginMessages[0]!.content
+      .filter((part) => part.type === 'text')
+      .map((part) => (part as { text?: string }).text ?? '')
+      .join('');
+    expect(notificationText).toContain(
+      '<output-preview bytes="20" total_bytes="20" truncated="false">',
+    );
+    expect(notificationText).toContain(
+      'No persisted full output is available; this preview is the currently buffered task output.',
+    );
     const steerOps = ctx.snapshots.entries.filter(
       (entry) => entry.type === '[wire]' && entry.event === 'turn.steer',
     );
@@ -558,6 +580,142 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     const settled = tasks.find((task) => task.status === 'completed');
     expect(settled).toBeDefined();
     expect(settled).toMatchObject({ kind: 'process' });
+  }, 30_000);
+
+  it('TaskStop cancels a backgrounded engine task through the bridge', async () => {
+    // `sleep 30` with timeout 1: the command is moved to the background
+    // (task.started). TaskStop then cancels it through the registered
+    // adapter's forceStop → session.cancelTask — the engine's poller kills
+    // the process and settles "killed"; the terminal notification is
+    // suppressed (TS TaskStop parity).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bg_stop',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 30","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text', delta: 'bg launched' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'task.started' || type === 'task.terminated' || type === 'task.notified') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run bg' }] });
+    await waitForContext(
+      ctx,
+      () => busEvents.some((event) => event['type'] === 'task.started'),
+      'bash task start',
+    );
+    const started = busEvents.find((event) => event['type'] === 'task.started');
+    const taskId = (started?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-f]{8}$/);
+    expect(started?.['info']).toMatchObject({ kind: 'process' });
+
+    // TaskStopTool parity: the task is live in the service, then suppress the
+    // terminal notification and stop it (the engine kills the process).
+    const taskService = ctx.get(IAgentTaskService);
+    expect(taskService.list(true).some((task) => task.taskId === taskId)).toBe(true);
+    await taskService.suppressTerminalNotification(taskId!);
+    const result = await taskService.stop(taskId!, 'Stopped by TaskStop');
+    expect(result?.status).toBe('killed');
+
+    // The engine settled the task as killed (poller killed the process) and
+    // the wire record + the service entry both reflect it.
+    await waitForContext(
+      ctx,
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'killed',
+        ),
+      'bash task killed wire record',
+    );
+    expect(taskService.list(true).some((task) => task.taskId === taskId)).toBe(false);
+    const registered = taskService.list(false).find((task) => task.taskId === taskId);
+    expect(registered).toMatchObject({ kind: 'process', status: 'killed', detached: true });
+    expect(busEvents.some((event) => event['type'] === 'task.notified')).toBe(false);
+  }, 30_000);
+
+  it('delivers the TS-parity recovery line for a failed subagent notification', async () => {
+    // Segment 0: the main turn asks the Agent tool to spawn a subagent
+    // (stop_turn ends the main turn immediately). Segment 1: the nested
+    // turn is filtered by the (scripted) provider → the subagent fails and
+    // the notification body carries the TS `buildAgentTaskNotificationBody`
+    // recovery block, including the `run_in_background` guidance line.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_sub_fail',
+          name: 'Agent',
+          argumentsPart: '{"prompt":"sub work","description":"failing sub"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'finish', finishReason: 'filtered' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'subagent.failed' || type === 'task.notified') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn failing sub' }] });
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.origin?.kind === 'task' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('Add run_in_background=true to keep it backgrounded')),
+      'failed-subagent notification with recovery line',
+    );
+    expect(busEvents.some((event) => event['type'] === 'subagent.failed')).toBe(true);
+    const failed = busEvents.find((event) => event['type'] === 'subagent.failed');
+    expect(String(failed?.['subagentId'])).toMatch(/^agent-\d+$/);
+    // TS `buildAgentTaskNotificationBody` parity: the failed-subagent body
+    // reports the reason and appends the recovery block (resume by agent_id,
+    // keep backgrounded with run_in_background).
+    const notificationText = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .filter((message) => message.origin?.kind === 'task')
+      .map((message) =>
+        message.content
+          .filter((part) => part.type === 'text')
+          .map((part) => (part as { text?: string }).text ?? '')
+          .join(''),
+      )
+      .join('\n');
+    expect(notificationText).toContain('failing sub failed.');
+    expect(notificationText).toContain(
+      'To recover or continue this subagent, call Agent(resume=',
+    );
+    expect(notificationText).toContain('Use agent_id');
+    expect(notificationText).toContain(
+      'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
+    );
   }, 30_000);
 
   it('cancels background work and drops late settles when the agent is disposed', async () => {

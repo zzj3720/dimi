@@ -1139,6 +1139,7 @@ mod tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         }
     }
 
@@ -1462,6 +1463,7 @@ mod window_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: Some(3),
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1556,6 +1558,7 @@ mod steer_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1660,6 +1663,7 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1758,6 +1762,7 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(1000),
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1840,6 +1845,7 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1929,6 +1935,7 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2010,6 +2017,7 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2115,6 +2123,7 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2191,6 +2200,7 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            next_agent_id: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,

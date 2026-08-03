@@ -657,6 +657,12 @@ export class RustTurnSession {
     this.#inner.cancel();
   }
 
+  /** Cancel a background task (TaskStop parity): the engine kills the
+   *  subagent nested turn / backgrounded bash command and settles "killed". */
+  cancelTask(taskId: string): void {
+    this.#inner.cancelTask(taskId);
+  }
+
   /** Close the session (agent dispose): task events stop forwarding, the
    *  in-flight turn is cancelled. Background workers observe the close. */
   close(): void {
@@ -686,6 +692,7 @@ export interface RustTurnSessionHandle {
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
+  cancelTask(taskId: string): void;
   close(): void;
   completeToolCall(requestId: string, resultJson: string): void;
 }

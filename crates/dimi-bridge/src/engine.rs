@@ -217,6 +217,10 @@ pub struct RustTurnSession {
     /// `task.started` / `task.settled` emitted from spawned workers/pollers
     /// ride the session's event stream.
     event_sink: EventSink,
+    /// Shared background-task registry (Bash / AgentOutput / WaitFor / the
+    /// subagent tool): retained so `cancel_task` (TaskStop parity) can flip a
+    /// task's cancel signal.
+    tasks: AgentTasks,
 }
 
 /// Session teardown (TS `taskService.dispose` parity): once the runner
@@ -363,6 +367,9 @@ impl RustTurnSession {
                     tasks: tasks.clone(),
                     steer_map: std::sync::Arc::clone(&steer_map),
                     events: event_sink.clone(),
+                    agent_id_counter: std::sync::atomic::AtomicU64::new(
+                        input.next_agent_id.unwrap_or(0),
+                    ),
                 }),
             );
             registry.register(
@@ -371,7 +378,7 @@ impl RustTurnSession {
                     tasks: tasks.clone(),
                 }),
             );
-            registry.register("WaitFor", Box::new(WaitForTool { tasks }));
+            registry.register("WaitFor", Box::new(WaitForTool { tasks: tasks.clone() }));
         }
         // Expose the registry's tool definitions to the LLM (initial set;
         // re-synced before every run/resume so tools registered mid-session
@@ -408,6 +415,7 @@ impl RustTurnSession {
             finished,
             on_event: None,
             event_sink,
+            tasks,
         })
     }
 
@@ -416,6 +424,27 @@ impl RustTurnSession {
     #[napi]
     pub fn cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Cancel a background task (TaskStop parity): flips the task's cancel
+    /// signal; the subagent worker / bash poller observes it, stops the work
+    /// (kills the process / cancels the nested turn) and settles the task
+    /// with status "killed".
+    #[napi]
+    pub fn cancel_task(&self, task_id: String) -> napi::Result<()> {
+        let state = self
+            .tasks
+            .get(&task_id)
+            .or_else(|| self.tasks.find_by_agent_id(&task_id));
+        let Some(state) = state else {
+            return Err(napi::Error::from_reason(format!(
+                "no background task with task_id: {task_id}"
+            )));
+        };
+        if let Some(cancel) = state.cancel {
+            cancel.cancel();
+        }
+        Ok(())
     }
 
     /// Close the session (TS `taskService.dispose` parity): the task event
