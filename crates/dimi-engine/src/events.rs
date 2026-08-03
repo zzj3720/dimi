@@ -119,6 +119,77 @@ pub enum EngineEvent {
         tokens_after: u64,
         compacted_count: u64,
     },
+    /// A background task (subagent or timeout-backgrounded bash command) was
+    /// registered: emitted from the launch site (AsyncAgentTool /
+    /// BashTool backgrounding) so the TS side can record `task.started` /
+    /// `subagent.spawned`. `pid` is bash-only; `parent_tool_call_id` is
+    /// subagent-only (the Agent tool call that launched it).
+    #[serde(rename = "task.started", rename_all = "camelCase")]
+    TaskStarted {
+        task_id: String,
+        agent_id: String,
+        /// "agent" (subagent) | "bash" (backgrounded command).
+        kind: String,
+        description: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pid: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_call_id: Option<String>,
+    },
+    /// A background task settled: emitted from the settlement points (the
+    /// spawned subagent worker / bash poller), never from readers. Carries
+    /// the final output/error so the TS side can record `task.terminated`,
+    /// fire `subagent.completed`/`subagent.failed`, and deliver the
+    /// completion notification to the model.
+    #[serde(rename = "task.settled", rename_all = "camelCase")]
+    TaskSettled {
+        task_id: String,
+        agent_id: String,
+        /// "agent" (subagent) | "bash" (backgrounded command).
+        kind: String,
+        /// "completed" | "failed" | "timed_out".
+        status: String,
+        output: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i64>,
+    },
+}
+
+/// Cloneable sink for task lifecycle events emitted by tools (subagent
+/// workers / bash pollers — the settlement points). The bridge points it at
+/// the session's per-event callback (`set_on_event`); before that it is a
+/// no-op, so tools constructed without a wired sink stay silent.
+#[derive(Clone, Default)]
+pub struct EventSink {
+    inner: std::sync::Arc<
+        std::sync::Mutex<Option<std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync>>>,
+    >,
+}
+
+impl EventSink {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Wire the sink to a callback (the bridge installs the session's
+    /// per-event napi callback here; called once, before the turn runs).
+    pub fn set(&self, sink: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync>) {
+        *self.inner.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
+    }
+
+    /// Emit one event through the wired callback (no-op before `set`).
+    pub fn emit(&self, event: EngineEvent) {
+        let sink = self
+            .inner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(sink) = sink {
+            sink(event);
+        }
+    }
 }
 
 /// `ToolUpdate` — the streaming tool output shape (toolExecutorEvents.ts).

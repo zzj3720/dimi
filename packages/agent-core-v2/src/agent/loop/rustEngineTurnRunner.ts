@@ -24,12 +24,16 @@ import { randomUUID } from "node:crypto";
 
 import { RustTurnSession } from "@dimi-agent/dimi-native";
 
+import { escapeXml } from "#/_base/utils/xml-escape";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
-import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
+import type { ContextMessage, PromptOrigin, TaskOrigin } from "#/agent/contextMemory/types";
 import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
+import { renderNotificationXml } from "#/agent/task/notificationXml";
+import { taskStarted, taskTerminated } from "#/agent/task/taskOps";
+import type { AgentTaskInfo, AgentTaskStatus } from "#/agent/task/types";
 import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
@@ -87,6 +91,53 @@ function toText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value) ?? "";
 }
 
+/** Optional numeric engine field (pid / exitCode). */
+function toOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** `task.terminated` output tail cap (taskService TERMINAL_OUTPUT_TAIL_BYTES). */
+const TERMINAL_OUTPUT_TAIL_CHARS = 4 * 1024;
+
+/** Notification output preview cap (taskService NOTIFICATION_FALLBACK_PREVIEW_BYTES). */
+const NOTIFICATION_OUTPUT_PREVIEW_CHARS = 3_000;
+
+/** Mirrors the task domain's `buildAgentTaskNotificationBody` (minus the
+ *  output-file block — the engine carries the tail inline). */
+function buildTaskNotificationBody(task: {
+  readonly taskId: string;
+  readonly agentId: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly description: string;
+  readonly error?: string;
+}): string {
+  const baseLine =
+    task.status === "timed_out"
+      ? `${task.description} timed out.`
+      : task.status === "failed" && task.error !== undefined
+        ? `${task.description} failed. Reason: ${task.error}`
+        : `${task.description} ${task.status}.`;
+  if (task.kind !== "agent" || task.status === "completed") return baseLine;
+  const recovery = [
+    "",
+    `To recover or continue this subagent, call Agent(resume="${task.agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
+    `Use agent_id ("${task.agentId}"), NOT source_id / task_id ("${task.taskId}") — the two look alike but only agent_id is accepted by the resume parameter.`,
+    "The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.",
+  ].join("\n");
+  return `${baseLine}${recovery}`;
+}
+
+/** Mirrors the task domain's `renderOutputPreviewBlock` (tail inline). */
+function renderOutputPreviewBlock(output: string): string {
+  return [
+    `<output-preview bytes="${String(output.length)}" total_bytes="${String(output.length)}" truncated="false">`,
+    "Task output tail.",
+    escapeXml(output),
+    "</output-preview>",
+  ].join("\n");
+}
+
 /** Resolve once the signal aborts (used to race an approval wait). */
 function abortOnSignal(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -121,6 +172,19 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   /** Aborts the in-flight approval wait on cancel. */
   private approvalAbort: AbortController | undefined;
+
+  /**
+   * Rust-side task registry mirror: taskId → launch facts (description /
+   * startedAt / pid) recorded from `task.started`, used to build the
+   * terminal `task.terminated` info from `task.settled`.
+   */
+  private readonly taskInfos = new Map<
+    string,
+    { readonly description: string; readonly startedAt: number; readonly pid?: number }
+  >();
+
+  /** Notification dedupe (TS `deliveredNotificationKeys` parity). */
+  private readonly deliveredNotificationKeys = new Set<string>();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -407,6 +471,19 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
 
     const handleEngineEvent = (event: Record<string, unknown>): void => {
+      // Task lifecycle events are transport shapes, not bus events: translate
+      // them into the TS task/subagent records (wire ops + bus events) —
+      // publishing the raw shape would collide with the protocol's
+      // `task.started` / `task.terminated` session events (which carry the
+      // folded `info`).
+      if (event["type"] === "task.started") {
+        this.handleTaskStarted(event);
+        return;
+      }
+      if (event["type"] === "task.settled") {
+        this.handleTaskSettled(event);
+        return;
+      }
       publish(event);
       switch (event["type"]) {
         case "turn.step.started": {
@@ -606,6 +683,186 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         result: response,
       });
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
+    }
+  }
+
+  /**
+   * `task.started` (engine transport) → TS records: the persisted
+   * `task.started` wire op (TaskModel / transcript / TaskList) plus the
+   * `subagent.spawned` session event for subagent launches.
+   */
+  private handleTaskStarted(event: Record<string, unknown>): void {
+    const taskId = toText(event["taskId"]);
+    const agentId = toText(event["agentId"]);
+    const kind = toText(event["kind"]);
+    const description = toText(event["description"]);
+    const startedAt = Date.now();
+    this.taskInfos.set(taskId, { description, startedAt, pid: toOptionalNumber(event["pid"]) });
+    const info = (
+      kind === "agent"
+        ? {
+            taskId,
+            kind: "agent",
+            agentId,
+            subagentType: description,
+            description,
+            status: "running",
+            detached: true,
+            startedAt,
+            endedAt: null,
+          }
+        : {
+            taskId,
+            kind: "process",
+            command: description,
+            pid: toOptionalNumber(event["pid"]) ?? 0,
+            exitCode: null,
+            description,
+            status: "running",
+            detached: true,
+            startedAt,
+            endedAt: null,
+          }
+    ) as AgentTaskInfo;
+    this.wire.dispatch(taskStarted({ info }));
+    if (kind === "agent") {
+      this.eventBus.publish({
+        type: "subagent.spawned",
+        subagentId: agentId,
+        subagentName: description,
+        parentToolCallId: toText(event["parentToolCallId"]),
+        runInBackground: false,
+      } as never);
+    }
+  }
+
+  /**
+   * `task.settled` (engine transport) → TS records: the persisted
+   * `task.terminated` wire op (bounded output tail), the `subagent.completed`
+   * / `subagent.failed` session events, and the completion notification
+   * delivered to the model (context message + `task.notified` + steer/new
+   * turn — TS `activeOrNewTurn` parity).
+   */
+  private handleTaskSettled(event: Record<string, unknown>): void {
+    const taskId = toText(event["taskId"]);
+    const agentId = toText(event["agentId"]);
+    const kind = toText(event["kind"]);
+    const status = toText(event["status"]);
+    const output = toText(event["output"]);
+    const error =
+      event["error"] === undefined || event["error"] === null
+        ? undefined
+        : toText(event["error"]);
+    const launch = this.taskInfos.get(taskId);
+    const endedAt = Date.now();
+    const base = {
+      taskId,
+      description: launch?.description ?? "",
+      status,
+      detached: true,
+      startedAt: launch?.startedAt ?? endedAt,
+      endedAt,
+      stopReason: status === "failed" || status === "timed_out" ? error : undefined,
+    };
+    const info = (
+      kind === "agent"
+        ? { ...base, kind: "agent", agentId, subagentType: launch?.description ?? "" }
+        : {
+            ...base,
+            kind: "process",
+            command: launch?.description ?? "",
+            pid: launch?.pid ?? 0,
+            exitCode: toOptionalNumber(event["exitCode"]) ?? null,
+          }
+    ) as AgentTaskInfo;
+    this.wire.dispatch(taskTerminated({ info, outputTail: output.slice(-TERMINAL_OUTPUT_TAIL_CHARS) }));
+    if (kind === "agent") {
+      this.eventBus.publish(
+        (status === "completed"
+          ? { type: "subagent.completed", subagentId: agentId, resultSummary: output }
+          : { type: "subagent.failed", subagentId: agentId, error: error ?? status }) as never,
+      );
+    }
+    this.deliverTaskNotification({
+      taskId,
+      agentId,
+      kind,
+      status,
+      description: launch?.description ?? "",
+      output,
+      error,
+    });
+  }
+
+  /**
+   * Deliver a task completion notification to the model — the Rust-engine
+   * equivalent of the TS task domain's detached-task notification
+   * (`TaskNotificationStepRequest`, `activeOrNewTurn` admission): append the
+   * `<notification>` XML as a task-origin user message, fire the
+   * `task.notified` hook event, then fold it into the running turn's next
+   * step (steer) or launch a notification turn when idle.
+   */
+  private deliverTaskNotification(task: {
+    readonly taskId: string;
+    readonly agentId: string;
+    readonly kind: string;
+    readonly status: string;
+    readonly description: string;
+    readonly output: string;
+    readonly error?: string;
+  }): void {
+    const key = `task:${task.taskId}:${task.status}`;
+    if (this.deliveredNotificationKeys.has(key)) return;
+    this.deliveredNotificationKeys.add(key);
+    const kindLabel = task.kind === "agent" ? "agent" : "process";
+    const notification = {
+      id: key,
+      category: "task",
+      type: `task.${task.status}`,
+      source_kind: "background_task",
+      source_id: task.taskId,
+      agent_id: task.kind === "agent" ? task.agentId : undefined,
+      title: `Background ${kindLabel} ${task.status}`,
+      severity: task.status === "completed" ? "info" : "warning",
+      body: buildTaskNotificationBody(task),
+      children:
+        task.output.length > 0
+          ? [renderOutputPreviewBlock(task.output.slice(-NOTIFICATION_OUTPUT_PREVIEW_CHARS))]
+          : undefined,
+    };
+    const xml = renderNotificationXml(notification);
+    const origin: TaskOrigin = {
+      kind: "task",
+      taskId: task.taskId,
+      status: task.status as AgentTaskStatus,
+      notificationId: key,
+    };
+    this.context.append({
+      role: "user",
+      content: [{ type: "text", text: xml }],
+      toolCalls: [],
+      origin,
+      id: randomUUID(),
+    });
+    this.eventBus.publish({
+      type: "task.notified",
+      notificationType: `task.${task.status}`,
+      title: notification.title,
+      body: notification.body,
+      severity: notification.severity,
+      sourceKind: notification.source_kind,
+      sourceId: notification.source_id,
+    } as never);
+    if (this.turnRunning && this.activeSession !== undefined) {
+      // Mid-turn: fold into the running turn's following step (TS
+      // `activeOrNewTurn` parity) — the engine drains it into the next LLM
+      // request.
+      this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
+      this.activeSession.steer(xml);
+    } else {
+      // Idle: launch a notification turn that processes the notification
+      // (TS `activeOrNewTurn` parity).
+      void this.runTurn({ input: [{ type: "text", text: xml }], origin }).catch(() => undefined);
     }
   }
 

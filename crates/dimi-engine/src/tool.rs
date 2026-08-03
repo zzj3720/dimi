@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use dimi_exec::{ShellSpec, SpawnOptions, spawn};
 
-use crate::events::ToolUpdate;
+use crate::events::{EngineEvent, EventSink, ToolUpdate};
 use crate::llm::LlmClient;
 
 /// Default/max foreground timeout, seconds (bash.ts constants).
@@ -142,6 +142,9 @@ pub struct BashTool {
     /// TS `bashAutoBackgroundOnTimeout` config (default true): when false a
     /// foreground timeout SIGKILLs the command instead of backgrounding it.
     auto_background_on_timeout: bool,
+    /// Task lifecycle event sink: `task.started` on backgrounding,
+    /// `task.settled` from the poller when the command settles.
+    events: EventSink,
 }
 
 impl BashTool {
@@ -152,6 +155,13 @@ impl BashTool {
             tasks,
             ..Self::default()
         }
+    }
+
+    /// Attach the task lifecycle event sink (the bridge wires it to the
+    /// session's per-event callback).
+    pub fn with_events(mut self, events: EventSink) -> Self {
+        self.events = events;
+        self
     }
 
     /// A Bash tool that SIGKILLs on timeout instead of backgrounding — the
@@ -190,6 +200,7 @@ impl Clone for BashTool {
             current: std::sync::Arc::clone(&self.current),
             tasks: self.tasks.clone(),
             auto_background_on_timeout: self.auto_background_on_timeout,
+            events: self.events.clone(),
         }
     }
 }
@@ -200,6 +211,7 @@ impl Default for BashTool {
             current: std::sync::Arc::new(std::sync::Mutex::new(None)),
             tasks: AgentTasks::new(),
             auto_background_on_timeout: true,
+            events: EventSink::new(),
         }
     }
 }
@@ -359,6 +371,7 @@ impl ToolExecutor for BashTool {
             *self.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
             return backgrounded_result(
                 &self.tasks,
+                &self.events,
                 call,
                 &process,
                 &args,
@@ -420,6 +433,7 @@ impl ToolExecutor for BashTool {
 /// and hands the model the `task_id` that AgentOutput/WaitFor accept.
 fn backgrounded_result(
     tasks: &AgentTasks,
+    events: &EventSink,
     call: &ToolCall,
     process: &Arc<dimi_exec::ExecProcess>,
     args: &BashArgs,
@@ -454,10 +468,19 @@ fn backgrounded_result(
             started_at: now_nanos(),
         },
     );
+    events.emit(EngineEvent::TaskStarted {
+        task_id: task_id.clone(),
+        agent_id: task_id.clone(),
+        kind: "bash".to_string(),
+        description: description.clone(),
+        pid: Some(process.pid() as i64),
+        parent_tool_call_id: None,
+    });
 
     // Detached poller: the process handle is Arc-cloned, so the task
     // survives this tool future being dropped (the spawn is `detached`).
     let tasks = tasks.clone();
+    let events = events.clone();
     let worker_task_id = task_id.clone();
     let poller_process = Arc::clone(process);
     tokio::spawn(async move {
@@ -491,6 +514,16 @@ fn backgrounded_result(
                             "Command killed by timeout ({}s)",
                             DEFAULT_BACKGROUND_TIMEOUT_S
                         ));
+                    });
+                    let settled = tasks.get(&worker_task_id).expect("backgrounded bash task must be registered");
+                    events.emit(EngineEvent::TaskSettled {
+                        task_id: worker_task_id,
+                        agent_id: settled.agent_id,
+                        kind: "bash".to_string(),
+                        status: settled.status,
+                        output: settled.output,
+                        error: settled.error,
+                        exit_code: None,
                     });
                     return;
                 }
@@ -526,6 +559,16 @@ fn backgrounded_result(
                 state.status = "failed".to_string();
                 state.error = Some(format!("Process exited with code {}", code.unwrap_or(-1)));
             }
+        });
+        let settled = tasks.get(&worker_task_id).expect("backgrounded bash task must be registered");
+        events.emit(EngineEvent::TaskSettled {
+            task_id: worker_task_id,
+            agent_id: settled.agent_id,
+            kind: "bash".to_string(),
+            status: settled.status,
+            output: settled.output,
+            error: settled.error,
+            exit_code: code.map(|c| c as i64),
         });
     });
 
@@ -1297,6 +1340,9 @@ pub struct AsyncAgentTool {
     pub tasks: AgentTasks,
     /// agent_id → steering queue (shared with the napi session).
     pub steer_map: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>>>,
+    /// Task lifecycle event sink: `task.started` on launch, `task.settled`
+    /// from the spawned worker when the nested turn completes.
+    pub events: EventSink,
 }
 
 impl std::fmt::Debug for AsyncAgentTool {
@@ -1485,7 +1531,7 @@ impl ToolExecutor for AsyncAgentTool {
             .await;
         }
 
-        let agent_id = format!("agent-{}", uuid_v4_short());
+        let agent_id = next_agent_id();
         self.launch_subagent(call, ctx, prompt, description, agent_id, Vec::new())
             .await
     }
@@ -1514,8 +1560,17 @@ impl AsyncAgentTool {
                 started_at: now_nanos(),
             },
         );
+        self.events.emit(EngineEvent::TaskStarted {
+            task_id: task_id.clone(),
+            agent_id: agent_id.clone(),
+            kind: "agent".to_string(),
+            description: description.clone(),
+            pid: None,
+            parent_tool_call_id: Some(call.id.clone()),
+        });
 
         let tasks = self.tasks.clone();
+        let events = self.events.clone();
         let task_id_for_worker = task_id.clone();
         let cwd = ctx.cwd.clone();
         let shell = self.shell.clone();
@@ -1552,6 +1607,18 @@ impl AsyncAgentTool {
                     state.error = Some(error);
                 }
             });
+            let settled = tasks
+                .get(&task_id_for_worker)
+                .expect("launched subagent task must be registered");
+            events.emit(EngineEvent::TaskSettled {
+                task_id: task_id_for_worker,
+                agent_id: settled.agent_id,
+                kind: "agent".to_string(),
+                status: settled.status,
+                output: settled.output,
+                error: settled.error,
+                exit_code: None,
+            });
         });
 
         ToolResult {
@@ -1573,13 +1640,21 @@ impl AsyncAgentTool {
     }
 }
 
+/// A unique id suffix: 8 chars from a UUID v4 — the TS task-id shape
+/// (`<kind>-<8 chars>`, `generateTaskId`), with proper cross-thread
+/// uniqueness.
 fn uuid_v4_short() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{nanos:x}")
+    let simple = uuid::Uuid::new_v4().simple().to_string();
+    simple[..8].to_string()
+}
+
+/// The next agent id: `agent-<n>` with a monotonically increasing counter —
+/// the TS lifecycle scheme (`nextAvailableAgentId`); process-local is fine
+/// because agent ids are only referenced within a session.
+fn next_agent_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!("agent-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Monotonic launch timestamp for `TaskState` (nanos since the epoch).
@@ -1732,6 +1807,7 @@ mod async_agent_tests {
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
         };
         let launch = agent
             .execute(
@@ -1788,6 +1864,7 @@ mod async_agent_tests {
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
         };
         let launch = agent
             .execute(
@@ -1838,6 +1915,99 @@ mod async_agent_tests {
         assert!(waited.output.contains("Wait expired"));
     }
 
+
+    #[tokio::test]
+    async fn subagent_emits_task_started_and_settled_events() {
+        use crate::events::EventSink;
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "sub done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: sink,
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "work" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+        // TS lifecycle format: agent-<n>.
+        assert!(
+            agent_id.starts_with("agent-") && agent_id["agent-".len()..].chars().all(|c| c.is_ascii_digit()),
+            "agent_id must be agent-<n>: {agent_id}"
+        );
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+
+        let emitted = events.lock().unwrap();
+        let started = emitted
+            .iter()
+            .find(|e| matches!(e, crate::events::EngineEvent::TaskStarted { .. }))
+            .expect("task.started emitted");
+        let (task_id, kind) = match started {
+            crate::events::EngineEvent::TaskStarted {
+                task_id, kind, ..
+            } => (task_id.clone(), kind.clone()),
+            _ => unreachable!(),
+        };
+        assert_eq!(kind, "agent");
+        let settled = emitted
+            .iter()
+            .find(|e| matches!(e, crate::events::EngineEvent::TaskSettled { .. }))
+            .expect("task.settled emitted");
+        match settled {
+            crate::events::EngineEvent::TaskSettled {
+                task_id: settled_id,
+                status,
+                output,
+                ..
+            } => {
+                assert_eq!(settled_id, &task_id);
+                assert_eq!(status, "completed");
+                assert!(output.contains("sub done"), "output: {output}");
+            }
+            _ => unreachable!(),
+        }
+    }
+
     #[tokio::test]
     async fn resume_steers_a_running_subagent() {
         let tasks = AgentTasks::new();
@@ -1868,6 +2038,7 @@ mod async_agent_tests {
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
             steer_map,
+            events: EventSink::new(),
         };
         let result = agent
             .execute(
@@ -1929,6 +2100,7 @@ mod async_agent_tests {
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
         };
         let result = agent
             .execute(
@@ -1991,6 +2163,7 @@ mod async_agent_tests {
             shell: "/bin/sh".to_string(),
             tasks,
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
         };
         let result = agent
             .execute(

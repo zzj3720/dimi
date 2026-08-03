@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
+import { TaskModel } from '#/agent/task/taskOps';
+import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
 import {
   agentService,
@@ -31,7 +33,9 @@ async function waitForContext(
   predicate: (messages: ReturnType<IAgentContextMemoryService['get']>) => boolean,
   what: string,
 ): Promise<void> {
-  for (let i = 0; i < 200; i++) {
+  // 600 × 10ms: subagent/background flows settle after ~2.6s (spawn +
+  // nested turn + notification), so a 2s window flakes.
+  for (let i = 0; i < 600; i++) {
     if (predicate(ctx.get(IAgentContextMemoryService).get())) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -276,6 +280,187 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     // Recent user input survives the compaction.
     expect(allText).toContain('u2');
   });
+
+  it('surfaces subagent task lifecycle events (spawned/completed + notification)', async () => {
+    // Segment 0: the main turn asks the Agent tool to spawn a subagent
+    // (stop_turn: true ends the main turn immediately). Segment 1: the
+    // nested subagent turn blocks in Bash — the subagent settles ~2s later,
+    // deterministically AFTER the main turn teardown, so the completion
+    // notification takes the idle path (a notification turn). Segment 2: the
+    // nested turn's final answer. The subagent settling must reach the TS
+    // side as task wire ops + bus events + a task notification message.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_sub',
+          name: 'Agent',
+          argumentsPart: '{"prompt":"sub work","description":"test sub"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_nested_sleep',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text', delta: 'subagent result text' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (
+        type === 'subagent.spawned' ||
+        type === 'subagent.completed' ||
+        type === 'subagent.failed' ||
+        type === 'task.notified' ||
+        type === 'task.started' ||
+        type === 'task.terminated'
+      ) {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn a subagent' }] });
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.origin?.kind === 'task' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('subagent result text')),
+      'task completion notification message',
+    );
+
+    // Subagent ids are TS-lifecycle-shaped (agent-<n> / task-<8-uuid-chars>).
+    const spawned = busEvents.find((event) => event['type'] === 'subagent.spawned');
+    expect(spawned).toBeDefined();
+    expect(String(spawned?.['subagentId'])).toMatch(/^agent-\d+$/);
+    expect(spawned?.['parentToolCallId']).toBe('call_sub');
+    expect(busEvents.some((event) => event['type'] === 'subagent.completed')).toBe(true);
+    const completed = busEvents.find((event) => event['type'] === 'subagent.completed');
+    expect(completed?.['resultSummary']).toBe('subagent result text');
+    // The notification hook event fires with the task-completion shape.
+    const notified = busEvents.find((event) => event['type'] === 'task.notified');
+    expect(notified?.['notificationType']).toBe('task.completed');
+    expect(notified?.['sourceKind']).toBe('background_task');
+    // The wire records task.started + task.terminated (their bus events come
+    // from the ops' toEvent).
+    expect(busEvents.some((event) => event['type'] === 'task.started')).toBe(true);
+    expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(true);
+    // The task model holds the settled subagent task (agent kind).
+    const taskModel = ctx.get(IWireService).getModel(TaskModel);
+    const tasks = [...taskModel.values()];
+    const settled = tasks.find((task) => task.status === 'completed');
+    expect(settled).toBeDefined();
+    expect(settled).toMatchObject({ kind: 'agent', agentId: spawned?.['subagentId'] });
+  }, 30_000);
+
+  it('delivers a backgrounded bash task completion notification into the running turn', async () => {
+    // The Bash call with timeout 1 moves `sleep 2; echo bg-done` to the
+    // background (task.started). The turn continues; the next scripted call
+    // blocks in Bash long enough for the background task to settle (~2s),
+    // so the completion notification (task.settled) steers into the RUNNING
+    // turn and is drained into the following LLM request (segment 2).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bg',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2; echo bg-done","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 1.5"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text', delta: 'notification acknowledged' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (
+        type === 'task.notified' ||
+        type === 'task.started' ||
+        type === 'task.terminated'
+      ) {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run bg' }] });
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('notification acknowledged'),
+        ),
+      'notification-turn reply',
+    );
+
+    // The background task rode the standard task lifecycle records.
+    const started = busEvents.find((event) => event['type'] === 'task.started');
+    expect(started).toBeDefined();
+    expect((started?.['info'] as { kind?: string } | undefined)?.kind).toBe('process');
+    expect(
+      (started?.['info'] as { taskId?: string } | undefined)?.taskId,
+    ).toMatch(/^bash-[0-9a-f]{8}$/);
+    expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(true);
+    // The completion notification reached the model: task.notified fired and
+    // the task-origin notification message sits in the context (the
+    // assistant reply 'notification acknowledged' consumed it).
+    const notified = busEvents.find((event) => event['type'] === 'task.notified');
+    expect(notified?.['notificationType']).toBe('task.completed');
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.origin?.kind === 'task' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('Background process completed')),
+      'bash completion notification message',
+    );
+    const taskModel = ctx.get(IWireService).getModel(TaskModel);
+    const tasks = [...taskModel.values()];
+    const settled = tasks.find((task) => task.status === 'completed');
+    expect(settled).toBeDefined();
+    expect(settled).toMatchObject({ kind: 'process' });
+  }, 30_000);
 
   it('queues a prompt behind the running turn and runs it after', async () => {
     // Turn 1 blocks in Bash; turn 2 is queued and answers once turn 1 ends.

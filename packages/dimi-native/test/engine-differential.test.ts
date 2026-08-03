@@ -68,6 +68,22 @@ function eventNames(batch: EngineEventBatch): string[] {
   return batch.events.map((event) => event['type'] as string);
 }
 
+/** Poll the event list for an event of `type` (spawned workers/pollers emit
+ *  asynchronously after `run` resolves). */
+async function waitForEvent(
+  events: Array<Record<string, unknown>>,
+  type: string,
+  timeoutMs: number,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const event = events.find((candidate) => candidate['type'] === type);
+    if (event !== undefined) return event;
+    if (Date.now() >= deadline) throw new Error(`timeout waiting for ${type}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 describe('RustEngine minimal closed loop', () => {
   test('single step completes with text', async () => {
     const batch = await runTurn([userMessage('hi')], [
@@ -295,5 +311,111 @@ describe('RustEngine minimal closed loop', () => {
       'turn.step.completed',
       'turn.ended',
     ]);
+  }, 30_000);
+
+  test('subagent spawns and settles through the event stream with UUID ids', async () => {
+    // Step 1: the Agent tool launches a background subagent (stop_turn); the
+    // nested turn answers from the shared scripted client (segment 1). The
+    // worker settles the task asynchronously after the main turn ended.
+    const session = new RustTurnSession(
+      JSON.stringify({
+        turnId: 1,
+        messages: [{ role: 'user', content: 'delegate' }],
+        tools: [],
+        provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'test-model' },
+        maxStepsPerTurn: null,
+        cwd: '/tmp',
+        shell: '/bin/sh',
+      }),
+      JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+      JSON.stringify([
+        [
+          {
+            type: 'tool_call',
+            toolCallId: 'call_sub',
+            name: 'Agent',
+            argumentsPart: '{"prompt":"do the thing"}',
+          },
+          { type: 'finish', finishReason: 'tool_calls' },
+        ],
+        [
+          { type: 'text', delta: 'subagent result text' },
+          { type: 'finish', finishReason: 'stop' },
+        ],
+      ]),
+    );
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+    const batch = JSON.parse(await session.run()) as { progress: { status: string } };
+    expect(batch.progress.status).toBe('completed');
+
+    const started = await waitForEvent(events, 'task.started', 5_000);
+    expect(started['kind']).toBe('agent');
+    // TS lifecycle shapes: agent-<n> (nextAvailableAgentId), task-<8-uuid-chars>
+    // (generateTaskId).
+    expect(String(started['agentId'])).toMatch(/^agent-\d+$/);
+    expect(String(started['taskId'])).toMatch(/^task-[0-9a-f]{8}$/);
+    expect(started['parentToolCallId']).toBe('call_sub');
+
+    const settled = await waitForEvent(events, 'task.settled', 5_000);
+    expect(settled['taskId']).toBe(started['taskId']);
+    expect(settled['agentId']).toBe(started['agentId']);
+    expect(settled['status']).toBe('completed');
+    expect(String(settled['output'])).toBe('subagent result text');
+  }, 30_000);
+
+  test('backgrounded bash task settles through the event stream', async () => {
+    // `sleep 2; echo bg-finished` with timeout 1: the command is moved to
+    // the background (task.started) and the detached poller settles it
+    // (task.settled) once it exits — the completion notification source for
+    // the TS side.
+    const session = new RustTurnSession(
+      JSON.stringify({
+        turnId: 1,
+        messages: [{ role: 'user', content: 'run bg' }],
+        tools: [],
+        provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'test-model' },
+        maxStepsPerTurn: null,
+        cwd: '/tmp',
+        shell: '/bin/sh',
+      }),
+      JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+      JSON.stringify([
+        [
+          {
+            type: 'tool_call',
+            toolCallId: 'call_bg',
+            name: 'Bash',
+            argumentsPart: '{"command":"sleep 2; echo bg-finished","timeout":1}',
+          },
+          { type: 'finish', finishReason: 'tool_calls' },
+        ],
+        [
+          { type: 'text', delta: 'bg launched' },
+          { type: 'finish', finishReason: 'stop' },
+        ],
+      ]),
+    );
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+    const batch = JSON.parse(await session.run()) as { progress: { status: string } };
+    expect(batch.progress.status).toBe('completed');
+
+    const started = await waitForEvent(events, 'task.started', 5_000);
+    expect(started['kind']).toBe('bash');
+    expect(String(started['taskId'])).toMatch(/^bash-[0-9a-f]{8}$/);
+    expect(String(started['agentId'])).toBe(started['taskId']);
+    expect(typeof started['pid']).toBe('number');
+
+    // The poller settles the task after the command exits (~2s).
+    const settled = await waitForEvent(events, 'task.settled', 15_000);
+    expect(settled['taskId']).toBe(started['taskId']);
+    expect(settled['status']).toBe('completed');
+    expect(String(settled['output'])).toContain('bg-finished');
+    expect(settled['exitCode']).toBe(0);
   }, 30_000);
 });

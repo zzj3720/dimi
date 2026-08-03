@@ -19,7 +19,7 @@ use napi::{Status, Unknown};
 use napi_derive::napi;
 
 use dimi_engine::aimux::{AimuxLlmClient, openai_model};
-use dimi_engine::events::EngineEvent;
+use dimi_engine::events::{EngineEvent, EventSink};
 use dimi_engine::llm::{LlmClient, LlmStreamEvent, ScriptedLlmClient};
 use dimi_engine::permission::{ApprovalDecision, PolicyConfig};
 use dimi_engine::tool::{
@@ -201,6 +201,11 @@ pub struct RustTurnSession {
     /// only the progress). `Arc` because `ThreadsafeFunction` is not
     /// `Clone` and the sink must survive across `run`/`resume` calls.
     on_event: Option<std::sync::Arc<EventCallback>>,
+    /// Task lifecycle event sink handed to the tools (Bash / async subagent
+    /// tools): `set_on_event` points it at the same napi callback, so
+    /// `task.started` / `task.settled` emitted from spawned workers/pollers
+    /// ride the session's event stream.
+    event_sink: EventSink,
 }
 
 /// Mutex-wrapped registry implementing ToolExecutor.
@@ -282,10 +287,11 @@ impl RustTurnSession {
         let tasks = AgentTasks::new();
         let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let event_sink = EventSink::new();
         let mut registry = ToolRegistry::new();
         registry.register_with_def(
             "Bash",
-            Box::new(BashTool::with_tasks(tasks.clone())),
+            Box::new(BashTool::with_tasks(tasks.clone()).with_events(event_sink.clone())),
             Some(serde_json::json!({
                 "type": "function",
                 "function": {
@@ -322,6 +328,7 @@ impl RustTurnSession {
                     shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
                     tasks: tasks.clone(),
                     steer_map: std::sync::Arc::clone(&steer_map),
+                    events: event_sink.clone(),
                 }),
             );
             registry.register(
@@ -363,6 +370,7 @@ impl RustTurnSession {
             steer_queue,
             cancel,
             on_event: None,
+            event_sink,
         })
     }
 
@@ -377,10 +385,21 @@ impl RustTurnSession {
     /// /`resume` is pushed through it as JSON, in emission order, as it
     /// happens. The `run`/`resume` response then carries only the final
     /// progress. Register before the first `run`; the callback stays active
-    /// across `resume` phases.
+    /// across `resume` phases. Also points the tools' task-event sink at the
+    /// same callback, so `task.started` / `task.settled` emitted from
+    /// spawned subagent workers / bash pollers ride the same stream.
     #[napi]
     pub fn set_on_event(&mut self, callback: EventCallback) {
-        self.on_event = Some(std::sync::Arc::new(callback));
+        let callback = std::sync::Arc::new(callback);
+        let callback_for_sink = std::sync::Arc::clone(&callback);
+        let sink_callback: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync> =
+            std::sync::Arc::new(move |event| {
+                if let Ok(json) = serde_json::to_string(&event) {
+                    let _ = callback_for_sink.call(json, ThreadsafeFunctionCallMode::NonBlocking);
+                }
+            });
+        self.event_sink.set(sink_callback);
+        self.on_event = Some(callback);
     }
 
     /// Steer the running turn: the message is queued and drained into the
