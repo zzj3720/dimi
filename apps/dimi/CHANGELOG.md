@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.7
+
+### Patch Changes
+
+- [`005d37e`](https://github.com/zzj3720/dimi/commit/005d37ebeab4f70eccd566916802892e73fe957a) - Warn when a Bash command leaves processes running outside dimi control (e.g. via `nohup` or `&`): the result lists them and explains they are not tracked, cannot be stopped with TaskStop, and WaitFor only wakes on timeout.
+
 ## 0.6.6
 
 ### Patch Changes
