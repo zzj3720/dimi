@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.4
+
+### Patch Changes
+
+- [`59b471d`](https://github.com/zzj3720/dimi/commit/59b471d606d4584d31a0c7d40eb1dc699b1735e2) - Guide WaitFor to poll external state changes through a background watcher so waits wake as soon as the monitored condition changes instead of on a blind timeout.
+
 ## 0.6.3
 
 ### Patch Changes
