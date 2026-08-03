@@ -35,8 +35,10 @@ import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
+import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
 import { IModelCatalog } from "#/app/modelCatalog/catalog";
 import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
+import { ISessionContext } from "#/session/sessionContext/sessionContext";
 import { createToolMessage, type ContentPart, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
@@ -130,6 +132,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentUsageService private readonly usageService: IAgentUsageService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ISessionContext private readonly sessionContext: ISessionContext,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
@@ -375,13 +379,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     while (progress.progress.status === "needsApproval") {
       const approval = progress.progress.approval!;
       const approvalRequest = {
-        sessionId: "session",
-        agentId: "main",
+        sessionId: this.sessionContext.sessionId,
+        agentId: this.scopeContext.agentId,
         turnId,
         toolCallId: approval.toolCallId,
         toolName: approval.toolName,
-        action: approval.action ?? `Approve ${approval.toolName}`,
-        display: approval.display as never,
+        action: `Approve ${approval.toolName}`,
+        display: {
+          kind: "generic",
+          summary: `Approve ${approval.toolName}`,
+          detail: approval.toolInput,
+        },
       } as Parameters<ISessionApprovalService["request"]>[0];
       this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
       let response: ApprovalResponse = { decision: "approved" };
@@ -411,6 +419,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         ...approvalRequest,
         decision: response.decision,
       } as never);
+      // Session-scope approval memory (TS toolApproval parity): an approved
+      // `scope: session` response records the rule so the same tool pattern
+      // is not re-asked within the session.
+      this.rulesService.recordApprovalResult({
+        turnId,
+        toolCallId: approvalRequest.toolCallId!,
+        toolName: approvalRequest.toolName,
+        action: approvalRequest.action,
+        sessionApprovalRule:
+          response.decision === "approved" && response.scope === "session"
+            ? approvalRequest.toolName
+            : undefined,
+        result: response,
+      });
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
       allEvents.push(...progress.events);
     }
@@ -563,6 +585,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             finishReason: stepFinish,
             usage,
           });
+          break;
+        }
+        case "turn.ended": {
+          // Failed turns surface the error bus event (TS failLoopStep
+          // parity) so error handlers/subscribers see it.
+          if (event["reason"] === "failed" && event["error"] !== undefined) {
+            this.eventBus.publish({
+              type: "error",
+              ...(event["error"] as Record<string, unknown>),
+            } as never);
+          }
           break;
         }
         default:

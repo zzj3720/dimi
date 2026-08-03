@@ -44,7 +44,10 @@ impl LlmClient for AimuxLlmClient {
             .await
             .map_err(|error| LlmError {
                 message: error.to_string(),
-                code: None,
+                code: match error.status_code() {
+                    Some(413) => Some("CONTEXT_OVERFLOW".to_string()),
+                    _ => None,
+                },
             })?;
 
         let mut stream = result.stream;

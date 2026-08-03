@@ -49,8 +49,9 @@ impl Default for Engine {
 /// How a step ended and what the outer loop should do next.
 #[derive(Debug, Clone, PartialEq)]
 enum StepDisposition {
-    /// No tool calls (or a stop_turn result) — the turn is complete.
-    Complete,
+    /// No tool calls — the turn is complete; carries the provider's finish
+    /// reason (truncated/filtered responses change the turn outcome).
+    Complete { finish: FinishReason },
     /// Tool calls to run through the policy gate.
     Continue(Vec<ToolCall>),
 }
@@ -410,12 +411,14 @@ impl TurnSession {
     /// Run the compaction round: ask the LLM to summarize the history, then
     /// replace the working messages with the compacted shape. Empty summary
     /// responses drop the oldest message and retry (bounded); LLM failures
-    /// fail soft (the turn continues without compacting).
+    /// fail soft (the turn continues without compacting). Returns whether a
+    /// compaction actually happened (the overflow-recovery path uses it to
+    /// decide between retry and failure).
     async fn compact(
         &mut self,
         llm: &dyn LlmClient,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
-    ) {
+    ) -> bool {
         let turn_id = self.input.turn_id;
         let tokens_before = crate::context::estimate_tokens_for_messages(&self.messages);
         let instruction = crate::compaction::compaction_instruction_message();
@@ -443,11 +446,11 @@ impl TurnSession {
                     }
                     history.remove(0);
                 }
-                Err(_) => return,
+                Err(_) => return false,
             }
         }
         if summary.is_empty() {
-            return;
+            return false;
         }
 
         let (messages, tokens_after) =
@@ -465,6 +468,7 @@ impl TurnSession {
                 compacted_count,
             },
         );
+        true
     }
 
     async fn run_loop(
@@ -541,7 +545,7 @@ impl TurnSession {
                         .last_compacted_tokens
                         .is_some_and(|last| estimated <= last);
                     if crate::compaction::should_compact(estimated, max) && !already_compacted {
-                        self.compact(llm, on_event).await;
+                        let _ = self.compact(llm, on_event).await;
                     }
                 }
             }
@@ -617,6 +621,18 @@ impl TurnSession {
                             on_event,
                         );
                     }
+                    // Context-overflow recovery (TS fullCompaction parity):
+                    // the provider rejected the request as too large — run a
+                    // compaction round and retry the step. The last-compacted
+                    // guard bounds the loop: if the estimate has not grown,
+                    // compact() is a no-op and the turn fails below.
+                    if error.code.as_deref() == Some("CONTEXT_OVERFLOW")
+                        && self.input.max_context_tokens.is_some()
+                    {
+                        if self.compact(llm, on_event).await {
+                            continue;
+                        }
+                    }
                     let message = error.message.clone();
                     emit(
                         on_event,
@@ -638,7 +654,8 @@ impl TurnSession {
             };
 
             match disposition {
-                StepDisposition::Complete => {
+                StepDisposition::Complete { finish } => {
+                    let step_finish = normalize_finish_reason(finish).to_string();
                     let mut step_complete = || {
                         emit(
                             on_event,
@@ -647,9 +664,7 @@ impl TurnSession {
                                 step: step_number as i64,
                                 step_id: None,
                                 usage: usage.transcript_usage(),
-                                finish_reason: Some(
-                                    normalize_finish_reason(FinishReason::Completed).to_string(),
-                                ),
+                                finish_reason: Some(step_finish.clone()),
                             },
                         );
                     };
@@ -661,7 +676,27 @@ impl TurnSession {
                         continue;
                     }
                     step_complete();
-                    return self.finish_turn(TurnEndReason::Completed, on_event);
+                    match finish {
+                        // Provider-truncated response (length / max_tokens):
+                        // the turn completes but is marked truncated (TS
+                        // `result.truncated` parity).
+                        FinishReason::Truncated | FinishReason::Length => {
+                            return self.finish_turn_truncated(on_event);
+                        }
+                        // Provider safety block: the turn fails with the
+                        // filtered code (TS ProviderFilteredError parity).
+                        FinishReason::Filtered | FinishReason::ContentFilter => {
+                            return self.finish_turn_with_error(
+                                TurnEndReason::Failed,
+                                Some("Provider safety policy blocked the response.".to_string()),
+                                Some("PROVIDER_FILTERED".to_string()),
+                                on_event,
+                            );
+                        }
+                        _ => {
+                            return self.finish_turn(TurnEndReason::Completed, on_event);
+                        }
+                    }
                 }
                 StepDisposition::Continue(calls) => {
                     // The assistant message carrying the tool calls must
@@ -828,6 +863,31 @@ impl TurnSession {
         self.finish_turn_with_error(status, None, None, on_event)
     }
 
+    /// Complete the turn as truncated (provider length / max_tokens): the
+    /// outcome stays `completed` with `truncated: true` (TS parity).
+    fn finish_turn_truncated(
+        &mut self,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnProgress {
+        let outcome = TurnOutcome {
+            status: TurnEndReason::Completed,
+            steps: self.steps,
+            error: None,
+            error_code: None,
+            truncated: Some(true),
+        };
+        emit(
+            on_event,
+            EngineEvent::TurnEnded {
+                turn_id: self.input.turn_id,
+                reason: "completed".to_string(),
+                error: None,
+                duration_ms: Some(self.started_at.elapsed().as_millis() as i64),
+            },
+        );
+        TurnProgress::Completed(outcome)
+    }
+
     fn finish_turn_with_error(
         &mut self,
         status: TurnEndReason,
@@ -852,7 +912,10 @@ impl TurnSession {
                     TurnEndReason::Failed => "failed".to_string(),
                     TurnEndReason::Blocked => "blocked".to_string(),
                 },
-                error: None,
+                error: outcome
+                    .error
+                    .as_ref()
+                    .map(|message| serde_json::json!({ "message": message, "code": outcome.error_code })),
                 duration_ms: Some(self.started_at.elapsed().as_millis() as i64),
             },
         );
@@ -919,6 +982,7 @@ async fn execute_step(
     on_event: &mut (dyn FnMut(EngineEvent) + Send),
 ) -> Result<StepDisposition, crate::llm::LlmError> {
     let streamed = llm.stream_chat(request).await?;
+    let mut provider_finish = None;
     for event in &streamed.events {
         match event {
             LlmStreamEvent::Text { delta } => {
@@ -948,7 +1012,10 @@ async fn execute_step(
             LlmStreamEvent::Usage { .. } => {
                 usage.add(event);
             }
-            LlmStreamEvent::Finish { .. } | LlmStreamEvent::Error { .. } => {}
+            LlmStreamEvent::Finish { finish_reason } => {
+                provider_finish = finish_reason.clone();
+            }
+            LlmStreamEvent::Error { .. } => {}
         }
     }
     let assistant = &streamed.assistant;
@@ -964,8 +1031,20 @@ async fn execute_step(
         });
     }
 
+    // Map the provider's finish reason (TS `providerFinishReason` parity):
+    // truncated/length responses complete the turn as truncated; a filtered
+    // response fails it.
+    let finish = match provider_finish.as_deref() {
+        Some("tool_calls") => FinishReason::ToolCalls,
+        Some("length") => FinishReason::Length,
+        Some("max_tokens") => FinishReason::Truncated,
+        Some("content_filter") => FinishReason::ContentFilter,
+        Some("filtered") => FinishReason::Filtered,
+        _ => FinishReason::Completed,
+    };
+
     if tool_calls.is_empty() {
-        return Ok(StepDisposition::Complete);
+        return Ok(StepDisposition::Complete { finish });
     }
     Ok(StepDisposition::Continue(tool_calls))
 }
@@ -1756,6 +1835,179 @@ mod cancel_tests {
             tools.iter().any(|t| t["function"]["name"] == "Lookup"),
             "request tools must include the registered def: {tools:?}"
         );
+    }
+
+
+
+    #[tokio::test]
+    async fn context_overflow_compacts_and_retries_the_step() {
+        use std::sync::{Arc, Mutex};
+        struct OverflowThenOkClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for OverflowThenOkClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                if *calls == 1 {
+                    return Err(crate::llm::LlmError {
+                        message: "HTTP 413: request too large".to_string(),
+                        code: Some("CONTEXT_OVERFLOW".to_string()),
+                    });
+                }
+                Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "recovered".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "recovered".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = OverflowThenOkClient(Arc::clone(&calls));
+        // History below the 85% trigger (1700/2000 tokens) so the overflow
+        // recovery — not the loop-top estimate check — drives compaction.
+        let blob = "z".repeat(60);
+        let mut messages = vec![msg("user", "u2")];
+        for i in 0..5 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(20))));
+            messages.push(msg("tool", &blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(5),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &crate::tool::BashTool::default(), &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Completed);
+                assert_eq!(outcome.error, None);
+            }
+            TurnProgress::NeedsApproval(_) => panic!("no approval in auto mode"),
+        }
+        // Three LLM calls: the overflow, the compaction summary round, and
+        // the retried step.
+        assert_eq!(*calls.lock().unwrap(), 3);
+        // The compaction round ran (context.compacted emitted).
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::ContextCompacted { .. })),
+            "overflow must trigger compaction: {events:?}"
+        );
+        // The retried step produced the recovered text.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::AssistantDelta { delta, .. } if delta == "recovered"
+            )),
+            "retried step must stream: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn truncated_finish_marks_the_turn_truncated() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                *self.0.lock().unwrap() += 1;
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("length".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = RecordingClient(Arc::clone(&calls));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hi")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &crate::tool::BashTool::default(), &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Completed);
+                assert_eq!(outcome.truncated, Some(true));
+            }
+            TurnProgress::NeedsApproval(_) => panic!("no approval in auto mode"),
+        }
+        // The step reports the provider finish reason (TS normalize parity:
+        // length stays "length").
+        let step_completed = events.iter().find_map(|event| match event {
+            EngineEvent::TurnStepCompleted { finish_reason, .. } => finish_reason.clone(),
+            _ => None,
+        });
+        assert_eq!(step_completed.as_deref(), Some("length"));
     }
 
     #[tokio::test]

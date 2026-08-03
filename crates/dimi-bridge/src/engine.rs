@@ -292,30 +292,39 @@ impl RustTurnSession {
                 }
             })),
         );
-        registry.register(
-            "Agent",
-            Box::new(AsyncAgentTool {
-                llm: std::sync::Arc::clone(&llm),
-                tools: std::sync::Arc::new(BashTool::default()),
-                policy: policy.clone(),
-                max_steps: input.max_steps_per_turn,
-                shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
-                tasks: tasks.clone(),
-                steer_map: std::sync::Arc::clone(&steer_map),
-            }),
-        );
-        registry.register(
-            "AgentOutput",
-            Box::new(AgentOutputTool {
-                tasks: tasks.clone(),
-            }),
-        );
-        registry.register("WaitFor", Box::new(WaitForTool { tasks }));
         let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
-        let mut input = input;
+        {
+            let mut registry = tools
+                .try_lock()
+                .map_err(|_| napi::Error::from_reason("registry busy"))?;
+            // Subagents execute through the same registry (all registered
+            // tools — Bash, external TS tools, and the async tools).
+            let subagent_tools: std::sync::Arc<dyn ToolExecutor> =
+                std::sync::Arc::new(LockedRegistry(std::sync::Arc::clone(&tools)));
+            registry.register(
+                "Agent",
+                Box::new(AsyncAgentTool {
+                    llm: std::sync::Arc::clone(&llm),
+                    tools: subagent_tools,
+                    policy: policy.clone(),
+                    max_steps: input.max_steps_per_turn,
+                    shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
+                    tasks: tasks.clone(),
+                    steer_map: std::sync::Arc::clone(&steer_map),
+                }),
+            );
+            registry.register(
+                "AgentOutput",
+                Box::new(AgentOutputTool {
+                    tasks: tasks.clone(),
+                }),
+            );
+            registry.register("WaitFor", Box::new(WaitForTool { tasks }));
+        }
         // Expose the registry's tool definitions to the LLM (initial set;
         // re-synced before every run/resume so tools registered mid-session
         // become visible to the model).
+        let mut input = input;
         {
             let registry = tools
                 .try_lock()

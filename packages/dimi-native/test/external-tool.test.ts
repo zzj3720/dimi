@@ -44,21 +44,28 @@ describe('TS external tool bridge', () => {
       ],
     ]);
     let called = 0;
-    session.registerExternalTool('Lookup', (payloadJson: string) => {
-      called += 1;
-      const payload = JSON.parse(payloadJson) as { requestId: string };
-      session.completeToolCall(
-        payload.requestId,
-        JSON.stringify({
-          toolCallId: payload.requestId,
-          toolName: 'Lookup',
-          output: 'moon is 384400km away',
-          isError: false,
-          stopTurn: false,
-          updates: [],
-        }),
-      );
-    });
+    session.registerExternalTool(
+      'Lookup',
+      'Look up facts',
+      JSON.stringify({ type: 'object', properties: { query: { type: 'string' } } }),
+      (payloadJson: string) => {
+        called += 1;
+        const payload = JSON.parse(payloadJson) as { requestId: string; toolCallId?: string };
+        session.completeToolCall(
+          payload.requestId,
+          JSON.stringify({
+            // The LLM's streamed tool-call id must round-trip (P1-4): the
+            // wire tool.result references it, not the ext-N slot key.
+            toolCallId: payload.toolCallId ?? payload.requestId,
+            toolName: 'Lookup',
+            output: 'moon is 384400km away',
+            isError: false,
+            stopTurn: false,
+            updates: [],
+          }),
+        );
+      },
+    );
 
     const batch = JSON.parse(await session.run()) as {
       events: Array<Record<string, unknown>>;
@@ -69,6 +76,8 @@ describe('TS external tool bridge', () => {
     const result = batch.events.find((event) => event['type'] === 'tool.result');
     expect(result?.['output']).toContain('384400');
     expect(result?.['isError']).toBe(false);
+    // The tool.result references the LLM's tool_call_id, not ext-N.
+    expect(result?.['toolCallId']).toBe('lk');
   }, 30_000);
 
   test('a missing external tool reports not found', async () => {
