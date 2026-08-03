@@ -29,6 +29,21 @@ use dimi_engine::types::EngineTurnInput;
 
 use crate::wire_error;
 
+/// Process-level shared subagent task registry (code-review P1-1): every
+/// `RustTurnSession` (one per turn) shares this instance. The Agent tool
+/// hardcodes `stop_turn: true`, so the launching turn ends immediately and
+/// the NEXT turn runs in a NEW session — a per-session registry would make
+/// the launched subagent invisible to AgentOutput / WaitFor ("No subagent
+/// found"). Task ids are globally unique (`agent-<8>` uuid suffixes / engine
+/// `agent-<n>` counters seeded across turns), so the shared table never
+/// collides.
+static SHARED_AGENT_TASKS: std::sync::OnceLock<AgentTasks> = std::sync::OnceLock::new();
+
+/// A clone of the process-wide task registry (all sessions see all tasks).
+fn shared_agent_tasks() -> AgentTasks {
+    SHARED_AGENT_TASKS.get_or_init(AgentTasks::default).clone()
+}
+
 #[napi]
 pub struct RustEngine {
     inner: dimi_engine::Engine,
@@ -474,21 +489,44 @@ fn make_client(
 }
 
 /// Convert the registry's LLM-facing defs into `EngineTool` (the engine's
-/// request `tools` field).
+/// request `tools` field). A def that cannot be converted is discarded with
+/// a warning (def name + reason) instead of being silently dropped; the
+/// returned list is unchanged otherwise.
 fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> {
-    registry
-        .tool_defs()
-        .into_iter()
-        .filter_map(|def| {
-            let function = def.get("function")?;
-            serde_json::from_value(serde_json::json!({
-                "name": function.get("name")?.as_str()?,
-                "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-                "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
-            }))
-            .ok()
-        })
-        .collect()
+    let mut tools = Vec::new();
+    for def in registry.tool_defs() {
+        let Some(function) = def.get("function") else {
+            eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def (missing \"function\"): {def}"
+            );
+            continue;
+        };
+        let Some(name) = function.get("name").and_then(|n| n.as_str()) else {
+            eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def (missing string \"function.name\"): {def}"
+            );
+            continue;
+        };
+        let description = function
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("");
+        let args_schema = function
+            .get("parameters")
+            .cloned()
+            .unwrap_or(serde_json::json!({"type":"object","properties":{}}));
+        match serde_json::from_value(serde_json::json!({
+            "name": name,
+            "description": description,
+            "argsSchema": args_schema,
+        })) {
+            Ok(tool) => tools.push(tool),
+            Err(error) => eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def \"{name}\" (conversion failed: {error})"
+            ),
+        }
+    }
+    tools
 }
 
 #[napi]
@@ -503,7 +541,7 @@ impl RustTurnSession {
         let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
         let llm: std::sync::Arc<dyn LlmClient> =
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
-        let tasks = AgentTasks::new();
+        let tasks = shared_agent_tasks();
         let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         let event_sink = EventSink::new();
@@ -1013,5 +1051,35 @@ mod tests {
             // Drain so the queue never fills across iterations.
             assert!(channel.recv().is_some());
         }
+    }
+
+    #[test]
+    fn shared_agent_tasks_is_process_wide() {
+        // P1-1 (review): every `RustTurnSession` (one per turn) must share
+        // ONE subagent task registry — the Agent tool hardcodes
+        // `stop_turn: true`, so the launching turn ends immediately and the
+        // NEXT turn (a new session) must still resolve the task via
+        // AgentOutput / WaitFor. Two clones of the shared table must observe
+        // the same underlying map.
+        let first = shared_agent_tasks();
+        let second = shared_agent_tasks();
+        let task_id = "agent-shared-table-test".to_string();
+        first.insert(
+            task_id.clone(),
+            dimi_engine::tool::TaskState {
+                agent_id: "agent-0".to_string(),
+                status: "running".to_string(),
+                output: "partial".to_string(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                cancel: None,
+            },
+        );
+        let state = second
+            .get(&task_id)
+            .expect("a task inserted via one session handle must be visible via another");
+        assert_eq!(state.agent_id, "agent-0");
+        assert_eq!(state.status, "running");
     }
 }

@@ -3040,6 +3040,71 @@ mod async_agent_tests {
         assert_eq!(DEFAULT_KILL_GRACE_MS, 5_000);
     }
 
+    #[tokio::test]
+    async fn cross_session_agent_output_resolves_task_launched_by_another_session() {
+        // P1-1 (review): the bridge gives every turn session a clone of ONE
+        // process-level `AgentTasks`, so a subagent launched by turn N
+        // (stop_turn ends that turn immediately) must be resolvable via
+        // AgentOutput in turn N+1 — a DIFFERENT session holding a different
+        // clone of the SAME registry. Two independent handles over one shared
+        // instance: the second session's AgentOutput sees the first session's
+        // launched task.
+        let shared = AgentTasks::new(); // one shared instance (bridge: shared_agent_tasks)
+        let session_a_tasks = shared.clone();
+        let session_b_tasks = shared.clone();
+
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "cross-session output".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: session_a_tasks,
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "bg" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        // The "next turn": a separate session's AgentOutput tool reads the
+        // SAME shared registry and resolves the earlier session's task.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let read = AgentOutputTool { tasks: session_b_tasks }
+            .execute(
+                &ToolCall {
+                    id: "call_o".to_string(),
+                    name: "AgentOutput".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!read.is_error, "output: {}", read.output);
+        let read_json: serde_json::Value = serde_json::from_str(&read.output).unwrap();
+        assert_eq!(read_json["agent_id"], agent_id);
+        assert_eq!(read_json["status"], "completed");
+        assert_eq!(read_json["output"], "cross-session output");
+    }
+
 
     #[tokio::test]
     async fn subagent_emits_task_started_and_settled_events() {
