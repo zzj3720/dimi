@@ -135,7 +135,8 @@ function renderComposer() {
 
 function renderCompletion() {
   const root = els.completion;
-  if (!model.completionOpen || model.completionItems.length === 0) {
+  const open = model.completionOpen || model.atMentionOpen;
+  if (!open || model.completionItems.length === 0) {
     root.classList.add('hidden');
     root.textContent = '';
     return;
@@ -314,8 +315,22 @@ function renderApproval(root) {
 
   const hint = document.createElement('div');
   hint.className = 'sub';
-  hint.textContent = '↑↓ navigate · Enter confirm · Esc reject · Ctrl+E preview';
+  hint.textContent = model.approvalPreview
+    ? 'previewing tool input (Ctrl+E to hide)'
+    : '↑↓ navigate · Enter confirm · 1-4 select · Esc reject · Ctrl+E preview';
   body.appendChild(hint);
+
+  // Feedback input for "Reject with feedback…" (TUI approval-panel.ts:250-259).
+  if (model.approvalSelectedIndex === 3) {
+    const fb = document.createElement('input');
+    fb.className = 'search-input';
+    fb.placeholder = 'Feedback…';
+    fb.value = model.approvalFeedbackText;
+    fb.addEventListener('input', () => {
+      model.approvalFeedbackText = fb.value;
+    });
+    body.appendChild(fb);
+  }
 
   root.appendChild(dialog('Approval', body, []));
 }

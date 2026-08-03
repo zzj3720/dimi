@@ -56,6 +56,7 @@ export const model = {
   approvalSelectedIndex: 0,
   approvalFeedbackMode: false,
   approvalFeedbackText: '',
+  approvalPreview: false,
   currentQuestion: null,
   questionSelectedIndex: 0,
   questionTabIndex: 0,
@@ -66,6 +67,8 @@ export const model = {
   completionItems: [], // { value, label, description }
   completionSelected: 0,
   completionPrefix: '',
+  atMentionOpen: false,
+  atMentionPrefix: 0,
 
   // btw panel
   btwOpen: false,
@@ -250,13 +253,14 @@ export function update(state, msg) {
       return;
 
     case 'completion_accept':
-      if (!state.completionOpen) return;
+      if (!state.completionOpen && !state.atMentionOpen) return;
       {
         const item = state.completionItems[state.completionSelected];
         if (!item) return;
         // Replace from the completion prefix start (TUI applyCompletion:
         // prefix is the byte offset where the accepted value lands).
-        state.draft = state.draft.slice(0, state.completionPrefix) + item.value;
+        const prefix = state.atMentionOpen ? state.atMentionPrefix : state.completionPrefix;
+        state.draft = state.draft.slice(0, prefix) + item.value;
         closeCompletion(state);
       }
       return;
@@ -383,9 +387,11 @@ export function update(state, msg) {
 
     case 'question_move':
       if (state.currentQuestion) {
+        // TUI: ↑/↓ moves the cursor on every question kind
+        // (question-dialog.ts:161-167).
         const q = state.currentQuestion;
-        if (q.kind === 'multi' || q.kind === 'multi_with_other') {
-          const n = q.options.length;
+        const n = (q.options ?? []).length;
+        if (n > 0) {
           state.questionSelectedIndex = (state.questionSelectedIndex + msg.delta + n) % n;
         }
       }
@@ -917,6 +923,8 @@ function closeCompletion(state) {
   state.completionItems = [];
   state.completionSelected = 0;
   state.completionPrefix = '';
+  state.atMentionOpen = false;
+  state.atMentionPrefix = 0;
 }
 
 export function isBashDraft(text) {

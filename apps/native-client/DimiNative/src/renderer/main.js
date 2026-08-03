@@ -105,11 +105,18 @@ els.input.addEventListener('keydown', (evt) => {
     if (evt.key === 'ArrowUp') { evt.preventDefault(); dispatch(Msg.CompletionMove(-1)); return; }
     if (evt.key === 'Enter' || evt.key === 'Tab') {
       evt.preventDefault();
+      const acceptViaTab = evt.key === 'Tab';
       dispatch(Msg.CompletionAccept());
-      // TUI: accepting a slash command falls through to submit.
       const draft = model.draft;
       if (draft.startsWith('/') && findSlashCommand(draft.slice(1).split(/\s/)[0])) {
-        dispatch(Msg.Submit());
+        if (acceptViaTab) {
+          // TUI: Tab-accept inserts a trailing space and reopens argument
+          // completion (custom-editor.ts:580-592) so subcommands show.
+          dispatch(Msg.DraftChange(draft + ' '));
+        } else {
+          // TUI: Enter-accept falls through to submit.
+          dispatch(Msg.Submit());
+        }
       }
       return;
     }
@@ -124,8 +131,11 @@ els.input.addEventListener('keydown', (evt) => {
       const idx = Number(evt.key) - 1;
       const q = model.currentQuestion;
       if (idx < (q.options ?? []).length) {
-        dispatch({ type: 'question_select', index: idx });
-        if (q.kind !== 'multi' && q.kind !== 'multi_with_other') {
+        if (q.kind === 'multi' || q.kind === 'multi_with_other') {
+          // TUI: number key on multi toggles the option (question-dialog.ts:184-194).
+          dispatch({ type: 'question_toggle', index: idx });
+        } else {
+          dispatch({ type: 'question_select', index: idx });
           dispatch(Msg.QuestionConfirm());
         }
       }
@@ -134,6 +144,19 @@ els.input.addEventListener('keydown', (evt) => {
     if (evt.key === ' ') {
       evt.preventDefault();
       dispatch({ type: 'question_toggle', index: model.questionSelectedIndex });
+      return;
+    }
+  }
+
+  // Approval dialog: number keys select+confirm (TUI approval-panel.ts:313-317).
+  if (model.currentApproval) {
+    if (/^[1-9]$/.test(evt.key)) {
+      evt.preventDefault();
+      const idx = Number(evt.key) - 1;
+      if (idx < APPROVAL_CHOICES.length) {
+        dispatch(Msg.ApprovalSelect(idx));
+        dispatch(Msg.ApprovalConfirm());
+      }
       return;
     }
   }
@@ -172,6 +195,16 @@ els.input.addEventListener('keydown', (evt) => {
       }
       return;
     }
+    if (k === 'e') {
+      // TUI: Ctrl+E on the approval panel toggles diff/file preview
+      // (approval-panel.ts:271-277).
+      if (model.currentApproval) {
+        evt.preventDefault();
+        model.approvalPreview = !model.approvalPreview;
+        render();
+      }
+      return;
+    }
     return;
   }
 
@@ -180,7 +213,9 @@ els.input.addEventListener('keydown', (evt) => {
       // Shift+Enter → newline; plain Enter → submit (TUI submit semantics).
       if (!evt.shiftKey) {
         evt.preventDefault();
-        if (model.currentQuestion) {
+        if (model.currentApproval) {
+          dispatch(Msg.ApprovalConfirm());
+        } else if (model.currentQuestion) {
           dispatch(Msg.QuestionConfirm());
         } else {
           dispatch(Msg.Submit());
@@ -237,6 +272,13 @@ els.input.addEventListener('keydown', (evt) => {
 
 els.input.addEventListener('input', () => {
   dispatch(Msg.DraftChange(els.input.value));
+  // @mention completion is async (server fs browse); trigger it here.
+  if (els.input.value.includes('@')) {
+    maybeUpdateAtMention(els.input.value);
+  } else {
+    model.atMentionOpen = false;
+    render();
+  }
 });
 
 els.input.addEventListener('compositionend', () => {
@@ -584,19 +626,40 @@ function detachCurrentTask() {
 
 function doSteer() {
   if (model.phase !== 'streaming') return;
-  // Ctrl+S: flush the queued prompts into the running turn
-  // (TUI editor-keyboard.ts:249-314 — idle/shell/compacting are gated out).
-  const ids = model.queued.map((q) => q.promptId).filter(Boolean);
-  api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts::steer`, { prompt_ids: ids })
-    .then(() => {
-      model.statusMsg = '';
-      refreshPromptQueue();
-      render();
-    })
-    .catch((e) => {
-      model.statusMsg = `steer failed: ${e.message}`;
-      render();
-    });
+  // TUI onCtrlS (editor-keyboard.ts:249-314): flush queued prompts AND the
+  // current draft (non-bash) into the running turn, then clear the editor.
+  const draft = model.draft.trim();
+  const draftIsBash = isBashDraft(draft);
+  const submitDraftThenSteer = async () => {
+    const ids = [];
+    if (!draftIsBash && draft.length > 0) {
+      try {
+        const data = await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
+          content: [{ type: 'text', text: draft }],
+        });
+        const pid = data?.data?.prompt_id ?? '';
+        if (pid) ids.push(pid);
+      } catch (e) {
+        model.statusMsg = `steer failed: ${e.message}`;
+        render();
+        return;
+      }
+    }
+    // Queued prompt ids (bash entries stay queued — TUI keeps them).
+    for (const q of model.queued) {
+      if (q.mode !== 'bash' && q.promptId) ids.push(q.promptId);
+    }
+    if (ids.length === 0) return;
+    await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts::steer`, { prompt_ids: ids });
+    if (!draftIsBash && draft.length > 0) model.draft = '';
+    model.statusMsg = '';
+    refreshPromptQueue();
+    render();
+  };
+  submitDraftThenSteer().catch((e) => {
+    model.statusMsg = `steer failed: ${e.message}`;
+    render();
+  });
 }
 
 function doCancel() {
@@ -725,6 +788,36 @@ async function createSession() {
 function openExternalEditor() {
   model.statusMsg = 'external editor (coming)';
   render();
+}
+
+// @mention completion (TUI file-mention-provider): extract the `@<prefix>`
+// after whitespace, browse the server's directory listing, fuzzy-filter and
+// show in the same completion popup.
+async function maybeUpdateAtMention(text) {
+  const m = text.match(/(?:^|\s)@([^\s]*)$/);
+  if (!m) { model.atMentionOpen = false; render(); return; }
+  const prefix = m[1];
+  try {
+    const data = await api('GET', `/api/v1/fs::browse?path=${encodeURIComponent(prefix || '.')}`);
+    const entries = data?.data?.entries ?? data?.data ?? [];
+    const items = entries
+      .filter((e) => typeof e === 'string' || e?.name)
+      .map((e) => {
+        const name = typeof e === 'string' ? e : e.name;
+        const isDir = typeof e === 'string' ? false : !!e.isDirectory;
+        return { value: `@${name}${isDir ? '/' : ''}`, label: `${name}${isDir ? '/' : ''}`, description: undefined };
+      });
+    const filtered = prefix ? items.filter((i) => i.label.toLowerCase().includes(prefix.toLowerCase())) : items;
+    if (filtered.length === 0) { model.atMentionOpen = false; render(); return; }
+    model.atMentionOpen = true;
+    model.atMentionPrefix = text.length - prefix.length - 1; // position of '@'
+    model.completionItems = filtered;
+    model.completionSelected = 0;
+    render();
+  } catch {
+    model.atMentionOpen = false;
+    render();
+  }
 }
 
 // ------------------------------------------------------------- boot
