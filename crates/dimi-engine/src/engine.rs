@@ -157,6 +157,9 @@ pub struct TurnSession {
     steps: u32,
     started_at: Instant,
     pending: Option<PendingApproval>,
+    /// Steering messages injected while the turn runs (async subagent
+    /// semantics): drained into the request assembly before each step.
+    steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
 }
 
 /// A tool call waiting for the user's approval decision.
@@ -190,12 +193,20 @@ impl TurnProgress {
 
 impl TurnSession {
     pub fn new(input: EngineTurnInput) -> Self {
+        Self::with_steer(input, None)
+    }
+
+    pub fn with_steer(
+        input: EngineTurnInput,
+        steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
+    ) -> Self {
         Self {
             input,
             messages: Vec::new(),
             steps: 0,
             started_at: Instant::now(),
             pending: None,
+            steer,
         }
     }
 
@@ -289,6 +300,13 @@ impl TurnSession {
         }
     }
 
+    fn has_pending_steer(&self) -> bool {
+        self.steer
+            .as_ref()
+            .map(|steer| !steer.lock().unwrap().is_empty())
+            .unwrap_or(false)
+    }
+
     async fn run_loop(
         &mut self,
         llm: &dyn LlmClient,
@@ -330,6 +348,17 @@ impl TurnSession {
                         Some("LOOP_MAX_STEPS_EXCEEDED".to_string()),
                         on_event,
                     );
+                }
+            }
+
+            // Drain steering messages injected while the turn runs (async
+            // subagent semantics): they land in the request assembled for
+            // this step. The guard runs first so a max-steps failure never
+            // folds a steer into a doomed turn.
+            if let Some(steer) = &self.steer {
+                let mut drained = steer.lock().unwrap();
+                if !drained.is_empty() {
+                    self.messages.append(&mut drained);
                 }
             }
 
@@ -399,18 +428,28 @@ impl TurnSession {
 
             match disposition {
                 StepDisposition::Complete => {
-                    emit(
-                        on_event,
-                        EngineEvent::TurnStepCompleted {
-                            turn_id,
-                            step: step_number as i64,
-                            step_id: None,
-                            usage: usage.transcript_usage(),
-                            finish_reason: Some(
-                                normalize_finish_reason(FinishReason::Completed).to_string(),
-                            ),
-                        },
-                    );
+                    let mut step_complete = || {
+                        emit(
+                            on_event,
+                            EngineEvent::TurnStepCompleted {
+                                turn_id,
+                                step: step_number as i64,
+                                step_id: None,
+                                usage: usage.transcript_usage(),
+                                finish_reason: Some(
+                                    normalize_finish_reason(FinishReason::Completed).to_string(),
+                                ),
+                            },
+                        );
+                    };
+                    if self.has_pending_steer() {
+                        // A steer arrived while this step ran (async subagent
+                        // finished). The step itself is complete, but the turn
+                        // keeps going so the steering message reaches the LLM.
+                        step_complete();
+                        continue;
+                    }
+                    step_complete();
                     return self.finish_turn(TurnEndReason::Completed, on_event);
                 }
                 StepDisposition::Continue(calls) => {
@@ -1011,7 +1050,7 @@ mod window_tests {
             }
         }
 
-        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let recorded: Arc<Mutex<Vec<LlmMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let llm = RecordingClient(Arc::clone(&recorded));
         let engine = Engine::default();
         let input = EngineTurnInput {
@@ -1052,5 +1091,100 @@ mod window_tests {
         );
         assert_eq!(sent[1].content, serde_json::Value::String("u2".to_string()));
         assert_eq!(sent[3].content, serde_json::Value::String("u3".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod steer_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::types::ProviderConfig;
+
+    #[tokio::test]
+    async fn steering_messages_are_drained_into_the_next_request() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(
+            Arc<Mutex<Vec<Vec<LlmMessage>>>>,
+            Arc<Mutex<Vec<LlmMessage>>>,
+        );
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                if calls.len() == 1 {
+                    // Simulate an async subagent completing while the first
+                    // request is in flight: a steer lands mid-turn.
+                    self.1.lock().unwrap().push(LlmMessage {
+                        role: "user".to_string(),
+                        content: serde_json::Value::String(
+                            "steer: change direction".to_string(),
+                        ),
+                        name: None,
+                        tool_call_id: None,
+                        tool_calls: None,
+                        reasoning: None,
+                    });
+                }
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "".to_string(),
+                        thinking: "".to_string(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let steer: Arc<Mutex<Vec<LlmMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded), Arc::clone(&steer));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String("original".to_string()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            }],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(2),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::with_steer(input, Some(steer));
+        let progress = session
+            .run(&llm, &crate::tool::BashTool, &policy, &mut |_| {})
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        let requests = recorded.lock().unwrap();
+        // First request: original only. Second request: steer drained in.
+        assert_eq!(requests.len(), 2);
+        let second = &requests[1];
+        let texts: Vec<&str> = second
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(texts.contains(&"steer: change direction"), "second request: {texts:?}");
     }
 }

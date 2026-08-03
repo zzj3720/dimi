@@ -173,6 +173,10 @@ pub struct RustTurnSession {
     policy: PolicyConfig,
     /// TS tool call completions keyed by request id.
     pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    /// Subagent steering queues keyed by agent id.
+    steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>>,
+    /// This turn's own steering queue (drained into the next request).
+    steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
 }
 
 /// Mutex-wrapped registry implementing ToolExecutor.
@@ -235,6 +239,8 @@ impl RustTurnSession {
         let llm: std::sync::Arc<dyn LlmClient> =
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
         let tasks = AgentTasks::new();
+        let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         let mut registry = ToolRegistry::new();
         registry.register_with_def(
             "Bash",
@@ -265,6 +271,7 @@ impl RustTurnSession {
                 max_steps: input.max_steps_per_turn,
                 shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
                 tasks: tasks.clone(),
+                steer_map: std::sync::Arc::clone(&steer_map),
             }),
         );
         registry.register(
@@ -295,15 +302,39 @@ impl RustTurnSession {
                 })
                 .collect();
         }
+        let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         Ok(Self {
-            inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::new(input)),
+            inner: napi::tokio::sync::Mutex::new(dimi_engine::engine::TurnSession::with_steer(
+                input,
+                Some(std::sync::Arc::clone(&steer_queue)),
+            )),
             llm,
             tools,
             policy,
             pending_external: std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
+            steer_map,
+            steer_queue,
         })
+    }
+
+    /// Steer the running turn: the message is queued and drained into the
+    /// next LLM request (async-subagent semantics).
+    #[napi]
+    pub fn steer(&self, message: String) {
+        self.steer_queue
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(dimi_engine::types::LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(message),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            });
     }
 
     /// Advance the turn until completion or an approval request.
@@ -339,6 +370,29 @@ impl RustTurnSession {
             .try_lock()
             .map_err(|_| napi::Error::from_reason("session is busy"))
             .map(|mut registry| registry.register(name, Box::new(tool)))?;
+        Ok(())
+    }
+
+    /// Steer a running subagent (async-subagent semantics): the message is
+    /// queued and drained into the subagent's next request.
+    #[napi]
+    pub fn steer_subagent(&self, agent_id: String, message: String) -> napi::Result<()> {
+        let steer_map = self.steer_map.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(queue) = steer_map.get(&agent_id) else {
+            return Err(napi::Error::from_reason(format!(
+                "no running subagent with agent_id: {agent_id}"
+            )));
+        };
+        queue.lock().unwrap_or_else(|p| p.into_inner()).push(
+            dimi_engine::types::LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(message),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            },
+        );
         Ok(())
     }
 

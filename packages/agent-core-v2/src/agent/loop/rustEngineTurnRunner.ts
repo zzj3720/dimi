@@ -27,11 +27,14 @@ import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory"
 import type { ContextMessage, PromptOrigin } from "#/agent/contextMemory/types";
 import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
+import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
-import { promptTurn, TurnModel } from "#/agent/loop/turnOps";
+import { promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
+import { IAgentUsageService } from "#/agent/usage/usage";
+import type { TokenUsage } from "#/llmProtocol/usage";
 import type { ContentPart } from "#/llmProtocol/message";
 import { createToolMessage, type ToolCall } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
@@ -48,6 +51,12 @@ export interface IRustEngineTurnRunner {
   runTurn(input: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): Promise<{
     readonly turnId: number;
   }>;
+  /**
+   * Steer the currently running Rust-engine turn (mid-turn injection).
+   * Returns `false` when no turn is active — the caller then starts a new
+   * turn with the input instead.
+   */
+  steer(input: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): boolean;
 }
 
 function rustEngineEnabled(): boolean {
@@ -58,6 +67,9 @@ function rustEngineEnabled(): boolean {
 export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   declare readonly _serviceBrand: undefined;
 
+  /** The in-flight Rust session, while a turn is running (steer target). */
+  private activeSession: RustTurnSession | undefined;
+
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -66,11 +78,38 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentUsageService private readonly usageService: IAgentUsageService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {}
 
   static isEnabled(): boolean {
     return rustEngineEnabled();
+  }
+
+  /**
+   * Steer the running turn. Mirrors the TS steer path (`steerTurn` op +
+   * user message in the context) and forwards the text into the engine's
+   * steer queue, where it is drained into the next LLM request.
+   */
+  steer(payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): boolean {
+    const session = this.activeSession;
+    if (session === undefined) return false;
+    const text = payload.input
+      .filter((part) => part.type === "text")
+      .map((part) => (part as { text?: string }).text ?? "")
+      .join("");
+    if (text.length === 0) return false;
+    this.wire.dispatch(steerTurn({ input: [...payload.input], origin: payload.origin }));
+    this.context.append({
+      role: "user",
+      content: [...payload.input],
+      toolCalls: [],
+      origin: payload.origin,
+      id: randomUUID(),
+    });
+    session.steer(text);
+    return true;
   }
 
   async runTurn(payload: {
@@ -111,6 +150,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     });
     // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments.
     const scripted = process.env["DIMI_RUST_ENGINE_SCRIPTED"];
+    const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    this.activeSession = session;
+    try {
+      await this.runEngineSession(session, turnId);
+    } finally {
+      this.activeSession = undefined;
+    }
+    return { turnId };
+  }
+
+  /**
+   * Run one engine session to completion: register the TS tool ecosystem,
+   * drive the approval loop, mirror the engine events into the context.
+   */
+  private async runEngineSession(session: RustTurnSession, turnId: number): Promise<void> {
     interface EngineProgress {
       events: Array<Record<string, unknown>>;
       progress: {
@@ -126,7 +180,64 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         };
       };
     }
-    const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    // Register the TS tool ecosystem (MCP / plugins / skills / built-in file
+    // tools) into the engine; the Rust-native tools stay on the Rust side.
+    const engineNativeTools = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
+    for (const info of this.toolRegistry.list()) {
+      if (engineNativeTools.has(info.name)) continue;
+      const tool = this.toolRegistry.resolve(info.name);
+      if (tool === undefined) continue;
+      session.registerExternalTool(info.name, (payloadJson: string) => {
+        void (async () => {
+          const payload = JSON.parse(payloadJson) as { requestId: string; name: string; arguments: unknown };
+          try {
+            const execution = await tool.resolveExecution(payload.arguments);
+            if (execution.isError === true) {
+              session.completeToolCall(
+                payload.requestId,
+                JSON.stringify({
+                  toolCallId: payload.requestId,
+                  toolName: payload.name,
+                  output: String(execution.output),
+                  isError: true,
+                  stopTurn: execution.stopTurn === true,
+                  updates: [],
+                }),
+              );
+              return;
+            }
+            const result = await execution.execute({
+              turnId: 0,
+              toolCallId: payload.requestId,
+              signal: new AbortController().signal,
+            });
+            session.completeToolCall(
+              payload.requestId,
+              JSON.stringify({
+                toolCallId: payload.requestId,
+                toolName: payload.name,
+                output: String(result.output),
+                isError: result.isError === true,
+                stopTurn: result.stopTurn === true,
+                updates: [],
+              }),
+            );
+          } catch (error) {
+            session.completeToolCall(
+              payload.requestId,
+              JSON.stringify({
+                toolCallId: payload.requestId,
+                toolName: payload.name,
+                output: `Tool "${payload.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
+                isError: true,
+                stopTurn: false,
+                updates: [],
+              }),
+            );
+          }
+        })();
+      });
+    }
     const allEvents: Array<Record<string, unknown>> = [];
     const advance = async (): Promise<EngineProgress> => {
       const next = JSON.parse(await session.run()) as EngineProgress;
@@ -251,6 +362,25 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           flushText();
           const stepFinish = String(event["finishReason"] ?? "end_turn");
           finishReason = stepFinish;
+          // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
+          // four-component TokenUsage + wire usage.record.
+          const engineUsage = event["usage"] as
+            | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
+            | undefined;
+          if (engineUsage !== undefined) {
+            const inputCacheRead = engineUsage.cachedTokens ?? 0;
+            usage = {
+              inputOther: Math.max((engineUsage.inputTokens ?? 0) - inputCacheRead, 0),
+              output: engineUsage.outputTokens ?? 0,
+              inputCacheRead,
+              inputCacheCreation: 0,
+            };
+            this.usageService.record(
+              this.providerConfig()['model'] as string,
+              usage as TokenUsage,
+              { kind: "loop", turnId: String(turnId), step: 1 } as never,
+            );
+          }
           this.context.appendLoopEvent({
             type: "step.end",
             uuid: stepUuid,
@@ -284,8 +414,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         );
       }
     }
-
-    return { turnId };
   }
 
   private toLlmMessage(message: ContextMessage): Record<string, unknown> {

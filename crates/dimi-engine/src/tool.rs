@@ -801,6 +801,8 @@ pub struct AsyncAgentTool {
     pub max_steps: Option<u32>,
     pub shell: String,
     pub tasks: AgentTasks,
+    /// agent_id → steering queue (shared with the napi session).
+    pub steer_map: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>>>,
 }
 
 impl std::fmt::Debug for AsyncAgentTool {
@@ -819,6 +821,7 @@ async fn run_nested_turn(
     tools: Arc<dyn ToolExecutor>,
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
+    steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
 ) -> (String, String) {
     let input = crate::types::EngineTurnInput {
         turn_id: 0,
@@ -842,7 +845,7 @@ async fn run_nested_turn(
         shell: Some(shell),
         context_window: None,
     };
-    let mut session = crate::engine::TurnSession::new(input);
+    let mut session = crate::engine::TurnSession::with_steer(input, steer);
     let mut events: Vec<crate::events::EngineEvent> = Vec::new();
     let progress = session
         .run(llm.as_ref(), tools.as_ref(), &policy, &mut |event| {
@@ -918,9 +921,24 @@ impl ToolExecutor for AsyncAgentTool {
         let tools = Arc::clone(&self.tools);
         let policy = self.policy.clone();
         let max_steps = self.max_steps;
+        let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        self.steer_map
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(agent_id.clone(), Arc::clone(&steer_queue));
         tokio::spawn(async move {
-            let (output, error) =
-                run_nested_turn(prompt_for_worker, cwd, shell, llm, tools, policy, max_steps).await;
+            let (output, error) = run_nested_turn(
+                prompt_for_worker,
+                cwd,
+                shell,
+                llm,
+                tools,
+                policy,
+                max_steps,
+                Some(steer_queue),
+            )
+            .await;
             tasks.update(&task_id_for_worker, |state| {
                 if error.is_empty() {
                     state.status = "completed".to_string();
@@ -1101,6 +1119,7 @@ mod async_agent_tests {
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
         let launch = agent
             .execute(
@@ -1156,6 +1175,7 @@ mod async_agent_tests {
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
             tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
         let launch = agent
             .execute(

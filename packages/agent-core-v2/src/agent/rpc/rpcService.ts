@@ -120,6 +120,19 @@ export class AgentRPCService implements IAgentRPCService {
 
   async steer(payload: SteerPayload): Promise<PromptLaunchResult | undefined> {
     this.telemetry.track2('input_steer', { parts: payload.input.length });
+    // M3 steering: with the Rust engine the running turn lives in the engine,
+    // so steer into it directly; when idle, start a normal Rust turn (the TS
+    // queue would otherwise double-run a concurrent turn).
+    if (RustEngineTurnRunner.isEnabled()) {
+      if (this.rustEngineTurnRunner.steer({ input: [...payload.input], origin: { kind: 'user' } })) {
+        return { turn_id: 0 };
+      }
+      await this.rustEngineTurnRunner.runTurn({
+        input: [...payload.input],
+        origin: { kind: 'user' },
+      });
+      return { turn_id: 0 };
+    }
     const submitted = await this.promptService.enqueueOrSteer({ message: {
       role: 'user',
       content: [...payload.input],
