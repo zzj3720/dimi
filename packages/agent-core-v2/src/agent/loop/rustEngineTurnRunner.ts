@@ -1,8 +1,9 @@
 /**
- * `rustEngineTurnRunner` — M3 slice-1 swap-in: run one turn through the Rust
- * engine (`RustEngine` napi socket) instead of the TS loop.
+ * `rustEngineTurnRunner` — the default turn runner: one turn through the Rust
+ * engine (`RustTurnSession` napi socket) instead of the TS loop.
  *
- * Enabled by `DIMI_RUST_ENGINE=1` (default off). The runner:
+ * Enabled by default; the CLI `--legacy` flag sets `DIMI_LEGACY=1` to keep
+ * the TS loop. The runner:
  *  1. records `turn.prompt` (turn clock) and appends the user message;
  *  2. assembles the LLM messages from the context (context assembly stays
  *     on the TS side until slice 3);
@@ -87,8 +88,12 @@ export interface IRustEngineTurnRunner {
   cancel(turnId?: number): boolean;
 }
 
+/**
+ * The Rust engine is the default runtime; the CLI `--legacy` flag sets
+ * `DIMI_LEGACY=1` to keep the TS loop (and the node-local OS backends).
+ */
 function rustEngineEnabled(): boolean {
-  return process.env["DIMI_RUST_ENGINE"] === "1";
+  return process.env["DIMI_LEGACY"] !== "1";
 }
 
 /** Render an engine event/tool value as text (strings pass through). */

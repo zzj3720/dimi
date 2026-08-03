@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IRustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
+import { IRustEngineTurnRunner, RustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
@@ -24,7 +24,9 @@ import {
   type TestAgentContext,
 } from '../../harness';
 
-const RUST_ENGINE = 'DIMI_RUST_ENGINE';
+// The Rust engine is the default runtime (CLI `--legacy` sets DIMI_LEGACY=1
+// to keep the TS loop); these suites run against the default path.
+const DIMI_LEGACY = 'DIMI_LEGACY';
 const RUST_ENGINE_SCRIPTED = 'DIMI_RUST_ENGINE_SCRIPTED';
 
 /**
@@ -46,15 +48,15 @@ async function waitForContext(
   throw new Error(`timeout waiting for ${what}`);
 }
 
-describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
+describe('Rust engine turn runner (default)', () => {
   let ctx: TestAgentContext;
 
   beforeEach(() => {
-    process.env[RUST_ENGINE] = '1';
+    delete process.env[DIMI_LEGACY];
   });
 
   afterEach(async () => {
-    delete process.env[RUST_ENGINE];
+    delete process.env[DIMI_LEGACY];
     delete process.env[RUST_ENGINE_SCRIPTED];
     try {
       await ctx.dispose();
@@ -77,8 +79,15 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
 
     await waitForContext(
       ctx,
-      (messages) => messages.some((message) => message.role === 'assistant'),
-      'assistant message',
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('<rust-answer>')),
+      'assistant message with <rust-answer>',
     );
     const context = ctx.get(IAgentContextMemoryService).get();
     const userMessage = context.find((message) => message.role === 'user');
@@ -1375,11 +1384,27 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
   });
 });
 
+describe('Rust vs legacy routing', () => {
+  afterEach(() => {
+    delete process.env['DIMI_LEGACY'];
+  });
+
+  it('uses the Rust engine by default', () => {
+    delete process.env['DIMI_LEGACY'];
+    expect(RustEngineTurnRunner.isEnabled()).toBe(true);
+  });
+
+  it('keeps the TS loop under --legacy (DIMI_LEGACY=1)', () => {
+    process.env['DIMI_LEGACY'] = '1';
+    expect(RustEngineTurnRunner.isEnabled()).toBe(false);
+  });
+});
+
 describe('Rust engine approval flow (manual mode)', () => {
   let ctx: TestAgentContext;
 
   beforeEach(() => {
-    process.env[RUST_ENGINE] = '1';
+    delete process.env[DIMI_LEGACY];
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       [
         {
@@ -1398,7 +1423,7 @@ describe('Rust engine approval flow (manual mode)', () => {
   });
 
   afterEach(async () => {
-    delete process.env[RUST_ENGINE];
+    delete process.env[DIMI_LEGACY];
     delete process.env[RUST_ENGINE_SCRIPTED];
     try {
       await ctx.dispose();
