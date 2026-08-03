@@ -511,13 +511,15 @@ describe('Rust engine turn runner (default)', () => {
   });
 
   it('surfaces subagent task lifecycle events (spawned/completed + notification)', async () => {
-    // Segment 0: the main turn asks the Agent tool to spawn a subagent
-    // (stop_turn: true ends the main turn immediately). Segment 1: the
-    // nested subagent turn blocks in Bash — the subagent settles ~2s later,
-    // deterministically AFTER the main turn teardown, so the completion
-    // notification takes the idle path (a notification turn). Segment 2: the
-    // nested turn's final answer. The subagent settling must reach the TS
-    // side as task wire ops + bus events + a task notification message.
+    // Agent no longer stops the caller's turn (same-turn continue parity):
+    // Segment 0 spawns the subagent and the main turn KEEPS GOING. Segment 1
+    // is the main turn's own blocking Bash (`sleep 2`) — it keeps the turn
+    // alive while the subagent runs in the background. Segment 2 is the
+    // subagent's nested turn (the shared scripted cursor hands the remaining
+    // segments to the worker): it answers immediately, so the completion
+    // notification folds into the RUNNING main turn (mid-turn steer), not an
+    // idle notification turn. The subagent settling must reach the TS side
+    // as task wire ops + bus events + a task notification message.
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       [
         {
@@ -622,11 +624,14 @@ describe('Rust engine turn runner (default)', () => {
     expect(registered).toBeDefined();
     expect(registered).toMatchObject({ kind: 'agent', status: 'completed', detached: true });
     expect(ctx.get(IAgentTaskService).list(true).some((task) => task.taskId === settled?.taskId)).toBe(false);
-    // The idle-path notification launches a notification turn — the XML lands
-    // in the context EXACTLY ONCE (P1-1: the old code pre-appended AND let
-    // runTurn append it again). No `turn.steer` op is recorded because the
-    // main turn had already ended (P1-2: the op is only written when a steer
-    // actually lands).
+    // The completion folds into the RUNNING main turn (the main turn is
+    // still blocked in Bash when the subagent settles): the notification XML
+    // lands in the context EXACTLY ONCE (P1-1: the steer path appends it once
+    // and the engine drains the steer into its next request — no pre-append
+    // + steer duplicate, no runTurn re-append). Because the steer actually
+    // lands, a `turn.steer` op IS recorded (P1-2: the op is only written
+    // when a steer lands — the old stop_turn flow had no live turn to steer,
+    // so it recorded zero ops and used an idle notification turn instead).
     const taskOriginMessages = ctx
       .get(IAgentContextMemoryService)
       .get()
@@ -647,7 +652,9 @@ describe('Rust engine turn runner (default)', () => {
     const steerOps = ctx.snapshots.entries.filter(
       (entry) => entry.type === '[wire]' && entry.event === 'turn.steer',
     );
-    expect(steerOps).toHaveLength(0);
+    // The mid-turn steer recorded exactly one `turn.steer` op (the subagent
+    // completed while the main turn was still running).
+    expect(steerOps).toHaveLength(1);
   }, 30_000);
 
   it('delivers a backgrounded bash task completion notification into the running turn', async () => {
@@ -1164,12 +1171,18 @@ describe('Rust engine turn runner (default)', () => {
   }, 30_000);
 
   it('delivers the TS-parity recovery line for a failed subagent notification', async () => {
-    // Segment 0: the main turn asks the Agent tool to spawn a subagent
-    // (stop_turn ends the main turn immediately). Segment 1: the nested
-    // turn is filtered by the (scripted) provider → the subagent fails and
-    // the notification body carries the TS `buildAgentTaskNotificationBody`
-    // recovery block, including the `run_in_background` guidance line.
+    // Agent no longer stops the caller's turn (same-turn continue parity):
+    // Seg 0 spawns the subagent and the main turn KEEPS GOING. Seg 1 is the
+    // main turn's own blocking Bash (`sleep 2`) — during it, the worker's
+    // nested turn consumes the NEXT scripted segment, so Seg 2 (filtered by
+    // the (scripted) provider) is what the SUBAGENT sees → the subagent
+    // fails and the notification body carries the TS
+    // `buildAgentTaskNotificationBody` recovery block, including the
+    // `run_in_background` guidance line. Seg 3 is the main turn's text reply
+    // after the sleep. The failure lands mid-turn, so the notification
+    // steers into the running turn instead of launching a notification turn.
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      // Seg 0: main turn — spawn the subagent.
       [
         {
           type: 'tool_call',
@@ -1179,7 +1192,22 @@ describe('Rust engine turn runner (default)', () => {
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
+      // Seg 1: main turn — block so the failing subagent's settle steers
+      // into this running turn.
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 2: the subagent's nested turn (consumed while the main blocks) —
+      // filtered by the provider.
       [{ type: 'finish', finishReason: 'filtered' }],
+      // Seg 3: main turn — text reply ends the turn.
+      [{ type: 'text', delta: 'spawned failing sub' }, { type: 'finish', finishReason: 'stop' }],
     ]);
     ctx = createTestAgent([permissionModeServices('auto')]);
     ctx.get(IAgentLoopService);
@@ -1236,9 +1264,10 @@ describe('Rust engine turn runner (default)', () => {
     // F3 (adversarial review nit): engine-level tests cover killed subagents
     // settling with streamed output, but no runner-side test asserts the wire
     // `task.terminated` outputTail / the TaskOutput retained buffer / the
-    // notification body for a KILLED subagent that streamed text. Segment 0
-    // launches the subagent (stop_turn ends the main turn); segment 1 is the
-    // nested turn — it streams text, then blocks in a foreground Bash so the
+    // notification body for a KILLED subagent that streamed text. Agent no
+    // longer stops the caller's turn, so Seg 1 is the main turn's own text
+    // reply (it ends right after the launch); Seg 2 is the subagent's nested
+    // turn — it streams text, then blocks in a foreground Bash so the
     // TaskStop lands mid-run. The adapter streams the deltas into the
     // task-service sink live, and the engine settle carries the same text, so
     // outputTail == retained buffer == notification preview all show the
@@ -1254,7 +1283,10 @@ describe('Rust engine turn runner (default)', () => {
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
-      // Seg 1: the subagent's nested turn — stream text, then block in a
+      // Seg 1: main turn — text reply ends the turn; the subagent keeps
+      // running in the background.
+      [{ type: 'text', delta: 'streaming sub launched' }, { type: 'finish', finishReason: 'stop' }],
+      // Seg 2: the subagent's nested turn — stream text, then block in a
       // foreground Bash so the test can TaskStop it mid-run.
       [
         { type: 'text', delta: 'part one ' },

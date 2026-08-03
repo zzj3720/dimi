@@ -1,25 +1,17 @@
 /**
- * Cross-turn subagent task resolution (code-review P1-1). The bridge creates
- * a fresh `RustTurnSession` per turn, and each session used to own a FRESH
- * `AgentTasks` registry. Because the Agent tool hardcodes `stop_turn: true`,
- * the launching turn ends immediately — the subagent task is registered in
- * the LAUNCHING session's table — so the NEXT turn (a new session with an
- * empty table) could not resolve it: AgentOutput / WaitFor returned
- * "No subagent found". The bridge now shares ONE process-level registry
- * across every session, so a later turn reads the earlier turn's tasks.
+ * Same-turn subagent task resolution (code-review P1-1 regression). The
+ * bridge shares ONE process-level `AgentTasks` registry across every turn
+ * session. The Agent tool no longer stops the caller's turn (TS parity —
+ * `stop_turn: false`): the launch returns immediately with the agent_id and
+ * the SAME turn can keep calling AgentOutput / WaitFor against the shared
+ * registry. This suite drives the REAL `RustTurnSession` (napi binding) with
+ * `DIMI_RUST_ENGINE_SCRIPTED` scripted LLM segments, so a single turn can
+ * spawn a subagent and then query it.
  *
- * Like `rust-engine-coverage.test.ts`, this suite drives the REAL
- * `RustTurnSession` (napi binding) with `DIMI_RUST_ENGINE_SCRIPTED` scripted
- * LLM segments. Each turn's session replays the scripted segments from
- * cursor 0, so the second turn's script is set AFTER the first turn launched
- * (the env var is read per turn in `rustEngineTurnRunner.runTurnNow`).
- *
- * NOTE: the subagent's nested turn blocks in Bash (`sleep 6`) so it is still
- * RUNNING when turn 1 queries it — the cross-turn lookup resolves a task the
- * launching session registered, exactly the P1-1 scenario. The idle-path
- * notification turn that launches after the settle (~6s) replays turn 1's
- * AgentOutput segment against the now-completed task; it lands after this
- * test's assertions, so it cannot interfere.
+ * The subagent's nested turn reuses the parent's scripted client (shared
+ * cursor), so it consumes whatever segments the main turn leaves over. The
+ * launch registers the task synchronously, so AgentOutput resolves it
+ * immediately regardless of the worker's progress.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -61,15 +53,17 @@ describe('Rust engine cross-turn agent tasks', () => {
     }
   });
 
-  it('resolves a subagent launched in a previous turn via AgentOutput (shared task registry)', async () => {
-    // Turn 0: the model calls Agent (stop_turn ends the turn immediately);
-    // the subagent's nested turn blocks in Bash (`sleep 6`) so it is still
-    // running when turn 1 queries it — the launch was registered in turn 0's
-    // session table. Turn 1 (a NEW session) calls AgentOutput with turn 0's
-    // agent_id: with a process-level shared registry it returns the task
-    // status JSON; with per-session tables it fails with "No subagent found".
+  it('resolves a subagent launched in the same turn via AgentOutput (shared task registry)', async () => {
+    // Agent no longer ends the caller's turn: Seg 0 spawns the subagent and
+    // the turn KEEPS GOING; Seg 1 calls AgentOutput with the id the engine
+    // just assigned; Seg 2 blocks in Bash so the subagent's completion
+    // steers into the RUNNING turn (no idle notification turn); Seg 3 is a
+    // text reply that ends the turn. On a fresh agent the first subagent is
+    // `agent-0` — the runner seeds the engine's id counter from
+    // `computeNextAgentId` (no persisted agents), so the scripted AgentOutput
+    // segment can address it by that id.
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
-      // Seg 0 (turn 0's main turn): spawn the subagent.
+      // Seg 0: spawn the subagent (stop_turn: false — the turn continues).
       [
         {
           type: 'tool_call',
@@ -79,22 +73,29 @@ describe('Rust engine cross-turn agent tasks', () => {
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
-      // Seg 1 (the subagent's nested turn): block so the task stays running
-      // across the turn boundary.
+      // Seg 1: the SAME turn queries the just-launched task.
       [
         {
           type: 'tool_call',
-          toolCallId: 'call_nested_sleep',
-          name: 'Bash',
-          argumentsPart: '{"command":"sleep 6"}',
+          toolCallId: 'call_output',
+          name: 'AgentOutput',
+          argumentsPart: '{"agent_id":"agent-0"}',
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
-      // Seg 2 (the subagent's final answer).
+      // Seg 2: block so the subagent's completion folds into this running
+      // turn instead of launching an idle notification turn.
       [
-        { type: 'text', delta: 'cross-turn subagent output' },
-        { type: 'finish', finishReason: 'stop' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_hold',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
       ],
+      // Seg 3: the turn finishes with a text reply.
+      [{ type: 'text', delta: 'checked subagent' }, { type: 'finish', finishReason: 'stop' }],
     ]);
     ctx = createTestAgent([permissionModeServices('auto')]);
     ctx.get(IAgentLoopService);
@@ -112,51 +113,34 @@ describe('Rust engine cross-turn agent tasks', () => {
       if (type === 'subagent.spawned') spawned.push(event as { subagentId?: string });
     });
 
-    // Turn 0: launch the subagent; the turn ends immediately (stop_turn).
     const first = await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn subagent' }] });
     expect(first).toEqual({ turn_id: 0 });
-    await waitFor(() => spawned.length === 1, 'subagent.spawned');
+    await waitFor(() => spawned.length >= 1, 'subagent.spawned');
     const agentId = spawned[0]!.subagentId!;
     expect(agentId).toMatch(/^agent-\d+$/);
-    // Let turn 0 finish teardown (its Agent tool result landed) before the
-    // next prompt, so turn 1 launches instead of queueing.
+    // The first subagent on a fresh agent is agent-0 (the scripted
+    // AgentOutput segment addresses it by that id).
+    expect(agentId).toBe('agent-0');
+    // The Agent tool result landed (launch returned agent_id/task_id).
     await waitFor(
       () => toolResults.some((result) => result.toolCallId === 'call_spawn'),
-      'turn 0 Agent tool result',
+      'Agent tool result',
     );
 
-    // Turn 1 (a NEW RustTurnSession): the model calls AgentOutput with the
-    // agent_id from turn 0. The per-turn script is read at session creation,
-    // so swap the env for this turn.
-    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
-      [
-        {
-          type: 'tool_call',
-          toolCallId: 'call_output',
-          name: 'AgentOutput',
-          argumentsPart: JSON.stringify({ agent_id: agentId }),
-        },
-        { type: 'finish', finishReason: 'tool_calls' },
-      ],
-      [{ type: 'text', delta: 'checked subagent' }, { type: 'finish', finishReason: 'stop' }],
-    ]);
-    const second = await ctx.rpc.prompt({ input: [{ type: 'text', text: 'check subagent' }] });
-    expect(second === undefined || second.turn_id === 1).toBe(true);
-
-    // The cross-turn AgentOutput result: task status JSON, NOT the
-    // "No subagent found" error the per-session tables produced.
+    // The same-turn AgentOutput result: task status JSON, NOT the
+    // "No subagent found" error a missing/table-scoped lookup produces.
     await waitFor(
       () => toolResults.some((result) => result.toolCallId === 'call_output'),
-      'cross-turn AgentOutput result',
+      'same-turn AgentOutput result',
     );
     const output = toolResults.find((result) => result.toolCallId === 'call_output')!;
     expect(output.isError).toBe(false);
     expect(output.output).toContain('"agent_id"');
     expect(output.output).toContain('"status"');
     expect(output.output).not.toContain('No subagent found');
-    // The resolved task is turn 0's subagent; its status is the task state
-    // the launching session recorded (running or completed — the point is
-    // that the cross-turn lookup resolves at all).
+    // The resolved task is the subagent the launch just registered; its
+    // status is the task state the shared registry recorded (running or
+    // completed — the point is that the lookup resolves at all).
     const parsed = JSON.parse(output.output ?? '{}') as {
       agent_id?: string;
       status?: string;
