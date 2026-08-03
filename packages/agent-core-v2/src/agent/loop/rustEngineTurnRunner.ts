@@ -36,6 +36,7 @@ import { renderNotificationXml } from "#/agent/task/notificationXml";
 import { taskStarted, taskTerminated } from "#/agent/task/taskOps";
 import { IAgentTaskService } from "#/agent/task/task";
 import type { AgentTaskInfo, AgentTaskSettlement, AgentTaskStatus } from "#/agent/task/types";
+import { DEFAULT_KILL_GRACE_MS, resolveAgentTaskConfig } from "#/agent/task/configSection";
 import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
@@ -428,6 +429,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
       nextAgentId: await this.computeNextAgentId(),
+      // TaskStop SIGTERM grace (TS `killGracePeriodMs` parity): the engine's
+      // bash poller waits this long between SIGTERM and SIGKILL so a trap
+      // keeps its cleanup window; the TS task service reads the same config.
+      killGraceMs: this.killGracePeriodMs(),
       cwd: this.profile.data().cwd ?? process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
@@ -1213,6 +1218,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   private maxStepsPerTurn(): number | undefined {
     return this.config.get<{ maxStepsPerTurn?: number }>("loop_control")?.maxStepsPerTurn;
+  }
+
+  private killGracePeriodMs(): number {
+    return resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? DEFAULT_KILL_GRACE_MS;
   }
 
   private maxContextTokens(): number | undefined {

@@ -326,7 +326,13 @@ impl RustTurnSession {
         // compatibility; the executor rejects it with a clear error.
         registry.register_with_def(
             "Bash",
-            Box::new(BashTool::with_tasks(tasks.clone()).with_events(event_sink.clone())),
+            Box::new(
+                BashTool::with_tasks(tasks.clone())
+                    .with_events(event_sink.clone())
+                    .with_kill_grace(std::time::Duration::from_millis(
+                        input.kill_grace_ms.unwrap_or(dimi_engine::tool::DEFAULT_KILL_GRACE_MS),
+                    )),
+            ),
             Some(serde_json::json!({
                 "type": "function",
                 "function": {

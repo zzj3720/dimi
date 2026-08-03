@@ -21,11 +21,14 @@ pub const MAX_TIMEOUT_S: u64 = 300;
 /// Default deadline for a command moved to the background by a foreground
 /// timeout (bash.ts `DEFAULT_BACKGROUND_TIMEOUT_S`).
 pub const DEFAULT_BACKGROUND_TIMEOUT_S: u64 = 600;
-/// TaskStop SIGTERM grace, seconds (TS `SIGTERM_GRACE_MS` = 5_000): a
-/// cancelled background command gets SIGTERM first and SIGKILL only if it
-/// has not exited after the grace — processes that trap SIGTERM keep their
-/// cleanup window (TS `terminateWithGrace` parity).
-pub const CANCEL_TERM_GRACE_S: u64 = 5;
+/// TaskStop SIGTERM grace, milliseconds (TS `killGracePeriodMs` default
+/// `SIGTERM_GRACE_MS` = 5_000): a cancelled background command gets SIGTERM
+/// first and SIGKILL only if it has not exited after the grace — processes
+/// that trap SIGTERM keep their cleanup window (TS `terminateWithGrace`
+/// parity). The bridge overrides this from the turn input's `killGraceMs`
+/// (the runner reads the same config the TS task service reads), so a
+/// deployment that raises the TS grace is honored end-to-end.
+pub const DEFAULT_KILL_GRACE_MS: u64 = 5_000;
 
 /// Truncation constants (result-builder.ts).
 pub const DEFAULT_MAX_CHARS: usize = 50_000;
@@ -151,6 +154,10 @@ pub struct BashTool {
     /// Task lifecycle event sink: `task.started` on backgrounding,
     /// `task.settled` from the poller when the command settles.
     events: EventSink,
+    /// TaskStop SIGTERM grace (TS `killGracePeriodMs`, default
+    /// `DEFAULT_KILL_GRACE_MS`): the poller's cancel path waits this long
+    /// between SIGTERM and SIGKILL so a trap keeps its cleanup window.
+    kill_grace: Duration,
 }
 
 impl BashTool {
@@ -167,6 +174,14 @@ impl BashTool {
     /// session's per-event callback).
     pub fn with_events(mut self, events: EventSink) -> Self {
         self.events = events;
+        self
+    }
+
+    /// Override the TaskStop SIGTERM grace (the bridge reads the turn
+    /// input's `killGraceMs`, which the runner wires from the TS `task`
+    /// config section — TS `killGracePeriodMs` parity).
+    pub fn with_kill_grace(mut self, kill_grace: Duration) -> Self {
+        self.kill_grace = kill_grace;
         self
     }
 
@@ -207,6 +222,7 @@ impl Clone for BashTool {
             tasks: self.tasks.clone(),
             auto_background_on_timeout: self.auto_background_on_timeout,
             events: self.events.clone(),
+            kill_grace: self.kill_grace,
         }
     }
 }
@@ -218,6 +234,7 @@ impl Default for BashTool {
             tasks: AgentTasks::new(),
             auto_background_on_timeout: true,
             events: EventSink::new(),
+            kill_grace: Duration::from_millis(DEFAULT_KILL_GRACE_MS),
         }
     }
 }
@@ -396,6 +413,7 @@ impl ToolExecutor for BashTool {
                 stdout,
                 stderr,
                 updates,
+                self.kill_grace,
             );
         }
 
@@ -458,6 +476,7 @@ fn backgrounded_result(
     stdout: OutputBuffer,
     stderr: OutputBuffer,
     updates: Vec<ToolUpdate>,
+    kill_grace: Duration,
 ) -> ToolResult {
     let task_id = format!("bash-{}", uuid_v4_short());
     let description = match &args.description {
@@ -499,6 +518,18 @@ fn backgrounded_result(
         pid: Some(process.pid() as i64),
         parent_tool_call_id: None,
     });
+    // The foreground output (produced before the timeout) is the FIRST
+    // `task.output` delta, emitted before the poller starts. The TS
+    // adapter's settle-tail arithmetic relies on the streamed deltas being
+    // a true prefix of the settle output (`state.output` is seeded with
+    // exactly this string) — dropping the prefix duplicates the tail and
+    // drops the foreground in TaskOutput's retained buffer.
+    if !foreground_output.is_empty() {
+        events.emit(EngineEvent::TaskOutput {
+            task_id: task_id.clone(),
+            delta: foreground_output.clone(),
+        });
+    }
 
     // Detached poller: the process handle is Arc-cloned, so the task
     // survives this tool future being dropped (the spawn is `detached`).
@@ -520,8 +551,11 @@ fn backgrounded_result(
                 // signal is ignored (taskkill /T /F) so the grace loop just
                 // waits out the already-dead tree.
                 let _ = poller_process.kill(Some(15)); // SIGTERM
-                let grace_deadline = Instant::now() + Duration::from_secs(CANCEL_TERM_GRACE_S);
+                let grace_deadline = Instant::now() + kill_grace;
                 loop {
+                    // Keep draining during the grace so a SIGTERM trap's
+                    // cleanup output lands in the settle output (F4).
+                    drain_task_output(&tasks, &events, &worker_task_id, &poller_process);
                     if poller_process.exit_code().is_some() {
                         break;
                     }
@@ -533,6 +567,17 @@ fn backgrounded_result(
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }
                 let _ = poller_process.wait();
+                // Grace drain (TS `waitForStreamDrain`, 250ms): the exit
+                // flag can land before the reader threads flush the final
+                // pipe chunks (trap cleanup), so drain a little longer.
+                let drain_deadline = Instant::now() + Duration::from_millis(250);
+                loop {
+                    let any = drain_task_output(&tasks, &events, &worker_task_id, &poller_process);
+                    if !any || Instant::now() >= drain_deadline {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
                 tasks.update(&worker_task_id, |state| {
                     state.status = "killed".to_string();
                     state.error = Some("Stopped by TaskStop".to_string());
@@ -549,16 +594,7 @@ fn backgrounded_result(
                 });
                 return;
             }
-            let mut any = false;
-            while let Some(chunk) = poller_process.try_recv_stdout() {
-                any = true;
-                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
-            }
-            while let Some(chunk) = poller_process.try_recv_stderr() {
-                any = true;
-                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
-            }
-            if !any {
+            if !drain_task_output(&tasks, &events, &worker_task_id, &poller_process) {
                 if poller_process.exit_code().is_some() {
                     break;
                 }
@@ -604,15 +640,7 @@ fn backgrounded_result(
         // pipe chunks, so drain a little longer to capture the tail.
         let drain_deadline = Instant::now() + Duration::from_millis(250);
         loop {
-            let mut any = false;
-            while let Some(chunk) = poller_process.try_recv_stdout() {
-                any = true;
-                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
-            }
-            while let Some(chunk) = poller_process.try_recv_stderr() {
-                any = true;
-                append_task_output_and_emit(&tasks, &events, &worker_task_id, &chunk);
-            }
+            let any = drain_task_output(&tasks, &events, &worker_task_id, &poller_process);
             if !any || Instant::now() >= drain_deadline {
                 break;
             }
@@ -704,6 +732,28 @@ fn append_task_output_and_emit(tasks: &AgentTasks, events: &EventSink, task_id: 
         task_id: task_id.to_string(),
         delta,
     });
+}
+
+/// Drain every currently-available stdout/stderr chunk into the task state
+/// and emit a `task.output` delta per chunk. Returns whether any chunk was
+/// drained. Never sleeps — callers own the pacing (the main poll loop, the
+/// post-exit grace drain, and the SIGTERM-grace drain all use it).
+fn drain_task_output(
+    tasks: &AgentTasks,
+    events: &EventSink,
+    task_id: &str,
+    process: &Arc<dimi_exec::ExecProcess>,
+) -> bool {
+    let mut any = false;
+    while let Some(chunk) = process.try_recv_stdout() {
+        any = true;
+        append_task_output_and_emit(tasks, events, task_id, &chunk);
+    }
+    while let Some(chunk) = process.try_recv_stderr() {
+        any = true;
+        append_task_output_and_emit(tasks, events, task_id, &chunk);
+    }
+    any
 }
 
 /// TS `foregroundDescription` preview: the command truncated at 60 chars.
@@ -1313,6 +1363,201 @@ mod tests {
             waited.output
         );
     }
+
+    #[tokio::test]
+    async fn bash_tool_backgrounded_foreground_output_is_the_first_delta() {
+        // F1 (review P1): a command that printed BEFORE the timeout is
+        // backgrounded with its foreground output as the FIRST `task.output`
+        // delta (emitted before the poller starts), so the streamed deltas
+        // concatenate byte-for-byte to the settle output — the invariant the
+        // TS adapter's settle-tail arithmetic relies on. Without the prefix,
+        // TaskOutput's retained buffer would drop `start` and duplicate the
+        // post-timeout tail (`middle\niddle\n`).
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let tool = BashTool {
+            tasks: tasks.clone(),
+            events: sink,
+            ..BashTool::default()
+        };
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_fg".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        // `start` lands before the 1s timeout; `middle` after
+                        // (sleep 2) — both must survive into the settle.
+                        "command": "echo start; sleep 2; echo middle; sleep 1",
+                        "timeout": 1,
+                        "description": "foreground prefix probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wfg".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+
+        let emitted = events.lock().unwrap();
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                EngineEvent::TaskOutput { task_id: id, delta } if id == &task_id => {
+                    Some(delta.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        let settled = emitted
+            .iter()
+            .find_map(|event| match event {
+                EngineEvent::TaskSettled {
+                    task_id: id,
+                    output,
+                    ..
+                } if id == &task_id => Some(output.clone()),
+                _ => None,
+            })
+            .expect("task.settled emitted");
+        assert!(
+            !deltas.is_empty() && deltas[0].contains("start"),
+            "foreground output must be the first delta: {deltas:?}"
+        );
+        assert!(
+            deltas.iter().any(|delta| delta.contains("middle")),
+            "post-timeout output must be streamed too: {deltas:?}"
+        );
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "streamed deltas must concatenate exactly to the settle output"
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_tool_cancel_uses_configured_grace_and_drains_trap_output() {
+        // F3 + F4 (review nits): the SIGTERM grace is configurable
+        // (TS `killGracePeriodMs` parity — here shortened to 300ms so the
+        // test cannot take the 5s default), and output produced during the
+        // grace (a SIGTERM trap's cleanup) is drained into the settle
+        // output instead of being dropped.
+        let dir = std::env::temp_dir().join(format!("dimi-bash-drain-grace-{}", uuid_v4_short()));
+        std::fs::create_dir_all(&dir).expect("create marker dir");
+        let marker = dir.join("trap-cleanup-ran");
+        let tasks = AgentTasks::new();
+        let tool = BashTool {
+            tasks: tasks.clone(),
+            kill_grace: Duration::from_millis(300),
+            ..BashTool::default()
+        };
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_drain".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": format!(
+                            "trap 'echo cleanup-out; echo cleaned > \"{}\"; exit 0' TERM; sleep 30",
+                            marker.display()
+                        ),
+                        "timeout": 1,
+                        "description": "grace drain probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let state = tasks.get(&task_id).expect("backgrounded task registered");
+        state.cancel.expect("cancel signal").cancel();
+        let cancel_at = std::time::Instant::now();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wd".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 10 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let elapsed = cancel_at.elapsed();
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "killed");
+        assert_eq!(
+            waited_json["error"].as_str(),
+            Some("Stopped by TaskStop"),
+            "{}",
+            waited.output
+        );
+        assert!(
+            waited_json["output"]
+                .as_str()
+                .map(|output| output.contains("cleanup-out"))
+                .unwrap_or(false),
+            "trap cleanup output must be drained during the grace: {}",
+            waited.output
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "custom 300ms grace must not wait the 5s default: {elapsed:?}"
+        );
+        assert!(
+            marker.exists(),
+            "SIGTERM trap cleanup must run within the configured grace"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// `AgentTool` — the Agent tool: runs a nested turn (subagent) and returns
@@ -1377,6 +1622,7 @@ impl ToolExecutor for AgentTool {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let mut session = crate::engine::TurnSession::new(input);
         let mut events: Vec<crate::events::EngineEvent> = Vec::new();
@@ -1759,6 +2005,9 @@ async fn run_nested_turn(
     max_steps: Option<u32>,
     steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
     cancel: std::sync::Arc<crate::engine::CancelSignal>,
+    // Forward the nested turn's assistant text as it streams (the subagent
+    // worker uses this to emit `task.output` deltas for live TaskOutput).
+    on_delta: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 ) -> (String, String, Vec<crate::types::LlmMessage>) {
     let mut messages = history;
     messages.push(crate::types::LlmMessage {
@@ -1785,6 +2034,7 @@ async fn run_nested_turn(
         context_window: None,
         max_context_tokens: None,
         next_agent_id: None,
+        kill_grace_ms: None,
     };
     // The nested turn's own cancellation: the parent session's `cancel_task`
     // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
@@ -1794,6 +2044,11 @@ async fn run_nested_turn(
     let mut events: Vec<crate::events::EngineEvent> = Vec::new();
     let progress = session
         .run(llm.as_ref(), tools.as_ref(), &policy, &mut |event| {
+            if let crate::events::EngineEvent::AssistantDelta { delta, .. } = &event {
+                if let Some(callback) = &on_delta {
+                    callback(delta);
+                }
+            }
             events.push(event);
         })
         .await;
@@ -2001,6 +2256,25 @@ impl AsyncAgentTool {
             .unwrap_or_else(|p| p.into_inner())
             .insert(agent_id.clone(), Arc::clone(&steer_queue));
         tokio::spawn(async move {
+            // Live output (F2): forward the nested turn's assistant deltas
+            // as `task.output` events so TaskOutput shows the subagent's
+            // text while it still runs. On success the settle output is the
+            // concatenation of exactly these deltas, so the TS adapter's
+            // delta-prefix invariant holds byte-for-byte.
+            let on_delta = {
+                let events = events.clone();
+                let task_id = task_id_for_worker.clone();
+                Some(std::sync::Arc::new(
+                    move |delta: &str| {
+                        if !delta.is_empty() {
+                            events.emit(EngineEvent::TaskOutput {
+                                task_id: task_id.clone(),
+                                delta: delta.to_string(),
+                            });
+                        }
+                    },
+                ) as std::sync::Arc<dyn Fn(&str) + Send + Sync>)
+            };
             let (output, error, messages) = run_nested_turn(
                 history,
                 prompt,
@@ -2012,6 +2286,7 @@ impl AsyncAgentTool {
                 max_steps,
                 Some(steer_queue),
                 std::sync::Arc::clone(&cancel),
+                on_delta,
             )
             .await;
             // Session torn down while the nested turn ran (TS
@@ -2463,6 +2738,131 @@ mod async_agent_tests {
             }
             _ => unreachable!(),
         }
+    }
+
+    #[tokio::test]
+    async fn subagent_streams_assistant_deltas_as_task_output() {
+        // F2 (review nit): the subagent worker forwards the nested turn's
+        // assistant deltas as `task.output` events while the subagent still
+        // runs, so TaskOutput shows live subagent output instead of staying
+        // empty until settle. The deltas concatenate to the settle output
+        // (same invariant the bash poller maintains).
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "part one ".to_string(),
+                },
+                LlmStreamEvent::Text {
+                    delta: "part two".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: sink,
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a_stream".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "stream work" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_ws2".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+
+        let emitted = events.lock().unwrap();
+        let task_id = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskStarted { task_id, kind, .. }
+                    if kind == "agent" =>
+                {
+                    Some(task_id.clone())
+                }
+                _ => None,
+            })
+            .expect("subagent task.started emitted");
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                crate::events::EngineEvent::TaskOutput {
+                    task_id: id,
+                    delta,
+                } if id == &task_id => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        let settled = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskSettled {
+                    task_id: id,
+                    output,
+                    ..
+                } if id == &task_id => Some(output.clone()),
+                _ => None,
+            })
+            .expect("subagent task.settled emitted");
+        let settled_pos = emitted
+            .iter()
+            .position(|event| {
+                matches!(event, crate::events::EngineEvent::TaskSettled { .. })
+            })
+            .expect("task.settled position");
+        assert!(
+            !deltas.is_empty(),
+            "assistant text must stream as task.output: {emitted:?}"
+        );
+        assert_eq!(
+            deltas.concat(),
+            "part one part two",
+            "deltas must carry the nested turn's assistant text: {deltas:?}"
+        );
+        assert!(
+            emitted.iter().take(settled_pos).any(|event| {
+                matches!(event, crate::events::EngineEvent::TaskOutput { .. })
+            }),
+            "task.output must arrive before task.settled: {emitted:?}"
+        );
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "streamed deltas must concatenate exactly to the settle output"
+        );
     }
 
     #[tokio::test]

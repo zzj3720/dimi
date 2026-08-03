@@ -1140,6 +1140,7 @@ mod tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         }
     }
 
@@ -1464,6 +1465,7 @@ mod window_tests {
             context_window: Some(3),
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1559,6 +1561,7 @@ mod steer_tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1664,6 +1667,7 @@ mod compaction_tests {
             context_window: None,
             max_context_tokens: Some(2000),
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1763,6 +1767,7 @@ mod compaction_tests {
             context_window: None,
             max_context_tokens: Some(1000),
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1846,6 +1851,7 @@ mod cancel_tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1936,6 +1942,7 @@ mod cancel_tests {
             context_window: None,
             max_context_tokens: Some(2000),
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2018,6 +2025,7 @@ mod cancel_tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2124,6 +2132,7 @@ mod cancel_tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2201,6 +2210,7 @@ mod cancel_tests {
             context_window: None,
             max_context_tokens: None,
             next_agent_id: None,
+            kill_grace_ms: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,

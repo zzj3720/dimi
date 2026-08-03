@@ -157,9 +157,13 @@ pub enum EngineEvent {
     },
     /// A background task produced more output while still running: emitted
     /// from the bash poller when it appends a drained chunk to the task
-    /// state, so the TS side can stream live output into TaskOutput (TS
-    /// ProcessTask parity — TS streams chunks as they arrive; the engine's
-    /// settle-only event left TaskOutput empty until the task ended).
+    /// state, and from the subagent worker as the nested turn's assistant
+    /// deltas arrive, so the TS side can stream live output into TaskOutput
+    /// (TS ProcessTask parity — TS streams chunks as they arrive; the
+    /// engine's settle-only event left TaskOutput empty until the task
+    /// ended). Deltas concatenate byte-for-byte to the settle output (the
+    /// bash poller seeds the backgrounded task with its pre-timeout
+    /// foreground output as the first delta).
     #[serde(rename = "task.output", rename_all = "camelCase")]
     TaskOutput {
         task_id: String,

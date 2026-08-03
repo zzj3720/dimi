@@ -17,6 +17,7 @@ import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
 import {
   agentService,
+  configServices,
   createTestAgent,
   logServices,
   permissionModeServices,
@@ -847,6 +848,152 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     const output = await taskService.readOutput(taskId!);
     expect(output).toContain('mid');
     expect(output).toContain('done');
+  }, 30_000);
+
+  it('keeps TaskOutput consistent when a backgrounded bash printed before the timeout', async () => {
+    // F1 (review P1): a command that prints BEFORE the timeout is
+    // backgrounded with its foreground output emitted as the FIRST
+    // `task.output` delta, so the streamed deltas are a true prefix of the
+    // settle output and the adapter's settle-tail arithmetic stays correct.
+    // Without the prefix the retained buffer dropped `start` and duplicated
+    // the post-timeout tail (`middle\niddle\n`).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      // Seg 0: background a command that prints before AND after the
+      // timeout (`start` at ~0s, timeout at 1s, `middle` at ~2s, exit ~3s).
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bg_fg',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo start; sleep 2; echo middle; sleep 1","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 1: block the turn past the settle (~3s) so the notification
+      // steers into the running turn.
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 3.5"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      // Seg 2: final answer.
+      [{ type: 'text', delta: 'fg turn done' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'task.started' || type === 'task.terminated') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run fg bg' }] });
+    await waitForContext(
+      ctx,
+      () => busEvents.some((event) => event['type'] === 'task.started'),
+      'bash task start',
+    );
+    const started = busEvents.find((event) => event['type'] === 'task.started');
+    const taskId = (started?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-f]{8}$/);
+    const taskService = ctx.get(IAgentTaskService);
+
+    // After the settle the retained buffer must hold the FULL output
+    // (`start` from the foreground prefix, `middle` from the post-timeout
+    // stream) — exactly once each, no duplicated tail.
+    await waitForContext(
+      ctx,
+      () =>
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'completed',
+        ),
+      'bash task completed wire record',
+    );
+    const output = await taskService.readOutput(taskId!);
+    expect(output).toBe('start\nmiddle\n');
+  }, 30_000);
+
+  it('honors the configured killGracePeriodMs for engine TaskStop', async () => {
+    // F3 (review nit): the runner wires the `task` config section's
+    // `killGracePeriodMs` into the engine turn input, and the engine's bash
+    // poller waits that long between SIGTERM and SIGKILL. With 300ms
+    // configured, a TaskStop on a SIGTERM-ignoring backgrounded command
+    // force-kills and settles the wire record well under the 5s default
+    // (a wiring failure would leave the engine waiting ~5s before SIGKILL).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_bg_grace',
+          name: 'Bash',
+          argumentsPart: '{"command":"trap \'\' TERM; sleep 30","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_block',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 0.2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'grace turn done' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([
+      permissionModeServices('auto'),
+      configServices(() => ({ providers: {}, task: { killGracePeriodMs: 300 } })),
+    ]);
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (type === 'task.started' || type === 'task.terminated') {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run grace' }] });
+    await waitForContext(
+      ctx,
+      () => busEvents.some((event) => event['type'] === 'task.started'),
+      'bash task start',
+    );
+    const started = busEvents.find((event) => event['type'] === 'task.started');
+    const taskId = (started?.['info'] as { taskId?: string } | undefined)?.taskId;
+    expect(taskId).toMatch(/^bash-[0-9a-f]{8}$/);
+
+    const taskService = ctx.get(IAgentTaskService);
+    await taskService.suppressTerminalNotification(taskId!);
+    const result = await taskService.stop(taskId!, 'Stopped by TaskStop');
+    expect(result?.status).toBe('killed');
+
+    // The ENGINE settle (which dispatches the wire record) lands only after
+    // the engine's own grace + SIGKILL + drain — ~0.6s at 300ms, ~5.25s at
+    // the hardcoded 5s default. A 4s budget distinguishes the two.
+    let wireKilled = false;
+    for (let i = 0; i < 400; i++) {
+      if (
+        [...ctx.get(IWireService).getModel(TaskModel).values()].some(
+          (task) => task.taskId === taskId && task.status === 'killed',
+        )
+      ) {
+        wireKilled = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(wireKilled).toBe(true);
+    expect(taskService.list(true).some((task) => task.taskId === taskId)).toBe(false);
   }, 30_000);
 
   it('delivers the TS-parity recovery line for a failed subagent notification', async () => {

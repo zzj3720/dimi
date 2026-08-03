@@ -64,8 +64,11 @@ export class EngineTaskAdapter implements AgentTask {
   private readonly settled: Promise<void>;
   private removeAbortListener: (() => void) | undefined;
   /** UTF-8 bytes already pushed to the sink (or buffered pre-start). The
-   *  engine's `task.output` deltas concatenate exactly to the settle's full
-   *  output, so `complete` appends only the not-yet-streamed tail. */
+   *  engine guarantees its `task.output` deltas concatenate byte-for-byte to
+   *  the settle's full output — the bash poller seeds a backgrounded command
+   *  with its pre-timeout foreground output as the FIRST delta, and the
+   *  subagent worker streams the nested turn's assistant deltas verbatim —
+   *  so `complete` appends only the not-yet-streamed tail. */
   private streamedBytes = 0;
 
   constructor(private readonly options: EngineTaskAdapterOptions) {

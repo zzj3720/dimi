@@ -118,6 +118,12 @@ pub struct EngineTurnInput {
     /// ids. `None` = start at agent-0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_agent_id: Option<u64>,
+    /// TaskStop SIGTERM grace, milliseconds (TS `task` config section
+    /// `killGracePeriodMs`, default `DEFAULT_KILL_GRACE_MS`): the bridge
+    /// wires it into the session's Bash tool so a cancelled background
+    /// command keeps its SIGTERM cleanup window. `None` = engine default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kill_grace_ms: Option<u64>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).
