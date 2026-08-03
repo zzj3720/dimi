@@ -1359,6 +1359,10 @@ mod tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         }
     }
@@ -1686,6 +1690,10 @@ mod window_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -1783,6 +1791,10 @@ mod steer_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -1890,6 +1902,10 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2014,6 +2030,10 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2101,6 +2121,10 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2172,6 +2196,10 @@ mod compaction_tests {
             max_context_tokens: Some(1000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2294,6 +2322,10 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2417,6 +2449,10 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2508,6 +2544,10 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2601,6 +2641,10 @@ mod cancel_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2699,6 +2743,10 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: Some(3),
         };
         let policy = crate::permission::PolicyConfig {
@@ -2793,6 +2841,10 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2901,6 +2953,10 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
@@ -2980,6 +3036,10 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {

@@ -130,6 +130,28 @@ pub struct EngineTurnInput {
     /// command keeps its SIGTERM cleanup window. `None` = engine default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kill_grace_ms: Option<u64>,
+    /// Model override for subagents (TS `resolveSubagentBinding` parity): the
+    /// resolved subagent model when it differs from the parent's provider.
+    /// The Agent tool constructs a dedicated LLM client from it for every
+    /// nested subagent turn. `None` = subagents inherit the parent's model
+    /// (and LLM client).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<ProviderConfig>,
+    /// Allowlist of permitted subagent types (TS `subagentAllowlistFor`
+    /// parity): when set, the Agent tool rejects a `subagent_type` argument
+    /// outside it. `None` = no restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_allowlist: Option<Vec<String>>,
+    /// Per-subagent timeout in milliseconds (TS `resolveSubagentTimeoutMs`,
+    /// default `DEFAULT_SUBAGENT_TIMEOUT_MS` = 2h): a nested subagent turn
+    /// that exceeds it settles `timed_out`. `None` = engine default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_timeout_ms: Option<u64>,
+    /// Maximum concurrently running background tasks (TS
+    /// `task.maxRunningTasks` parity): a subagent launch beyond the limit
+    /// fails immediately without occupying a slot. `None` = unlimited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_running_tasks: Option<u32>,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).
