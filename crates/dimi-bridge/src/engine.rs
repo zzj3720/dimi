@@ -41,6 +41,7 @@ impl RustEngine {
         Self {
             inner: dimi_engine::Engine {
                 max_steps_per_turn: max_steps_per_turn.map(|n| n.max(0) as u32),
+                max_retries_per_step: None,
                 shell: dimi_exec::env::default_shell(),
             },
         }

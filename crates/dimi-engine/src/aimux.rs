@@ -13,6 +13,68 @@ use futures::StreamExt;
 
 use crate::llm::{AssistantTurn, ChatRequest, LlmClient, LlmError, LlmStreamEvent, StreamedTurn};
 use crate::types::{LlmMessage, LlmToolCall};
+use aimux_core::error::AiMuxError;
+
+/// Classify an aimux failure into the engine's provider error vocabulary
+/// (TS `isRetryableGenerateError` parity): transient provider failures
+/// (rate limit / connection / timeout / 5xx) are marked retryable and carry
+/// their provider error code so the engine can retry the step; hard errors
+/// (auth, model-not-found, …) are not.
+fn classify_aimux_error(error: &AiMuxError) -> (Option<String>, Option<u64>, bool) {
+    match error {
+        AiMuxError::RateLimited { retry_after_ms } => (
+            Some("provider.rate_limit".to_string()),
+            Some(*retry_after_ms),
+            true,
+        ),
+        AiMuxError::Auth(_) => (Some("provider.auth_error".to_string()), None, false),
+        AiMuxError::ModelNotFound(_) | AiMuxError::NoSuchModel(_) => {
+            (Some("model.not_found".to_string()), None, false)
+        }
+        AiMuxError::Http(_) | AiMuxError::ApiCall(_) => match error.status_code() {
+            Some(413) => (Some("CONTEXT_OVERFLOW".to_string()), None, false),
+            Some(408) => (Some("provider.timeout".to_string()), None, true),
+            Some(429) => (
+                Some("provider.rate_limit".to_string()),
+                error.retry_after_hint().map(|ms| ms.max(0) as u64),
+                true,
+            ),
+            Some(500..=599) => (Some("provider.api_error".to_string()), None, true),
+            // No status: treat aimux's own retryability verdict (Http/ApiCall
+            // are transient) as authoritative.
+            _ => (Some("provider.api_error".to_string()), None, error.is_retryable()),
+        },
+        AiMuxError::Stream(message) | AiMuxError::Provider(message) | AiMuxError::Other(message) => {
+            if looks_like_connection_error(message) {
+                (Some("provider.connection_error".to_string()), None, true)
+            } else {
+                (None, None, error.is_retryable())
+            }
+        }
+        _ => (None, None, error.is_retryable()),
+    }
+}
+
+/// Message-text heuristic for transport-level failures (fetch failed,
+/// connection reset, network unreachable, …).
+fn looks_like_connection_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    ["connection", "connect", "network", "fetch failed", "dns", "econn", "eai_"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+}
+
+/// Build the engine `LlmError` from an aimux failure.
+fn llm_error_from_aimux(error: &AiMuxError) -> LlmError {
+    let (code, retry_after_ms, retryable) = classify_aimux_error(error);
+    LlmError {
+        message: error.to_string(),
+        code,
+        retry_after_ms,
+        retryable,
+    }
+}
+
 
 /// Production LLM client: wraps one aimux `LanguageModel`.
 pub struct AimuxLlmClient {
@@ -42,13 +104,7 @@ impl LlmClient for AimuxLlmClient {
             .model
             .do_stream(&options)
             .await
-            .map_err(|error| LlmError {
-                message: error.to_string(),
-                code: match error.status_code() {
-                    Some(413) => Some("CONTEXT_OVERFLOW".to_string()),
-                    _ => None,
-                },
-            })?;
+            .map_err(|error| llm_error_from_aimux(&error))?;
 
         let mut stream = result.stream;
         let mut events: Vec<LlmStreamEvent> = Vec::new();
@@ -57,10 +113,7 @@ impl LlmClient for AimuxLlmClient {
         let mut thinking = String::new();
 
         while let Some(part) = stream.next().await {
-            let part = part.map_err(|error| LlmError {
-                message: error.to_string(),
-                code: None,
-            })?;
+            let part = part.map_err(|error| llm_error_from_aimux(&error))?;
             match part {
                 StreamPart::TextDelta { delta, .. } => {
                     text.push_str(&delta);
@@ -131,10 +184,7 @@ impl LlmClient for AimuxLlmClient {
                     events.push(LlmStreamEvent::Error {
                         message: message.clone(),
                     });
-                    return Err(LlmError {
-                        message,
-                        code: None,
-                    });
+                    return Err(llm_error_from_aimux(&error));
                 }
                 _ => {}
             }

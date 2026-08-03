@@ -432,6 +432,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       tools: [],
       provider,
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
+      maxRetriesPerStep: this.maxRetriesPerStep() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
       nextAgentId: await this.computeNextAgentId(),
       // TaskStop SIGTERM grace (TS `killGracePeriodMs` parity): the engine's
@@ -1224,6 +1225,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   private maxStepsPerTurn(): number | undefined {
     return this.config.get<{ maxStepsPerTurn?: number }>("loop_control")?.maxStepsPerTurn;
+  }
+
+  private maxRetriesPerStep(): number | undefined {
+    return this.config.get<{ maxRetriesPerStep?: number }>("loop_control")?.maxRetriesPerStep;
   }
 
   private killGracePeriodMs(): number {

@@ -70,6 +70,25 @@ pub enum EngineEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
     },
+    /// A step failed with a transient provider error and is being retried
+    /// after backoff (TS `turn.step.retrying` parity — the stepRetry
+    /// service publishes the same shape on the event bus).
+    #[serde(rename = "turn.step.retrying", rename_all = "camelCase")]
+    TurnStepRetrying {
+        turn_id: i64,
+        step: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step_id: Option<String>,
+        failed_attempt: i64,
+        next_attempt: i64,
+        max_attempts: i64,
+        delay_ms: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_name: Option<String>,
+        error_message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_code: Option<i64>,
+    },
     #[serde(rename = "assistant.delta", rename_all = "camelCase")]
     AssistantDelta { turn_id: i64, delta: String },
     #[serde(rename = "thinking.delta", rename_all = "camelCase")]

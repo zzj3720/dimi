@@ -95,6 +95,12 @@ pub struct EngineTurnInput {
     pub provider: ProviderConfig,
     #[serde(default)]
     pub max_steps_per_turn: Option<u32>,
+    /// Step-level retry budget for transient provider failures (connection /
+    /// rate limit / 5xx / timeout), mirroring the TS loop's
+    /// `loop_control.maxRetriesPerStep` (default 10). `None` = engine
+    /// default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_retries_per_step: Option<u32>,
     /// Working directory for tool execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,

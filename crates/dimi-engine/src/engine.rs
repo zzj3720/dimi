@@ -28,11 +28,47 @@ use crate::permission::{
 use crate::tool::{ToolCall, ToolContext, ToolExecutor, ToolResult};
 use crate::types::{EngineTurnInput, LlmMessage, TurnEndReason, TurnOutcome};
 
+/// Step-level retry budget for transient provider failures (TS
+/// `loop_control.maxRetriesPerStep`, default 10 attempts per step).
+pub const DEFAULT_MAX_RETRY_ATTEMPTS: u32 = 10;
+/// Exponential backoff base (TS `retry.ts` `BASE_DELAY_MS`).
+const RETRY_BASE_DELAY_MS: u64 = 500;
+/// Backoff ceiling (TS `retry.ts` `MAX_DELAY_MS`).
+const RETRY_MAX_DELAY_MS: u64 = 32_000;
+/// Backoff multiplier (TS `retry.ts` `RETRY_FACTOR`).
+const RETRY_FACTOR: u64 = 2;
+/// Backoff jitter ratio (TS `retry.ts` `JITTER_FACTOR`).
+const RETRY_JITTER: f64 = 0.25;
+
+/// Retry delay for attempt `attempt` (1-based) within a `max_attempts`
+/// budget — 500ms ×2 ramp capped at 32s plus jitter, matching the TS
+/// `retryBackoffDelays` curve.
+fn retry_backoff_delay(attempt: u32, max_attempts: u32) -> u64 {
+    let count = max_attempts.saturating_sub(1).max(1);
+    let index = (attempt - 1).min(count - 1);
+    let base = (RETRY_BASE_DELAY_MS.saturating_mul(RETRY_FACTOR.pow(index)))
+        .min(RETRY_MAX_DELAY_MS);
+    base + ((base as f64) * retry_jitter_ratio()) as u64
+}
+
+/// Cheap jitter ratio in `[0, RETRY_JITTER]` derived from the sub-second
+/// clock (no extra RNG dependency).
+fn retry_jitter_ratio() -> f64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    (nanos as f64 / 1_000_000_000.0) * RETRY_JITTER
+}
+
 /// Engine configuration.
 #[derive(Debug, Clone)]
 pub struct Engine {
     /// Step limit; `None` = unlimited (mirrors `maxStepsPerTurn` unset).
     pub max_steps_per_turn: Option<u32>,
+    /// Step-level retry budget for transient provider failures; `None` =
+    /// `DEFAULT_MAX_RETRY_ATTEMPTS`.
+    pub max_retries_per_step: Option<u32>,
     /// Shell for Bash tool execution (default `/bin/sh`).
     pub shell: String,
 }
@@ -41,6 +77,7 @@ impl Default for Engine {
     fn default() -> Self {
         Self {
             max_steps_per_turn: None,
+            max_retries_per_step: None,
             shell: dimi_exec::env::default_shell(),
         }
     }
@@ -224,6 +261,9 @@ pub struct TurnSession {
     input: EngineTurnInput,
     messages: Vec<LlmMessage>,
     steps: u32,
+    /// Consecutive transient provider failures on the current step; reset
+    /// when any step succeeds (TS stepRetry `failedAttempts` parity).
+    retry_attempts: u32,
     started_at: Instant,
     pending: Option<PendingApproval>,
     /// Steering messages injected while the turn runs (async subagent
@@ -300,6 +340,7 @@ impl TurnSession {
             input,
             messages: Vec::new(),
             steps: 0,
+            retry_attempts: 0,
             started_at: Instant::now(),
             pending: None,
             steer,
@@ -689,6 +730,69 @@ impl TurnSession {
                             continue;
                         }
                     }
+                    // Transient provider failure step-level retry (TS
+                    // stepRetry parity): connection / rate-limit / timeout /
+                    // 5xx errors ride an exponential backoff ramp up to
+                    // `max_retries_per_step`, then fail the turn. The retry
+                    // re-executes the same LLM phase as a fresh step
+                    // (consuming maxSteps budget, exactly like the TS
+                    // `context.retry(driver, {at: "head"})` path).
+                    if error.retryable {
+                        let max_attempts = self
+                            .input
+                            .max_retries_per_step
+                            .unwrap_or(DEFAULT_MAX_RETRY_ATTEMPTS)
+                            .max(1);
+                        if self.retry_attempts < max_attempts {
+                            self.retry_attempts += 1;
+                            let delay_ms = error
+                                .retry_after_ms
+                                .filter(|ms| *ms > 0)
+                                .unwrap_or_else(|| {
+                                    retry_backoff_delay(self.retry_attempts, max_attempts)
+                                });
+                            emit(
+                                on_event,
+                                EngineEvent::TurnStepRetrying {
+                                    turn_id,
+                                    step: step_number as i64,
+                                    step_id: None,
+                                    failed_attempt: self.retry_attempts as i64,
+                                    next_attempt: self.retry_attempts as i64 + 1,
+                                    max_attempts: max_attempts as i64,
+                                    delay_ms: delay_ms as i64,
+                                    error_name: error.code.clone(),
+                                    error_message: error.message.clone(),
+                                    status_code: None,
+                                },
+                            );
+                            let sleep = tokio::time::sleep(std::time::Duration::from_millis(
+                                delay_ms,
+                            ));
+                            tokio::pin!(sleep);
+                            tokio::select! {
+                                _ = &mut sleep => {}
+                                _ = self.cancel.cancelled() => {
+                                    return self.finish_turn_with_error(
+                                        TurnEndReason::Cancelled,
+                                        None,
+                                        None,
+                                        on_event,
+                                    );
+                                }
+                            }
+                            if self.cancel.is_cancelled() {
+                                return self.finish_turn_with_error(
+                                    TurnEndReason::Cancelled,
+                                    None,
+                                    None,
+                                    on_event,
+                                );
+                            }
+                            continue;
+                        }
+                        self.retry_attempts = 0;
+                    }
                     let message = error.message.clone();
                     emit(
                         on_event,
@@ -711,6 +815,9 @@ impl TurnSession {
 
             match disposition {
                 StepDisposition::Complete { finish } => {
+                    // A successful step resets the transient-failure retry
+                    // counter (TS stepRetry `onDidFinishStep` parity).
+                    self.retry_attempts = 0;
                     let step_finish = normalize_finish_reason(finish).to_string();
                     let mut step_complete = || {
                         emit(
@@ -1176,6 +1283,7 @@ mod tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         }
     }
 
@@ -1324,6 +1432,7 @@ mod tests {
     async fn max_steps_fails_the_turn() {
         let engine = Engine {
             max_steps_per_turn: Some(1),
+            max_retries_per_step: None,
             shell: "/bin/sh".to_string(),
         };
         // The model always asks for a tool → step 2 would exceed maxSteps=1.
@@ -1501,6 +1610,7 @@ mod window_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1597,6 +1707,7 @@ mod steer_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1703,6 +1814,7 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1803,6 +1915,7 @@ mod compaction_tests {
             max_context_tokens: Some(1000),
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1887,6 +2000,7 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1931,6 +2045,7 @@ mod cancel_tests {
                     return Err(crate::llm::LlmError {
                         message: "HTTP 413: request too large".to_string(),
                         code: Some("CONTEXT_OVERFLOW".to_string()),
+                        ..Default::default()
                     });
                 }
                 Ok(StreamedTurn {
@@ -1978,6 +2093,7 @@ mod cancel_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2009,6 +2125,114 @@ mod cancel_tests {
             "overflow must trigger compaction: {events:?}"
         );
         // The retried step produced the recovered text.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::AssistantDelta { delta, .. } if delta == "recovered"
+            )),
+            "retried step must stream: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn retryable_provider_error_retries_the_step_then_completes() {
+        use std::sync::{Arc, Mutex};
+        struct RetryThenOkClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RetryThenOkClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                if *calls == 1 {
+                    return Err(crate::llm::LlmError {
+                        message: "connection error".to_string(),
+                        code: Some("CONNECTION_ERROR".to_string()),
+                        retryable: true,
+                        retry_after_ms: Some(1),
+                    });
+                }
+                Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "recovered".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "recovered".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = RetryThenOkClient(Arc::clone(&calls));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hi")],
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(3),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: Some(3),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &crate::tool::BashTool::default(), &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Completed);
+                assert_eq!(outcome.error, None);
+            }
+            TurnProgress::NeedsApproval(_) => panic!("no approval in auto mode"),
+        }
+        // First call failed retryably, second call succeeded.
+        assert_eq!(*calls.lock().unwrap(), 2);
+        // A step-retrying event announced the retry with the attempt counters.
+        let retrying = events
+            .iter()
+            .find_map(|e| match e {
+                EngineEvent::TurnStepRetrying {
+                    failed_attempt,
+                    next_attempt,
+                    max_attempts,
+                    error_name,
+                    ..
+                } => Some((*failed_attempt, *next_attempt, *max_attempts, error_name.clone())),
+                _ => None,
+            })
+            .expect("must emit TurnStepRetrying");
+        assert_eq!(retrying.0, 1);
+        assert_eq!(retrying.1, 2);
+        assert_eq!(retrying.2, 3);
+        assert_eq!(retrying.3.as_deref(), Some("CONNECTION_ERROR"));
+        // The retried step streamed its text.
         assert!(
             events.iter().any(|e| matches!(
                 e,
@@ -2061,6 +2285,7 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2168,6 +2393,7 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2246,6 +2472,7 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            max_retries_per_step: None,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,

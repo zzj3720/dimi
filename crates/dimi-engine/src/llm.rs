@@ -118,6 +118,27 @@ pub struct LlmError {
     /// Error code vocabulary (provider_filtered, auth, rate_limit, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    /// Retry-after hint (ms) from the provider (e.g. 429 rate-limit
+    /// headers). `None` = fall back to exponential backoff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
+    /// Whether this failure is transient (connection / rate limit / 5xx /
+    /// timeout) and the step may be retried. Mirrors the TS
+    /// `isRetryableGenerateError` verdict; the engine retries retryable
+    /// step failures up to `max_retries_per_step`.
+    #[serde(default)]
+    pub retryable: bool,
+}
+
+impl Default for LlmError {
+    fn default() -> Self {
+        Self {
+            message: String::new(),
+            code: None,
+            retry_after_ms: None,
+            retryable: false,
+        }
+    }
 }
 
 /// Scripted client: replays per-step event sequences (differential tests).
@@ -193,6 +214,7 @@ impl LlmClient for ScriptedLlmClient {
                     return Err(LlmError {
                         message: message.clone(),
                         code: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -228,6 +250,7 @@ impl LlmClient for OpenAiCompatibleClient {
         Err(LlmError {
             message: "OpenAiCompatibleClient transport not wired yet".to_string(),
             code: Some("not_implemented".to_string()),
+            ..Default::default()
         })
     }
 }
