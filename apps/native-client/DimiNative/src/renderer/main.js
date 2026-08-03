@@ -16,7 +16,7 @@
 //   Ctrl+-         undo
 //   Shift+Tab      plan mode
 
-import { model, Msg, update, findSlashCommand, isBashDraft } from './app.js';
+import { model, Msg, update, findSlashCommand, isBashDraft, APPROVAL_CHOICES } from './app.js';
 import { render, els } from './view.js';
 
 let serverUrl = 'http://127.0.0.1:58627';
@@ -97,6 +97,28 @@ els.input.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape') { evt.preventDefault(); dispatch(Msg.CompletionClose()); return; }
   }
 
+  // Question dialog: number keys select options, space toggles multi, Enter
+  // confirms (TUI question-dialog.ts:161-194).
+  if (model.currentQuestion) {
+    if (/^[1-9]$/.test(evt.key)) {
+      evt.preventDefault();
+      const idx = Number(evt.key) - 1;
+      const q = model.currentQuestion;
+      if (idx < (q.options ?? []).length) {
+        dispatch({ type: 'question_select', index: idx });
+        if (q.kind !== 'multi' && q.kind !== 'multi_with_other') {
+          dispatch(Msg.QuestionConfirm());
+        }
+      }
+      return;
+    }
+    if (evt.key === ' ') {
+      evt.preventDefault();
+      dispatch({ type: 'question_toggle', index: model.questionSelectedIndex });
+      return;
+    }
+  }
+
   // Ctrl / Cmd combos (platform shortcut).
   if (ctrlKey(evt)) {
     const k = evt.key.toLowerCase();
@@ -115,7 +137,11 @@ els.input.addEventListener('keydown', (evt) => {
       // Shift+Enter → newline; plain Enter → submit (TUI submit semantics).
       if (!evt.shiftKey) {
         evt.preventDefault();
-        dispatch(Msg.Submit());
+        if (model.currentQuestion) {
+          dispatch(Msg.QuestionConfirm());
+        } else {
+          dispatch(Msg.Submit());
+        }
       }
       return;
 
@@ -250,6 +276,13 @@ export function subscribeSse(sessionId) {
     model.sseUnsubscribe = null;
   }
   model.sseUnsubscribe = window.dimi.subscribeEvents(`/api/v1/sessions/${sessionId}/events`, (evt) => {
+    const p = evt?.payload ?? evt;
+    const type = p?.type ?? evt?.type;
+    // Keep the prompt queue in sync on turn/prompt lifecycle events
+    // (TUI finalizeTurn drains one queued message per turn end).
+    if (type === 'turn.ended' || type === 'prompt.completed' || type === 'prompt.steered') {
+      refreshPromptQueue();
+    }
     dispatch(Msg.SseEvent(evt));
   });
 }
@@ -344,8 +377,25 @@ function runSlashCommand(resolved) {
     case 'auto': model.statusMsg = `auto ${resolved.args || 'on'}`; break;
     case 'plan': model.statusMsg = `plan ${resolved.args || ''}`; break;
     case 'effort': model.statusMsg = `effort ${resolved.args || 'off'}`; break;
-    case 'compact': model.statusMsg = 'compact (coming)'; break;
-    case 'undo': model.statusMsg = 'undo (coming)'; break;
+    case 'compact':
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      api('POST', `/api/v1/sessions/${model.currentSessionId}:compact`, { instruction: resolved.args || undefined })
+        .then(() => { model.statusMsg = 'compacting…'; render(); })
+        .catch((e) => { model.statusMsg = `compact failed: ${e.message}`; render(); });
+      break;
+    case 'undo': {
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      const count = Number.parseInt(resolved.args, 10) || 1;
+      api('POST', `/api/v1/sessions/${model.currentSessionId}:undo`, { count })
+        .then((data) => {
+          const msgs = data?.data?.messages?.items ?? [];
+          model.statusMsg = `undone (${msgs.length} messages)`;
+          // Reload the transcript to reflect the undo.
+          connectSession(model.currentSessionId);
+        })
+        .catch((e) => { model.statusMsg = `undo failed: ${e.message}`; render(); });
+      break;
+    }
     case 'btw':
       model.btwOpen = true;
       model.btwDraft = resolved.args;
@@ -362,18 +412,49 @@ function runSlashCommand(resolved) {
 
 async function sendPrompt(text) {
   if (!model.currentSessionId) return;
+  // TUI sendMessage routing (dimi-tui.ts:1369-1391), mapped onto the REST
+  // prompts queue:
+  //   - busy + steer mode → POST /prompts then immediately steer it into
+  //     the running turn
+  //   - busy + queue mode → POST /prompts (server queues it; runs when the
+  //     current turn ends)
+  //   - idle → POST /prompts (runs directly)
   try {
-    // Sending goes through the prompts route (REST): content is the parts
-    // array with a single text part (mirror of the TUI's session.prompt).
-    await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
+    const data = await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
       content: [{ type: 'text', text }],
     });
+    const promptId = data?.data?.prompt_id ?? '';
+    if (model.busy && model.busyInputMode === 'steer' && promptId) {
+      await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts::steer`, {
+        prompt_ids: [promptId],
+      });
+    }
     model.statusMsg = '';
+    refreshPromptQueue();
     render();
   } catch (e) {
     model.statusMsg = `send failed: ${e.message}`;
     render();
   }
+}
+
+async function refreshPromptQueue() {
+  if (!model.currentSessionId) return;
+  try {
+    const data = await api('GET', `/api/v1/sessions/${model.currentSessionId}/prompts`);
+    const queued = data?.data?.queued ?? [];
+    model.queued = queued.map((p) => ({ text: promptText(p), mode: 'prompt', promptId: p.prompt_id ?? '' }));
+    render();
+  } catch { /* non-fatal */ }
+}
+
+function promptText(p) {
+  const parts = p?.content;
+  if (typeof parts === 'string') return parts;
+  if (Array.isArray(parts)) {
+    return parts.map((x) => (x?.type === 'text' ? x.text : '')).filter(Boolean).join(' ');
+  }
+  return '';
 }
 
 function runShellCommand(text) {
@@ -399,8 +480,19 @@ function recallLastQueued() {
 
 function doSteer() {
   if (model.phase !== 'streaming') return;
-  model.statusMsg = 'steer (ctrl-s)';
-  render();
+  // Ctrl+S: flush the queued prompts into the running turn
+  // (TUI editor-keyboard.ts:249-314 — idle/shell/compacting are gated out).
+  const ids = model.queued.map((q) => q.promptId).filter(Boolean);
+  api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts::steer`, { prompt_ids: ids })
+    .then(() => {
+      model.statusMsg = '';
+      refreshPromptQueue();
+      render();
+    })
+    .catch((e) => {
+      model.statusMsg = `steer failed: ${e.message}`;
+      render();
+    });
 }
 
 function doCancel() {
@@ -424,11 +516,25 @@ function doCancel() {
 function submitApproval() {
   const a = model.currentApproval;
   if (!a) return;
-  const opt = a.options?.[model.approvalSelectedIndex];
+  const idx = model.approvalSelectedIndex;
+  let decision = 'approved';
+  let scope;
+  if (idx === 1) scope = 'session';
+  else if (idx === 2) decision = 'rejected';
+  else if (idx === 3) {
+    // Reject with feedback
+    api('POST', `/api/v1/sessions/${model.currentSessionId}/approvals/${a.id}`, {
+      decision: 'rejected',
+      feedback: model.approvalFeedbackText || undefined,
+    })
+      .then(() => { model.currentApproval = null; render(); })
+      .catch((e) => { model.statusMsg = `approval failed: ${e.message}`; render(); });
+    return;
+  }
   api('POST', `/api/v1/sessions/${model.currentSessionId}/approvals/${a.id}`, {
-    decision: 'approved',
-    scope: 'session',
-    selected_label: opt?.label,
+    decision,
+    scope,
+    selected_label: APPROVAL_CHOICES[idx]?.label,
   })
     .then(() => { model.currentApproval = null; render(); })
     .catch((e) => { model.statusMsg = `approval failed: ${e.message}`; render(); });
@@ -447,14 +553,18 @@ function rejectApproval() {
 function submitQuestion() {
   const q = model.currentQuestion;
   if (!q) return;
+  const itemId = q.itemId || q.id;
+  const selected = (q.options ?? []).filter((o) => o.selected).map((o) => o.id);
   const answers = {};
-  for (const o of q.options ?? []) {
-    if (o.selected) {
-      answers[q.id] = { kind: 'multi', option_ids: (q.options ?? []).filter((x) => x.selected).map((x) => x.id) };
-      break;
-    }
+  if (q.kind === 'multi' && selected.length > 0) {
+    answers[itemId] = { kind: 'multi', option_ids: selected };
+  } else if (selected.length === 1) {
+    answers[itemId] = { kind: 'single', option_id: selected[0] };
+  } else if (q.questionOtherText && q.questionOtherText.trim().length > 0) {
+    answers[itemId] = { kind: 'other', text: q.questionOtherText.trim() };
+  } else {
+    answers[itemId] = { kind: 'skipped' };
   }
-  if (!answers[q.id]) answers[q.id] = { kind: 'skipped' };
   api('POST', `/api/v1/sessions/${model.currentSessionId}/questions/${q.id}`, { answers })
     .then(() => { model.currentQuestion = null; render(); })
     .catch((e) => { model.statusMsg = `question failed: ${e.message}`; render(); });

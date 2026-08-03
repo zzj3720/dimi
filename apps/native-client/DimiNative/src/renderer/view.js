@@ -2,7 +2,7 @@
 // Renders `model` into the DOM after every update. No logic here — it is a
 // pure function of state (mirroring how the TUI renders its model).
 
-import { model, filteredSessions, isBashDraft } from './app.js';
+import { model, filteredSessions, isBashDraft, APPROVAL_CHOICES } from './app.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -265,24 +265,33 @@ function renderApproval(root) {
   body.style.display = 'flex';
   body.style.flexDirection = 'column';
   body.style.gap = '6px';
-  body.style.maxWidth = '520px';
+  body.style.maxWidth = '560px';
 
   const title = document.createElement('div');
   title.className = 'title';
-  title.textContent = a.toolName ?? 'Approval required';
+  title.textContent = a.toolName || 'Approval required';
   body.appendChild(title);
+
+  const action = document.createElement('div');
+  action.className = 'body';
+  action.style.fontFamily = 'monospace';
+  action.textContent = a.action || '';
+  body.appendChild(action);
+
   if (a.command) {
     const cmd = document.createElement('div');
     cmd.className = 'body';
     cmd.style.fontFamily = 'monospace';
+    cmd.style.color = 'var(--text-muted)';
     cmd.textContent = a.command;
     body.appendChild(cmd);
   }
+
   const options = document.createElement('div');
   options.style.display = 'flex';
   options.style.flexDirection = 'column';
   options.style.gap = '4px';
-  (a.options ?? []).forEach((opt, i) => {
+  APPROVAL_CHOICES.forEach((opt, i) => {
     const o = document.createElement('div');
     o.className = 'list-item' + (i === model.approvalSelectedIndex ? ' selected' : '');
     o.textContent = opt.label;
@@ -294,6 +303,11 @@ function renderApproval(root) {
     options.appendChild(o);
   });
   body.appendChild(options);
+
+  const hint = document.createElement('div');
+  hint.className = 'sub';
+  hint.textContent = '↑↓ navigate · Enter confirm · Esc reject · Ctrl+E preview';
+  body.appendChild(hint);
 
   root.appendChild(dialog('Approval', body, []));
 }

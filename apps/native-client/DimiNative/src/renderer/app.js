@@ -329,7 +329,7 @@ export function update(state, msg) {
         state.approvalFeedbackText = '';
       }
       if (state.currentApproval) {
-        const n = state.currentApproval.options.length;
+        const n = APPROVAL_CHOICES.length;
         state.approvalSelectedIndex = (state.approvalSelectedIndex + msg.delta + n) % n;
       }
       return;
@@ -366,6 +366,18 @@ export function update(state, msg) {
         if (q.kind === 'multi' || q.kind === 'multi_with_other') {
           const n = q.options.length;
           state.questionSelectedIndex = (state.questionSelectedIndex + msg.delta + n) % n;
+        }
+      }
+      return;
+
+    case 'question_select':
+      if (!state.currentQuestion) return;
+      {
+        const q = state.currentQuestion;
+        const idx = msg.index;
+        if (idx >= 0 && idx < (q.options ?? []).length) {
+          q.options.forEach((o, i) => { o.selected = i === idx; });
+          state.questionSelectedIndex = idx;
         }
       }
       return;
@@ -468,6 +480,15 @@ export function update(state, msg) {
 }
 
 // ------------------------------------------------------------------ helpers
+
+// TUI DEFAULT_APPROVAL_CHOICES (reverse-rpc/approval/adapter.ts) — the
+// approval panel synthesizes these; the wire approval carries no options.
+export const APPROVAL_CHOICES = [
+  { label: 'Approve once' },
+  { label: 'Approve for this session' },
+  { label: 'Reject' },
+  { label: 'Reject with feedback…' },
+];
 
 // SSE event → model. Mirrors the TUI's routeEvent (streaming-ui.ts): the
 // envelope carries `type` on the payload (envelope.type is the SSE event
@@ -585,6 +606,51 @@ export function handleSseEvent(state, evt) {
 
     case 'compaction.cancelled':
       state.phase = 'idle';
+      return;
+
+    case 'event.approval.requested': {
+      // The SSE payload carries the full wire approval. The client
+      // synthesizes the choice list (TUI DEFAULT_APPROVAL_CHOICES).
+      state.currentApproval = {
+        id: p.approval_id ?? p.id ?? '',
+        toolName: p.tool_name ?? '',
+        action: p.action ?? '',
+        command: typeof p.tool_input_display === 'string' ? p.tool_input_display : JSON.stringify(p.tool_input_display ?? ''),
+        toolCallId: p.tool_call_id ?? '',
+      };
+      state.approvalSelectedIndex = 0;
+      state.approvalFeedbackMode = false;
+      state.approvalFeedbackText = '';
+      return;
+    }
+
+    case 'event.approval.resolved':
+      if (state.currentApproval && p.approval_id === state.currentApproval.id) {
+        state.currentApproval = null;
+      }
+      return;
+
+    case 'event.question.requested': {
+      const questions = p.questions ?? [];
+      if (questions.length === 0) return;
+      const q0 = questions[0];
+      state.currentQuestion = {
+        id: p.question_id ?? p.id ?? '',
+        itemId: q0.id ?? '',
+        question: q0.question ?? '',
+        kind: q0.multi_select ? 'multi' : 'single',
+        options: (q0.options ?? []).map((o) => ({ ...o, selected: false })),
+      };
+      state.questionSelectedIndex = 0;
+      state.questionOtherText = '';
+      return;
+    }
+
+    case 'event.question.answered':
+    case 'event.question.dismissed':
+      if (state.currentQuestion && p.question_id === state.currentQuestion.id) {
+        state.currentQuestion = null;
+      }
       return;
 
     case 'error': {
