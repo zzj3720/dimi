@@ -35,7 +35,6 @@ export interface RegisterWsV1Options {
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
-  void core; // the broadcaster already holds the Core scope
   const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
   const { registry, broadcaster } = opts;
 
@@ -45,6 +44,7 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
       broadcaster,
       fsWatchBridge: opts.fsWatchBridge,
       connectionRegistry: registry,
+      core,
       validateCredential: opts.validateCredential,
       remoteAddress: req.socket.remoteAddress ?? null,
       userAgent: req.headers['user-agent'] ?? null,

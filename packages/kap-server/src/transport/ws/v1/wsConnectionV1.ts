@@ -19,6 +19,11 @@
  */
 
 import {
+  terminalAttachMessageSchema,
+  terminalCloseMessageSchema,
+  terminalDetachMessageSchema,
+  terminalInputMessageSchema,
+  terminalResizeMessageSchema,
   unsubscribeV2PayloadSchema,
   WS_PROTOCOL_VERSION,
   type SessionCursor,
@@ -28,10 +33,20 @@ import {
   transcriptSubscribeV2PayloadSchema,
   type TranscriptGradeSpec,
 } from '@dimi-agent/transcript';
+import {
+  Error2,
+  ErrorCodes,
+  ISessionLifecycleService,
+  ISessionTerminalService,
+  isError2,
+  type Scope,
+} from '@dimi-agent/agent-core-v2';
+import type { TerminalAttachSink } from '@dimi-agent/agent-core-v2/os/interface/terminal';
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
 import type { CredentialValidator } from '../../../services/auth/credentials';
+import { ErrorCode } from '../../../protocol/error-codes';
 import type { IConnectionRegistry } from '../connectionRegistry';
 import {
   type EventEnvelope,
@@ -78,6 +93,8 @@ export interface WsConnectionV1Options {
   readonly broadcaster: SessionEventBroadcaster;
   readonly fsWatchBridge?: FsWatchBridge;
   readonly connectionRegistry: IConnectionRegistry;
+  /** Core scope used to resolve session-scoped services (terminal controls). */
+  readonly core: Scope;
   /**
    * Present-only credential check for the post-connect `client_hello`
    * handshake. The WebSocket upgrade handler (`start.ts`) is the real auth
@@ -107,6 +124,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly socket: WebSocket;
   private readonly broadcaster: SessionEventBroadcaster;
   private readonly fsWatchBridge?: FsWatchBridge;
+  private readonly core: Scope;
   private readonly validateCredential?: CredentialValidator;
   private readonly maxBufferSize: number;
   private readonly flushIntervalMs: number;
@@ -118,6 +136,12 @@ export class WsConnectionV1 implements BroadcastTarget {
   private gotClientHello = false;
   /** Per-session subscription state: legacy agent allowlist + opt-in transcript grades. */
   readonly subscriptions = new Map<string, SessionSubscription>();
+  /**
+   * Terminal services this connection has attached to (one per session,
+   * resolved lazily). Tracked so teardown can detach every terminal sink
+   * the connection owns.
+   */
+  private readonly terminalServices = new Set<ISessionTerminalService>();
   /**
    * Serializes control-frame handling in receive order. Frames arrive
    * back-to-back (e.g. `client_hello` immediately followed by
@@ -142,6 +166,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.socket = opts.socket;
     this.broadcaster = opts.broadcaster;
     this.fsWatchBridge = opts.fsWatchBridge;
+    this.core = opts.core;
     this.validateCredential = opts.validateCredential;
     this.logger = opts.logger;
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
@@ -214,9 +239,24 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'watch_fs_remove':
         this.enqueueControl(() => this.onWatchFs(frame, false));
         return;
+      case 'terminal_attach':
+        this.enqueueControl(() => this.onTerminalAttach(frame));
+        return;
+      case 'terminal_input':
+        this.enqueueControl(() => this.onTerminalInput(frame));
+        return;
+      case 'terminal_resize':
+        this.enqueueControl(() => this.onTerminalResize(frame));
+        return;
+      case 'terminal_close':
+        this.enqueueControl(() => this.onTerminalClose(frame));
+        return;
+      case 'terminal_detach':
+        this.enqueueControl(() => this.onTerminalDetach(frame));
+        return;
       default:
-        // Unknown / not-yet-implemented control frame (e.g. terminal_*, abort)
-        // — ignore for now; terminal/abort stay on REST.
+        // Unknown / not-yet-implemented control frame (e.g. abort)
+        // — ignore for now; abort stays on REST.
         return;
     }
   }
@@ -422,6 +462,134 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   /**
+   * `terminal_attach` — attach this connection's sink to a session terminal
+   * stream. The sink's frames (`terminal_output` / `terminal_exit`) are
+   * delivered over the same subscription buffer as session events (coalesced
+   * only when mergeable — terminal frames never merge, they just share the
+   * flush window). `since_seq` replays buffered frames past the cursor, like
+   * the REST/WS attach contract.
+   */
+  private async onTerminalAttach(frame: InboundFrame): Promise<void> {
+    const parsed = terminalAttachMessageSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid terminal_attach payload', {}));
+      return;
+    }
+    const { session_id, terminal_id, since_seq } = parsed.data.payload;
+    try {
+      const terminals = await this.resolveTerminalService(session_id);
+      const sink: TerminalAttachSink = {
+        id: this.id,
+        send: (terminalFrame) => this.sendSubscribedFrame(terminalFrame),
+      };
+      const { replayed } = await terminals.attach(terminal_id, sink, { sinceSeq: since_seq });
+      this.sendImmediateFrame(
+        buildAck(frame.id ?? '', 0, 'success', { attached: true, replayed }),
+      );
+    } catch (error) {
+      this.sendTerminalErrorAck(frame.id, error);
+    }
+  }
+
+  /** `terminal_input` — write bytes to the attached terminal's pty. */
+  private async onTerminalInput(frame: InboundFrame): Promise<void> {
+    const parsed = terminalInputMessageSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid terminal_input payload', {}));
+      return;
+    }
+    const { session_id, terminal_id, data } = parsed.data.payload;
+    try {
+      const terminals = await this.resolveTerminalService(session_id);
+      await terminals.write(terminal_id, data);
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', { accepted: true }));
+    } catch (error) {
+      this.sendTerminalErrorAck(frame.id, error);
+    }
+  }
+
+  /** `terminal_resize` — resize the attached terminal's pty. */
+  private async onTerminalResize(frame: InboundFrame): Promise<void> {
+    const parsed = terminalResizeMessageSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid terminal_resize payload', {}));
+      return;
+    }
+    const { session_id, terminal_id, cols, rows } = parsed.data.payload;
+    try {
+      const terminals = await this.resolveTerminalService(session_id);
+      await terminals.resize(terminal_id, cols, rows);
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', { resized: true }));
+    } catch (error) {
+      this.sendTerminalErrorAck(frame.id, error);
+    }
+  }
+
+  /** `terminal_close` — close the terminal's pty (idempotent). */
+  private async onTerminalClose(frame: InboundFrame): Promise<void> {
+    const parsed = terminalCloseMessageSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid terminal_close payload', {}));
+      return;
+    }
+    const { session_id, terminal_id } = parsed.data.payload;
+    try {
+      const terminals = await this.resolveTerminalService(session_id);
+      await terminals.close(terminal_id);
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', { closed: true }));
+    } catch (error) {
+      this.sendTerminalErrorAck(frame.id, error);
+    }
+  }
+
+  /** `terminal_detach` — detach this connection's sink from a terminal stream. */
+  private async onTerminalDetach(frame: InboundFrame): Promise<void> {
+    const parsed = terminalDetachMessageSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid terminal_detach payload', {}));
+      return;
+    }
+    const { session_id, terminal_id } = parsed.data.payload;
+    try {
+      const terminals = await this.resolveTerminalService(session_id);
+      terminals.detach(terminal_id, this.id);
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', { detached: true }));
+    } catch (error) {
+      this.sendTerminalErrorAck(frame.id, error);
+    }
+  }
+
+  /**
+   * Resolve a session's `ISessionTerminalService` (cold-loading a
+   * persisted-but-not-live session, matching the REST terminal route).
+   * The resolved service is remembered so `onClose` can detach every sink
+   * this connection owns.
+   */
+  private async resolveTerminalService(sessionId: string): Promise<ISessionTerminalService> {
+    const session = await this.core.accessor.get(ISessionLifecycleService).resume(sessionId);
+    if (session === undefined) {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+    }
+    const terminals = session.accessor.get(ISessionTerminalService);
+    this.terminalServices.add(terminals);
+    return terminals;
+  }
+
+  /** Ack a terminal control failure with the wire error code when known. */
+  private sendTerminalErrorAck(id: string | undefined, error: unknown): void {
+    let code = 1;
+    let msg = 'internal error';
+    if (isError2(error)) {
+      if (error.code === ErrorCodes.SESSION_NOT_FOUND) code = ErrorCode.SESSION_NOT_FOUND;
+      else if (error.code === ErrorCodes.TERMINAL_NOT_FOUND) code = ErrorCode.TERMINAL_NOT_FOUND;
+      msg = error.message;
+    } else if (error instanceof Error) {
+      msg = error.message;
+    }
+    this.sendImmediateFrame(buildAck(id ?? '', code, msg, {}));
+  }
+
+  /**
    * Shared attach path behind `client_hello` (legacy inline subscriptions)
    * and `subscribe`. Subscribes the connection via the broadcaster, then
    * either replays durable events since the client's cursor (with the
@@ -613,6 +781,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
+    for (const terminals of this.terminalServices) terminals.detachAllForSink(this.id);
     this.fsWatchBridge?.detachConnection(this);
     // registry removal is handled by registerWsV1 on the socket 'close' event.
   }
