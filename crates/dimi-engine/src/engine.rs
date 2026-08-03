@@ -272,6 +272,12 @@ impl TurnSession {
         self.run_loop(llm, tools, policy, on_event).await
     }
 
+    /// The turn's working messages (history + tool results + assistant
+    /// output so far) — consumed by subagent resume to carry history.
+    pub fn messages(&self) -> &[LlmMessage] {
+        &self.messages
+    }
+
     /// Resume after an approval decision; returns the next progress state.
     pub async fn resume(
         &mut self,

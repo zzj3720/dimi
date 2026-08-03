@@ -757,6 +757,9 @@ pub struct TaskState {
     pub status: String, // running | completed | failed
     pub output: String,
     pub error: Option<String>,
+    /// Full message history of the subagent's latest turn (resume carries
+    /// it into the next turn).
+    pub messages: Vec<crate::types::LlmMessage>,
 }
 
 impl AgentTasks {
@@ -786,11 +789,16 @@ impl AgentTasks {
 
     /// Look up by agent id (the wire key the tools receive).
     pub fn find_by_agent_id(&self, agent_id: &str) -> Option<TaskState> {
+        self.find_by_agent_id_with_key(agent_id).map(|(_, state)| state)
+    }
+
+    /// Look up by agent id, also returning the task id (map key).
+    pub fn find_by_agent_id_with_key(&self, agent_id: &str) -> Option<(String, TaskState)> {
         let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         inner
-            .values()
-            .find(|state| state.agent_id == agent_id)
-            .cloned()
+            .iter()
+            .find(|(_, state)| state.agent_id == agent_id)
+            .map(|(task_id, state)| (task_id.clone(), state.clone()))
     }
 }
 
@@ -817,6 +825,7 @@ impl std::fmt::Debug for AsyncAgentTool {
 }
 
 async fn run_nested_turn(
+    history: Vec<crate::types::LlmMessage>,
     prompt: String,
     cwd: String,
     shell: String,
@@ -825,17 +834,19 @@ async fn run_nested_turn(
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
     steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
-) -> (String, String) {
+) -> (String, String, Vec<crate::types::LlmMessage>) {
+    let mut messages = history;
+    messages.push(crate::types::LlmMessage {
+        role: "user".to_string(),
+        content: serde_json::Value::String(prompt),
+        name: None,
+        tool_call_id: None,
+        tool_calls: None,
+        reasoning: None,
+    });
     let input = crate::types::EngineTurnInput {
         turn_id: 0,
-        messages: vec![crate::types::LlmMessage {
-            role: "user".to_string(),
-            content: serde_json::Value::String(prompt),
-            name: None,
-            tool_call_id: None,
-            tool_calls: None,
-            reasoning: None,
-        }],
+        messages,
         tools: vec![],
         provider: crate::types::ProviderConfig {
             base_url: "http://nested".to_string(),
@@ -863,19 +874,23 @@ async fn run_nested_turn(
             _ => None,
         })
         .collect();
+    let messages = session.messages().to_vec();
     match progress {
         crate::engine::TurnProgress::Completed(outcome)
             if outcome.status == crate::types::TurnEndReason::Completed =>
         {
-            (text, String::new())
+            (text, String::new(), messages)
         }
         crate::engine::TurnProgress::Completed(outcome) => (
             String::new(),
             outcome.error.unwrap_or_else(|| "failed".to_string()),
+            messages,
         ),
-        crate::engine::TurnProgress::NeedsApproval(_) => {
-            (String::new(), "approval pending in nested turn".to_string())
-        }
+        crate::engine::TurnProgress::NeedsApproval(_) => (
+            String::new(),
+            "approval pending in nested turn".to_string(),
+            messages,
+        ),
     }
 }
 
@@ -904,7 +919,106 @@ impl ToolExecutor for AsyncAgentTool {
             .and_then(|v| v.as_str())
             .unwrap_or("Running subagent")
             .to_string();
+        let resume = call
+            .arguments
+            .get("resume")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
+        // `Agent(resume=agent_id, prompt=…)` (TS parity): the prompt steers
+        // the subagent when its turn is still running, or starts a fresh
+        // turn carrying its history when it is idle.
+        if let Some(agent_id) = &resume {
+            let Some((task_id, state)) = self.tasks.find_by_agent_id_with_key(agent_id) else {
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: format!("No subagent with agent_id \"{agent_id}\" was found."),
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            };
+            if state.status == "running" {
+                let steered = self
+                    .steer_map
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(agent_id)
+                    .map(|queue| {
+                        queue
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .push(crate::types::LlmMessage {
+                                role: "user".to_string(),
+                                content: serde_json::Value::String(prompt),
+                                name: None,
+                                tool_call_id: None,
+                                tool_calls: None,
+                                reasoning: None,
+                            })
+                    })
+                    .is_some();
+                if !steered {
+                    return ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output: format!(
+                            "Subagent \"{agent_id}\" is running but has no steer queue."
+                        ),
+                        is_error: true,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                }
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: serde_json::to_string(&serde_json::json!({
+                        "agent_id": agent_id,
+                        "task_id": task_id,
+                        "description": description,
+                        "status": "running",
+                        "steered": true,
+                        "next_step": "Use WaitFor or AgentOutput to check on the subagent.",
+                    }))
+                    .unwrap_or_default(),
+                    is_error: false,
+                    stop_turn: true,
+                    updates: vec![],
+                };
+            }
+            // Idle: resume carries the subagent's history into the new turn.
+            let history = state.messages.clone();
+            return self.launch_subagent(
+                call,
+                ctx,
+                prompt,
+                description,
+                agent_id.clone(),
+                history,
+            )
+            .await;
+        }
+
         let agent_id = format!("agent-{}", uuid_v4_short());
+        self.launch_subagent(call, ctx, prompt, description, agent_id, Vec::new())
+            .await
+    }
+}
+
+impl AsyncAgentTool {
+    /// Spawn the background nested turn and return the launch result.
+    async fn launch_subagent(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolContext,
+        prompt: String,
+        description: String,
+        agent_id: String,
+        history: Vec<crate::types::LlmMessage>,
+    ) -> ToolResult {
         let task_id = format!("task-{}", uuid_v4_short());
         self.tasks.insert(
             task_id.clone(),
@@ -913,12 +1027,12 @@ impl ToolExecutor for AsyncAgentTool {
                 status: "running".to_string(),
                 output: String::new(),
                 error: None,
+                messages: history.clone(),
             },
         );
 
         let tasks = self.tasks.clone();
         let task_id_for_worker = task_id.clone();
-        let prompt_for_worker = prompt;
         let cwd = ctx.cwd.clone();
         let shell = self.shell.clone();
         let llm = Arc::clone(&self.llm);
@@ -932,8 +1046,9 @@ impl ToolExecutor for AsyncAgentTool {
             .unwrap_or_else(|p| p.into_inner())
             .insert(agent_id.clone(), Arc::clone(&steer_queue));
         tokio::spawn(async move {
-            let (output, error) = run_nested_turn(
-                prompt_for_worker,
+            let (output, error, messages) = run_nested_turn(
+                history,
+                prompt,
                 cwd,
                 shell,
                 llm,
@@ -944,6 +1059,7 @@ impl ToolExecutor for AsyncAgentTool {
             )
             .await;
             tasks.update(&task_id_for_worker, |state| {
+                state.messages = messages;
                 if error.is_empty() {
                     state.status = "completed".to_string();
                     state.output = output;
@@ -1228,5 +1344,174 @@ mod async_agent_tests {
             .await;
         assert!(!waited.is_error);
         assert!(waited.output.contains("Wait expired"));
+    }
+
+    #[tokio::test]
+    async fn resume_steers_a_running_subagent() {
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-running".to_string(),
+            TaskState {
+                agent_id: "agent-running".to_string(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+                messages: vec![],
+            },
+        );
+        let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let steer_map: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>>> =
+            Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        steer_map
+            .lock()
+            .unwrap()
+            .insert("agent-running".to_string(), Arc::clone(&steer_queue));
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![])),
+            tools: Arc::new(BashTool),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map,
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_resume".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({
+                        "resume": "agent-running",
+                        "prompt": "go left instead",
+                    }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let json: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(json["status"], "running");
+        assert_eq!(json["steered"], true);
+        assert_eq!(json["agent_id"], "agent-running");
+        // The prompt landed in the running subagent's steer queue.
+        let queued = steer_queue.lock().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].content, serde_json::Value::String("go left instead".to_string()));
+    }
+
+    #[tokio::test]
+    async fn resume_idle_starts_a_new_turn_with_history() {
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-done".to_string(),
+            TaskState {
+                agent_id: "agent-done".to_string(),
+                status: "completed".to_string(),
+                output: "old answer".to_string(),
+                error: None,
+                messages: vec![crate::types::LlmMessage {
+                    role: "user".to_string(),
+                    content: serde_json::Value::String("old".to_string()),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: None,
+                    reasoning: None,
+                }],
+            },
+        );
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "continued answer".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_resume".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({
+                        "resume": "agent-done",
+                        "prompt": "continue",
+                    }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let json: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(json["agent_id"], "agent-done");
+        let task_id = json["task_id"].as_str().unwrap().to_string();
+
+        // Wait for the resumed turn, then verify it carried the history.
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-done", "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+        assert_eq!(waited_json["output"], "continued answer");
+
+        let state = tasks.get(&task_id).expect("resumed task exists");
+        let history_texts: Vec<&str> = state
+            .messages
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            history_texts.contains(&"old"),
+            "history must carry into the resumed turn: {history_texts:?}"
+        );
+        assert!(history_texts.contains(&"continue"));
+    }
+
+    #[tokio::test]
+    async fn resume_unknown_agent_is_an_error() {
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![])),
+            tools: Arc::new(BashTool),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks,
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let result = agent
+            .execute(
+                &ToolCall {
+                    id: "call_resume".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({
+                        "resume": "agent-ghost",
+                        "prompt": "hello",
+                    }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(result.is_error);
+        assert!(result.output.contains("agent-ghost"));
     }
 }

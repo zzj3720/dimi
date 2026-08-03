@@ -205,7 +205,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }): void {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
-    void this.runTurnNow(entry.payload)
+    void this.runTurnNow()
       .catch(() => undefined)
       .finally(() => {
         this.turnRunning = false;
@@ -217,10 +217,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       });
   }
 
-  private async runTurnNow(payload: {
-    readonly input: readonly ContentPart[];
-    readonly origin: PromptOrigin;
-  }): Promise<{ readonly turnId: number }> {
+  private async runTurnNow(): Promise<{ readonly turnId: number }> {
     // The turn clock was advanced at enqueue time (runTurn); the running
     // turn's id is the last one it assigned.
     const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;

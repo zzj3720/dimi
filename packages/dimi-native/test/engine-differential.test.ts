@@ -82,12 +82,12 @@ describe('RustEngine minimal closed loop', () => {
       'turn.step.completed',
       'turn.ended',
     ]);
-    const started = batch.events[0];
+    const started = batch.events[0]!;
     expect(started['prompt']).toBe('hi');
     expect(started['origin']).toEqual({ kind: 'user' });
-    const stepCompleted = batch.events[4];
+    const stepCompleted = batch.events[4]!;
     expect(stepCompleted['finishReason']).toBe('end_turn');
-    const ended = batch.events[5];
+    const ended = batch.events[5]!;
     expect(ended['reason']).toBe('completed');
     expect(typeof ended['durationMs']).toBe('number');
   });
@@ -177,7 +177,7 @@ describe('RustEngine minimal closed loop', () => {
     expect(batch.outcome.errorCode).toBe('LOOP_MAX_STEPS_EXCEEDED');
     const interrupted = batch.events.find((event) => event['type'] === 'turn.step.interrupted');
     expect(interrupted?.['reason']).toBe('max_steps');
-    const ended = batch.events[batch.events.length - 1];
+    const ended = batch.events[batch.events.length - 1]!;
     expect(ended['type']).toBe('turn.ended');
     expect(ended['reason']).toBe('failed');
   });
