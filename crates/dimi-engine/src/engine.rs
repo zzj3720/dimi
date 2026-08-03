@@ -586,8 +586,20 @@ impl TurnSession {
             };
             match llm.stream_chat(&request).await {
                 Ok(turn) => {
+                    // A truncated summary (finish_reason = length) is not
+                    // trustworthy: treat it like an empty summary and retry
+                    // with a smaller prefix (TS CompactionTruncatedError
+                    // parity — exhausted retries fail soft below).
+                    let truncated = turn.events.iter().any(|event| {
+                        matches!(
+                            event,
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some(reason),
+                            } if reason == "length"
+                        )
+                    });
                     let text = turn.assistant.text.trim().to_string();
-                    if !text.is_empty() {
+                    if !text.is_empty() && !truncated {
                         summary = text;
                         break;
                     }
@@ -2315,6 +2327,110 @@ mod compaction_tests {
             .filter(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_resolved"))
             .count();
         assert_eq!(resolved_count, 1);
+    }
+
+    #[tokio::test]
+    async fn compact_treats_truncated_summary_as_empty_and_retries() {
+        use std::sync::{Arc, Mutex};
+        struct TruncatedThenOkClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TruncatedThenOkClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                // Call 1 = compaction round returns a TRUNCATED summary
+                // (finish_reason length) — must be treated as empty and
+                // retried with a smaller prefix.
+                // Call 2 = compaction retry returns the real summary.
+                // Call 3+ = the actual step.
+                if *calls == 1 {
+                    return Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "truncated-".to_string(),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("length".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "truncated-".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                let delta = if *calls == 2 {
+                    "full summary after truncation".to_string()
+                } else {
+                    String::new()
+                };
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: delta,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = TruncatedThenOkClient(Arc::clone(&calls));
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        // The truncated summary was discarded; the retried summary landed.
+        let summary = events.iter().find_map(|event| match event {
+            EngineEvent::ContextCompacted { summary, .. } => Some(summary.clone()),
+            _ => None,
+        });
+        assert_eq!(summary.as_deref(), Some("full summary after truncation"));
+        // Three LLM calls: truncated compaction round, retried compaction
+        // round, then the real step.
+        assert_eq!(*calls.lock().unwrap(), 3);
     }
 }
 
