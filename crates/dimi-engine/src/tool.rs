@@ -17,6 +17,9 @@ use crate::llm::LlmClient;
 /// Default/max foreground timeout, seconds (bash.ts constants).
 pub const DEFAULT_TIMEOUT_S: u64 = 60;
 pub const MAX_TIMEOUT_S: u64 = 300;
+/// Default deadline for a command moved to the background by a foreground
+/// timeout (bash.ts `DEFAULT_BACKGROUND_TIMEOUT_S`).
+pub const DEFAULT_BACKGROUND_TIMEOUT_S: u64 = 600;
 
 /// Truncation constants (result-builder.ts).
 pub const DEFAULT_MAX_CHARS: usize = 50_000;
@@ -120,12 +123,46 @@ impl Default for OutputBuffer {
     }
 }
 
-/// Bash tool over dimi-exec. Foreground path only (slice 1; backgrounding
-/// lands with the task domain in a later slice). Holds the running process
-/// so `abort` (turn cancellation) can kill it.
-#[derive(Default)]
+/// Bash tool over dimi-exec. Mirrors `bashTool.ts` for the foreground path:
+/// schema validation, `sh -c "cd '<cwd>' && <command>"`, the noninteractive
+/// env overlay, 50k/2k truncation, 60s/300s timeouts and the exact result
+/// strings the TS implementation produces. On a foreground timeout the
+/// command is moved to the background instead of being killed
+/// (`bashAutoBackgroundOnTimeout` default true): it is registered in
+/// `tasks` (the same registry AgentOutput/WaitFor read) and a spawned
+/// poller keeps draining it until it exits, so the session can observe the
+/// eventual completion. `current` holds the running process so `abort`
+/// (turn cancellation) can kill it; backgrounded processes survive the tool
+/// future being dropped.
 pub struct BashTool {
     current: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dimi_exec::ExecProcess>>>>,
+    /// Shared task registry (AgentOutput/WaitFor read the same `AgentTasks`).
+    /// Backgrounded-on-timeout commands register here with a `bash-<id>` key.
+    tasks: AgentTasks,
+    /// TS `bashAutoBackgroundOnTimeout` config (default true): when false a
+    /// foreground timeout SIGKILLs the command instead of backgrounding it.
+    auto_background_on_timeout: bool,
+}
+
+impl BashTool {
+    /// A Bash tool whose backgrounded-on-timeout tasks land in `tasks` —
+    /// the registry the session's AgentOutput/WaitFor tools read.
+    pub fn with_tasks(tasks: AgentTasks) -> Self {
+        Self {
+            tasks,
+            ..Self::default()
+        }
+    }
+
+    /// A Bash tool that SIGKILLs on timeout instead of backgrounding — the
+    /// TS behavior when `bashAutoBackgroundOnTimeout` is false or the Task
+    /// tools are not active (no registry can surface the background task).
+    pub fn kill_on_timeout() -> Self {
+        Self {
+            auto_background_on_timeout: false,
+            ..Self::default()
+        }
+    }
 }
 
 impl std::fmt::Debug for BashTool {
@@ -139,6 +176,10 @@ impl std::fmt::Debug for BashTool {
                     .map(|guard| guard.is_some())
                     .unwrap_or(false),
             )
+            .field(
+                "auto_background_on_timeout",
+                &self.auto_background_on_timeout,
+            )
             .finish()
     }
 }
@@ -147,6 +188,18 @@ impl Clone for BashTool {
     fn clone(&self) -> Self {
         Self {
             current: std::sync::Arc::clone(&self.current),
+            tasks: self.tasks.clone(),
+            auto_background_on_timeout: self.auto_background_on_timeout,
+        }
+    }
+}
+
+impl Default for BashTool {
+    fn default() -> Self {
+        Self {
+            current: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            tasks: AgentTasks::new(),
+            auto_background_on_timeout: true,
         }
     }
 }
@@ -162,6 +215,10 @@ impl BashTool {
             .filter(|s| !s.is_empty())
             .ok_or("command is required")?;
         let cwd = obj.get("cwd").and_then(|v| v.as_str()).map(str::to_owned);
+        let description = obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
         let timeout = match obj.get("timeout") {
             None | Some(serde_json::Value::Null) => DEFAULT_TIMEOUT_S,
             Some(v) => {
@@ -176,6 +233,7 @@ impl BashTool {
             command: command.to_owned(),
             cwd,
             timeout,
+            description,
         })
     }
 }
@@ -185,6 +243,9 @@ pub struct BashArgs {
     pub command: String,
     pub cwd: Option<String>,
     pub timeout: u64,
+    /// Optional task description (`description` arg; falls back to the
+    /// TS `foregroundDescription` preview for the task metadata).
+    pub description: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -279,13 +340,36 @@ impl ToolExecutor for BashTool {
                 }
                 if started.elapsed() > timeout {
                     timed_out = true;
-                    let _ = process.kill(Some(9)); // SIGKILL
                     break;
                 }
                 // Yield to the runtime so cooperative cancellation (the
                 // run loop's tokio::select) can fire while the command runs.
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+        }
+
+        if timed_out && self.auto_background_on_timeout {
+            // TS parity (`bashAutoBackgroundOnTimeout` default true): the
+            // command is moved to the background instead of being killed.
+            // The process handle is Arc-cloned into a spawned poller, so it
+            // survives this future being dropped; `current` is cleared so a
+            // later abort (turn cancellation) leaves the background task
+            // alone. The task is registered in `tasks` for AgentOutput /
+            // WaitFor to read.
+            *self.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            return backgrounded_result(
+                &self.tasks,
+                call,
+                &process,
+                &args,
+                stdout,
+                stderr,
+                updates,
+            );
+        }
+
+        if timed_out {
+            let _ = process.kill(Some(9)); // SIGKILL
         }
         let _ = process.wait();
         *self
@@ -328,6 +412,173 @@ impl ToolExecutor for BashTool {
             let _ = process.kill(Some(9));
         }
     }
+}
+
+/// `bashTool.backgroundStartedResult(..., 'foreground_detached')` for the
+/// timeout path: the command keeps running as a registered background task.
+/// The result reports the timeout, is NOT an error (TS `isError: false`),
+/// and hands the model the `task_id` that AgentOutput/WaitFor accept.
+fn backgrounded_result(
+    tasks: &AgentTasks,
+    call: &ToolCall,
+    process: &Arc<dimi_exec::ExecProcess>,
+    args: &BashArgs,
+    stdout: OutputBuffer,
+    stderr: OutputBuffer,
+    updates: Vec<ToolUpdate>,
+) -> ToolResult {
+    let task_id = format!("bash-{}", uuid_v4_short());
+    let description = match &args.description {
+        Some(description) if !description.trim().is_empty() => description.clone(),
+        _ => format!("Bash: {}", command_preview(&args.command)),
+    };
+    // The foreground output collected before the timeout (TS appends it
+    // under `foreground_output:`; the exit-code suffix is unknown because
+    // the command is still running).
+    let mut foreground_output = stdout.text.clone();
+    if !stderr.is_empty() {
+        if !foreground_output.is_empty() {
+            foreground_output.push('\n');
+        }
+        foreground_output.push_str(&stderr.text);
+    }
+
+    tasks.insert(
+        task_id.clone(),
+        TaskState {
+            agent_id: task_id.clone(),
+            status: "running".to_string(),
+            output: foreground_output.clone(),
+            error: None,
+            messages: vec![],
+            started_at: now_nanos(),
+        },
+    );
+
+    // Detached poller: the process handle is Arc-cloned, so the task
+    // survives this tool future being dropped (the spawn is `detached`).
+    let tasks = tasks.clone();
+    let worker_task_id = task_id.clone();
+    let poller_process = Arc::clone(process);
+    tokio::spawn(async move {
+        // Mirror the foreground drain loop: keep draining until a quiet
+        // pass observes the exit flag (or the background deadline fires).
+        let started = Instant::now();
+        let background_timeout = Duration::from_secs(DEFAULT_BACKGROUND_TIMEOUT_S);
+        loop {
+            let mut any = false;
+            while let Some(chunk) = poller_process.try_recv_stdout() {
+                any = true;
+                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+            }
+            while let Some(chunk) = poller_process.try_recv_stderr() {
+                any = true;
+                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+            }
+            if !any {
+                if poller_process.exit_code().is_some() {
+                    break;
+                }
+                if started.elapsed() > background_timeout {
+                    // TS `detachTimeoutMs` (bashTaskTimeoutS, default 600s):
+                    // a backgrounded command that overruns its own deadline
+                    // is killed.
+                    let _ = poller_process.kill(Some(9));
+                    let _ = poller_process.wait();
+                    tasks.update(&worker_task_id, |state| {
+                        state.status = "timed_out".to_string();
+                        state.error = Some(format!(
+                            "Command killed by timeout ({}s)",
+                            DEFAULT_BACKGROUND_TIMEOUT_S
+                        ));
+                    });
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let _ = poller_process.wait();
+        // Grace drain (TS `waitForStreamDrain`, 250ms): the waiter thread
+        // can set the exit flag before the reader threads flush the final
+        // pipe chunks, so drain a little longer to capture the tail.
+        let drain_deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            let mut any = false;
+            while let Some(chunk) = poller_process.try_recv_stdout() {
+                any = true;
+                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+            }
+            while let Some(chunk) = poller_process.try_recv_stderr() {
+                any = true;
+                tasks.update(&worker_task_id, |state| append_task_output(state, &chunk));
+            }
+            if !any || Instant::now() >= drain_deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let code = poller_process.exit_code();
+        // TS ProcessTask settle: exit 0 → completed, otherwise failed.
+        tasks.update(&worker_task_id, |state| {
+            if code == Some(0) {
+                state.status = "completed".to_string();
+            } else {
+                state.status = "failed".to_string();
+                state.error = Some(format!("Process exited with code {}", code.unwrap_or(-1)));
+            }
+        });
+    });
+
+    let metadata = format!(
+        "Command timed out ({}s); it is still running in the background.\n\
+         task_id: {task_id}\n\
+         pid: {}\n\
+         description: {description}\n\
+         status: running\n\
+         automatic_notification: false\n\
+         next_step: The task now runs in the background; read its output/status with \
+         AgentOutput(agent_id=\"{task_id}\") or WaitFor(agent_id=\"{task_id}\") once it \
+         completes, and continue with your current work.",
+        args.timeout,
+        process.pid(),
+    );
+    let output = if foreground_output.is_empty() {
+        metadata
+    } else {
+        format!("{metadata}\n\nforeground_output:\n{foreground_output}")
+    };
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        output,
+        is_error: false,
+        stop_turn: false,
+        updates,
+    }
+}
+
+/// Append a decoded output chunk to the task state, capped at the
+/// result-builder char limit (mirrors the TS task service's retained output
+/// cap so a chatty background command cannot grow unbounded).
+fn append_task_output(state: &mut TaskState, chunk: &[u8]) {
+    if state.output.len() >= DEFAULT_MAX_CHARS {
+        return;
+    }
+    let text = String::from_utf8_lossy(chunk);
+    let remaining = DEFAULT_MAX_CHARS - state.output.len();
+    state
+        .output
+        .push_str(&text.chars().take(remaining).collect::<String>());
+}
+
+/// TS `foregroundDescription` preview: the command truncated at 60 chars.
+fn command_preview(command: &str) -> String {
+    let chars: Vec<char> = command.chars().collect();
+    if chars.len() <= 60 {
+        return command.to_string();
+    }
+    let preview: String = chars[..60].iter().collect();
+    format!("{preview}…")
 }
 
 /// Foreground result string assembly — priority: timeout > killed >
@@ -450,8 +701,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bash_tool_timeout_kills() {
-        let tool = BashTool::default();
+    async fn bash_tool_timeout_kills_when_auto_background_disabled() {
+        // `bashAutoBackgroundOnTimeout: false` — the kill path.
+        let tool = BashTool {
+            auto_background_on_timeout: false,
+            ..BashTool::default()
+        };
         let result = tool
             .execute(
                 &ToolCall {
@@ -470,6 +725,164 @@ mod tests {
             result.output.contains("Command killed by timeout"),
             "{}",
             result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_tool_timeout_backgrounds_and_task_completes() {
+        // Default (`bashAutoBackgroundOnTimeout` true): a command that
+        // outlives its timeout is moved to the background, NOT killed. The
+        // result reports the timeout without is_error, hands over a task
+        // handle, and AgentOutput/WaitFor later read the outcome.
+        let tasks = AgentTasks::new();
+        let tool = BashTool::with_tasks(tasks.clone());
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "sleep 4; echo bg-done", "timeout": 1}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(
+            result
+                .output
+                .contains("Command timed out (1s); it is still running in the background."),
+            "{}",
+            result.output
+        );
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+        assert!(task_id.starts_with("bash-"), "{task_id}");
+        assert!(
+            result.output.contains("status: running"),
+            "{}",
+            result.output
+        );
+        assert!(result.output.contains("AgentOutput"), "{}", result.output);
+        assert!(result.output.contains("WaitFor"), "{}", result.output);
+
+        // The task is registered and still running (sleep 4 >> 1s timeout).
+        let state = tasks.get(&task_id).expect("backgrounded task registered");
+        assert_eq!(state.status, "running");
+
+        // WaitFor polls until the background command completes.
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_w".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+        assert!(
+            waited_json["output"].as_str().unwrap().contains("bg-done"),
+            "{}",
+            waited.output
+        );
+
+        // AgentOutput surfaces the same task state.
+        let read = AgentOutputTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_o".to_string(),
+                name: "AgentOutput".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        assert!(!read.is_error, "output: {}", read.output);
+        let read_json: serde_json::Value = serde_json::from_str(&read.output).unwrap();
+        assert_eq!(read_json["status"], "completed");
+        assert!(read_json["output"].as_str().unwrap().contains("bg-done"));
+    }
+
+    #[tokio::test]
+    async fn bash_tool_timeout_backgrounded_output_is_not_lost() {
+        // The output the command produces AFTER the timeout must land in
+        // the task state (the poller keeps draining), and a nonzero exit
+        // settles the task as failed.
+        let tasks = AgentTasks::new();
+        let tool = BashTool::with_tasks(tasks.clone());
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg2".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": "sleep 2; echo after-bg; exit 4",
+                        "timeout": 1,
+                        "description": "late output probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(
+            result.output.contains("description: late output probe"),
+            "{}",
+            result.output
+        );
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_w2".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "failed");
+        assert!(
+            waited_json["output"].as_str().unwrap().contains("after-bg"),
+            "post-timeout output must be captured: {}",
+            waited.output
         );
     }
 }

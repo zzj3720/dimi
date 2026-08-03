@@ -69,7 +69,7 @@ impl RustEngine {
                 model: openai_model(&input.provider),
             }),
         };
-        let tools: Box<dyn ToolExecutor> = Box::new(BashTool::default());
+        let tools: Box<dyn ToolExecutor> = Box::new(BashTool::kill_on_timeout());
         let policy = dimi_engine::permission::PolicyConfig {
             mode: dimi_engine::permission::PermissionMode::Manual,
             rules: vec![],
@@ -285,7 +285,7 @@ impl RustTurnSession {
         let mut registry = ToolRegistry::new();
         registry.register_with_def(
             "Bash",
-            Box::new(BashTool::default()),
+            Box::new(BashTool::with_tasks(tasks.clone())),
             Some(serde_json::json!({
                 "type": "function",
                 "function": {
