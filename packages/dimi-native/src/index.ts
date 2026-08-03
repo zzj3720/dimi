@@ -658,9 +658,10 @@ export class RustTurnSession {
   }
 
   /** Cancel a background task (TaskStop parity): the engine kills the
-   *  subagent nested turn / backgrounded bash command and settles "killed". */
-  cancelTask(taskId: string): void {
-    this.#inner.cancelTask(taskId);
+   *  subagent nested turn / backgrounded bash command and settles "killed",
+   *  carrying the stop reason on the wire. */
+  cancelTask(taskId: string, reason?: string): void {
+    this.#inner.cancelTask(taskId, reason);
   }
 
   /** Close the session (agent dispose): task events stop forwarding, the
@@ -692,7 +693,7 @@ export interface RustTurnSessionHandle {
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
-  cancelTask(taskId: string): void;
+  cancelTask(taskId: string, reason?: string): void;
   close(): void;
   completeToolCall(requestId: string, resultJson: string): void;
 }

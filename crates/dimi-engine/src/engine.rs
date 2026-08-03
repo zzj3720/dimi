@@ -155,10 +155,16 @@ impl Engine {
 /// the LLM/tool awaits race `cancelled()`. `notify_one` keeps a permit when no
 /// waiter is parked, so a cancel landing between the flag check and the await
 /// is never missed.
+///
+/// The signal also carries an optional stop reason (TaskStop's custom reason,
+/// e.g. "user abort"): the per-task settle reads it so the wire
+/// `task.terminated` stopReason matches the task-service entry instead of the
+/// hardcoded fallback (TS TaskStop parity).
 #[derive(Debug, Default)]
 pub struct CancelSignal {
     flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     notify: std::sync::Arc<tokio::sync::Notify>,
+    reason: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl CancelSignal {
@@ -166,13 +172,36 @@ impl CancelSignal {
         Self::default()
     }
 
+    /// Cancel without a stop reason (turn cancel / session close): the
+    /// task settle falls back to "Stopped by TaskStop".
     pub fn cancel(&self) {
+        self.cancel_with_reason(None);
+    }
+
+    /// Cancel carrying the TaskStop reason. The first reason wins (a signal
+    /// is flipped once; later cancels cannot overwrite the recorded reason).
+    pub fn cancel_with_reason(&self, reason: Option<String>) {
+        if let Some(reason) = reason {
+            let mut slot = self.reason.lock().unwrap_or_else(|p| p.into_inner());
+            if slot.is_none() {
+                *slot = Some(reason);
+            }
+        }
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
         self.notify.notify_one();
     }
 
     pub fn is_cancelled(&self) -> bool {
         self.flag.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The stop reason recorded at cancel time (`None` when the signal was
+    /// cancelled without a reason — the settle then reports the default).
+    pub fn reason(&self) -> Option<String> {
+        self.reason
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Resolves once the turn has been cancelled (immediately if already so).
@@ -2240,5 +2269,29 @@ mod cancel_tests {
             }
             TurnProgress::NeedsApproval(_) => panic!("no approval in auto mode"),
         }
+    }
+
+    #[test]
+    fn cancel_signal_records_the_stop_reason() {
+        // F3.5: the per-task cancel signal carries the TaskStop reason so the
+        // killed settle can report it instead of the hardcoded default.
+        let signal = CancelSignal::new();
+        assert!(!signal.is_cancelled());
+        assert_eq!(signal.reason(), None);
+
+        signal.cancel_with_reason(Some("user abort".to_string()));
+        assert!(signal.is_cancelled());
+        assert_eq!(signal.reason().as_deref(), Some("user abort"));
+
+        // The first reason wins; a later cancel cannot overwrite it.
+        signal.cancel_with_reason(Some("later reason".to_string()));
+        assert_eq!(signal.reason().as_deref(), Some("user abort"));
+
+        // A plain cancel carries no reason (the settle falls back to the
+        // TS default string).
+        let plain = CancelSignal::new();
+        plain.cancel();
+        assert!(plain.is_cancelled());
+        assert_eq!(plain.reason(), None);
     }
 }

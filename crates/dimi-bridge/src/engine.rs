@@ -103,8 +103,166 @@ type ToolCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status,
 
 /// Per-event streaming sink: every engine event is pushed through this
 /// callback as a JSON string, in emission order, as it happens (registered
-/// via `set_on_event` before `run`/`resume`).
-type EventCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
+/// via `set_on_event` before `run`/`resume`). `MaxQueueSize` is bounded so
+/// the forwarder's Blocking calls block only when the napi queue is actually
+/// full (with `0` = unbounded, Node's Blocking mode would wait forever).
+type EventCallback = ThreadsafeFunction<
+    String,
+    Unknown<'static>,
+    String,
+    Status,
+    false,
+    false,
+    { EVENT_TSFN_QUEUE_CAP },
+>;
+
+/// The event queue's capacity: the engine can run ahead of the JS event loop
+/// by at most this many events before emitters block (backpressure). 4096
+/// covers a chatty turn (assistant deltas, tool progress, task output) while
+/// bounding memory.
+const EVENT_QUEUE_CAP: usize = 4096;
+
+/// The napi ThreadsafeFunction's own queue capacity: the forwarder submits
+/// one event at a time (Blocking mode), so this only bounds how far the JS
+/// event loop can lag behind the forwarder before it blocks — the Rust queue
+/// then backs up and emitters apply backpressure.
+const EVENT_TSFN_QUEUE_CAP: usize = 1024;
+
+/// Bounded FIFO for engine events en route to the TS side (F6 fix).
+///
+/// The bridge previously forwarded every engine event with a NonBlocking
+/// ThreadsafeFunction call and ignored the returned `Status`: under queue
+/// pressure a dropped `task.output` would silently shift the TS adapter's
+/// byte-offset tail arithmetic and corrupt TaskOutput's retained buffer. All
+/// engine events now flow through this bounded queue into a dedicated
+/// forwarding thread that calls the ThreadsafeFunction in **Blocking** mode:
+///
+/// - **No silent drops.** `send` waits for queue space and the forwarder
+///   waits for the napi queue, so the only events discarded are the ones
+///   emitted after the session is closed — the teardown behavior the old
+///   `EventSink::close` path already had. Under sustained pressure the
+///   system buffers (bounded) and then blocks, never dropping mid-stream.
+/// - **Bounded memory.** The queue holds at most `cap` events.
+/// - **FIFO.** One queue, one forwarder — event order is preserved.
+///
+/// The forwarder is a dedicated **std thread**, not a tokio task: a Blocking
+/// TSFN call must never occupy a tokio worker that engine workers (bash
+/// pollers / subagent workers) run on — on a single-worker runtime a tokio
+/// forwarder blocked on the napi queue would deadlock the engine.
+struct EngineEventChannel {
+    queue: std::sync::Mutex<std::collections::VecDeque<EngineEvent>>,
+    cap: usize,
+    not_empty: std::sync::Condvar,
+    not_full: std::sync::Condvar,
+    /// Wakes `wait_caught_up` waiters when `delivered` advances.
+    caught_up: std::sync::Condvar,
+    /// Events pushed into the queue (monotonic).
+    pushed: std::sync::atomic::AtomicU64,
+    /// Events submitted to the ThreadsafeFunction by the forwarder
+    /// (monotonic). `run`/`resume` wait until `delivered == pushed` before
+    /// resolving, so the TS side observes every turn event BEFORE the
+    /// `run`/`resume` promise continuation — the ordering the old
+    /// direct-push path had.
+    delivered: std::sync::atomic::AtomicU64,
+    closed: std::sync::atomic::AtomicBool,
+}
+
+impl EngineEventChannel {
+    fn new(cap: usize) -> Self {
+        Self {
+            queue: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            cap,
+            not_empty: std::sync::Condvar::new(),
+            not_full: std::sync::Condvar::new(),
+            caught_up: std::sync::Condvar::new(),
+            pushed: std::sync::atomic::AtomicU64::new(0),
+            delivered: std::sync::atomic::AtomicU64::new(0),
+            closed: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn pushed_count(&self) -> u64 {
+        self.pushed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn delivered_count(&self) -> u64 {
+        self.delivered.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Push one event, blocking until there is room (or the channel is
+    /// closed). Returns `false` only when closed — the teardown path, never
+    /// queue pressure.
+    fn send(&self, event: EngineEvent) -> bool {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while queue.len() >= self.cap && !self.is_closed() {
+            queue = self
+                .not_full
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+        if self.is_closed() {
+            return false;
+        }
+        queue.push_back(event);
+        self.pushed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.not_empty.notify_one();
+        true
+    }
+
+    /// Pop the oldest event, blocking until one is available (or the channel
+    /// is closed). Returns `None` when closed and empty — the forwarder's
+    /// exit signal.
+    fn recv(&self) -> Option<EngineEvent> {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while queue.is_empty() && !self.is_closed() {
+            queue = self
+                .not_empty
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+        let event = queue.pop_front();
+        if event.is_some() {
+            self.not_full.notify_one();
+        }
+        event
+    }
+
+    /// The forwarder calls this after each event is submitted to the
+    /// ThreadsafeFunction (successfully or not — a `Closing` status means
+    /// the session is tearing down and `wait_caught_up` is already released
+    /// by `close`).
+    fn mark_delivered(&self) {
+        self.delivered
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.caught_up.notify_all();
+    }
+
+    /// Block until every pushed event has been submitted to the
+    /// ThreadsafeFunction (or the channel closed). Called by `run`/`resume`
+    /// after the engine loop finishes, before the promise resolves.
+    fn wait_caught_up(&self) {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while self.delivered_count() < self.pushed_count() && !self.is_closed() {
+            queue = self
+                .caught_up
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+    }
+
+    /// Stop the channel: wakes every blocked sender and the forwarder; they
+    /// observe `closed` and exit. Called from session `close()` / `Drop`.
+    fn close(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.not_empty.notify_all();
+        self.not_full.notify_all();
+        self.caught_up.notify_all();
+    }
+}
 
 /// A TS-registered tool: the engine calls the napi callback, the TS side
 /// executes the tool and completes the call via `completeToolCall`.
@@ -207,13 +365,18 @@ pub struct RustTurnSession {
     /// refuses to queue into a dead turn, so the TS runner falls back to
     /// starting a new turn instead of silently dropping the steer.
     finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// TS-side event sink: every engine event is streamed as JSON, per
-    /// event, in emission order (the turn's `run`/`resume` resolve with
-    /// only the progress). `Arc` because `ThreadsafeFunction` is not
-    /// `Clone` and the sink must survive across `run`/`resume` calls.
-    on_event: Option<std::sync::Arc<EventCallback>>,
+    /// Bounded engine-event queue drained by the dedicated forwarding thread
+    /// (see `EngineEventChannel`): every event emitted by `run`/`resume` and
+    /// by the tools' task-event sink flows through it, in emission order, to
+    /// the TS-side callback. `Arc` so the sink callback and the forwarder
+    /// share it across `run`/`resume` calls.
+    event_channel: std::sync::Arc<EngineEventChannel>,
+    /// Whether the forwarding thread was started (`set_on_event` spawns it
+    /// once per session; the TS side registers the callback once before the
+    /// first run).
+    forwarder_started: std::sync::atomic::AtomicBool,
     /// Task lifecycle event sink handed to the tools (Bash / async subagent
-    /// tools): `set_on_event` points it at the same napi callback, so
+    /// tools): `set_on_event` points it at the same bounded queue, so
     /// `task.started` / `task.settled` emitted from spawned workers/pollers
     /// ride the session's event stream.
     event_sink: EventSink,
@@ -232,6 +395,7 @@ pub struct RustTurnSession {
 impl Drop for RustTurnSession {
     fn drop(&mut self) {
         self.event_sink.close();
+        self.event_channel.close();
         self.cancel.cancel();
     }
 }
@@ -419,7 +583,8 @@ impl RustTurnSession {
             steer_queue,
             cancel,
             finished,
-            on_event: None,
+            event_channel: std::sync::Arc::new(EngineEventChannel::new(EVENT_QUEUE_CAP)),
+            forwarder_started: std::sync::atomic::AtomicBool::new(false),
             event_sink,
             tasks,
         })
@@ -433,11 +598,12 @@ impl RustTurnSession {
     }
 
     /// Cancel a background task (TaskStop parity): flips the task's cancel
-    /// signal; the subagent worker / bash poller observes it, stops the work
-    /// (kills the process / cancels the nested turn) and settles the task
-    /// with status "killed".
+    /// signal — carrying the TS stop reason, so the worker/poller settles
+    /// "killed" with the actual reason on the wire — the subagent worker /
+    /// bash poller observes it, stops the work (kills the process / cancels
+    /// the nested turn) and settles the task with status "killed".
     #[napi]
-    pub fn cancel_task(&self, task_id: String) -> napi::Result<()> {
+    pub fn cancel_task(&self, task_id: String, reason: Option<String>) -> napi::Result<()> {
         let state = self
             .tasks
             .get(&task_id)
@@ -448,18 +614,20 @@ impl RustTurnSession {
             )));
         };
         if let Some(cancel) = state.cancel {
-            cancel.cancel();
+            cancel.cancel_with_reason(reason);
         }
         Ok(())
     }
 
     /// Close the session (TS `taskService.dispose` parity): the task event
-    /// sink stops forwarding, the in-flight turn is cancelled, and
+    /// sink stops forwarding, the in-flight turn is cancelled, the event
+    /// channel closes (waking the forwarder / blocked emitters), and
     /// `steer` refuses. Called by the TS runner when the agent is disposed;
     /// background workers/pollers observe `is_closed` and stop their work.
     #[napi]
     pub fn close(&self) {
         self.event_sink.close();
+        self.event_channel.close();
         self.cancel.cancel();
     }
 
@@ -467,21 +635,47 @@ impl RustTurnSession {
     /// /`resume` is pushed through it as JSON, in emission order, as it
     /// happens. The `run`/`resume` response then carries only the final
     /// progress. Register before the first `run`; the callback stays active
-    /// across `resume` phases. Also points the tools' task-event sink at the
-    /// same callback, so `task.started` / `task.settled` emitted from
-    /// spawned subagent workers / bash pollers ride the same stream.
+    /// across `resume` phases. Events flow through a bounded queue drained
+    /// by a dedicated forwarding thread using Blocking ThreadsafeFunction
+    /// calls — nothing is dropped under queue pressure (F6 fix).
     #[napi]
     pub fn set_on_event(&mut self, callback: EventCallback) {
-        let callback = std::sync::Arc::new(callback);
-        let callback_for_sink = std::sync::Arc::clone(&callback);
-        let sink_callback: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync> =
-            std::sync::Arc::new(move |event| {
-                if let Ok(json) = serde_json::to_string(&event) {
-                    let _ = callback_for_sink.call(json, ThreadsafeFunctionCallMode::NonBlocking);
+        let tsfn = std::sync::Arc::new(callback);
+        // One forwarder per session: the first `set_on_event` starts it;
+        // later calls only re-point the sink (the TS side registers once
+        // before the first run). The thread exits when the channel closes
+        // (session `close()` / `Drop`, or the napi queue going `Closing`).
+        if !self
+            .forwarder_started
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let channel = std::sync::Arc::clone(&self.event_channel);
+            std::thread::spawn(move || {
+                while let Some(event) = channel.recv() {
+                    if let Ok(json) = serde_json::to_string(&event) {
+                        let status =
+                            tsfn.call(json, ThreadsafeFunctionCallMode::Blocking);
+                        if status == Status::Closing || status == Status::Unknown {
+                            // The JS side is gone (env teardown): stop
+                            // forwarding; wake blocked emitters so they
+                            // observe the close and exit.
+                            channel.close();
+                            break;
+                        }
+                    }
+                    // Count the event as submitted to the ThreadsafeFunction
+                    // so `run`/`resume` can wait for full delivery before
+                    // resolving their promise.
+                    channel.mark_delivered();
                 }
             });
+        }
+        let sink_channel = std::sync::Arc::clone(&self.event_channel);
+        let sink_callback: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync> =
+            std::sync::Arc::new(move |event| {
+                let _ = sink_channel.send(event);
+            });
         self.event_sink.set(sink_callback);
-        self.on_event = Some(callback);
     }
 
     /// Steer the running turn: the message is queued and drained into the
@@ -510,7 +704,8 @@ impl RustTurnSession {
 
     /// Advance the turn until completion or an approval request. Every
     /// engine event is streamed to the `set_on_event` callback as it is
-    /// emitted; the response carries only the progress.
+    /// emitted (through the bounded event queue); the response carries only
+    /// the progress.
     #[napi]
     pub async fn run(&self) -> napi::Result<String> {
         let progress = {
@@ -521,23 +716,24 @@ impl RustTurnSession {
                 let registry = self.tools.lock().await;
                 inner.update_tools(engine_tools(&registry));
             }
-            let on_event = self.on_event.clone();
+            let channel = std::sync::Arc::clone(&self.event_channel);
             inner
                 .run(
                     self.llm.as_ref(),
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
                     &mut move |event| {
-                        if let Some(callback) = &on_event {
-                            if let Ok(json) = serde_json::to_string(&event) {
-                                let _ =
-                                    callback.call(json, ThreadsafeFunctionCallMode::NonBlocking);
-                            }
-                        }
+                        let _ = channel.send(event);
                     },
                 )
                 .await
         };
+        // Every event emitted during the turn is now in the channel; wait for
+        // the forwarding thread to submit each one to the ThreadsafeFunction
+        // before the promise resolves — the TS side must observe the turn's
+        // events before the `run` continuation (the ordering the old
+        // synchronous push had).
+        self.event_channel.wait_caught_up();
         progress_json(progress)
     }
 
@@ -611,8 +807,8 @@ impl RustTurnSession {
 
     /// Resume after the user's approval decision
     /// (`{decision:"approved"|"rejected", feedback?}`). Events stream to the
-    /// `set_on_event` callback as they are emitted; the response carries
-    /// only the progress.
+    /// `set_on_event` callback as they are emitted (through the bounded
+    /// event queue); the response carries only the progress.
     #[napi]
     pub async fn resume(&self, decision_json: String) -> napi::Result<String> {
         let decision: ApprovalDecision =
@@ -623,7 +819,7 @@ impl RustTurnSession {
                 let registry = self.tools.lock().await;
                 inner.update_tools(engine_tools(&registry));
             }
-            let on_event = self.on_event.clone();
+            let channel = std::sync::Arc::clone(&self.event_channel);
             inner
                 .resume(
                     decision,
@@ -631,16 +827,84 @@ impl RustTurnSession {
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
                     &mut move |event| {
-                        if let Some(callback) = &on_event {
-                            if let Ok(json) = serde_json::to_string(&event) {
-                                let _ =
-                                    callback.call(json, ThreadsafeFunctionCallMode::NonBlocking);
-                            }
-                        }
+                        let _ = channel.send(event);
                     },
                 )
                 .await
         };
+        // See `run`: the TS side must observe every emitted event before the
+        // `resume` continuation.
+        self.event_channel.wait_caught_up();
         progress_json(progress)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_started(i: i64) -> EngineEvent {
+        EngineEvent::TaskStarted {
+            task_id: format!("task-{i}"),
+            agent_id: format!("agent-{i}"),
+            kind: "bash".to_string(),
+            description: "d".to_string(),
+            pid: None,
+            parent_tool_call_id: None,
+        }
+    }
+
+    #[test]
+    fn event_channel_preserves_fifo_and_applies_backpressure() {
+        // F6: the bounded queue must never drop an event under pressure —
+        // a full queue blocks the sender until the forwarder drains, and
+        // FIFO order is preserved end-to-end.
+        let channel = std::sync::Arc::new(EngineEventChannel::new(2));
+        assert!(channel.send(task_started(0)));
+        assert!(channel.send(task_started(1)));
+        assert_eq!(channel.pushed_count(), 2);
+        assert_eq!(channel.delivered_count(), 0);
+
+        // The queue is full (cap 2): a third send blocks until a recv frees
+        // a slot — no event is dropped.
+        let sender = std::thread::spawn({
+            let channel = std::sync::Arc::clone(&channel);
+            move || channel.send(task_started(2))
+        });
+        // Give the sender time to hit the full queue, then drain: the
+        // blocked send lands and the order stays 0, 1, 2.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-0"));
+        assert!(
+            sender.join().expect("sender completes"),
+            "the blocked send must land, not be dropped"
+        );
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-1"));
+        assert!(matches!(channel.recv(), Some(EngineEvent::TaskStarted { task_id, .. }) if task_id == "task-2"));
+        assert_eq!(channel.pushed_count(), 3);
+        // recv pops without counting: delivery is the forwarder's job (it
+        // calls mark_delivered after each ThreadsafeFunction submit).
+        assert_eq!(channel.delivered_count(), 0);
+
+        // `wait_caught_up` (what run/resume call before resolving) blocks
+        // until every pushed event is marked delivered; marking all three
+        // releases it. This is the guarantee that the TS side observes every
+        // turn event before the run/resume promise continuation.
+        let waited = std::thread::spawn({
+            let channel = std::sync::Arc::clone(&channel);
+            move || channel.wait_caught_up()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        channel.mark_delivered();
+        channel.mark_delivered();
+        channel.mark_delivered();
+        waited.join().expect("wait_caught_up returns");
+        assert_eq!(channel.delivered_count(), 3);
+
+        // Closed: sends are refused and an empty recv returns None (the
+        // forwarder's exit signal).
+        channel.close();
+        assert!(!channel.send(task_started(3)), "closed channels refuse sends");
+        assert_eq!(channel.recv(), None);
     }
 }

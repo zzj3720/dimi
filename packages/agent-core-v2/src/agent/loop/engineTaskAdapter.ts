@@ -46,8 +46,22 @@ export interface EngineTaskAdapterOptions {
   readonly pid?: number;
   /** Subagent profile-ish label (the Agent-tool description today). */
   readonly subagentType?: string;
-  /** Bridge the engine's per-task cancel (TaskStop parity). */
-  readonly forceStop: () => void;
+  /** Bridge the engine's per-task cancel (TaskStop parity). The optional
+   *  reason is the TaskStop stop reason (the abort signal's reason, when it
+   *  is a string / Error) — the engine settles "killed" with it on the wire,
+   *  matching the task-service entry's stopReason. */
+  readonly forceStop: (reason?: string) => void;
+}
+
+/** Extract a human-readable stop reason from an AbortSignal's abort reason:
+ *  TaskStop aborts with the normalized reason string; `stopByUser` aborts
+ *  with a `UserCancellationError` (its `.message` is the user-facing reason);
+ *  anything else (undefined / session close) yields no reason — the engine
+ *  falls back to "Stopped by TaskStop". */
+function abortReasonString(reason: unknown): string | undefined {
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  return undefined;
 }
 
 export class EngineTaskAdapter implements AgentTask {
@@ -83,7 +97,11 @@ export class EngineTaskAdapter implements AgentTask {
   async start(sink: AgentTaskSink): Promise<void> {
     this.sink = sink;
     const requestStop = (): void => {
-      this.options.forceStop();
+      // The abort event's reason is the TaskStop stop reason
+      // (`taskService.terminateWithGrace` aborts the entry's controller with
+      // the normalized reason). Thread it into the engine's per-task cancel
+      // so the wire `task.terminated` stopReason matches the service entry.
+      this.options.forceStop(abortReasonString(sink.signal.reason));
     };
     if (sink.signal.aborted) {
       requestStop();

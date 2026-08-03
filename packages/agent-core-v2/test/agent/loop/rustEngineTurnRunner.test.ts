@@ -1158,8 +1158,10 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     // TaskStop parity: kill through the service entry (the adapter bridges
     // into session.cancelTask → the engine's per-task cancel → the nested
     // turn aborts and the worker settles "killed"). No notification
-    // suppression, so the terminal notification still fires.
-    const result = await taskService.stop(taskId!, 'Stopped by TaskStop');
+    // suppression, so the terminal notification still fires. A CUSTOM reason
+    // proves the engine's killed settle carries the TS reason end-to-end
+    // (F3.5: the wire stopReason must not be the engine's hardcoded default).
+    const result = await taskService.stop(taskId!, 'user abort');
     expect(result?.status).toBe('killed');
 
     // The wire `task.terminated` carries the info and the outputTail; the
@@ -1184,7 +1186,7 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
       taskId,
       kind: 'agent',
       status: 'killed',
-      stopReason: 'Stopped by TaskStop',
+      stopReason: 'user abort',
     });
     expect((terminated?.payload['info'] as { agentId?: string } | undefined)?.agentId).toMatch(
       /^agent-\d+$/,

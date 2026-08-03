@@ -947,13 +947,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       description,
       pid,
       subagentType: kind === "agent" ? description : undefined,
-      forceStop: () => {
+      forceStop: (reason?: string) => {
         // TaskStop / dispose parity: the engine cancels the background work
-        // (nested subagent turn or backgrounded bash command). The session
-        // may already be closed — `cancelTask` still flips the task's cancel
-        // signal, and the settle is dropped by the closed sink.
+        // (nested subagent turn or backgrounded bash command), carrying the
+        // TaskStop reason so the killed settle reports it on the wire. The
+        // session may already be closed — `cancelTask` still flips the task's
+        // cancel signal, and the settle is dropped by the closed sink.
         try {
-          session?.cancelTask(taskId);
+          session?.cancelTask(taskId, reason);
         } catch (error) {
           this.log.error("[rustEngineTurnRunner] failed to cancel engine task", {
             taskId,

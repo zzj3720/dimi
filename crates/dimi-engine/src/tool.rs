@@ -496,6 +496,14 @@ fn backgrounded_result(
         }
         foreground_output.push_str(&stderr.text);
     }
+    // F4.4 (review note): each of the two buffers can hold 50k chars, so
+    // stdout + stderr combined can reach ~100k — cap the seed at
+    // DEFAULT_MAX_CHARS (chars, the cap the OutputBuffer and the poller's
+    // `append_task_output_and_emit` enforce) BEFORE it seeds `state.output`
+    // and becomes the first `task.output` delta. Truncating the seed (not
+    // the stream) keeps delta == settle and the TS adapter's byte-offset
+    // tail arithmetic intact.
+    foreground_output = foreground_output.chars().take(DEFAULT_MAX_CHARS).collect();
 
     // Per-task cancel (TaskStop parity): the poller checks it on every pass
     // and kills the process instead of waiting for the deadline/exit.
@@ -583,7 +591,17 @@ fn backgrounded_result(
                 }
                 tasks.update(&worker_task_id, |state| {
                     state.status = "killed".to_string();
-                    state.error = Some("Stopped by TaskStop".to_string());
+                    // The TaskStop reason threaded from the bridge
+                    // (`cancel_task(taskId, reason)` → the per-task cancel
+                    // signal); falls back to the TS default when the signal
+                    // carried none.
+                    state.error = Some(
+                        state
+                            .cancel
+                            .as_ref()
+                            .and_then(|cancel| cancel.reason())
+                            .unwrap_or_else(|| "Stopped by TaskStop".to_string()),
+                    );
                 });
                 let settled = tasks.get(&worker_task_id).expect("backgrounded bash task must be registered");
                 events.emit(EngineEvent::TaskSettled {
@@ -1382,6 +1400,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bash_tool_cancel_carries_custom_stop_reason() {
+        // F3.5 (adversarial review nit): the TaskStop reason threaded from
+        // the bridge (`cancel_task(taskId, reason)` → the per-task cancel
+        // signal) must land on the killed settle's error — not the hardcoded
+        // "Stopped by TaskStop" fallback. A custom reason here proves the
+        // bash kill path propagates it end-to-end.
+        let tasks = AgentTasks::new();
+        let tool = BashTool::with_tasks(tasks.clone());
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_reason".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        "command": "sleep 30",
+                        "timeout": 1,
+                        "description": "reason probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let state = tasks.get(&task_id).expect("backgrounded task registered");
+        state
+            .cancel
+            .as_ref()
+            .expect("cancel signal")
+            .cancel_with_reason(Some("user abort".to_string()));
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wr".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "killed");
+        assert_eq!(
+            waited_json["error"].as_str(),
+            Some("user abort"),
+            "the TaskStop reason must reach the killed settle: {}",
+            waited.output
+        );
+    }
+
+    #[tokio::test]
     async fn bash_tool_backgrounded_foreground_output_is_the_first_delta() {
         // F1 (review P1): a command that printed BEFORE the timeout is
         // backgrounded with its foreground output as the FIRST `task.output`
@@ -1481,6 +1566,128 @@ mod tests {
             deltas.concat(),
             settled,
             "streamed deltas must concatenate exactly to the settle output"
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_tool_backgrounded_foreground_seed_is_capped_at_default_max_chars() {
+        // F4.4 (review note): stdout and stderr each hold up to 50k chars, so
+        // the backgrounded task's seeded `state.output` (stdout + '\n' +
+        // stderr) could reach ~100k chars — past the nominal cap. The seed
+        // must be truncated to DEFAULT_MAX_CHARS (chars) BEFORE it becomes
+        // `state.output` and the first `task.output` delta, keeping the
+        // delta == settle invariant the TS adapter's tail arithmetic relies
+        // on. (`yes` keeps lines short so the 2k per-line cap does not
+        // pre-truncate; each buffer holds 40k chars, combined 80_001.)
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let tool = BashTool {
+            tasks: tasks.clone(),
+            events: sink,
+            ..BashTool::default()
+        };
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_bg_cap".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({
+                        // 40k stdout + 40k stderr + the '\n' separator =
+                        // 80_001 chars before the 1s timeout; sleep 2 keeps
+                        // it running so it is backgrounded.
+                        "command": "yes a | head -c 40000; yes b | head -c 40000 >&2; sleep 2",
+                        "timeout": 1,
+                        "description": "seed cap probe",
+                    }),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        let task_id = result
+            .output
+            .lines()
+            .find_map(|line| line.strip_prefix("task_id: "))
+            .map(str::trim)
+            .expect("task_id in result output")
+            .to_string();
+
+        let waited = WaitForTool {
+            tasks: tasks.clone(),
+        }
+        .execute(
+            &ToolCall {
+                id: "call_wcap".to_string(),
+                name: "WaitFor".to_string(),
+                arguments: serde_json::json!({ "agent_id": task_id, "timeout_seconds": 20 }),
+            },
+            &ToolContext {
+                cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                shell: "/bin/sh".to_string(),
+            },
+        )
+        .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+
+        let emitted = events.lock().unwrap();
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                EngineEvent::TaskOutput { task_id: id, delta } if id == &task_id => {
+                    Some(delta.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        let settled = emitted
+            .iter()
+            .find_map(|event| match event {
+                EngineEvent::TaskSettled {
+                    task_id: id,
+                    output,
+                    ..
+                } if id == &task_id => Some(output.clone()),
+                _ => None,
+            })
+            .expect("task.settled emitted");
+        assert_eq!(
+            settled.chars().count(),
+            DEFAULT_MAX_CHARS,
+            "the seeded foreground output must be capped at DEFAULT_MAX_CHARS (chars): {}",
+            settled.chars().count()
+        );
+        // The seed is stdout + '\n' + stderr truncated to the cap: stdout's
+        // 40k 'a' lines, the separator, then the first 9_999 chars of
+        // stderr's 'b' lines (the truncation cuts mid-stream, not at a
+        // buffer boundary).
+        assert!(
+            settled.starts_with("a\na\na"),
+            "stdout must lead the seed: {}",
+            &settled[..20]
+        );
+        assert!(
+            settled.contains("\nb\nb\nb"),
+            "the separator and stderr must follow stdout"
+        );
+        assert!(settled.ends_with('b'), "stderr fills the final budget");
+        assert!(
+            !deltas.is_empty() && deltas[0] == settled,
+            "the truncated seed must be the first delta: {deltas:?}"
+        );
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "streamed deltas must concatenate exactly to the capped settle output"
         );
     }
 
@@ -2355,8 +2562,14 @@ impl AsyncAgentTool {
                 if cancel.is_cancelled() {
                     // TaskStop parity: a per-task cancel settles "killed"
                     // (TS `terminateWithGrace` final status), not "failed".
+                    // The settle error carries the TaskStop reason threaded
+                    // from the bridge (fallback: the TS default string).
                     state.status = "killed".to_string();
-                    state.error = Some("Stopped by TaskStop".to_string());
+                    state.error = Some(
+                        cancel
+                            .reason()
+                            .unwrap_or_else(|| "Stopped by TaskStop".to_string()),
+                    );
                 } else if error.is_empty() {
                     state.status = "completed".to_string();
                 } else {
@@ -2700,6 +2913,18 @@ mod async_agent_tests {
         assert_eq!(normalize_wait_timeout(Some(u64::MAX)), WAIT_MAX_SECONDS);
     }
 
+    #[test]
+    fn default_kill_grace_ms_is_pinned_at_the_ts_default() {
+        // F5 (review note): `DEFAULT_KILL_GRACE_MS` here and the TS constant
+        // of the same name in `agent/task/configSection.ts` are only
+        // comment-linked. The bridge always passes the runner's explicit
+        // `killGraceMs` (computed from the TS constant), so this Rust value
+        // is only a fallback for direct/nested construction — but if the two
+        // ever diverge, this pin (plus the TS-side pin in
+        // taskService.test.ts) fails and the mismatch is caught.
+        assert_eq!(DEFAULT_KILL_GRACE_MS, 5_000);
+    }
+
 
     #[tokio::test]
     async fn subagent_emits_task_started_and_settled_events() {
@@ -3027,7 +3252,9 @@ mod async_agent_tests {
             .expect("nested turn must reach the blocking second call")
             .expect("nested turn's sender must still be live");
 
-        // TaskStop the subagent mid-run (per-task cancel parity).
+        // TaskStop the subagent mid-run (per-task cancel parity). The custom
+        // reason must land on the killed settle's error (F3.5: the bridge
+        // threads the TS stop reason through the per-task cancel signal).
         let (_, state) = tasks
             .find_by_agent_id_with_key(&agent_id)
             .expect("subagent task registered");
@@ -3035,7 +3262,7 @@ mod async_agent_tests {
             .cancel
             .as_ref()
             .expect("subagent has a per-task cancel signal")
-            .cancel();
+            .cancel_with_reason(Some("user abort".to_string()));
 
         let wait = WaitForTool {
             tasks: tasks.clone(),
@@ -3055,6 +3282,11 @@ mod async_agent_tests {
         assert_eq!(
             waited_json["status"], "killed",
             "TaskStop must settle the subagent as killed: {waited_json}"
+        );
+        assert_eq!(
+            waited_json["error"].as_str(),
+            Some("user abort"),
+            "the TaskStop reason must reach the killed settle: {waited_json}"
         );
         assert_eq!(
             waited_json["output"], "part one part two",
