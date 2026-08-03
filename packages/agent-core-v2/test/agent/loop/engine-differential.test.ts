@@ -9,6 +9,11 @@
  * tool.call.* / turn.step.completed / turn.ended. Wire/context/activity
  * events are TS-side plumbing and out of scope.
  */
+// The TS side of the differential drives the real TS loop with the scripted
+// mock provider (mockNextResponse); the Rust engine is the default runtime
+// (`--legacy` sets DIMI_LEGACY=1), so pin legacy mode for the TS side.
+process.env["DIMI_LEGACY"] = "1";
+
 import { describe, expect, it } from 'vitest';
 
 import { RustEngine, RustTurnSession } from '@dimi-agent/dimi-native';

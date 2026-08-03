@@ -10,6 +10,10 @@
  * ../../node_modules/.bin/vitest run test/fullCompaction/full.test.ts
  */
 
+// The Rust engine is the default runtime (`--legacy` sets DIMI_LEGACY=1);
+// this suite drives the TS loop, so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "pathe";

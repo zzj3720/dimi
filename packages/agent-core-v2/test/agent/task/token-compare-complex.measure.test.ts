@@ -12,6 +12,10 @@
  *     exec vitest run test/agent/task/token-compare-complex.measure.test.ts
  */
 /* eslint-disable jest/expect-expect -- measurement scenarios emit structured output */
+// The Rust engine is the default runtime (`--legacy` sets DIMI_LEGACY=1);
+// this suite drives the TS loop, so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { IAgentProfileService } from "#/agent/profile/profile";

@@ -1,5 +1,9 @@
 /** Positive E2E: the real loop, wire, task, and wait services coordinate async tools. */
 
+// The Rust engine is the default runtime (`--legacy` sets DIMI_LEGACY=1);
+// this suite drives the TS loop, so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentProfileService } from '#/agent/profile/profile';

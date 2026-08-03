@@ -1,3 +1,7 @@
+// This suite drives the TS loop; the Rust engine is the default runtime
+// (`--legacy` sets DIMI_LEGACY=1), so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "pathe";

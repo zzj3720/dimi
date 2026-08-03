@@ -7,6 +7,10 @@
  * test/app/config/config.test.ts`.
  */
 
+// The Rust engine is the default runtime (`--legacy` sets DIMI_LEGACY=1);
+// this suite drives the TS loop, so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import type { ModelCapability } from "#/llmProtocol/capability";
 import type { ToolCall } from "#/llmProtocol/message";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

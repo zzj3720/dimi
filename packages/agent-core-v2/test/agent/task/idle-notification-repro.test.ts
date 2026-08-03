@@ -18,6 +18,10 @@
  * mode explicit.
  */
 
+// The Rust engine is the default runtime (`--legacy` sets DIMI_LEGACY=1);
+// this suite drives the TS loop, so pin legacy mode for this file.
+process.env["DIMI_LEGACY"] = "1";
+
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "pathe";
