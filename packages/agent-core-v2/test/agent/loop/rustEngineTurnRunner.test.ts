@@ -206,6 +206,64 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     expect(replyIndex).toBeGreaterThan(steerIndex);
   });
 
+  it('does not lose a steer landing at the turn boundary (starts a new turn)', async () => {
+    // Turn 1 answers immediately. The engine sets its "finished" flag before
+    // the completion events are emitted, so a steer observed after turn 1's
+    // answer (in the window between the engine's final steer check and the
+    // runner clearing activeSession) is refused and falls back to a new
+    // turn — never silently dropped into a dead queue. Note: each turn gets
+    // a fresh scripted client (segments restart), so the fallback turn
+    // replays segment 1; what matters is that a second assistant reply
+    // exists and the steer message is recorded exactly once.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: 'first answer' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('first answer')),
+      'first turn answer',
+    );
+    // The engine has already passed its final steer check: the runner's
+    // steer refuses (no steerable turn) even if activeSession is still set.
+    const runner = ctx.get(IRustEngineTurnRunner);
+    expect(runner.steer({ input: [{ type: 'text', text: 'steer at boundary' }], origin: { kind: 'user' } })).toBe(false);
+
+    // The rpcService fallback starts a new turn with the steer input (or
+    // queues it behind the finishing turn) — the message is not dropped.
+    const launched = await ctx.rpc.steer({ input: [{ type: 'text', text: 'steer at boundary' }] });
+    expect(launched === undefined || launched.turn_id === 1).toBe(true);
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.filter((message) => message.role === 'assistant').length >= 2,
+      'second turn answer',
+    );
+    const context = ctx.get(IAgentContextMemoryService).get();
+    // The steer message is recorded exactly once (the failed mid-turn steer
+    // must not double-append alongside the fallback turn).
+    const steerMessages = context.filter(
+      (message) =>
+        message.role === 'user' &&
+        message.content
+          .filter((part) => part.type === 'text')
+          .map((part) => (part as { text?: string }).text ?? '')
+          .join('') === 'steer at boundary',
+    );
+    expect(steerMessages).toHaveLength(1);
+  });
+
   it('falls back to a new turn when steering an idle agent', async () => {
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       [{ type: 'text', delta: 'idle steer turn' }, { type: 'finish', finishReason: 'stop' }],

@@ -37,6 +37,7 @@ import type { AgentTaskInfo, AgentTaskStatus } from "#/agent/task/types";
 import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnOps";
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
+import { ILogService } from "#/_base/log/log";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
@@ -44,7 +45,7 @@ import { IAgentScopeContext } from "#/agent/scopeContext/scopeContext";
 import { IModelCatalog } from "#/app/modelCatalog/catalog";
 import { IProviderRuntime } from "#/app/providerRuntime/providerRuntime";
 import { ISessionContext } from "#/session/sessionContext/sessionContext";
-import { createToolMessage, type ContentPart, type ToolCall } from "#/llmProtocol/message";
+import type { ContentPart } from "#/llmProtocol/message";
 import { emptyUsage } from "#/llmProtocol/usage";
 import { IWireService } from "#/wire/wire";
 import { buildCompactionSummaryText } from "#/agent/contextMemory/compactionHandoff";
@@ -145,7 +146,7 @@ function abortOnSignal(signal: AbortSignal): Promise<void> {
       resolve();
       return;
     }
-    signal.addEventListener("abort", () => resolve(), { once: true });
+    signal.addEventListener("abort", () => { resolve(); }, { once: true });
   });
 }
 
@@ -202,6 +203,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @ILogService private readonly log: ILogService,
   ) {}
 
   static isEnabled(): boolean {
@@ -211,7 +213,13 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   /**
    * Steer the running turn. Mirrors the TS steer path (`steerTurn` op +
    * user message in the context) and forwards the text into the engine's
-   * steer queue, where it is drained into the next LLM request.
+   * steer queue, where it is drained into the next LLM request. Returns
+   * `false` when there is no steerable turn: either no session is active
+   * (the caller starts a new turn) or the engine's turn already finished
+   * (a steer racing the teardown — between the engine's final steer check
+   * and this runner clearing `activeSession` — would land in a queue that
+   * is never drained again; the caller's `runTurn` fallback queues it as
+   * the next turn instead, so it is never lost).
    */
   steer(payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): boolean {
     const session = this.activeSession;
@@ -221,6 +229,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       .map((part) => (part as { text?: string }).text ?? "")
       .join("");
     if (text.length === 0) return false;
+    // Ask the engine first: when its turn already ended it refuses the
+    // steer (returns false) and the caller falls back to `runTurn` — the
+    // wire op / context append must not run in that case or the fallback
+    // would record the user message twice.
+    if (!session.steer(text)) return false;
     this.wire.dispatch(steerTurn({ input: [...payload.input], origin: payload.origin }));
     this.context.append({
       role: "user",
@@ -229,7 +242,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       origin: payload.origin,
       id: randomUUID(),
     });
-    session.steer(text);
     return true;
   }
 
@@ -326,7 +338,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
       cwd: this.profile.data().cwd ?? process.cwd(),
-      shell: "/bin/sh",
+      // No `shell`: the engine resolves its own bash-preferring default
+      // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
+      // `/usr/local/bin/bash` → `/bin/sh`), matching the TS bash tool's
+      // `env.shellPath` spawn target and `SHELL` env value.
     });
     const policyJson = JSON.stringify({
       mode: this.modeService.mode,
@@ -619,7 +634,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         // The callback cannot propagate to the runner's await chain (the
         // ThreadsafeFunction is fire-and-forget) — surface it instead of
         // dropping the failure silently.
-        console.error("[rustEngineTurnRunner] failed to process engine event", error);
+        this.log.error("[rustEngineTurnRunner] failed to process engine event", { error });
       }
     });
 
@@ -853,12 +868,13 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       sourceKind: notification.source_kind,
       sourceId: notification.source_id,
     } as never);
-    if (this.turnRunning && this.activeSession !== undefined) {
+    if (this.turnRunning && this.activeSession !== undefined && this.activeSession.steer(xml)) {
       // Mid-turn: fold into the running turn's following step (TS
       // `activeOrNewTurn` parity) — the engine drains it into the next LLM
-      // request.
+      // request. When the engine refuses (its turn already ended, a
+      // notification racing the teardown), fall through to the idle path so
+      // the notification launches a new turn instead of being dropped.
       this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
-      this.activeSession.steer(xml);
     } else {
       // Idle: launch a notification turn that processes the notification
       // (TS `activeOrNewTurn` parity).

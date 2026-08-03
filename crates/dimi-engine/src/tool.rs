@@ -1,9 +1,10 @@
 //! Tool effect boundary — slice 1 ships the Bash tool over dimi-exec.
 //!
 //! Behavior mirrors `agent/tools/os/bash/` (bashTool.ts + bash.ts) for the
-//! foreground path: schema validation, `sh -c "cd '<cwd>' && <command>"`,
-//! the noninteractive env overlay, 50k/2k truncation, 60s/300s timeouts and
-//! the exact result strings the TS implementation produces.
+//! foreground path: schema validation, `sh -c "cd <shell-quoted cwd> &&
+//! <command>"`, the noninteractive env overlay, 50k/2k truncation,
+//! 60s/300s timeouts and the exact result strings the TS implementation
+//! produces.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -124,10 +125,10 @@ impl Default for OutputBuffer {
 }
 
 /// Bash tool over dimi-exec. Mirrors `bashTool.ts` for the foreground path:
-/// schema validation, `sh -c "cd '<cwd>' && <command>"`, the noninteractive
-/// env overlay, 50k/2k truncation, 60s/300s timeouts and the exact result
-/// strings the TS implementation produces. On a foreground timeout the
-/// command is moved to the background instead of being killed
+/// schema validation, `sh -c "cd <shell-quoted cwd> && <command>"`, the
+/// noninteractive env overlay, 50k/2k truncation, 60s/300s timeouts and the
+/// exact result strings the TS implementation produces. On a foreground
+/// timeout the command is moved to the background instead of being killed
 /// (`bashAutoBackgroundOnTimeout` default true): it is registered in
 /// `tasks` (the same registry AgentOutput/WaitFor read) and a spawned
 /// poller keeps draining it until it exits, so the session can observe the
@@ -218,7 +219,9 @@ impl Default for BashTool {
 
 impl BashTool {
     /// Validate the Bash arguments (`command` required non-empty; `cwd`
-    /// string; `timeout` positive integer capped at MAX_TIMEOUT_S).
+    /// string; `timeout` positive integer capped at MAX_TIMEOUT_S;
+    /// `run_in_background` unsupported — a clear error instead of silently
+    /// running in the foreground).
     pub fn validate_args(args: &serde_json::Value) -> Result<BashArgs, String> {
         let obj = args.as_object().ok_or("arguments must be an object")?;
         let command = obj
@@ -226,6 +229,9 @@ impl BashTool {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .ok_or("command is required")?;
+        if obj.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) {
+            return Err("run_in_background is not supported by this engine".to_string());
+        }
         let cwd = obj.get("cwd").and_then(|v| v.as_str()).map(str::to_owned);
         let description = obj
             .get("description")
@@ -260,6 +266,12 @@ pub struct BashArgs {
     pub description: Option<String>,
 }
 
+/// `bashTool.ts` `shellQuote` mirror: single-quote escaping (`'` → `'\''`)
+/// so a cwd containing quotes cannot break the `cd` script.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[async_trait::async_trait]
 impl ToolExecutor for BashTool {
     async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
@@ -278,7 +290,8 @@ impl ToolExecutor for BashTool {
         };
 
         let cwd = args.cwd.as_deref().unwrap_or(&ctx.cwd);
-        let script = format!("cd '{}' && {}", cwd, args.command);
+        // TS `spawn`: `cd ${shellQuote(shellCwd)} && ${command}`.
+        let script = format!("cd {} && {}", shell_quote(cwd), args.command);
         // TS bashTool builds noninteractiveEnv over process.env; dimi-exec's
         // `env: Some` is a complete replacement, so inherit and overlay.
         let mut env: HashMap<String, String> = std::env::vars().collect();
@@ -717,6 +730,64 @@ mod tests {
             .await;
         assert!(!result.is_error, "output: {}", result.output);
         assert!(result.output.contains("hello"), "output: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn bash_tool_escapes_single_quotes_in_cwd() {
+        // A cwd containing a single quote must not break the `cd` script
+        // (TS `shellQuote` parity: `'` → `'\''`).
+        let dir = std::env::temp_dir().join("dimi-bash-quote-it's");
+        std::fs::create_dir_all(&dir).expect("create quote dir");
+        let tool = BashTool::default();
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_q".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "pwd"}),
+                },
+                &ToolContext {
+                    cwd: dir.to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                },
+            )
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(
+            result.output.contains("it's"),
+            "cd must land in the quoted dir: {}",
+            result.output
+        );
+    }
+
+    #[test]
+    fn validate_args_rejects_run_in_background() {
+        // The schema keeps `run_in_background` for model compatibility, but
+        // the executor must not silently run in the foreground.
+        let error = BashTool::validate_args(&serde_json::json!({
+            "command": "ls",
+            "run_in_background": true,
+        }))
+        .unwrap_err();
+        assert!(
+            error.contains("run_in_background"),
+            "error must be explicit: {error}"
+        );
+        assert!(
+            BashTool::validate_args(&serde_json::json!({
+                "command": "ls",
+                "run_in_background": false,
+            }))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn shell_quote_mirrors_ts() {
+        assert_eq!(shell_quote("plain"), "'plain'");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+        assert_eq!(shell_quote("a'b'c"), "'a'\\''b'\\''c'");
     }
 
     #[tokio::test]
@@ -1715,6 +1786,18 @@ pub struct WaitForTool {
     pub tasks: AgentTasks,
 }
 
+/// TS `WAIT_DEFAULT_SECONDS` / `WAIT_MAX_SECONDS` (waitForTool.ts schema):
+/// the TS schema rejects values above the max; the engine clamps instead
+/// (Bash timeout cap parity) so a huge value cannot pin the turn forever.
+pub const WAIT_DEFAULT_SECONDS: u64 = 60;
+pub const WAIT_MAX_SECONDS: u64 = 1_800;
+
+/// `timeout_seconds` normalization: default 60, capped at 1800 (the TS
+/// schema's max).
+fn normalize_wait_timeout(value: Option<u64>) -> u64 {
+    value.unwrap_or(WAIT_DEFAULT_SECONDS).min(WAIT_MAX_SECONDS)
+}
+
 #[async_trait::async_trait]
 impl ToolExecutor for WaitForTool {
     async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
@@ -1724,11 +1807,11 @@ impl ToolExecutor for WaitForTool {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let timeout = call
-            .arguments
-            .get("timeout_seconds")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(60);
+        let timeout = normalize_wait_timeout(
+            call.arguments
+                .get("timeout_seconds")
+                .and_then(|v| v.as_u64()),
+        );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
         loop {
             if let Some(state) = self
@@ -1913,6 +1996,18 @@ mod async_agent_tests {
             .await;
         assert!(!waited.is_error);
         assert!(waited.output.contains("Wait expired"));
+    }
+
+    #[test]
+    fn waitfor_timeout_is_capped_at_the_ts_max() {
+        // TS `WaitForInputSchema` bounds timeout_seconds at WAIT_MAX_SECONDS
+        // (1800); the engine clamps instead of rejecting so a huge value
+        // cannot pin the turn forever.
+        assert_eq!(normalize_wait_timeout(None), WAIT_DEFAULT_SECONDS);
+        assert_eq!(normalize_wait_timeout(Some(10)), 10);
+        assert_eq!(normalize_wait_timeout(Some(1_800)), WAIT_MAX_SECONDS);
+        assert_eq!(normalize_wait_timeout(Some(999_999)), WAIT_MAX_SECONDS);
+        assert_eq!(normalize_wait_timeout(Some(u64::MAX)), WAIT_MAX_SECONDS);
     }
 
 

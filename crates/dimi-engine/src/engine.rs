@@ -41,7 +41,7 @@ impl Default for Engine {
     fn default() -> Self {
         Self {
             max_steps_per_turn: None,
-            shell: "/bin/sh".to_string(),
+            shell: dimi_exec::env::default_shell(),
         }
     }
 }
@@ -201,6 +201,12 @@ pub struct TurnSession {
     last_compacted_tokens: Option<u64>,
     /// Cooperative cancellation (RPC cancel → engine).
     cancel: std::sync::Arc<CancelSignal>,
+    /// Set once the turn has ended (every finish path): a steer racing the
+    /// teardown — between the engine's final `has_pending_steer()` check and
+    /// the runner clearing its session — must be refused instead of landing
+    /// in a queue that is never drained again (the TS runner then starts a
+    /// new turn with the input).
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// A tool call waiting for the user's approval decision.
@@ -241,13 +247,19 @@ impl TurnSession {
         input: EngineTurnInput,
         steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
     ) -> Self {
-        Self::with_steer_and_cancel(input, steer, std::sync::Arc::new(CancelSignal::new()))
+        Self::with_steer_and_cancel(
+            input,
+            steer,
+            std::sync::Arc::new(CancelSignal::new()),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
     }
 
     pub fn with_steer_and_cancel(
         input: EngineTurnInput,
         steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
         cancel: std::sync::Arc<CancelSignal>,
+        finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
         Self {
             input,
@@ -258,6 +270,7 @@ impl TurnSession {
             steer,
             last_compacted_tokens: None,
             cancel,
+            finished,
         }
     }
 
@@ -297,6 +310,7 @@ impl TurnSession {
     ) -> TurnProgress {
         let Some(pending) = self.pending.take() else {
             // Nothing pending — finish as failed (defensive).
+            self.mark_finished();
             return TurnProgress::Completed(TurnOutcome {
                 status: TurnEndReason::Failed,
                 steps: self.steps,
@@ -382,7 +396,7 @@ impl TurnSession {
                 .input
                 .shell
                 .clone()
-                .unwrap_or_else(|| "/bin/sh".to_string()),
+                .unwrap_or_else(dimi_exec::env::default_shell),
         }
     }
 
@@ -391,6 +405,13 @@ impl TurnSession {
             .as_ref()
             .map(|steer| !steer.lock().unwrap().is_empty())
             .unwrap_or(false)
+    }
+
+    /// Mark the turn finished: any steer racing the teardown (between the
+    /// engine's final steer check and the runner clearing its session) must
+    /// be refused instead of landing in a queue that is never drained again.
+    fn mark_finished(&self) {
+        self.finished.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Estimate the next request's tokens: messages + tool definitions
@@ -675,6 +696,11 @@ impl TurnSession {
                         step_complete();
                         continue;
                     }
+                    // No pending steer: the turn is about to end. Mark it
+                    // finished BEFORE the completion events are emitted, so a
+                    // steer observed after them is refused (falls back to a
+                    // new turn) instead of being dropped into a dead queue.
+                    self.mark_finished();
                     step_complete();
                     match finish {
                         // Provider-truncated response (length / max_tokens):
@@ -824,6 +850,7 @@ impl TurnSession {
                         }
                     }
                     if stop_turn {
+                        self.mark_finished();
                         emit(
                             on_event,
                             EngineEvent::TurnStepCompleted {
@@ -869,6 +896,7 @@ impl TurnSession {
         &mut self,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
+        self.mark_finished();
         let outcome = TurnOutcome {
             status: TurnEndReason::Completed,
             steps: self.steps,
@@ -895,6 +923,7 @@ impl TurnSession {
         error_code: Option<String>,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
+        self.mark_finished();
         let outcome = TurnOutcome {
             status,
             steps: self.steps,
@@ -2169,7 +2198,12 @@ mod cancel_tests {
             session_approved_patterns: vec![],
         };
         let cancel = Arc::new(CancelSignal::new());
-        let mut session = TurnSession::with_steer_and_cancel(input, None, Arc::clone(&cancel));
+        let mut session = TurnSession::with_steer_and_cancel(
+            input,
+            None,
+            Arc::clone(&cancel),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
         let handle = tokio::spawn(async move {
             let __bash = crate::tool::BashTool::default();
             session

@@ -41,7 +41,7 @@ impl RustEngine {
         Self {
             inner: dimi_engine::Engine {
                 max_steps_per_turn: max_steps_per_turn.map(|n| n.max(0) as u32),
-                shell: "/bin/sh".to_string(),
+                shell: dimi_exec::env::default_shell(),
             },
         }
     }
@@ -114,6 +114,13 @@ struct BridgeExternalTool {
     next_request_id: std::sync::atomic::AtomicU64,
 }
 
+/// Bridge-local deadline for an external (TS-side) tool result, seconds. TS
+/// applies no blanket timeout to external tool execution (MCP tools carry
+/// their own configurable `toolTimeoutMs`); this guard only prevents a
+/// dropped TS callback (a completion that never arrives) from hanging the
+/// turn forever.
+const EXTERNAL_TOOL_DEADLINE_S: u64 = 120;
+
 #[async_trait::async_trait]
 impl ToolExecutor for BridgeExternalTool {
     async fn execute(
@@ -140,7 +147,7 @@ impl ToolExecutor for BridgeExternalTool {
             .callback
             .call(payload, ThreadsafeFunctionCallMode::NonBlocking);
         // Poll for the TS side's completion.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(EXTERNAL_TOOL_DEADLINE_S);
         loop {
             {
                 let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
@@ -196,6 +203,10 @@ pub struct RustTurnSession {
     steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
     /// Cooperative cancellation (TS RPC cancel).
     cancel: std::sync::Arc<dimi_engine::engine::CancelSignal>,
+    /// Set by the engine when the turn ends (every finish path): `steer`
+    /// refuses to queue into a dead turn, so the TS runner falls back to
+    /// starting a new turn instead of silently dropping the steer.
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// TS-side event sink: every engine event is streamed as JSON, per
     /// event, in emission order (the turn's `run`/`resume` resolve with
     /// only the progress). `Arc` because `ThreadsafeFunction` is not
@@ -289,6 +300,13 @@ impl RustTurnSession {
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         let event_sink = EventSink::new();
         let mut registry = ToolRegistry::new();
+        // The Bash def mirrors the TS tool's advertised contract
+        // (`BASH_PARAMETERS` minus `stdin_mode`/`disable_timeout`, which only
+        // apply to the TS-only TaskInput/background paths): same description
+        // (rendered with the TS constants, background paragraphs adapted to
+        // the engine's capabilities), same properties, same descriptions,
+        // same required. `run_in_background` stays in the schema for model
+        // compatibility; the executor rejects it with a clear error.
         registry.register_with_def(
             "Bash",
             Box::new(BashTool::with_tasks(tasks.clone()).with_events(event_sink.clone())),
@@ -296,15 +314,18 @@ impl RustTurnSession {
                 "type": "function",
                 "function": {
                     "name": "Bash",
-                    "description": "Run a shell command on the local machine. Use for file operations, running tests, git, and any command-line work.",
+                    "description": "Execute a bash command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.\n\n**Translate these to a dedicated tool instead:**\n- `cat` / `head` / `tail` (known path) → `Read`\n- `sed` / `awk` (in-place edit) → `Edit`\n- `echo > file` / `cat <<EOF` → `Write`\n- `find` / recursive `ls` to locate files by name pattern → `Glob` (plain `ls <known-directory>` is fine for listing a directory)\n- `grep` / `rg` (search file contents) → `Grep`\n- `echo` / `printf` (talk to the user) → just output text directly\n\nThe dedicated tools render in the per-tool permission UI and keep raw stdout out of the conversation; that is why they are worth reaching for whenever one fits.\n\n**Output:**\nThe stdout and stderr will be combined and returned as a string. The output may be truncated if it is too long. If the command exits non-zero, the output ends with a `Command failed with exit code: N` line; a command killed by its timeout or interrupted by the user ends with its own message instead.\n\nBackground execution (`run_in_background=true`) is not supported by this engine. Do not set it.\n\n**Guidelines for safety and security:**\n- Each shell tool call will be executed in a fresh shell environment. The shell variables, current working directory changes, and the shell history is not preserved between calls. To run a command in a particular directory, pass the `cwd` argument (or use absolute paths) rather than relying on a `cd` from an earlier call.\n- The tool call will return after the command is finished. You shall not use this tool to execute an interactive command or a command that may run forever. For possibly long-running foreground commands, set the `timeout` argument in seconds. Foreground commands default to 60s and allow up to 300s. When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.\n- Avoid using `..` to access files or directories outside of the working directory.\n- Avoid modifying files outside of the working directory unless explicitly instructed to do so.\n- Never run commands that require superuser privileges unless explicitly instructed to do so.\n\n**Guidelines for efficiency:**\n- Use `&&` to chain commands that genuinely depend on each other, e.g. `npm install && npm test`. Independent read-only commands (separate `git show`, `ls`, or status checks) should be issued as separate parallel Bash calls in one response, not chained into a single call — chaining serializes their execution and mixes their output. Do not stitch outputs together with `echo` separators.\n- Use `;` to run commands sequentially regardless of success/failure\n- Use `||` for conditional execution (run second command only if first fails)\n- Use pipe operations (`|`) and redirections (`>`, `>>`) to chain input and output between commands\n- Always quote file paths containing spaces with double quotes (e.g., cd \"/path with spaces/\")\n- Compose multi-step logic in a single call with `if` / `case` / `for` / `while` control flows.\n\n**Commands available:**\nThe following common command categories are usually available. Availability still depends on the host, so when in doubt run `which <command>` first to confirm a command exists before relying on it.\n- Navigation and inspection: `ls`, `pwd`, `cd`, `stat`, `file`, `du`, `df`, `tree`\n- File and directory management: `cp`, `mv`, `rm`, `mkdir`, `touch`, `ln`, `chmod`, `chown`\n- Text and data processing: `wc`, `sort`, `uniq`, `cut`, `tr`, `diff`, `xargs`\n- Archives and compression: `tar`, `gzip`, `gunzip`, `zip`, `unzip`\n- Networking and transfer: `curl`, `wget`, `ping`, `ssh`, `scp`\n- Version control: `git`; for GitHub-hosted work (PRs, issues, CI runs, API queries) prefer the `gh` CLI when installed — it carries the user's GitHub auth and can return structured JSON\n- Process and system: `ps`, `kill`, `top`, `env`, `date`, `uname`, `whoami`\n- Language and package toolchains: `node`, `npm`, `pnpm`, `yarn`, `python`, `pip` (use whichever the project actually relies on)",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "command": { "type": "string", "description": "The shell command to run" },
-                            "cwd": { "type": "string", "description": "Working directory (default: session cwd)" },
-                            "timeout": { "type": "integer", "description": "Timeout in seconds (default 60, max 300)" }
+                            "command": { "type": "string", "description": "The command to execute." },
+                            "cwd": { "type": "string", "description": "The working directory in which to run the command. When omitted, the command runs in the session's working directory." },
+                            "timeout": { "type": "number", "description": "Optional timeout in seconds for the command to execute. Foreground default 60s, max 300s." },
+                            "description": { "type": "string", "description": "A short description for the background task. Required when run_in_background is true." },
+                            "run_in_background": { "type": "boolean", "description": "Whether to run the command as a background task. Not supported by this engine; do not set it to true." }
                         },
-                        "required": ["command"]
+                        "required": ["command"],
+                        "additionalProperties": false
                     }
                 }
             })),
@@ -325,7 +346,7 @@ impl RustTurnSession {
                     tools: subagent_tools,
                     policy: policy.clone(),
                     max_steps: input.max_steps_per_turn,
-                    shell: input.shell.clone().unwrap_or_else(|| "/bin/sh".to_string()),
+                    shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
                     tasks: tasks.clone(),
                     steer_map: std::sync::Arc::clone(&steer_map),
                     events: event_sink.clone(),
@@ -352,12 +373,14 @@ impl RustTurnSession {
         let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let cancel = std::sync::Arc::new(dimi_engine::engine::CancelSignal::new());
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         Ok(Self {
             inner: napi::tokio::sync::Mutex::new(
                 dimi_engine::engine::TurnSession::with_steer_and_cancel(
                     input,
                     Some(std::sync::Arc::clone(&steer_queue)),
                     std::sync::Arc::clone(&cancel),
+                    std::sync::Arc::clone(&finished),
                 ),
             ),
             llm,
@@ -369,6 +392,7 @@ impl RustTurnSession {
             steer_map,
             steer_queue,
             cancel,
+            finished,
             on_event: None,
             event_sink,
         })
@@ -403,9 +427,15 @@ impl RustTurnSession {
     }
 
     /// Steer the running turn: the message is queued and drained into the
-    /// next LLM request (async-subagent semantics).
+    /// next LLM request (async-subagent semantics). Returns `false` when the
+    /// turn has already finished — the queue would never be drained again —
+    /// so the TS runner falls back to starting a new turn with the message
+    /// (a steer racing the teardown must not be silently dropped).
     #[napi]
-    pub fn steer(&self, message: String) {
+    pub fn steer(&self, message: String) -> bool {
+        if self.finished.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
         self.steer_queue
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -417,6 +447,7 @@ impl RustTurnSession {
                 tool_calls: None,
                 reasoning: None,
             });
+        true
     }
 
     /// Advance the turn until completion or an approval request. Every

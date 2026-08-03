@@ -640,9 +640,11 @@ export class RustTurnSession {
     this.#inner.registerExternalTool(name, description, parametersJson, callback);
   }
 
-  /** Steer the running turn (drained into its next LLM request). */
-  steer(message: string): void {
-    this.#inner.steer(message);
+  /** Steer the running turn (drained into its next LLM request). Returns
+   *  `false` when the turn has already finished — the caller must start a
+   *  new turn instead (the steer is never dropped). */
+  steer(message: string): boolean {
+    return this.#inner.steer(message);
   }
 
   /** Steer a background subagent spawned by the `Agent` tool. */
@@ -675,7 +677,7 @@ export interface RustTurnSessionHandle {
     parametersJson: string,
     callback: (payloadJson: string) => void,
   ): void;
-  steer(message: string): void;
+  steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
   completeToolCall(requestId: string, resultJson: string): void;

@@ -82,6 +82,13 @@ pub fn home_dir() -> String {
     })
 }
 
+/// The default shell path (bash when available, else `/bin/sh`) — the POSIX
+/// branch of `environmentProbe.ts`. Used when a session does not specify a
+/// shell (`SHELL` env + spawn target parity with the TS bash tool).
+pub fn default_shell() -> String {
+    probe_shell().1
+}
+
 /// `probeHostEnvironment` — the POSIX branch of environmentProbe.ts:
 /// `/bin/bash` → `/usr/bin/bash` → `/usr/local/bin/bash`, else `sh`/`/bin/sh`.
 /// Windows shell discovery (Git Bash) is deferred to the Windows pass.
@@ -161,6 +168,19 @@ mod tests {
         if std::path::Path::new("/bin/bash").is_file() {
             assert_eq!(info.shell_name, "bash");
             assert_eq!(info.shell_path, "/bin/bash");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_shell_prefers_bash() {
+        let shell = default_shell();
+        assert!(shell.starts_with('/'), "{shell}");
+        // The TS probe chain prefers bash; /bin/sh is only the fallback.
+        if std::path::Path::new("/bin/bash").is_file() {
+            assert_eq!(shell, "/bin/bash");
+        } else {
+            assert_eq!(shell, "/bin/sh");
         }
     }
 
