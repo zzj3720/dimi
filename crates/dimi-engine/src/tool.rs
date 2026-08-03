@@ -760,6 +760,9 @@ pub struct TaskState {
     /// Full message history of the subagent's latest turn (resume carries
     /// it into the next turn).
     pub messages: Vec<crate::types::LlmMessage>,
+    /// Monotonic launch timestamp (nanos) — disambiguates tasks that share
+    /// an agent id (resume): the newest wins for lookups.
+    pub started_at: u128,
 }
 
 impl AgentTasks {
@@ -787,18 +790,34 @@ impl AgentTasks {
         inner.get(task_id).cloned()
     }
 
-    /// Look up by agent id (the wire key the tools receive).
+    /// Look up by agent id (the wire key the tools receive). When multiple
+    /// tasks share an agent id (resume spawns a new task), the running one
+    /// wins; otherwise the first match is returned.
     pub fn find_by_agent_id(&self, agent_id: &str) -> Option<TaskState> {
         self.find_by_agent_id_with_key(agent_id).map(|(_, state)| state)
     }
 
-    /// Look up by agent id, also returning the task id (map key).
+    /// Look up by agent id, also returning the task id (map key). The
+    /// running task wins; otherwise the newest (largest `started_at`).
     pub fn find_by_agent_id_with_key(&self, agent_id: &str) -> Option<(String, TaskState)> {
         let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        inner
-            .iter()
-            .find(|(_, state)| state.agent_id == agent_id)
-            .map(|(task_id, state)| (task_id.clone(), state.clone()))
+        let mut best: Option<(String, TaskState)> = None;
+        for (task_id, state) in inner.iter() {
+            if state.agent_id != agent_id {
+                continue;
+            }
+            if state.status == "running" {
+                return Some((task_id.clone(), state.clone()));
+            }
+            let is_newer = best
+                .as_ref()
+                .map(|(_, current)| state.started_at > current.started_at)
+                .unwrap_or(true);
+            if is_newer {
+                best = Some((task_id.clone(), state.clone()));
+            }
+        }
+        best
     }
 }
 
@@ -1028,6 +1047,7 @@ impl AsyncAgentTool {
                 output: String::new(),
                 error: None,
                 messages: history.clone(),
+                started_at: now_nanos(),
             },
         );
 
@@ -1096,6 +1116,14 @@ fn uuid_v4_short() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{nanos:x}")
+}
+
+/// Monotonic launch timestamp for `TaskState` (nanos since the epoch).
+fn now_nanos() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 /// `AgentOutputTool` — read a background subagent's current output/status.
@@ -1357,6 +1385,7 @@ mod async_agent_tests {
                 output: String::new(),
                 error: None,
                 messages: vec![],
+                started_at: 1,
             },
         );
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -1418,6 +1447,7 @@ mod async_agent_tests {
                     tool_calls: None,
                     reasoning: None,
                 }],
+                started_at: 1,
             },
         );
         let agent = AsyncAgentTool {
