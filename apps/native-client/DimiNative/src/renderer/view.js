@@ -206,6 +206,14 @@ function renderSessionPicker(root) {
   search.addEventListener('input', () => {
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_search', query: search.value } }));
   });
+  search.addEventListener('keydown', (evt) => {
+    // Picker keys (TUI session-picker.ts): ↑/↓ move, Enter selects,
+    // Esc clears query first then closes.
+    if (evt.key === 'ArrowDown') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_move', delta: 1 } })); }
+    else if (evt.key === 'ArrowUp') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_move', delta: -1 } })); }
+    else if (evt.key === 'Enter') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_select' } })); }
+    else if (evt.key === 'Escape') { evt.preventDefault(); window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'escape' } })); }
+  });
   body.appendChild(search);
 
   const listEl = document.createElement('div');

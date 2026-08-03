@@ -84,6 +84,9 @@ export const model = {
 
   // renderer-internal
   sseUnsubscribe: null,
+  pendingUndoEscTicks: -1, // TUI double-Esc undo window (DOUBLE_ESC_WINDOW_MS)
+  btwAgentId: '',
+  undoRequested: false,
 };
 
 // ------------------------------------------------------------------ msgs
@@ -413,7 +416,13 @@ export function update(state, msg) {
         return;
       }
       if (state.pickerOpen) {
-        state.pickerOpen = false;
+        // TUI session-picker: first Esc clears the query, second closes.
+        if (state.pickerQuery.length > 0) {
+          state.pickerQuery = '';
+          state.pickerSelectedIndex = 0;
+        } else {
+          state.pickerOpen = false;
+        }
         return;
       }
       if (state.settingsDialogOpen) {
@@ -445,7 +454,17 @@ export function update(state, msg) {
       }
       if (state.busy) {
         state.statusMsg = 'cancelling…';
+        return;
       }
+      // TUI double-Esc undo (editor-keyboard.ts:205-211): idle, no dialogs —
+      // first Esc arms the window, second Esc within it undoes.
+      if (state.pendingUndoEscTicks >= 0 && state.tipTicks - state.pendingUndoEscTicks <= 2) {
+        state.pendingUndoEscTicks = -1;
+        state.statusMsg = 'undo (double-esc)';
+        state.undoRequested = true;
+        return;
+      }
+      state.pendingUndoEscTicks = state.tipTicks;
       return;
     }
 
@@ -673,15 +692,13 @@ export function handleSseEvent(state, evt) {
 }
 
 export function filteredSessions(state) {
-  const q = state.pickerQuery.trim().toLowerCase();
   let list = state.sessions;
   if (state.pickerScope === 'cwd') {
     list = list.filter((s) => s.cwd === window.dimiCwd);
   }
-  if (!q) return list;
-  return list.filter((s) =>
-    (s.title || '').toLowerCase().includes(q) || (s.id || '').toLowerCase().includes(q),
-  );
+  // TUI: fuzzyFilter over title (searchable-list.ts) — the query is matched
+  // token-wise with fuzzy scoring, not plain substring.
+  return fuzzyFilter(list, state.pickerQuery, (s) => s.title || '');
 }
 
 // ------------------------------------------------------------------ slash menu completion

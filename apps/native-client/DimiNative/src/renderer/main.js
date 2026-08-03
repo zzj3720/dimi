@@ -63,6 +63,11 @@ function afterDispatch(msg) {
       submitQuestion();
       break;
     case 'escape':
+      // Double-Esc undo: when the reducer armed an undo, run it.
+      if (model.undoRequested) {
+        model.undoRequested = false;
+        runUndo(1);
+      }
       // return focus to composer unless a dialog is open
       if (!model.pickerOpen && !model.currentApproval && !model.currentQuestion && !model.settingsDialogOpen) {
         els.input.focus();
@@ -383,24 +388,34 @@ function runSlashCommand(resolved) {
         .then(() => { model.statusMsg = 'compacting…'; render(); })
         .catch((e) => { model.statusMsg = `compact failed: ${e.message}`; render(); });
       break;
-    case 'undo': {
+    case 'undo':
+      runUndo(Number.parseInt(resolved.args, 10) || 1);
+      break;
+    case 'btw': {
       if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
-      const count = Number.parseInt(resolved.args, 10) || 1;
-      api('POST', `/api/v1/sessions/${model.currentSessionId}:undo`, { count })
-        .then((data) => {
-          const msgs = data?.data?.messages?.items ?? [];
-          model.statusMsg = `undone (${msgs.length} messages)`;
-          // Reload the transcript to reflect the undo.
-          connectSession(model.currentSessionId);
+      model.btwOpen = true;
+      model.btwBusy = true;
+      model.btwPrompt = resolved.args ?? '';
+      model.btwAnswer = '';
+      model.statusMsg = 'starting btw…';
+      render();
+      api('POST', `/api/v1/sessions/${model.currentSessionId}:btw`, {})
+        .then(async (data) => {
+          const agentId = data?.data?.agent_id ?? 'main';
+          model.btwAgentId = agentId;
+          model.btwBusy = false;
+          model.statusMsg = '';
+          render();
+          if (resolved.args && resolved.args.trim().length > 0) {
+            await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
+              content: [{ type: 'text', text: resolved.args }],
+              agent_id: agentId,
+            });
+          }
         })
-        .catch((e) => { model.statusMsg = `undo failed: ${e.message}`; render(); });
+        .catch((e) => { model.statusMsg = `btw failed: ${e.message}`; render(); });
       break;
     }
-    case 'btw':
-      model.btwOpen = true;
-      model.btwDraft = resolved.args;
-      model.btwPrompt = resolved.args;
-      break;
     case 'usage': model.statusMsg = 'usage panel (coming)'; break;
     case 'tasks': dispatch(Msg.TasksOpen()); break;
     case 'copy': model.statusMsg = 'copy last assistant message'; break;
@@ -474,6 +489,18 @@ function recallLastQueued() {
   model.draft = last.text;
   render();
   els.input.focus();
+}
+
+function runUndo(count) {
+  if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+  api('POST', `/api/v1/sessions/${model.currentSessionId}:undo`, { count })
+    .then((data) => {
+      const msgs = data?.data?.messages?.items ?? [];
+      model.statusMsg = `undone (${msgs.length} messages)`;
+      // Reload the transcript to reflect the undo.
+      connectSession(model.currentSessionId);
+    })
+    .catch((e) => { model.statusMsg = `undo failed: ${e.message}`; render(); });
 }
 
 // ------------------------------------------------------------- steer/cancel
