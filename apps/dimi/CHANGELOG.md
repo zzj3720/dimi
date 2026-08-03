@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.6
+
+### Patch Changes
+
+- [`bf0de20`](https://github.com/zzj3720/dimi/commit/bf0de204049a93e66a9828e80045d38b29e0f62a) - Require external-state watchers to run as dimi background tasks so their completion wakes the wait; detached processes (nohup, cron) are invisible to dimi and no longer suggested in the WaitFor guidance.
+
 ## 0.6.5
 
 ### Patch Changes
