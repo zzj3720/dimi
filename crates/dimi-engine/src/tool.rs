@@ -540,6 +540,14 @@ fn backgrounded_result(
                     });
                     return;
                 }
+                if events.is_closed() {
+                    // Session torn down (TS `taskService.dispose` parity): kill
+                    // the background command; the sink is closed so no settle is
+                    // emitted and nothing fires into the disposed runner.
+                    let _ = poller_process.kill(Some(9));
+                    let _ = poller_process.wait();
+                    return;
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -591,10 +599,9 @@ fn backgrounded_result(
          pid: {}\n\
          description: {description}\n\
          status: running\n\
-         automatic_notification: false\n\
-         next_step: The task now runs in the background; read its output/status with \
-         AgentOutput(agent_id=\"{task_id}\") or WaitFor(agent_id=\"{task_id}\") once it \
-         completes, and continue with your current work.",
+         automatic_notification: true\n\
+         next_step: The task now runs in the background. You will be automatically \
+         notified when it completes — do NOT wait or poll; continue with your current work.",
         args.timeout,
         process.pid(),
     );
@@ -884,8 +891,24 @@ mod tests {
             "{}",
             result.output
         );
-        assert!(result.output.contains("AgentOutput"), "{}", result.output);
-        assert!(result.output.contains("WaitFor"), "{}", result.output);
+        // The completion notification is actually delivered (P1-7): the
+        // metadata says automatic_notification: true and stops telling the
+        // model to poll.
+        assert!(
+            result.output.contains("automatic_notification: true"),
+            "{}",
+            result.output
+        );
+        assert!(
+            result.output.contains("You will be automatically notified when it completes"),
+            "{}",
+            result.output
+        );
+        assert!(
+            result.output.contains("do NOT wait or poll"),
+            "{}",
+            result.output
+        );
 
         // The task is registered and still running (sleep 4 >> 1s timeout).
         let state = tasks.get(&task_id).expect("backgrounded task registered");
@@ -1619,7 +1642,9 @@ impl AsyncAgentTool {
         agent_id: String,
         history: Vec<crate::types::LlmMessage>,
     ) -> ToolResult {
-        let task_id = format!("task-{}", uuid_v4_short());
+        // TS `SubagentTask.idPrefix = "agent"` parity: the wire task id for a
+        // subagent is `agent-<8>` (bash background tasks keep `bash-<8>`).
+        let task_id = format!("agent-{}", uuid_v4_short());
         self.tasks.insert(
             task_id.clone(),
             TaskState {
@@ -1668,6 +1693,12 @@ impl AsyncAgentTool {
                 Some(steer_queue),
             )
             .await;
+            // Session torn down while the nested turn ran (TS
+            // `taskService.dispose` parity): skip the settle + notification —
+            // the sink is closed, so nothing would reach the runner anyway.
+            if events.is_closed() {
+                return;
+            }
             tasks.update(&task_id_for_worker, |state| {
                 state.messages = messages;
                 if error.is_empty() {

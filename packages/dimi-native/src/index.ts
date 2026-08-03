@@ -657,6 +657,12 @@ export class RustTurnSession {
     this.#inner.cancel();
   }
 
+  /** Close the session (agent dispose): task events stop forwarding, the
+   *  in-flight turn is cancelled. Background workers observe the close. */
+  close(): void {
+    this.#inner.close();
+  }
+
   completeToolCall(requestId: string, resultJson: string): void {
     this.#inner.completeToolCall(requestId, resultJson);
   }
@@ -680,5 +686,6 @@ export interface RustTurnSessionHandle {
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
+  close(): void;
   completeToolCall(requestId: string, resultJson: string): void;
 }

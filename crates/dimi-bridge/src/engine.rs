@@ -219,6 +219,19 @@ pub struct RustTurnSession {
     event_sink: EventSink,
 }
 
+/// Session teardown (TS `taskService.dispose` parity): once the runner
+/// closes the session (or the napi object is dropped — the runner holds
+/// every session until its own dispose, so Drop only fires at teardown),
+/// the EventSink stops forwarding late task settles and the in-flight turn
+/// is cancelled, so background workers/pollers cannot fire into a disposed
+/// runner.
+impl Drop for RustTurnSession {
+    fn drop(&mut self) {
+        self.event_sink.close();
+        self.cancel.cancel();
+    }
+}
+
 /// Mutex-wrapped registry implementing ToolExecutor.
 struct LockedRegistry(std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>);
 
@@ -405,6 +418,16 @@ impl RustTurnSession {
         self.cancel.cancel();
     }
 
+    /// Close the session (TS `taskService.dispose` parity): the task event
+    /// sink stops forwarding, the in-flight turn is cancelled, and
+    /// `steer` refuses. Called by the TS runner when the agent is disposed;
+    /// background workers/pollers observe `is_closed` and stop their work.
+    #[napi]
+    pub fn close(&self) {
+        self.event_sink.close();
+        self.cancel.cancel();
+    }
+
     /// Register the per-event callback: every engine event emitted by `run`
     /// /`resume` is pushed through it as JSON, in emission order, as it
     /// happens. The `run`/`resume` response then carries only the final
@@ -433,7 +456,7 @@ impl RustTurnSession {
     /// (a steer racing the teardown must not be silently dropped).
     #[napi]
     pub fn steer(&self, message: String) -> bool {
-        if self.finished.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.finished.load(std::sync::atomic::Ordering::Relaxed) || self.event_sink.is_closed() {
             return false;
         }
         self.steer_queue

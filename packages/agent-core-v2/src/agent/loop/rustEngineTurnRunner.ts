@@ -187,6 +187,18 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   /** Notification dedupe (TS `deliveredNotificationKeys` parity). */
   private readonly deliveredNotificationKeys = new Set<string>();
 
+  /** Every RustTurnSession this runner created. Held until the agent scope
+   *  is disposed so a session's EventSink stays open while its background
+   *  tasks are still settling (a subagent launched in turn 1 must be able to
+   *  notify after turn 1 ends), and so teardown can close them all at once
+   *  (TS `taskService.dispose` parity). */
+  private readonly sessions = new Set<RustTurnSession>();
+
+  /** Whether the agent scope was disposed: late engine events (background
+   *  task settles racing the teardown) are ignored instead of dispatching
+   *  wire ops on a disposed wire / appending to a disposed context. */
+  private disposed = false;
+
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -222,6 +234,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    * the next turn instead, so it is never lost).
    */
   steer(payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin }): boolean {
+    if (this.disposed) return false;
     const session = this.activeSession;
     if (session === undefined) return false;
     const text = payload.input
@@ -255,6 +268,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     readonly input: readonly ContentPart[];
     readonly origin: PromptOrigin;
   }): Promise<{ readonly turnId: number } | undefined> {
+    if (this.disposed) return undefined;
     // 1. Turn clock + user message (mirrors loopService.startTurn).
     this.wire.dispatch(promptTurn({ input: [...payload.input], origin: payload.origin }));
     const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
@@ -300,6 +314,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     return cancelled;
   }
 
+  /**
+   * Agent-scope teardown (TS `taskService.dispose` parity): every Rust
+   * session is closed — its EventSink stops forwarding, the in-flight turn
+   * is cancelled, and background workers/pollers observe the closed flag and
+   * kill their processes — and late engine events are ignored instead of
+   * dispatching wire ops on a disposed wire. The DI container invokes this
+   * when the agent scope is disposed.
+   */
+  dispose(): void {
+    this.disposed = true;
+    this.approvalAbort?.abort();
+    for (const session of this.sessions) {
+      session.close();
+    }
+    this.sessions.clear();
+  }
+
   private startQueuedTurn(entry: {
     readonly turnId: number;
     readonly payload: { readonly input: readonly ContentPart[]; readonly origin: PromptOrigin };
@@ -312,6 +343,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       .finally(() => {
         this.turnRunning = false;
         this.executingTurnId = undefined;
+        if (this.disposed) {
+          // Teardown raced the queue: drop the queued turns instead of
+          // starting them against a closed session.
+          this.queued.length = 0;
+          return;
+        }
         const next = this.queued.find((queued) => !queued.cancelled);
         if (next === undefined) return;
         this.queued.splice(this.queued.indexOf(next), 1);
@@ -320,6 +357,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }
 
   private async runTurnNow(turnId: number): Promise<{ readonly turnId: number }> {
+    if (this.disposed) return { turnId };
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
     //    the context) plus the context history.
@@ -351,6 +389,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments.
     const scripted = process.env["DIMI_RUST_ENGINE_SCRIPTED"];
     const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    this.sessions.add(session);
     this.activeSession = session;
     try {
       await this.runEngineSession(session, turnId, provider["model"] as string);
@@ -486,6 +525,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
 
     const handleEngineEvent = (event: Record<string, unknown>): void => {
+      // The agent was disposed while this turn/worker was in flight: ignore
+      // the event (wire/context are gone; TS parity — a disposed session
+      // suppresses everything, not just task settles).
+      if (this.disposed) return;
       // Task lifecycle events are transport shapes, not bus events: translate
       // them into the TS task/subagent records (wire ops + bus events) —
       // publishing the raw shape would collide with the protocol's
@@ -741,12 +784,27 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     ) as AgentTaskInfo;
     this.wire.dispatch(taskStarted({ info }));
     if (kind === "agent") {
+      // TS `emitAgentRunSpawned` parity minus the profile concept: the
+      // engine has no subagent profiles (it ignores `subagent_type`), so
+      // `subagentName` carries the Agent-tool description — a documented
+      // deviation, TS sends the profile name (e.g. "general"). The fields
+      // the runner CAN know match: `parentAgentId`/`callerAgentId` are the
+      // launching agent's id, `description` is the Agent-tool arg.
       this.eventBus.publish({
         type: "subagent.spawned",
         subagentId: agentId,
         subagentName: description,
         parentToolCallId: toText(event["parentToolCallId"]),
+        parentAgentId: this.scopeContext.agentId,
+        callerAgentId: this.scopeContext.agentId,
+        description,
         runInBackground: false,
+      } as never);
+      // TS publishes `subagent.started` at the top of `mirrorAgentRun`,
+      // immediately after `emitAgentRunSpawned` — same point here.
+      this.eventBus.publish({
+        type: "subagent.started",
+        subagentId: agentId,
       } as never);
     }
   }
@@ -792,11 +850,22 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     ) as AgentTaskInfo;
     this.wire.dispatch(taskTerminated({ info, outputTail: output.slice(-TERMINAL_OUTPUT_TAIL_CHARS) }));
     if (kind === "agent") {
-      this.eventBus.publish(
-        (status === "completed"
-          ? { type: "subagent.completed", subagentId: agentId, resultSummary: output }
-          : { type: "subagent.failed", subagentId: agentId, error: error ?? status }) as never,
-      );
+      if (status === "completed") {
+        this.eventBus.publish({
+          type: "subagent.completed",
+          subagentId: agentId,
+          resultSummary: output,
+        } as never);
+      } else if (status === "failed") {
+        this.eventBus.publish({
+          type: "subagent.failed",
+          subagentId: agentId,
+          error: error ?? status,
+        } as never);
+      }
+      // Any other status (e.g. `timed_out`): no failure event — TS parity
+      // (`mirrorAgentRun` suppresses failure events for aborted/timed-out
+      // runs; only the completion notification is delivered).
     }
     this.deliverTaskNotification({
       taskId,
@@ -852,13 +921,27 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       status: task.status as AgentTaskStatus,
       notificationId: key,
     };
-    this.context.append({
-      role: "user",
-      content: [{ type: "text", text: xml }],
-      toolCalls: [],
-      origin,
-      id: randomUUID(),
-    });
+    // The notification message lands in the context exactly once (TS parity:
+    // the loop materializes the request once). Mid-turn: append here, then
+    // steer (the engine drains the message into the running turn's next
+    // request). Idle: leave the append to `runTurn`, which records the
+    // message as the notification turn's user input. When the engine refuses
+    // the steer (its turn already ended — a notification racing the
+    // teardown), the same idle fallback applies: no pre-append and no
+    // `turn.steer` op, and `runTurn` launches/queues a new turn, so the
+    // message is never recorded twice and no steer is lost.
+    if (this.turnRunning && this.activeSession !== undefined && this.activeSession.steer(xml)) {
+      this.context.append({
+        role: "user",
+        content: [{ type: "text", text: xml }],
+        toolCalls: [],
+        origin,
+        id: randomUUID(),
+      });
+      this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
+    } else {
+      void this.runTurn({ input: [{ type: "text", text: xml }], origin }).catch(() => undefined);
+    }
     this.eventBus.publish({
       type: "task.notified",
       notificationType: `task.${task.status}`,
@@ -868,18 +951,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       sourceKind: notification.source_kind,
       sourceId: notification.source_id,
     } as never);
-    if (this.turnRunning && this.activeSession !== undefined && this.activeSession.steer(xml)) {
-      // Mid-turn: fold into the running turn's following step (TS
-      // `activeOrNewTurn` parity) — the engine drains it into the next LLM
-      // request. When the engine refuses (its turn already ended, a
-      // notification racing the teardown), fall through to the idle path so
-      // the notification launches a new turn instead of being dropped.
-      this.wire.dispatch(steerTurn({ input: [{ type: "text", text: xml }], origin }));
-    } else {
-      // Idle: launch a notification turn that processes the notification
-      // (TS `activeOrNewTurn` parity).
-      void this.runTurn({ input: [{ type: "text", text: xml }], origin }).catch(() => undefined);
-    }
   }
 
   private toLlmMessage(message: ContextMessage): Record<string, unknown> {

@@ -10,12 +10,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { TaskModel } from '#/agent/task/taskOps';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
 import {
   agentService,
   createTestAgent,
+  logServices,
   permissionModeServices,
   type TestAgentContext,
 } from '../../harness';
@@ -379,6 +381,7 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
       const type = (event as { type?: string }).type;
       if (
         type === 'subagent.spawned' ||
+        type === 'subagent.started' ||
         type === 'subagent.completed' ||
         type === 'subagent.failed' ||
         type === 'task.notified' ||
@@ -403,11 +406,23 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
       'task completion notification message',
     );
 
-    // Subagent ids are TS-lifecycle-shaped (agent-<n> / task-<8-uuid-chars>).
+    // Subagent ids are TS-lifecycle-shaped (agent-<n> / agent-<8-uuid-chars>).
     const spawned = busEvents.find((event) => event['type'] === 'subagent.spawned');
     expect(spawned).toBeDefined();
     expect(String(spawned?.['subagentId'])).toMatch(/^agent-\d+$/);
     expect(spawned?.['parentToolCallId']).toBe('call_sub');
+    // TS `emitAgentRunSpawned` parity: parent/caller agent + description are
+    // filled (the engine has no profile concept, so subagentName carries the
+    // description — documented deviation from TS's profileName).
+    expect(spawned?.['parentAgentId']).toBe(ctx.get(IAgentScopeContext).agentId);
+    expect(spawned?.['callerAgentId']).toBe(ctx.get(IAgentScopeContext).agentId);
+    expect(spawned?.['description']).toBe('test sub');
+    expect(spawned?.['subagentName']).toBe('test sub');
+    expect(spawned?.['runInBackground']).toBe(false);
+    // subagent.started is published right after spawned (mirrorAgentRun parity).
+    const started = busEvents.find((event) => event['type'] === 'subagent.started');
+    expect(started).toBeDefined();
+    expect(started?.['subagentId']).toBe(spawned?.['subagentId']);
     expect(busEvents.some((event) => event['type'] === 'subagent.completed')).toBe(true);
     const completed = busEvents.find((event) => event['type'] === 'subagent.completed');
     expect(completed?.['resultSummary']).toBe('subagent result text');
@@ -417,7 +432,11 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     expect(notified?.['sourceKind']).toBe('background_task');
     // The wire records task.started + task.terminated (their bus events come
     // from the ops' toEvent).
-    expect(busEvents.some((event) => event['type'] === 'task.started')).toBe(true);
+    const taskStarted = busEvents.find((event) => event['type'] === 'task.started');
+    expect(taskStarted).toBeDefined();
+    expect((taskStarted?.['info'] as { taskId?: string } | undefined)?.taskId).toMatch(
+      /^agent-[0-9a-f]{8}$/,
+    );
     expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(true);
     // The task model holds the settled subagent task (agent kind).
     const taskModel = ctx.get(IWireService).getModel(TaskModel);
@@ -425,6 +444,20 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
     const settled = tasks.find((task) => task.status === 'completed');
     expect(settled).toBeDefined();
     expect(settled).toMatchObject({ kind: 'agent', agentId: spawned?.['subagentId'] });
+    // The idle-path notification launches a notification turn — the XML lands
+    // in the context EXACTLY ONCE (P1-1: the old code pre-appended AND let
+    // runTurn append it again). No `turn.steer` op is recorded because the
+    // main turn had already ended (P1-2: the op is only written when a steer
+    // actually lands).
+    const taskOriginMessages = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .filter((message) => message.origin?.kind === 'task');
+    expect(taskOriginMessages).toHaveLength(1);
+    const steerOps = ctx.snapshots.entries.filter(
+      (entry) => entry.type === '[wire]' && entry.event === 'turn.steer',
+    );
+    expect(steerOps).toHaveLength(0);
   }, 30_000);
 
   it('delivers a backgrounded bash task completion notification into the running turn', async () => {
@@ -513,11 +546,89 @@ describe('Rust engine turn runner (DIMI_RUST_ENGINE=1)', () => {
             .includes('Background process completed')),
       'bash completion notification message',
     );
+    // The mid-turn steer path appends the notification message exactly once
+    // (P1-1: no pre-append + steer duplicate; no runTurn re-append).
+    const taskOriginMessages = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .filter((message) => message.origin?.kind === 'task');
+    expect(taskOriginMessages).toHaveLength(1);
     const taskModel = ctx.get(IWireService).getModel(TaskModel);
     const tasks = [...taskModel.values()];
     const settled = tasks.find((task) => task.status === 'completed');
     expect(settled).toBeDefined();
     expect(settled).toMatchObject({ kind: 'process' });
+  }, 30_000);
+
+  it('cancels background work and drops late settles when the agent is disposed', async () => {
+    // The main turn launches a background subagent whose nested turn blocks in
+    // Bash (`sleep 2`). Disposing the agent while the subagent is still
+    // running must not throw or log errors (P1-5): the runner closes every
+    // Rust session — the EventSink stops forwarding and the worker observes
+    // `is_closed` and skips the settle — so no `task.terminated` op /
+    // notification fires into the disposed runner.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_sub',
+          name: 'Agent',
+          argumentsPart: '{"prompt":"sub work"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_nested_sleep',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    const errors: Array<{ message: string; payload?: unknown }> = [];
+    const logger = {
+      error: (message: string, payload?: unknown) => {
+        errors.push({ message, payload });
+      },
+      warn: () => undefined,
+      info: () => undefined,
+      debug: () => undefined,
+      child: () => logger,
+    };
+    ctx = createTestAgent([permissionModeServices('auto')], logServices(logger));
+    ctx.get(IAgentLoopService);
+
+    const busEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      const type = (event as { type?: string }).type;
+      if (
+        type === 'subagent.spawned' ||
+        type === 'task.started' ||
+        type === 'task.terminated' ||
+        type === 'task.notified'
+      ) {
+        busEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'spawn bg' }] });
+    // Wait until the subagent is actually running (its nested Bash sleeps),
+    // then tear the agent down mid-flight.
+    await waitForContext(
+      ctx,
+      () => busEvents.some((event) => event['type'] === 'subagent.spawned'),
+      'subagent spawn',
+    );
+    await ctx.dispose();
+
+    // Give the nested turn (sleep 2) time to settle into the closed session.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(errors).toEqual([]);
+    // No terminal task records / notification reached the disposed runner.
+    expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(false);
+    expect(busEvents.some((event) => event['type'] === 'task.notified')).toBe(false);
   }, 30_000);
 
   it('queues a prompt behind the running turn and runs it after', async () => {

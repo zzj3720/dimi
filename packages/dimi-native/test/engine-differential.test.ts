@@ -353,10 +353,10 @@ describe('RustEngine minimal closed loop', () => {
 
     const started = await waitForEvent(events, 'task.started', 5_000);
     expect(started['kind']).toBe('agent');
-    // TS lifecycle shapes: agent-<n> (nextAvailableAgentId), task-<8-uuid-chars>
-    // (generateTaskId).
+    // TS lifecycle shapes: agent-<n> (nextAvailableAgentId), agent-<8-uuid-chars>
+    // (SubagentTask.idPrefix = "agent", generateTaskId).
     expect(String(started['agentId'])).toMatch(/^agent-\d+$/);
-    expect(String(started['taskId'])).toMatch(/^task-[0-9a-f]{8}$/);
+    expect(String(started['taskId'])).toMatch(/^agent-[0-9a-f]{8}$/);
     expect(started['parentToolCallId']).toBe('call_sub');
 
     const settled = await waitForEvent(events, 'task.settled', 5_000);

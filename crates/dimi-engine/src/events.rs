@@ -166,6 +166,11 @@ pub struct EventSink {
     inner: std::sync::Arc<
         std::sync::Mutex<Option<std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync>>>,
     >,
+    /// Session-closed flag (TS `taskService.dispose` parity): once the
+    /// owning session is torn down, `emit` stops forwarding so late settles
+    /// from workers/pollers cannot fire into a disposed runner. Workers also
+    /// poll it (`is_closed`) to stop their work and kill their processes.
+    closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl EventSink {
@@ -179,8 +184,24 @@ impl EventSink {
         *self.inner.lock().unwrap_or_else(|p| p.into_inner()) = Some(sink);
     }
 
-    /// Emit one event through the wired callback (no-op before `set`).
+    /// Mark the session closed: further `emit`s are dropped (TS parity — a
+    /// disposed session suppresses terminal notifications).
+    pub fn close(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the owning session was closed (workers/pollers poll this to
+    /// stop background work and skip settlement events).
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Emit one event through the wired callback (no-op before `set` or
+    /// after `close`).
     pub fn emit(&self, event: EngineEvent) {
+        if self.is_closed() {
+            return;
+        }
         let sink = self
             .inner
             .lock()
