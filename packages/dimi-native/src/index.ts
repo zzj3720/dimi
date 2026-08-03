@@ -600,8 +600,10 @@ export interface RustEngineHandle {
 /**
  * `RustTurnSession` — an in-flight Rust-engine turn with approval support.
  * `run()` advances until completion or an approval request; `resume` continues
- * after the user's decision. Each call resolves with the event batch JSON
- * `{ events, progress: {status, outcome?|approval?} }`.
+ * after the user's decision. Every engine event is streamed through the
+ * `setOnEvent` callback as a JSON string, in emission order, as it happens;
+ * each call then resolves with `{ events: [], progress: {status, outcome?|
+ * approval?} }` (the response no longer carries the events).
  */
 export class RustTurnSession {
   readonly #inner: RustTurnSessionHandle;
@@ -609,6 +611,13 @@ export class RustTurnSession {
   constructor(inputJson: string, policyJson: string, scriptedSegmentsJson?: string) {
     const NativeClass = loadNative().RustTurnSession;
     this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null);
+  }
+
+  /** Register the per-event callback: every engine event emitted by `run()` /
+   *  `resume()` is pushed through it as a JSON string, in emission order, as
+   *  it happens. Register before the first `run()`. */
+  setOnEvent(callback: (eventJson: string) => void): void {
+    this.#inner.setOnEvent(callback);
   }
 
   async run(): Promise<string> {
@@ -657,6 +666,7 @@ export interface RustTurnSessionConstructor {
 }
 
 export interface RustTurnSessionHandle {
+  setOnEvent(callback: (eventJson: string) => void): void;
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
   registerExternalTool(

@@ -67,13 +67,19 @@ describe('TS external tool bridge', () => {
       },
     );
 
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+
     const batch = JSON.parse(await session.run()) as {
       events: Array<Record<string, unknown>>;
       progress: { status: string };
     };
     expect(batch.progress.status).toBe('completed');
+    expect(batch.events).toEqual([]);
     expect(called).toBe(1);
-    const result = batch.events.find((event) => event['type'] === 'tool.result');
+    const result = events.find((event) => event['type'] === 'tool.result');
     expect(result?.['output']).toContain('384400');
     expect(result?.['isError']).toBe(false);
     // The tool.result references the LLM's tool_call_id, not ext-N.
@@ -97,12 +103,18 @@ describe('TS external tool bridge', () => {
       ],
     ]);
 
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+
     const batch = JSON.parse(await session.run()) as {
       events: Array<Record<string, unknown>>;
       progress: { status: string };
     };
     expect(batch.progress.status).toBe('completed');
-    const result = batch.events.find((event) => event['type'] === 'tool.result');
+    expect(batch.events).toEqual([]);
+    const result = events.find((event) => event['type'] === 'tool.result');
     expect(result?.['isError']).toBe(true);
     expect(String(result?.['output'])).toContain('not found');
   }, 30_000);

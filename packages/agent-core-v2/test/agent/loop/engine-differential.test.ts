@@ -80,11 +80,17 @@ async function runRustEngine(
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
   );
+  // The engine streams every event through the per-event callback as it is
+  // emitted; the response carries only the progress.
+  const events: EngineEventLike[] = [];
+  session.setOnEvent((eventJson: string) => {
+    events.push(JSON.parse(eventJson) as EngineEventLike);
+  });
   const batch = JSON.parse(await session.run()) as {
     events: EngineEventLike[];
     progress: { status: string; outcome?: { status: string } };
   };
-  return { events: batch.events, outcome: { status: batch.progress.outcome?.status ?? batch.progress.status } };
+  return { events, outcome: { status: batch.progress.outcome?.status ?? batch.progress.status } };
 }
 
 /** The projection-relevant fields of an engine event. */

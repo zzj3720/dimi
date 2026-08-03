@@ -41,12 +41,18 @@ async function runTurn(
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
   );
+  // The engine streams every event through the per-event callback as it is
+  // emitted; the response carries only the progress.
+  const events: EngineEventBatch['events'] = [];
+  session.setOnEvent((eventJson: string) => {
+    events.push(JSON.parse(eventJson) as EngineEventBatch['events'][number]);
+  });
   const batch = JSON.parse(await session.run()) as {
     events: EngineEventBatch['events'];
     progress: { status: string; outcome?: EngineEventBatch['outcome'] };
   };
   return {
-    events: batch.events,
+    events,
     outcome: batch.progress.outcome ?? {
       status: batch.progress.status,
       steps: 0,
@@ -220,4 +226,74 @@ describe('RustEngine minimal closed loop', () => {
       cachedTokens: 2,
     });
   });
+
+  test('streams events to the callback while the turn is still running', async () => {
+    // Step 1: Bash `sleep 0.5` — the tool window keeps the turn in flight
+    // while the probe checks the callback; step 2: the final text answer.
+    const session = new RustTurnSession(
+      JSON.stringify({
+        turnId: 1,
+        messages: [{ role: 'user', content: 'stream' }],
+        tools: [],
+        provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'test-model' },
+        maxStepsPerTurn: null,
+        cwd: '/tmp',
+        shell: '/bin/sh',
+      }),
+      JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+      JSON.stringify([
+        [
+          {
+            type: 'tool_call',
+            toolCallId: 'call_stream',
+            name: 'Bash',
+            argumentsPart: '{"command":"sleep 0.5"}',
+          },
+          { type: 'finish', finishReason: 'tool_calls' },
+        ],
+        [
+          { type: 'text', delta: 'streamed done' },
+          { type: 'finish', finishReason: 'stop' },
+        ],
+      ]),
+    );
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+
+    const runPromise = session.run();
+    // Probe mid-turn: the engine announces the tool call before the Bash
+    // sleep starts, so the callback must already have it — while the tool
+    // result (post-sleep) has not arrived yet.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const typesDuringRun = events.map((event) => event['type']);
+    expect(typesDuringRun).toContain('turn.started');
+    expect(typesDuringRun).toContain('turn.step.started');
+    expect(typesDuringRun).toContain('tool.call.started');
+    expect(typesDuringRun).not.toContain('tool.result');
+    expect(typesDuringRun).not.toContain('turn.ended');
+
+    const batch = JSON.parse(await runPromise) as {
+      events: Array<Record<string, unknown>>;
+      progress: { status: string; outcome?: { status: string } };
+    };
+    expect(batch.progress.status).toBe('completed');
+    // The response no longer carries the events — they streamed through the
+    // callback in emission order (tool.call.started → tool.result →
+    // turn.ended).
+    expect(batch.events).toEqual([]);
+    expect(events.map((event) => event['type'])).toEqual([
+      'turn.started',
+      'turn.step.started',
+      'tool.call.delta',
+      'tool.call.started',
+      'tool.result',
+      'turn.step.completed',
+      'turn.step.started',
+      'assistant.delta',
+      'turn.step.completed',
+      'turn.ended',
+    ]);
+  }, 30_000);
 });

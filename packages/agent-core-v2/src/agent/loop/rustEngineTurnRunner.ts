@@ -6,14 +6,15 @@
  *  1. records `turn.prompt` (turn clock) and appends the user message;
  *  2. assembles the LLM messages from the context (context assembly stays
  *     on the TS side until slice 3);
- *  3. runs `RustEngine.startTurn` (aimux-backed LLM in production, scripted
+ *  3. runs `RustTurnSession` (aimux-backed LLM in production, scripted
  *     segments under test);
- *  4. publishes the engine events on the event bus — the transcript
- *     projection layer (`coreEventMap`) folds them into wire ops exactly as
- *     it does for the TS loop — and mirrors them into the context
- *     (`step.begin` / `content.part` / `tool.call` / `tool.result` /
- *     `step.end` + the assistant message) so the next turn's history is
- *     intact.
+ *  4. streams the engine events onto the event bus as they happen (the
+ *     bridge pushes each event through a per-event callback while the turn
+ *     is in flight) — the transcript projection layer (`coreEventMap`)
+ *     folds them into wire ops exactly as it does for the TS loop — and
+ *     mirrors them into the context (`step.begin` / `content.part` /
+ *     `tool.call` / `tool.result` / `step.end` + the assistant message) so
+ *     the next turn's history is intact.
  *
  * Slice-1 scope: single turn, no queue/cancellation/undo (those land with
  * later slices). The runner is a parallel path — `loopService` is untouched.
@@ -290,7 +291,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     providerModel: string,
   ): Promise<void> {
     interface EngineProgress {
-      events: Array<Record<string, unknown>>;
       progress: {
         status: string;
         outcome?: { status: string; error?: string; errorCode?: string };
@@ -368,79 +368,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         })();
       });
     }
-    const allEvents: Array<Record<string, unknown>> = [];
-    const advance = async (): Promise<EngineProgress> => {
-      const next = JSON.parse(await session.run()) as EngineProgress;
-      return next;
-    };
-    let progress: EngineProgress = await advance();
-    allEvents.push(...progress.events);
-    // Approval loop: surface the request, wait for the user, resume.
-    while (progress.progress.status === "needsApproval") {
-      const approval = progress.progress.approval!;
-      const approvalRequest = {
-        sessionId: this.sessionContext.sessionId,
-        agentId: this.scopeContext.agentId,
-        turnId,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolName,
-        action: `Approve ${approval.toolName}`,
-        display: {
-          kind: "generic",
-          summary: `Approve ${approval.toolName}`,
-          detail: approval.toolInput,
-        },
-      } as Parameters<ISessionApprovalService["request"]>[0];
-      this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
-      let response: ApprovalResponse = { decision: "approved" };
-      // The approval wait is cancellable: `cancel()` aborts it so the turn
-      // resolves as cancelled without waiting for the user (TS abortable
-      // parity).
-      const approvalController = new AbortController();
-      this.approvalAbort = approvalController;
-      try {
-        const approvalService = this.instantiation.invokeFunction(
-          (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
-        );
-        response =
-          approvalService !== undefined
-            ? await Promise.race([
-                approvalService.request(approvalRequest),
-                abortOnSignal(approvalController.signal).then(() => ({ decision: "cancelled" as const })),
-              ])
-            : { decision: "approved" };
-      } catch {
-        response = { decision: "rejected" };
-      } finally {
-        this.approvalAbort = undefined;
-      }
-      this.eventBus.publish({
-        type: "permission.approval.resolved",
-        ...approvalRequest,
-        decision: response.decision,
-      } as never);
-      // Session-scope approval memory (TS toolApproval parity): an approved
-      // `scope: session` response records the rule so the same tool pattern
-      // is not re-asked within the session.
-      this.rulesService.recordApprovalResult({
-        turnId,
-        toolCallId: approvalRequest.toolCallId!,
-        toolName: approvalRequest.toolName,
-        action: approvalRequest.action,
-        sessionApprovalRule:
-          response.decision === "approved" && response.scope === "session"
-            ? approvalRequest.toolName
-            : undefined,
-        result: response,
-      });
-      progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
-      allEvents.push(...progress.events);
-    }
-    const batch = {
-      events: allEvents,
-      outcome: progress.progress.outcome ?? { status: progress.progress.status },
-    };
-
     // 4. Engine events → bus (projection folds them into transcript ops).
     //    Context mirroring mirrors the TS loop's record stream exactly:
     //    step.begin (fresh uuid per step) → content.part → tool.call (full
@@ -479,7 +406,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       }
     };
 
-    for (const event of batch.events) {
+    const handleEngineEvent = (event: Record<string, unknown>): void => {
       publish(event);
       switch (event["type"]) {
         case "turn.step.started": {
@@ -601,6 +528,84 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         default:
           break;
       }
+    };
+
+    // Stream: the engine pushes every event through this callback as it is
+    // emitted (napi ThreadsafeFunction — main-thread delivery, FIFO order),
+    // so the bus sees turn.started / assistant.delta / tool.* / turn.ended
+    // as they happen, exactly like the TS loop. `run()`/`resume()` resolve
+    // with only the progress.
+    session.setOnEvent((eventJson: string) => {
+      try {
+        handleEngineEvent(JSON.parse(eventJson) as Record<string, unknown>);
+      } catch (error) {
+        // The callback cannot propagate to the runner's await chain (the
+        // ThreadsafeFunction is fire-and-forget) — surface it instead of
+        // dropping the failure silently.
+        console.error("[rustEngineTurnRunner] failed to process engine event", error);
+      }
+    });
+
+    let progress: EngineProgress = JSON.parse(await session.run()) as EngineProgress;
+    // Approval loop: surface the request, wait for the user, resume.
+    while (progress.progress.status === "needsApproval") {
+      const approval = progress.progress.approval!;
+      const approvalRequest = {
+        sessionId: this.sessionContext.sessionId,
+        agentId: this.scopeContext.agentId,
+        turnId,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        action: `Approve ${approval.toolName}`,
+        display: {
+          kind: "generic",
+          summary: `Approve ${approval.toolName}`,
+          detail: approval.toolInput,
+        },
+      } as Parameters<ISessionApprovalService["request"]>[0];
+      this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
+      let response: ApprovalResponse = { decision: "approved" };
+      // The approval wait is cancellable: `cancel()` aborts it so the turn
+      // resolves as cancelled without waiting for the user (TS abortable
+      // parity).
+      const approvalController = new AbortController();
+      this.approvalAbort = approvalController;
+      try {
+        const approvalService = this.instantiation.invokeFunction(
+          (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
+        );
+        response =
+          approvalService !== undefined
+            ? await Promise.race([
+                approvalService.request(approvalRequest),
+                abortOnSignal(approvalController.signal).then(() => ({ decision: "cancelled" as const })),
+              ])
+            : { decision: "approved" };
+      } catch {
+        response = { decision: "rejected" };
+      } finally {
+        this.approvalAbort = undefined;
+      }
+      this.eventBus.publish({
+        type: "permission.approval.resolved",
+        ...approvalRequest,
+        decision: response.decision,
+      } as never);
+      // Session-scope approval memory (TS toolApproval parity): an approved
+      // `scope: session` response records the rule so the same tool pattern
+      // is not re-asked within the session.
+      this.rulesService.recordApprovalResult({
+        turnId,
+        toolCallId: approvalRequest.toolCallId!,
+        toolName: approvalRequest.toolName,
+        action: approvalRequest.action,
+        sessionApprovalRule:
+          response.decision === "approved" && response.scope === "session"
+            ? approvalRequest.toolName
+            : undefined,
+        result: response,
+      });
+      progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
     }
   }
 

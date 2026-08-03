@@ -1,12 +1,14 @@
 //! `RustEngine` — the M3 swap-in socket: one turn of the Rust orchestration
 //! core exposed to Node.
 //!
-//! Slice 1 keeps the surface synchronous: `start_turn` runs the full turn
-//! (LLM stream + Bash tool execution) and returns the collected engine
-//! event batch plus the outcome. The TS adapter publishes those events on
-//! the existing event bus, so the transcript projection/broadcast layers
-//! keep working unchanged. Streaming callbacks (ThreadsafeFunction) land
-//! with the dogfood swap-in.
+//! `start_turn` runs a full turn and returns the collected engine event
+//! batch plus the outcome (the synchronous differential-suite surface).
+//! `RustTurnSession` is the in-flight-turn surface: it streams every engine
+//! event to the TS side as it is emitted (per-event `ThreadsafeFunction`
+//! registered via `setOnEvent`) while `run`/`resume` resolve with only the
+//! final progress — the TS adapter publishes each event on the existing
+//! event bus as it arrives, so the transcript projection/broadcast layers
+//! keep working unchanged.
 //!
 //! LLM injection: `scripted_segments` (JSON array of segments) selects the
 //! scripted client for the differential suite; `null` selects the real
@@ -99,6 +101,11 @@ impl RustEngine {
 /// `{status:"needsApproval", approval}`.
 type ToolCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
 
+/// Per-event streaming sink: every engine event is pushed through this
+/// callback as a JSON string, in emission order, as it happens (registered
+/// via `set_on_event` before `run`/`resume`).
+type EventCallback = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
+
 /// A TS-registered tool: the engine calls the napi callback, the TS side
 /// executes the tool and completes the call via `completeToolCall`.
 struct BridgeExternalTool {
@@ -189,6 +196,11 @@ pub struct RustTurnSession {
     steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
     /// Cooperative cancellation (TS RPC cancel).
     cancel: std::sync::Arc<dimi_engine::engine::CancelSignal>,
+    /// TS-side event sink: every engine event is streamed as JSON, per
+    /// event, in emission order (the turn's `run`/`resume` resolve with
+    /// only the progress). `Arc` because `ThreadsafeFunction` is not
+    /// `Clone` and the sink must survive across `run`/`resume` calls.
+    on_event: Option<std::sync::Arc<EventCallback>>,
 }
 
 /// Mutex-wrapped registry implementing ToolExecutor.
@@ -206,10 +218,7 @@ impl ToolExecutor for LockedRegistry {
     }
 }
 
-fn progress_json(
-    progress: dimi_engine::engine::TurnProgress,
-    events: Vec<EngineEvent>,
-) -> napi::Result<String> {
+fn progress_json(progress: dimi_engine::engine::TurnProgress) -> napi::Result<String> {
     let progress = match progress {
         dimi_engine::engine::TurnProgress::Completed(outcome) => {
             serde_json::json!({ "status": "completed", "outcome": outcome })
@@ -218,7 +227,9 @@ fn progress_json(
             serde_json::json!({ "status": "needsApproval", "approval": approval })
         }
     };
-    serde_json::to_string(&serde_json::json!({ "events": events, "progress": progress }))
+    // Events are streamed through the `set_on_event` callback as they are
+    // emitted; the response carries only the final progress.
+    serde_json::to_string(&serde_json::json!({ "events": [], "progress": progress }))
         .map_err(wire_error)
 }
 
@@ -351,6 +362,7 @@ impl RustTurnSession {
             steer_map,
             steer_queue,
             cancel,
+            on_event: None,
         })
     }
 
@@ -359,6 +371,16 @@ impl RustTurnSession {
     #[napi]
     pub fn cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Register the per-event callback: every engine event emitted by `run`
+    /// /`resume` is pushed through it as JSON, in emission order, as it
+    /// happens. The `run`/`resume` response then carries only the final
+    /// progress. Register before the first `run`; the callback stays active
+    /// across `resume` phases.
+    #[napi]
+    pub fn set_on_event(&mut self, callback: EventCallback) {
+        self.on_event = Some(std::sync::Arc::new(callback));
     }
 
     /// Steer the running turn: the message is queued and drained into the
@@ -378,10 +400,11 @@ impl RustTurnSession {
             });
     }
 
-    /// Advance the turn until completion or an approval request.
+    /// Advance the turn until completion or an approval request. Every
+    /// engine event is streamed to the `set_on_event` callback as it is
+    /// emitted; the response carries only the progress.
     #[napi]
     pub async fn run(&self) -> napi::Result<String> {
-        let mut events: Vec<EngineEvent> = Vec::new();
         let progress = {
             let mut inner = self.inner.lock().await;
             // Re-sync the LLM-facing tool defs (external tools may have been
@@ -390,16 +413,24 @@ impl RustTurnSession {
                 let registry = self.tools.lock().await;
                 inner.update_tools(engine_tools(&registry));
             }
+            let on_event = self.on_event.clone();
             inner
                 .run(
                     self.llm.as_ref(),
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
-                    &mut |event| events.push(event),
+                    &mut move |event| {
+                        if let Some(callback) = &on_event {
+                            if let Ok(json) = serde_json::to_string(&event) {
+                                let _ =
+                                    callback.call(json, ThreadsafeFunctionCallMode::NonBlocking);
+                            }
+                        }
+                    },
                 )
                 .await
         };
-        progress_json(progress, events)
+        progress_json(progress)
     }
 
     /// Register a TS-side tool: the engine routes `name` calls to the
@@ -471,28 +502,37 @@ impl RustTurnSession {
     }
 
     /// Resume after the user's approval decision
-    /// (`{decision:"approved"|"rejected", feedback?}`).
+    /// (`{decision:"approved"|"rejected", feedback?}`). Events stream to the
+    /// `set_on_event` callback as they are emitted; the response carries
+    /// only the progress.
     #[napi]
     pub async fn resume(&self, decision_json: String) -> napi::Result<String> {
         let decision: ApprovalDecision =
             serde_json::from_str(&decision_json).map_err(wire_error)?;
-        let mut events: Vec<EngineEvent> = Vec::new();
         let progress = {
             let mut inner = self.inner.lock().await;
             {
                 let registry = self.tools.lock().await;
                 inner.update_tools(engine_tools(&registry));
             }
+            let on_event = self.on_event.clone();
             inner
                 .resume(
                     decision,
                     self.llm.as_ref(),
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
                     &self.policy,
-                    &mut |event| events.push(event),
+                    &mut move |event| {
+                        if let Some(callback) = &on_event {
+                            if let Ok(json) = serde_json::to_string(&event) {
+                                let _ =
+                                    callback.call(json, ThreadsafeFunctionCallMode::NonBlocking);
+                            }
+                        }
+                    },
                 )
                 .await
         };
-        progress_json(progress, events)
+        progress_json(progress)
     }
 }
