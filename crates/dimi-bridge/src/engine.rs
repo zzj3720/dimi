@@ -156,13 +156,19 @@ struct EngineEventChannel {
     not_full: std::sync::Condvar,
     /// Wakes `wait_caught_up` waiters when `delivered` advances.
     caught_up: std::sync::Condvar,
-    /// Events pushed into the queue (monotonic).
+    /// Events pushed into the queue (monotonic). Guarded by `queue` (like
+    /// `delivered`): `wait_caught_up` evaluates the `delivered == pushed`
+    /// predicate under the queue mutex, so every counter mutation must
+    /// happen under that same mutex or the check-then-wait pattern loses
+    /// notifications.
     pushed: std::sync::atomic::AtomicU64,
-    /// Events submitted to the ThreadsafeFunction by the forwarder
-    /// (monotonic). `run`/`resume` wait until `delivered == pushed` before
-    /// resolving, so the TS side observes every turn event BEFORE the
+    /// Events submitted to the ThreadsafeFunction's queue by the forwarder
+    /// (monotonic; submission is guaranteed, the JS callback executing is
+    /// not — Blocking TSFN calls return once the item is queued).
+    /// `run`/`resume` wait until `delivered == pushed` before resolving, so
+    /// every turn event is submitted to the TSFN queue BEFORE the
     /// `run`/`resume` promise continuation — the ordering the old
-    /// direct-push path had.
+    /// direct-push path had. Guarded by `queue`.
     delivered: std::sync::atomic::AtomicU64,
     closed: std::sync::atomic::AtomicBool,
 }
@@ -235,7 +241,16 @@ impl EngineEventChannel {
     /// ThreadsafeFunction (successfully or not — a `Closing` status means
     /// the session is tearing down and `wait_caught_up` is already released
     /// by `close`).
+    ///
+    /// Takes the queue mutex so the counter update is mutually exclusive
+    /// with `wait_caught_up`'s predicate evaluation: if the final
+    /// `mark_delivered` could land between the predicate check and the
+    /// `caught_up.wait()` registration, its notify would be lost and
+    /// `run`/`resume` would hang forever (lost-wakeup; `send`/`recv` already
+    /// mutate their predicate state under the queue mutex — this closes the
+    /// one path that did not).
     fn mark_delivered(&self) {
+        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         self.delivered
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.caught_up.notify_all();
@@ -244,6 +259,10 @@ impl EngineEventChannel {
     /// Block until every pushed event has been submitted to the
     /// ThreadsafeFunction (or the channel closed). Called by `run`/`resume`
     /// after the engine loop finishes, before the promise resolves.
+    ///
+    /// This is a blocking std-condvar wait: call it from a non-tokio thread
+    /// (`spawn_blocking` in `run`/`resume`) so it never occupies a tokio
+    /// worker that engine workers (bash pollers / subagent workers) run on.
     fn wait_caught_up(&self) {
         let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         while self.delivered_count() < self.pushed_count() && !self.is_closed() {
@@ -256,7 +275,14 @@ impl EngineEventChannel {
 
     /// Stop the channel: wakes every blocked sender and the forwarder; they
     /// observe `closed` and exit. Called from session `close()` / `Drop`.
+    ///
+    /// Takes the queue mutex like `send`/`recv`/`mark_delivered` so the
+    /// `closed` state is mutually exclusive with every condvar predicate
+    /// check — a `close` notifying in the window between a waiter's
+    /// predicate evaluation and its `wait()` registration must not be lost
+    /// either.
     fn close(&self) {
+        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
         self.not_empty.notify_all();
         self.not_full.notify_all();
@@ -730,10 +756,19 @@ impl RustTurnSession {
         };
         // Every event emitted during the turn is now in the channel; wait for
         // the forwarding thread to submit each one to the ThreadsafeFunction
-        // before the promise resolves — the TS side must observe the turn's
-        // events before the `run` continuation (the ordering the old
-        // synchronous push had).
-        self.event_channel.wait_caught_up();
+        // before the promise resolves — the TS side is guaranteed the turn's
+        // events are SUBMITTED to the TSFN queue before the `run`
+        // continuation (the ordering the old synchronous push had; the JS
+        // callbacks themselves run on the Node event loop and are drained
+        // before this promise's microtask in practice, but the guarantee the
+        // channel enforces is submission, not JS-side observation). The wait
+        // is a blocking condvar wait, so it runs on the blocking pool — it
+        // must never occupy a tokio worker that engine workers (bash
+        // pollers / subagent workers) run on.
+        let channel = std::sync::Arc::clone(&self.event_channel);
+        napi::tokio::task::spawn_blocking(move || channel.wait_caught_up())
+            .await
+            .map_err(|error| napi::Error::from_reason(error.to_string()))?;
         progress_json(progress)
     }
 
@@ -832,9 +867,13 @@ impl RustTurnSession {
                 )
                 .await
         };
-        // See `run`: the TS side must observe every emitted event before the
-        // `resume` continuation.
-        self.event_channel.wait_caught_up();
+        // See `run`: every emitted event is submitted to the TSFN queue
+        // before the `resume` continuation (blocking-pool wait, same
+        // reasoning as above).
+        let channel = std::sync::Arc::clone(&self.event_channel);
+        napi::tokio::task::spawn_blocking(move || channel.wait_caught_up())
+            .await
+            .map_err(|error| napi::Error::from_reason(error.to_string()))?;
         progress_json(progress)
     }
 }
@@ -888,8 +927,9 @@ mod tests {
 
         // `wait_caught_up` (what run/resume call before resolving) blocks
         // until every pushed event is marked delivered; marking all three
-        // releases it. This is the guarantee that the TS side observes every
-        // turn event before the run/resume promise continuation.
+        // releases it. This is the guarantee that every turn event is
+        // submitted to the TSFN queue before the run/resume promise
+        // continuation.
         let waited = std::thread::spawn({
             let channel = std::sync::Arc::clone(&channel);
             move || channel.wait_caught_up()
@@ -906,5 +946,36 @@ mod tests {
         channel.close();
         assert!(!channel.send(task_started(3)), "closed channels refuse sends");
         assert_eq!(channel.recv(), None);
+    }
+
+    #[test]
+    fn wait_caught_up_survives_deliveries_racing_waiter_registration() {
+        // Lost-wakeup regression: `mark_delivered` used to update the
+        // delivered counter WITHOUT the queue mutex, so the forwarder's final
+        // delivery could land between `wait_caught_up`'s predicate
+        // evaluation and its `caught_up.wait()` registration — the notify
+        // was lost and `run`/`resume` hung forever (the turn promise never
+        // resolves). Repeat the push → immediate-deliver → wait cycle so the
+        // delivery races the waiter registration on every iteration: with
+        // the counters guarded by the queue mutex the waiter either observes
+        // the delivery in its predicate or is already registered when the
+        // notify fires, so `wait_caught_up` always returns.
+        let channel = std::sync::Arc::new(EngineEventChannel::new(16));
+        for i in 0..1_000i64 {
+            assert!(channel.send(task_started(i)));
+            // Deliver on a fresh thread (like the real forwarder) so the
+            // mark_delivered can complete before, during, or after the main
+            // thread's wait registration.
+            let deliverer = std::thread::spawn({
+                let channel = std::sync::Arc::clone(&channel);
+                move || channel.mark_delivered()
+            });
+            channel.wait_caught_up();
+            deliverer
+                .join()
+                .expect("deliverer completes without hanging");
+            // Drain so the queue never fills across iterations.
+            assert!(channel.recv().is_some());
+        }
     }
 }

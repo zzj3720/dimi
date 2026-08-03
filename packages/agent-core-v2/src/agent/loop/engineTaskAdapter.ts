@@ -57,10 +57,12 @@ export interface EngineTaskAdapterOptions {
  *  TaskStop aborts with the normalized reason string; `stopByUser` aborts
  *  with a `UserCancellationError` (its `.message` is the user-facing reason);
  *  anything else (undefined / session close) yields no reason — the engine
- *  falls back to "Stopped by TaskStop". */
+ *  falls back to "Stopped by TaskStop". An empty reason (e.g. an Error with
+ *  an empty message) counts as "no reason" too, so the wire settle carries
+ *  the documented fallback instead of an empty `error` string. */
 function abortReasonString(reason: unknown): string | undefined {
-  if (typeof reason === "string") return reason;
-  if (reason instanceof Error) return reason.message;
+  if (typeof reason === "string") return reason === "" ? undefined : reason;
+  if (reason instanceof Error) return reason.message === "" ? undefined : reason.message;
   return undefined;
 }
 

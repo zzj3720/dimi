@@ -466,6 +466,22 @@ impl ToolExecutor for BashTool {
     }
 }
 
+/// Truncate `text` to at most `cap` BYTES without splitting a multi-byte
+/// UTF-8 character — the same budget `OutputBuffer`/`append_task_output*`
+/// enforce (they compare `String::len()`, i.e. bytes). Iterating chars keeps
+/// the result on a char boundary, so the truncated prefix is always valid
+/// UTF-8 and delta == settle holds byte-for-byte.
+fn truncate_utf8_to_bytes(text: &str, cap: usize) -> String {
+    let mut capped = String::new();
+    for ch in text.chars() {
+        if capped.len() + ch.len_utf8() > cap {
+            break;
+        }
+        capped.push(ch);
+    }
+    capped
+}
+
 /// `bashTool.backgroundStartedResult(..., 'foreground_detached')` for the
 /// timeout path: the command keeps running as a registered background task.
 /// The result reports the timeout, is NOT an error (TS `isError: false`),
@@ -498,12 +514,14 @@ fn backgrounded_result(
     }
     // F4.4 (review note): each of the two buffers can hold 50k chars, so
     // stdout + stderr combined can reach ~100k — cap the seed at
-    // DEFAULT_MAX_CHARS (chars, the cap the OutputBuffer and the poller's
-    // `append_task_output_and_emit` enforce) BEFORE it seeds `state.output`
-    // and becomes the first `task.output` delta. Truncating the seed (not
-    // the stream) keeps delta == settle and the TS adapter's byte-offset
-    // tail arithmetic intact.
-    foreground_output = foreground_output.chars().take(DEFAULT_MAX_CHARS).collect();
+    // DEFAULT_MAX_CHARS BYTES (the cap the OutputBuffer and the poller's
+    // `append_task_output_and_emit` enforce via `String::len()`) BEFORE it
+    // seeds `state.output` and becomes the first `task.output` delta.
+    // Truncating the seed (not the stream) keeps delta == settle and the TS
+    // adapter's byte-offset tail arithmetic intact. A char-based cap would
+    // let a 50k-char seed of 3-4-byte chars reach ~150-200k bytes, so the
+    // truncation is byte-based — and never splits a multi-byte char.
+    foreground_output = truncate_utf8_to_bytes(&foreground_output, DEFAULT_MAX_CHARS);
 
     // Per-task cancel (TaskStop parity): the poller checks it on every pass
     // and kills the process instead of waiting for the deadline/exit.
@@ -1574,11 +1592,13 @@ mod tests {
         // F4.4 (review note): stdout and stderr each hold up to 50k chars, so
         // the backgrounded task's seeded `state.output` (stdout + '\n' +
         // stderr) could reach ~100k chars — past the nominal cap. The seed
-        // must be truncated to DEFAULT_MAX_CHARS (chars) BEFORE it becomes
-        // `state.output` and the first `task.output` delta, keeping the
-        // delta == settle invariant the TS adapter's tail arithmetic relies
-        // on. (`yes` keeps lines short so the 2k per-line cap does not
-        // pre-truncate; each buffer holds 40k chars, combined 80_001.)
+        // must be truncated to DEFAULT_MAX_CHARS BYTES (matching the
+        // byte-based `OutputBuffer` / `append_task_output_and_emit` caps)
+        // BEFORE it becomes `state.output` and the first `task.output`
+        // delta, keeping the delta == settle invariant the TS adapter's tail
+        // arithmetic relies on. (`yes` keeps lines short so the 2k per-line
+        // cap does not pre-truncate; each buffer holds 40k chars, combined
+        // 80_001.)
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = EventSink::new();
         let recorded = std::sync::Arc::clone(&events);
@@ -1661,13 +1681,13 @@ mod tests {
             })
             .expect("task.settled emitted");
         assert_eq!(
-            settled.chars().count(),
+            settled.len(),
             DEFAULT_MAX_CHARS,
-            "the seeded foreground output must be capped at DEFAULT_MAX_CHARS (chars): {}",
-            settled.chars().count()
+            "the seeded foreground output must be capped at DEFAULT_MAX_CHARS bytes: {}",
+            settled.len()
         );
         // The seed is stdout + '\n' + stderr truncated to the cap: stdout's
-        // 40k 'a' lines, the separator, then the first 9_999 chars of
+        // 40k 'a' lines, the separator, then the first 9_999 bytes of
         // stderr's 'b' lines (the truncation cuts mid-stream, not at a
         // buffer boundary).
         assert!(
@@ -1689,6 +1709,37 @@ mod tests {
             settled,
             "streamed deltas must concatenate exactly to the capped settle output"
         );
+    }
+
+    #[test]
+    fn seed_truncation_is_byte_capped_and_never_splits_a_char() {
+        // The seed cap is byte-based (matching OutputBuffer /
+        // append_task_output, which compare `String::len()`): under a
+        // char-based cap, 50k three-byte chars would reach 150k bytes. The
+        // byte cap must still land on a char boundary so the result is valid
+        // UTF-8 and delta == settle holds.
+        let text = "界".repeat(60_000); // 180_000 bytes
+        let capped = truncate_utf8_to_bytes(&text, DEFAULT_MAX_CHARS);
+        assert_eq!(
+            capped.len(),
+            DEFAULT_MAX_CHARS - (DEFAULT_MAX_CHARS % 3),
+            "a multi-byte seed must be cut at the char boundary below the cap"
+        );
+        assert_eq!(capped, "界".repeat(capped.len() / 3));
+        // ASCII: bytes == chars, so the full budget is used.
+        assert_eq!(
+            truncate_utf8_to_bytes(&"a".repeat(DEFAULT_MAX_CHARS + 100), DEFAULT_MAX_CHARS).len(),
+            DEFAULT_MAX_CHARS
+        );
+        // A 3-byte char straddling the boundary must not be split: one byte
+        // of budget left is not enough for '界'.
+        let mixed = format!("{}{}", "a".repeat(DEFAULT_MAX_CHARS - 1), "界");
+        let capped = truncate_utf8_to_bytes(&mixed, DEFAULT_MAX_CHARS);
+        assert_eq!(capped.len(), DEFAULT_MAX_CHARS - 1);
+        assert!(!capped.ends_with('界'));
+        // Within the cap: returned unchanged.
+        let short = "界".repeat(10);
+        assert_eq!(truncate_utf8_to_bytes(&short, DEFAULT_MAX_CHARS), short);
     }
 
     #[tokio::test]

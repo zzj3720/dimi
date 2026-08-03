@@ -180,11 +180,17 @@ impl CancelSignal {
 
     /// Cancel carrying the TaskStop reason. The first reason wins (a signal
     /// is flipped once; later cancels cannot overwrite the recorded reason).
+    /// An empty reason is treated as "no reason" — the settle then reports
+    /// the "Stopped by TaskStop" fallback instead of an empty `error` on the
+    /// wire (mirrors `taskService.normalizeReason`, which drops empty
+    /// strings).
     pub fn cancel_with_reason(&self, reason: Option<String>) {
         if let Some(reason) = reason {
-            let mut slot = self.reason.lock().unwrap_or_else(|p| p.into_inner());
-            if slot.is_none() {
-                *slot = Some(reason);
+            if !reason.is_empty() {
+                let mut slot = self.reason.lock().unwrap_or_else(|p| p.into_inner());
+                if slot.is_none() {
+                    *slot = Some(reason);
+                }
             }
         }
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2293,5 +2299,15 @@ mod cancel_tests {
         plain.cancel();
         assert!(plain.is_cancelled());
         assert_eq!(plain.reason(), None);
+
+        // An EMPTY reason is treated as no reason: the settle falls back to
+        // "Stopped by TaskStop" instead of settling with `error: ""`, and an
+        // empty reason cannot block a later real one.
+        let empty = CancelSignal::new();
+        empty.cancel_with_reason(Some(String::new()));
+        assert!(empty.is_cancelled());
+        assert_eq!(empty.reason(), None);
+        empty.cancel_with_reason(Some("user abort".to_string()));
+        assert_eq!(empty.reason().as_deref(), Some("user abort"));
     }
 }
