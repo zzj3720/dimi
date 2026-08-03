@@ -21,13 +21,16 @@ pub const MAX_TIMEOUT_S: u64 = 300;
 /// Default deadline for a command moved to the background by a foreground
 /// timeout (bash.ts `DEFAULT_BACKGROUND_TIMEOUT_S`).
 pub const DEFAULT_BACKGROUND_TIMEOUT_S: u64 = 600;
-/// TaskStop SIGTERM grace, milliseconds (TS `killGracePeriodMs` default
-/// `SIGTERM_GRACE_MS` = 5_000): a cancelled background command gets SIGTERM
-/// first and SIGKILL only if it has not exited after the grace — processes
-/// that trap SIGTERM keep their cleanup window (TS `terminateWithGrace`
-/// parity). The bridge overrides this from the turn input's `killGraceMs`
-/// (the runner reads the same config the TS task service reads), so a
-/// deployment that raises the TS grace is honored end-to-end.
+/// TaskStop SIGTERM grace, milliseconds. **MUST stay equal to the TS
+/// constant** `DEFAULT_KILL_GRACE_MS` in
+/// `agent/task/configSection.ts` (`killGracePeriodMs` fallback = 5_000) —
+/// the two are only comment-linked; if one side changes, change the other.
+/// A cancelled background command gets SIGTERM first and SIGKILL only if it
+/// has not exited after the grace — processes that trap SIGTERM keep their
+/// cleanup window (TS `terminateWithGrace` parity). The bridge overrides
+/// this from the turn input's `killGraceMs` (the runner reads the same
+/// config the TS task service reads), so a deployment that raises the TS
+/// grace is honored end-to-end.
 pub const DEFAULT_KILL_GRACE_MS: u64 = 5_000;
 
 /// Truncation constants (result-builder.ts).
@@ -604,6 +607,20 @@ fn backgrounded_result(
                     // is killed.
                     let _ = poller_process.kill(Some(9));
                     let _ = poller_process.wait();
+                    // Post-kill drain (TS `waitForStreamDrain`, 250ms): the
+                    // process may have written between the last poll drain
+                    // and the SIGKILL; the TS implementation drains after
+                    // the kill too, so do the same to keep the settle output
+                    // (and the delta stream) from losing the final tail.
+                    let drain_deadline = Instant::now() + Duration::from_millis(250);
+                    loop {
+                        let any =
+                            drain_task_output(&tasks, &events, &worker_task_id, &poller_process);
+                        if !any || Instant::now() >= drain_deadline {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
                     tasks.update(&worker_task_id, |state| {
                         state.status = "timed_out".to_string();
                         state.error = Some(format!(
@@ -2255,18 +2272,33 @@ impl AsyncAgentTool {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(agent_id.clone(), Arc::clone(&steer_queue));
+        // The streamed assistant text accumulated by the worker (P1): every
+        // forwarded delta is appended here, so the settle output — in the
+        // killed/failed branches too — is exactly the concatenation of the
+        // `task.output` deltas the TS adapter streamed (the adapter's
+        // documented byte-for-byte invariant; previously only the success
+        // branch carried the text and a TaskStopped/failed subagent settled
+        // with an empty output).
+        let accumulated_output: Arc<std::sync::Mutex<String>> =
+            Arc::new(std::sync::Mutex::new(String::new()));
         tokio::spawn(async move {
             // Live output (F2): forward the nested turn's assistant deltas
             // as `task.output` events so TaskOutput shows the subagent's
-            // text while it still runs. On success the settle output is the
-            // concatenation of exactly these deltas, so the TS adapter's
-            // delta-prefix invariant holds byte-for-byte.
+            // text while it still runs, and accumulate them for the settle
+            // output. The success/killed/failed branches all settle with
+            // this accumulated text, so the TS adapter's delta-prefix
+            // invariant holds byte-for-byte on every path.
             let on_delta = {
                 let events = events.clone();
                 let task_id = task_id_for_worker.clone();
+                let accumulated = Arc::clone(&accumulated_output);
                 Some(std::sync::Arc::new(
                     move |delta: &str| {
                         if !delta.is_empty() {
+                            accumulated
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .push_str(delta);
                             events.emit(EngineEvent::TaskOutput {
                                 task_id: task_id.clone(),
                                 delta: delta.to_string(),
@@ -2275,7 +2307,7 @@ impl AsyncAgentTool {
                     },
                 ) as std::sync::Arc<dyn Fn(&str) + Send + Sync>)
             };
-            let (output, error, messages) = run_nested_turn(
+            let (_output, error, messages) = run_nested_turn(
                 history,
                 prompt,
                 cwd,
@@ -2295,8 +2327,13 @@ impl AsyncAgentTool {
             if events.is_closed() {
                 return;
             }
+            let output = accumulated_output
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
             tasks.update(&task_id_for_worker, |state| {
                 state.messages = messages;
+                state.output = output;
                 if cancel.is_cancelled() {
                     // TaskStop parity: a per-task cancel settles "killed"
                     // (TS `terminateWithGrace` final status), not "failed".
@@ -2304,7 +2341,6 @@ impl AsyncAgentTool {
                     state.error = Some("Stopped by TaskStop".to_string());
                 } else if error.is_empty() {
                     state.status = "completed".to_string();
-                    state.output = output;
                 } else {
                     state.status = "failed".to_string();
                     state.error = Some(error);
@@ -2862,6 +2898,314 @@ mod async_agent_tests {
             deltas.concat(),
             settled,
             "streamed deltas must concatenate exactly to the settle output"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_cancelled_mid_stream_settles_killed_with_streamed_output() {
+        // P1 regression (adversarial review): a subagent that streamed text
+        // and is TaskStopped mid-run settles "killed" carrying the streamed
+        // output, so the wire `task.terminated` outputTail / completion
+        // notification are not empty while the live TaskOutput showed the
+        // text — the delta == settle invariant holds on the killed path too.
+        use crate::llm::{ChatRequest, LlmClient, LlmError, StreamedTurn};
+        use std::sync::atomic::Ordering;
+
+        // Call 1 streams text + a Bash tool call (so the nested turn
+        // continues to a second step); call 2 blocks until the test cancels
+        // the nested turn (TaskStop parity).
+        struct StreamThenBlockClient {
+            calls: std::sync::atomic::AtomicU64,
+            second_started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+        #[async_trait::async_trait]
+        impl LlmClient for StreamThenBlockClient {
+            async fn stream_chat(&self, _request: &ChatRequest) -> Result<StreamedTurn, LlmError> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    return Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "part one ".to_string(),
+                            },
+                            LlmStreamEvent::Text {
+                                delta: "part two".to_string(),
+                            },
+                            LlmStreamEvent::ToolCall {
+                                tool_call_id: "call_bash".to_string(),
+                                name: Some("Bash".to_string()),
+                                arguments_part: Some(
+                                    "{\"command\":\"echo subagent-step\"}".to_string(),
+                                ),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("tool_calls".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![crate::types::LlmToolCall {
+                                id: "call_bash".to_string(),
+                                call_type: Some("function".to_string()),
+                                function: crate::types::LlmToolCallFunction {
+                                    name: "Bash".to_string(),
+                                    arguments: "{\"command\":\"echo subagent-step\"}".to_string(),
+                                },
+                            }],
+                            text: "part one part two".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                // Second call: signal the test that the nested turn is in
+                // flight, then block until it is cancelled (TaskStop).
+                if let Some(tx) = self.second_started.lock().await.take() {
+                    let _ = tx.send(());
+                }
+                std::future::pending::<()>().await;
+                unreachable!("blocking client never returns");
+            }
+        }
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let (second_tx, second_rx) = tokio::sync::oneshot::channel::<()>();
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(StreamThenBlockClient {
+                calls: std::sync::atomic::AtomicU64::new(0),
+                second_started: tokio::sync::Mutex::new(Some(second_tx)),
+            }),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: sink,
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a_cancel".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "stream then stop" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        // Wait until the nested turn is blocked on its second LLM call — by
+        // then the first call's deltas have streamed (and accumulated).
+        tokio::time::timeout(std::time::Duration::from_secs(5), second_rx)
+            .await
+            .expect("nested turn must reach the blocking second call")
+            .expect("nested turn's sender must still be live");
+
+        // TaskStop the subagent mid-run (per-task cancel parity).
+        let (_, state) = tasks
+            .find_by_agent_id_with_key(&agent_id)
+            .expect("subagent task registered");
+        state
+            .cancel
+            .as_ref()
+            .expect("subagent has a per-task cancel signal")
+            .cancel();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_wc".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(
+            waited_json["status"], "killed",
+            "TaskStop must settle the subagent as killed: {waited_json}"
+        );
+        assert_eq!(
+            waited_json["output"], "part one part two",
+            "the settle output must carry the streamed text: {waited_json}"
+        );
+
+        // Wire-level: task.output deltas concatenate byte-for-byte to the
+        // task.settled output (the P1 invariant on the killed path).
+        let emitted = events.lock().unwrap();
+        let task_id = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskStarted { task_id, kind, .. }
+                    if kind == "agent" =>
+                {
+                    Some(task_id.clone())
+                }
+                _ => None,
+            })
+            .expect("subagent task.started emitted");
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                crate::events::EngineEvent::TaskOutput {
+                    task_id: id,
+                    delta,
+                } if id == &task_id => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        let (settled_status, settled) = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskSettled {
+                    task_id: id,
+                    status,
+                    output,
+                    ..
+                } if id == &task_id => Some((status.clone(), output.clone())),
+                _ => None,
+            })
+            .expect("subagent task.settled emitted");
+        assert_eq!(settled_status, "killed");
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "streamed deltas must concatenate exactly to the killed settle output: {deltas:?} / {settled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_fails_after_streaming_settles_failed_with_streamed_output() {
+        // P1 regression (failed branch): a subagent that streamed text and
+        // then fails (the max-steps guard trips on the second step) settles
+        // "failed" carrying the streamed output.
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = EventSink::new();
+        let recorded = std::sync::Arc::clone(&events);
+        sink.set(std::sync::Arc::new(move |event| {
+            recorded.lock().unwrap().push(event);
+        }));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "part one ".to_string(),
+                },
+                LlmStreamEvent::Text {
+                    delta: "part two".to_string(),
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_fail".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo subagent-step\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            // One step only: after step 1 (streamed text + Bash tool call)
+            // the max-steps guard fails the turn.
+            max_steps: Some(1),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: sink,
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a_fail".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "stream then fail" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_wf".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(
+            waited_json["status"], "failed",
+            "the subagent must settle as failed: {waited_json}"
+        );
+        assert_eq!(
+            waited_json["output"], "part one part two",
+            "the settle output must carry the streamed text: {waited_json}"
+        );
+
+        // Wire-level: task.output deltas concatenate byte-for-byte to the
+        // task.settled output (the P1 invariant on the failed path).
+        let emitted = events.lock().unwrap();
+        let task_id = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskStarted { task_id, kind, .. }
+                    if kind == "agent" =>
+                {
+                    Some(task_id.clone())
+                }
+                _ => None,
+            })
+            .expect("subagent task.started emitted");
+        let deltas: Vec<String> = emitted
+            .iter()
+            .filter_map(|event| match event {
+                crate::events::EngineEvent::TaskOutput {
+                    task_id: id,
+                    delta,
+                } if id == &task_id => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        let (settled_status, settled) = emitted
+            .iter()
+            .find_map(|event| match event {
+                crate::events::EngineEvent::TaskSettled {
+                    task_id: id,
+                    status,
+                    output,
+                    ..
+                } if id == &task_id => Some((status.clone(), output.clone())),
+                _ => None,
+            })
+            .expect("subagent task.settled emitted");
+        assert_eq!(settled_status, "failed");
+        assert_eq!(
+            deltas.concat(),
+            settled,
+            "streamed deltas must concatenate exactly to the failed settle output: {deltas:?} / {settled:?}"
         );
     }
 

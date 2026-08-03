@@ -27,9 +27,11 @@ import { registerConfigSection } from '#/app/config/configSectionContributions';
 export const TASK_SECTION = 'task';
 
 /** Default TaskStop SIGTERM grace (the `task` section's `killGracePeriodMs`
- *  fallback — the Rust engine's `DEFAULT_KILL_GRACE_MS` mirrors this value,
- *  and the Rust-engine runner wires it into the engine turn input so a
- *  deployment that raises the grace is honored end-to-end). */
+ *  fallback). **MUST stay equal to the Rust constant**
+ *  `DEFAULT_KILL_GRACE_MS` in `crates/dimi-engine/src/tool.rs` — the two are
+ *  only comment-linked; if one side changes, change the other. The
+ *  Rust-engine runner wires it into the engine turn input so a deployment
+ *  that raises the grace is honored end-to-end. */
 export const DEFAULT_KILL_GRACE_MS = 5_000;
 
 export const PrintBackgroundModeSchema = z.enum(['exit', 'drain', 'steer']);
