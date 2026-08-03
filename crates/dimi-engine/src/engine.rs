@@ -139,6 +139,54 @@ impl UsageAccumulator {
     }
 }
 
+/// The tool-result text the TS projector inserts when a tool exchange is
+/// unresolved at compaction time (parity with contextProjectorService's
+/// `TOOL_INTERRUPTED_TEXT`).
+const TOOL_INTERRUPTED_TEXT: &str =
+    "Tool result is not available in the current context. Do not assume the tool completed successfully.";
+
+/// Close unresolved tool exchanges in a message list before sending it to the
+/// summarizer: an assistant message whose tool_calls never got a result would
+/// otherwise be sent as a dangling exchange. Each missing result is filled
+/// with a synthetic tool message right after the assistant message that made
+/// the call (TS contextProjector parity).
+fn close_unresolved_tool_exchanges(messages: &mut Vec<LlmMessage>) {
+    let mut resolved: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for message in messages.iter() {
+        if message.role == "tool" {
+            if let Some(id) = &message.tool_call_id {
+                resolved.insert(id.clone());
+            }
+        }
+    }
+    let mut missing: Vec<(usize, String)> = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        if message.role != "assistant" {
+            continue;
+        }
+        for tool_call in message.tool_calls.iter().flatten() {
+            if !resolved.contains(&tool_call.id) {
+                missing.push((index, tool_call.id.clone()));
+            }
+        }
+    }
+    // Insert after the assistant message that made the call. Iterate in
+    // reverse so earlier insertions do not shift later indices.
+    for (index, id) in missing.into_iter().rev() {
+        messages.insert(
+            index + 1,
+            LlmMessage {
+                role: "tool".to_string(),
+                content: serde_json::Value::String(TOOL_INTERRUPTED_TEXT.to_string()),
+                name: None,
+                tool_call_id: Some(id),
+                tool_calls: None,
+                reasoning: None,
+            },
+        );
+    }
+}
+
 impl Engine {
     /// Run one turn to completion. Approvals are not wired in this
     /// convenience entry: if the policy asks, the tool call is denied
@@ -521,6 +569,11 @@ impl TurnSession {
         let instruction = crate::compaction::compaction_instruction_message();
 
         let mut history = self.messages.clone();
+        // Close unresolved tool exchanges before the summarizer sees the
+        // history: an assistant message whose tool_calls never got a result
+        // would otherwise be sent as a dangling exchange (TS
+        // contextProjector parity — it inserts TOOL_INTERRUPTED_TEXT).
+        close_unresolved_tool_exchanges(&mut history);
         let mut summary = String::new();
         for _ in 0..=crate::compaction::COMPACTION_MAX_SHRINK_ATTEMPTS {
             let mut messages = history.clone();
@@ -2115,6 +2168,153 @@ mod compaction_tests {
         assert!(
             !events.iter().any(|e| matches!(e, EngineEvent::ContextCompacted { .. }))
         );
+    }
+
+    #[tokio::test]
+    async fn compact_closes_unresolved_tool_exchanges_in_the_summary_request() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1 = compaction round (summary); call 2 = the step.
+                let (delta, is_step) = if calls.len() == 1 {
+                    ("closed-exchange summary".to_string(), false)
+                } else {
+                    (String::new(), true)
+                };
+                Ok(StreamedTurn {
+                    events: if is_step {
+                        vec![]
+                    } else {
+                        vec![LlmStreamEvent::Text {
+                            delta: delta.clone(),
+                        }]
+                    },
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: delta,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // History with an UNRESOLVED exchange: the assistant requested a tool
+        // (`call_pending`) but no tool result ever arrived. Also a resolved
+        // exchange so we assert only the missing one is synthesized.
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        messages.push(LlmMessage {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("pending".to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(vec![crate::types::LlmToolCall {
+                id: "call_pending".to_string(),
+                call_type: Some("function".to_string()),
+                function: crate::types::LlmToolCallFunction {
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({ "command": "sleep 1" }).to_string(),
+                },
+            }]),
+            reasoning: None,
+        });
+        messages.push(LlmMessage {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("resolved".to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(vec![crate::types::LlmToolCall {
+                id: "call_resolved".to_string(),
+                call_type: Some("function".to_string()),
+                function: crate::types::LlmToolCallFunction {
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({ "command": "echo hi" }).to_string(),
+                },
+            }]),
+            reasoning: None,
+        });
+        messages.push(LlmMessage {
+            role: "tool".to_string(),
+            content: serde_json::Value::String("hi".to_string()),
+            name: None,
+            tool_call_id: Some("call_resolved".to_string()),
+            tool_calls: None,
+            reasoning: None,
+        });
+        // Push the history over the 2000-token compaction trigger.
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &"z".repeat(300)));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::ContextCompacted { .. })),
+            "compaction must run"
+        );
+
+        // The summary request (first LLM call) carries a synthetic tool result
+        // for the unresolved exchange, with the TS-parity text.
+        let requests = recorded.lock().unwrap();
+        assert!(requests.len() >= 2);
+        let summary_request = &requests[0];
+        let synthesized = summary_request
+            .iter()
+            .filter(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_pending"))
+            .collect::<Vec<_>>();
+        assert_eq!(synthesized.len(), 1, "missing exchange must be synthesized");
+        assert_eq!(
+            synthesized[0].content.as_str(),
+            Some(TOOL_INTERRUPTED_TEXT),
+            "synthetic result must carry the TS-parity interrupted text"
+        );
+        // The resolved exchange is untouched (no extra synthetic entry).
+        let resolved_count = summary_request
+            .iter()
+            .filter(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_resolved"))
+            .count();
+        assert_eq!(resolved_count, 1);
     }
 }
 
