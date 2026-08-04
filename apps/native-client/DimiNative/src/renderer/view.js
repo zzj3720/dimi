@@ -14,8 +14,6 @@ const els = {
   transcript: $('#transcript'),
   input: $('#input'),
   promptToken: $('#prompt-token'),
-  editorFrame: $('#editor-frame'),
-  editorLabel: $('#editor-label'),
   queuedCount: $('#queued-count'),
   btnSteer: $('#btn-steer'),
   btnQueue: $('#btn-queue'),
@@ -24,9 +22,7 @@ const els = {
   btnSessions: $('#btn-sessions'),
   btnRefresh: $('#btn-refresh'),
   hint: $('#hint'),
-  footerStatus: $('#footer-status'),
-  footerTips: $('#footer-tips'),
-  footerContext: $('#footer-context'),
+  footerRight: $('#footer-right'),
   completion: $('#completion'),
   dialogRoot: $('#dialog-root'),
 };
@@ -74,8 +70,19 @@ function renderHeader() {
   els.status.textContent = model.statusMsg;
 }
 
+function thread() {
+  let t = els.transcript.querySelector('.thread');
+  if (!t) {
+    t = document.createElement('div');
+    t.className = 'thread';
+    els.transcript.appendChild(t);
+  }
+  return t;
+}
+
 function renderTranscript() {
   const root = els.transcript;
+  const container = thread();
   const entries = model.entries;
   // Only auto-follow when the user is already at the bottom; never yank the
   // scroll position out from under someone reading history.
@@ -94,7 +101,7 @@ function renderTranscript() {
     if (samePrefix) {
       const last = entries[n - 1];
       if (last === prev[n - 1] && entrySig(last) === entrySig(prev[n - 1])) return;
-      const lastRow = root.lastElementChild;
+      const lastRow = container.lastElementChild;
       if (lastRow && lastRow.dataset && lastRow.dataset.idx === String(n - 1)) {
         // Rebuild only that row — the selection and every other node stay.
         lastRow.replaceWith(buildEntry(last, n - 1));
@@ -107,18 +114,18 @@ function renderTranscript() {
 
   // Full rebuild (entries added/removed/reset, or folded layout changed).
   lastRenderedEntries = entries.slice();
-  root.textContent = '';
+  container.textContent = '';
   if (entries.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'entry';
     empty.innerHTML = '<div class="body muted">No messages yet. Send a message to start.</div>';
-    root.appendChild(empty);
+    container.appendChild(empty);
     return;
   }
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (e.folded) continue;
-    root.appendChild(buildEntry(e, i));
+    container.appendChild(buildEntry(e, i));
   }
   if (nearBottom) root.scrollTop = root.scrollHeight;
 }
@@ -127,45 +134,33 @@ function buildEntry(e, idx) {
   const row = document.createElement('div');
   row.dataset.idx = String(idx);
   if (e.kind === 'user') {
-    // TUI UserMessageComponent: `✨ ` bullet + full text, bold roleUser. No leading blank.
+    // Codex-style user message: plain text, no bullet/prefix/bubble.
     row.className = 'entry entry-user';
-    const role = document.createElement('span');
-    role.className = 'role';
-    role.textContent = '✨ ';
     const body = document.createElement('div');
     body.className = 'body';
     body.textContent = e.text;
-    row.appendChild(role);
     row.appendChild(body);
   } else if (e.kind === 'assistant') {
-    // TUI AssistantMessageComponent: leading blank line, `● ` bullet + markdown.
+    // Codex-style assistant message: markdown, no bullet/prefix.
     row.className = 'entry entry-assistant';
-    const role = document.createElement('span');
-    role.className = 'role';
-    role.textContent = '● ';
     const body = document.createElement('div');
     body.className = 'body md';
     renderMarkdownInto(body, e.text);
-    row.appendChild(role);
     row.appendChild(body);
   } else if (e.kind === 'thinking') {
-    // TUI ThinkingComponent: `● ` bullet (textDim) + italic textDim, 2-line preview.
+    // Codex reasoning disclosure: muted 14px text, collapsible on click.
     const expanded = expandedThinking.has(e);
     row.className = 'entry entry-thinking clickable';
-    const role = document.createElement('span');
-    role.className = 'role';
-    role.textContent = '● ';
     const body = document.createElement('div');
     body.className = 'body thinking';
     const lines = String(e.text ?? '').split('\n');
     const showAll = expanded || lines.length <= 2;
     body.textContent = showAll ? e.text : lines.slice(0, 2).join('\n');
-    row.appendChild(role);
     row.appendChild(body);
     if (!showAll) {
       const hint = document.createElement('div');
       hint.className = 'body muted';
-      hint.textContent = `  ... (${lines.length - 2} more lines, click to expand)`;
+      hint.textContent = `... (${lines.length - 2} more lines, click to expand)`;
       row.appendChild(hint);
     }
     row.addEventListener('click', () => {
@@ -177,16 +172,10 @@ function buildEntry(e, idx) {
       render();
     });
   } else if (e.kind === 'tool') {
-    // TUI ToolCallComponent header: bullet (state colour) + verb + bold
-    // primary name. Bash renders a fixed label like the TUI: "Running a
-    // command" / "Ran a command".
+    // Codex-style tool line: muted "Used/Using X" with collapsible output.
     const done = !!e.text && e.text.length > 0;
     const expanded = expandedTools.has(e.toolCallId);
     row.className = 'entry entry-tool clickable';
-    const role = document.createElement('span');
-    role.className = 'role';
-    role.textContent = '● ';
-    role.style.color = done ? 'var(--success)' : 'var(--text)';
     const body = document.createElement('div');
     body.className = 'body tool';
     const name = document.createElement('span');
@@ -197,24 +186,24 @@ function buildEntry(e, idx) {
       name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
     }
     body.appendChild(name);
-    row.appendChild(role);
     row.appendChild(body);
     if (e.args) {
-      // Command echo `$ <cmd>` (shellMode), mirroring the TUI body.
+      // Command echo `$ <cmd>` in muted monospace.
       const cmd = document.createElement('div');
       cmd.className = 'body tool';
-      cmd.style.color = 'var(--shell-mode)';
+      cmd.style.fontFamily = 'ui-monospace, "SF Mono", Menlo, monospace';
       cmd.textContent = '$ ' + e.args;
       row.appendChild(cmd);
     }
     if (done && e.text) {
-      // Output preview (TUI RESULT_PREVIEW_LINES = 3), click to expand.
+      // Output preview (3 lines), click to expand.
       const out = document.createElement('div');
       out.className = 'body tool';
       out.style.display = 'block';
       out.style.marginTop = '2px';
       out.style.whiteSpace = 'pre-wrap';
       out.style.wordBreak = 'break-word';
+      out.style.fontFamily = 'ui-monospace, "SF Mono", Menlo, monospace';
       out.style.maxHeight = expanded ? 'none' : '4.2em';
       out.style.overflow = 'hidden';
       out.textContent = e.text;
@@ -229,8 +218,7 @@ function buildEntry(e, idx) {
       render();
     });
   } else {
-    // Status / compaction / notices: indented 2 cells, textDim
-    // (TUI StatusMessageComponent).
+    // Status / compaction / notices: muted 14px text.
     row.className = 'entry entry-status';
     const body = document.createElement('div');
     body.className = 'body';
@@ -242,15 +230,12 @@ function buildEntry(e, idx) {
 
 function renderComposer() {
   const bash = isBashDraft(model.draft);
-  // TUI editor: `>` prompt (terminal fg) / `!` in bash mode; the whole frame
-  // is shellMode violet in bash, primary when plan mode is active (the TUI
-  // highlights the editor border for plan mode / slash context).
+  // Codex-style prompt token: `>` / `!` in bash mode.
   els.promptToken.textContent = bash ? '!' : '>';
   els.promptToken.className = 'prompt-token';
-  els.editorFrame.classList.toggle('bash', bash);
-  els.editorFrame.classList.toggle('plan', model.planMode);
-  els.editorLabel.classList.toggle('hidden', !bash);
-  if (bash) els.editorLabel.textContent = '! shell mode';
+  els.promptToken.style.color = bash ? 'var(--primary)' : '';
+  if (bash) els.promptToken.style.color = 'var(--primary)';
+  else els.promptToken.style.color = '';
 
   // Only touch the textarea value when it differs (keeps the native IME
   // composition and caret undisturbed).
@@ -272,46 +257,9 @@ function renderComposer() {
   if (model.queued.length > 0) els.queuedCount.textContent = `${model.queued.length} queued`;
 }
 
-// TUI FooterComponent: line 1 = mode badges + model + cwd (+ git) with tips
-// on the right; line 2 = transient hint (left) + context readout (right).
+// Codex-style footer: single muted line — hint left, context/status right.
 function renderFooter() {
-  const status = els.footerStatus;
-  status.textContent = '';
-
-  // Mode badges (footer.ts buildSlots): auto/yolo warning bold, plan primary,
-  // swarm accent. Manual mode renders no badge.
-  const modes = [];
-  if (model.permissionMode === 'auto') modes.push(['auto', 'mode-auto']);
-  else if (model.permissionMode === 'yolo') modes.push(['yolo', 'mode-yolo']);
-  if (model.planMode) modes.push(['plan', 'mode-plan']);
-  for (const [label, cls] of modes) {
-    const b = document.createElement('span');
-    b.className = `mode-badge ${cls}`;
-    b.textContent = label;
-    status.appendChild(b);
-  }
-
-  // Model label (text colour).
-  const modelName = model.modelName ?? model.displayMode ?? '';
-  if (modelName) {
-    const m = document.createElement('span');
-    m.className = 'footer-model';
-    m.textContent = modelName;
-    status.appendChild(m);
-  }
-
-  // CWD (textDim), like shortenCwd in footer.ts.
-  const cwd = model.currentCwd ?? window.dimiCwd ?? '';
-  if (cwd) {
-    const c = document.createElement('span');
-    c.className = 'footer-cwd';
-    c.textContent = shortenCwd(cwd);
-    status.appendChild(c);
-  }
-
-  els.footerTips.textContent = model.footerTips ?? '';
-
-  // Line 2 hint (TUI queue-pane adaptive hint + footer transient hint).
+  // Adaptive hint (kept from the TUI queue behaviour).
   let hint = '';
   if (model.phase === 'compacting' && !model.busy) {
     hint = '↑ to edit · will send after compaction';
@@ -324,7 +272,15 @@ function renderFooter() {
   }
   els.hint.textContent = hint;
 
-  els.footerContext.textContent = model.footerContext ?? '';
+  let right = '';
+  if (model.currentSessionId) {
+    const parts = [];
+    if (model.permissionMode !== 'manual') parts.push(model.permissionMode);
+    if (model.modelName) parts.push(model.modelName);
+    parts.push(shortenCwd(model.currentCwd ?? window.dimiCwd ?? '') || `${model.entryCount} messages`);
+    right = parts.join(' · ');
+  }
+  els.footerRight.textContent = right;
 }
 
 function shortenCwd(path) {
@@ -644,7 +600,6 @@ function renderBtw(root) {
   if (model.btwPrompt) {
     const p = document.createElement('div');
     p.className = 'list-item';
-    p.innerHTML = `<span class="role role-user">you</span>`;
     const pt = document.createElement('div');
     pt.className = 'body';
     pt.textContent = model.btwPrompt;
