@@ -291,6 +291,23 @@ fn update_tracker_from_text(text: &str, tracker: &mut AnsiCodeTracker) {
     }
 }
 
+/// Advance `end` by one full char, stopping at tab or ESC (keeps `end` on a
+/// char boundary so later `text[..end]` slices are safe).
+fn next_text_run_end(text: &str, mut end: usize) -> usize {
+    while end < text.len() {
+        let b = text.as_bytes()[end];
+        if b == b'\t' || b == 0x1b {
+            break;
+        }
+        end += text[end..]
+            .chars()
+            .next()
+            .map(|c| c.len_utf8())
+            .unwrap_or(1);
+    }
+    end
+}
+
 /// True when every char is a printable ASCII char (0x20..=0x7e).
 pub fn is_printable_ascii(s: &str) -> bool {
     s.bytes().all(|b| (0x20..=0x7e).contains(&b))
@@ -394,10 +411,7 @@ fn break_long_word(word: &str, width: usize, tracker: &mut AnsiCodeTracker) -> V
             segments.push(Seg::Ansi(code));
             i += len;
         } else {
-            let mut end = i;
-            while end < word.len() && extract_ansi_code(word, end).is_none() {
-                end += 1;
-            }
+            let end = next_text_run_end(word, i);
             for seg in word[i..end].graphemes(true) {
                 segments.push(Seg::Grapheme(seg.to_owned()));
             }
@@ -593,13 +607,7 @@ pub fn truncate_fragment_to_width(text: &str, max_width: usize) -> (String, usiz
             i += 1;
             continue;
         }
-        let mut end = i;
-        while end < text.len() && !text[end..].starts_with('\t') {
-            if extract_ansi_code(text, end).is_some() {
-                break;
-            }
-            end += 1;
-        }
+        let end = next_text_run_end(text, i);
         for segment in text[i..end].graphemes(true) {
             let w = grapheme_width(segment);
             if width + w > max_width {
@@ -751,13 +759,7 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
                 i += 1;
                 continue;
             }
-            let mut end = i;
-            while end < text.len() && !text[end..].starts_with('\t') {
-                if extract_ansi_code(text, end).is_some() {
-                    break;
-                }
-                end += 1;
-            }
+            let end = next_text_run_end(text, i);
             for segment in text[i..end].graphemes(true) {
                 let width = grapheme_width(segment);
                 if keep_contiguous_prefix && kept_width + width <= target_width {
