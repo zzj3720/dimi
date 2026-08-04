@@ -27,10 +27,16 @@ import { RustTurnSession } from "@dimi-agent/dimi-native";
 
 import { escapeXml } from "#/_base/utils/xml-escape";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
-import type { ContextMessage, PromptOrigin, TaskOrigin } from "#/agent/contextMemory/types";
+import type {
+  ContextMessage,
+  PromptOrigin,
+  SystemTriggerOrigin,
+  TaskOrigin,
+} from "#/agent/contextMemory/types";
 import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
 import { EngineTaskAdapter } from "#/agent/loop/engineTaskAdapter";
 import { renderNotificationXml } from "#/agent/task/notificationXml";
@@ -186,6 +192,36 @@ function toEngineTurnOrigin(origin: PromptOrigin): Record<string, unknown> {
     default:
       return { kind: "user" };
   }
+}
+
+/**
+ * TS `isDisplayablePromptOrigin` parity: only user-origin (and user-slash
+ * skill/plugin) turns expose their prompt on `turn.started`; task/cron/hook
+ * steering text must never leak into the transcript.
+ */
+function isDisplayablePromptOrigin(origin: PromptOrigin): boolean {
+  if (origin.kind === "user") return true;
+  return (
+    (origin.kind === "skill_activation" || origin.kind === "plugin_command") &&
+    origin.trigger === "user-slash"
+  );
+}
+
+/**
+ * Build a DimiErrorPayload-shaped error from the engine's `{ message, code }`
+ * payload (TS `toDimiErrorPayload` parity): always carries `name` (the error
+ * class name, mapped from the code when the engine omitted it), `retryable`
+ * and `message`.
+ */
+function buildErrorPayload(rawError: Record<string, unknown>): Record<string, unknown> {
+  const error = { ...rawError };
+  if (error["name"] === undefined || error["name"] === null) {
+    error["name"] = error["code"] === "PROVIDER_FILTERED" ? "ProviderFilteredError" : "Error";
+  }
+  if (error["retryable"] === undefined) {
+    error["retryable"] = false;
+  }
+  return error;
 }
 
 /** Optional numeric engine field (pid / exitCode). */
@@ -358,6 +394,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @ILogService private readonly log: ILogService,
   ) {
     // Agent-scoped subagent registry id: every RustTurnSession of this agent
@@ -368,6 +405,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   /** Agent-scoped Rust subagent registry id (see constructor). */
   private readonly registryId: string;
+
+  /** TS `stopHookContinuationUsed` parity: the Stop hook fires at most once
+   * after a continuation was delivered. */
+  private stopHookContinuationUsed = false;
 
   static isEnabled(): boolean {
     return rustEngineEnabled();
@@ -622,7 +663,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       })();
     });
     try {
-      await this.runEngineSession(session, turnId, provider["model"] as string);
+      await this.runEngineSession(session, turnId, provider["model"] as string, origin);
     } finally {
       this.activeSession = undefined;
     }
@@ -637,6 +678,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     session: RustTurnSession,
     turnId: number,
     providerModel: string,
+    origin: PromptOrigin,
   ): Promise<void> {
     interface EngineProgress {
       progress: {
@@ -1010,7 +1052,41 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         });
         return;
       }
-      publish(event);
+      // P0-1 / P1-1 / P1-5 (adversarial review): the engine's wire shapes
+      // differ from what TS bus consumers expect — normalize before
+      // publishing:
+      //  - `turn.step.completed.usage` → TS four-component TokenUsage (the
+      //    live transcript projector folds it per step; the engine's
+      //    TranscriptUsage shape made turn-header usage NaN→null and broke
+      //    the transcript zod contract).
+      //  - `turn.started.prompt` → stripped for non-displayable origins
+      //    (task/cron/hook notifications must not leak their steering XML).
+      //  - `turn.ended.error` → full DimiErrorPayload (name/retryable).
+      const busEvent = { ...event };
+      if (event["type"] === "turn.step.completed") {
+        const engineUsage = event["usage"] as
+          | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
+          | undefined;
+        if (engineUsage !== undefined) {
+          const inputCacheRead = engineUsage.cachedTokens ?? 0;
+          busEvent["usage"] = {
+            inputOther: Math.max((engineUsage.inputTokens ?? 0) - inputCacheRead, 0),
+            output: engineUsage.outputTokens ?? 0,
+            inputCacheRead,
+            inputCacheCreation: 0,
+          };
+        } else {
+          busEvent["usage"] = emptyUsage();
+        }
+      } else if (event["type"] === "turn.ended" && event["reason"] === "failed") {
+        const rawError = event["error"] as Record<string, unknown> | undefined;
+        if (rawError !== undefined) {
+          busEvent["error"] = buildErrorPayload(rawError);
+        }
+      } else if (event["type"] === "turn.started" && !isDisplayablePromptOrigin(origin)) {
+        delete busEvent["prompt"];
+      }
+      publish(busEvent);
       switch (event["type"]) {
         case "turn.step.started": {
           const stepNumber = Number(event["step"] ?? 1);
@@ -1176,24 +1252,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             finishReason: stepFinish,
             usage,
           });
+          // P1-3 (adversarial review): TS fires the Stop hook after every
+          // non-tool step (`externalHooksService` onDidFinishStep → runStop);
+          // a returned reason becomes a continuation (system_trigger /
+          // stop_hook) and the turn continues.
+          if (stepFinish !== "tool_use" && stepFinish !== "filtered") {
+            this.runStopHook(turnId);
+          }
           break;
         }
         case "turn.ended": {
           // Failed turns surface the error bus event (TS failLoopStep
-          // parity) so error handlers/subscribers see it. TS routes the
-          // error through `toDimiErrorPayload`, which always carries the
-          // error class `name`; the engine payload is `{ message, code }` —
-          // fill `name` from the code when missing.
+          // parity) so error handlers/subscribers see it, with the same
+          // DimiErrorPayload shape the `turn.ended` event now carries.
           if (event["reason"] === "failed" && event["error"] !== undefined) {
-            const rawError = event["error"] as Record<string, unknown>;
-            const error = { ...rawError };
-            if (error["name"] === undefined || error["name"] === null) {
-              error["name"] =
-                error["code"] === "PROVIDER_FILTERED" ? "ProviderFilteredError" : "Error";
-            }
             this.eventBus.publish({
               type: "error",
-              ...error,
+              ...buildErrorPayload(event["error"] as Record<string, unknown>),
             } as never);
           }
           break;
@@ -1288,6 +1363,56 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       }
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
     }
+  }
+
+  /**
+   * TS `externalHooksService.runStop` parity (P1-3): after a non-tool step,
+   * fire the Stop hook; a returned reason becomes a continuation message
+   * (origin `system_trigger`/`stop_hook`) that keeps the turn alive —
+   * steered into the running turn, or launched as a fresh turn when the
+   * engine already finished (the task-notification fallback). Fires at most
+   * once after a continuation was used, mirroring `stopHookContinuationUsed`.
+   */
+  private runStopHook(turnId: number): void {
+    if (this.stopHookContinuationUsed) return;
+    const hooksRunner = this.instantiation.invokeFunction(
+      (accessor) =>
+        accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+    );
+    if (hooksRunner === undefined) return;
+    void (async () => {
+      try {
+        const block = await hooksRunner.triggerBlock("Stop", {
+          signal: new AbortController().signal,
+          sessionId: this.sessionContext.sessionId,
+          inputData: { stopHookActive: false },
+        });
+        const reason = block?.reason;
+        if (reason === undefined || reason.length === 0) return;
+        this.stopHookContinuationUsed = true;
+        const origin: SystemTriggerOrigin = { kind: "system_trigger", name: "stop_hook" };
+        if (
+          this.turnRunning &&
+          this.activeSession !== undefined &&
+          this.activeSession.steer(reason)
+        ) {
+          this.context.append({
+            role: "user",
+            content: [{ type: "text", text: reason }],
+            toolCalls: [],
+            origin,
+            id: randomUUID(),
+          });
+          this.wire.dispatch(steerTurn({ input: [{ type: "text", text: reason }], origin }));
+        } else {
+          void this.runTurn({ input: [{ type: "text", text: reason }], origin }).catch(
+            () => undefined,
+          );
+        }
+      } catch {
+        // Fail-open: no hooks configured / runner unavailable.
+      }
+    })();
   }
 
   /**
@@ -1696,25 +1821,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }
 
   /**
-   * The effective engine-side tool allowlist (TS `isToolActive` parity):
-   * profile `activeToolNames` (allowlist) + `disallowedTools` (denylist),
-   * with the AllDone exception — the completion-review protocol needs AllDone
-   * regardless of the profile. `undefined` = unconstrained (all tools).
+   * The effective engine-side tool allowlist (TS `isToolActiveComposed`
+   * parity): the runner's `IAgentToolPolicyService.isToolActive` composes
+   * the profile allowlist/denylist, the global `[tools]` config, and the
+   * session denylist — with MCP glob semantics for `mcp__*` tools. AllDone
+   * stays active regardless (the completion-review protocol needs it).
+   * `undefined` = unconstrained (all tools).
    */
   private effectiveActiveTools(): string[] | undefined {
-    const data = this.profile.data();
-    const activeToolNames = data.activeToolNames;
-    const disallowedTools = data.disallowedTools;
-    if (activeToolNames === undefined && disallowedTools === undefined) return undefined;
-    return this.toolRegistry
-      .list()
-      .map((info) => info.name)
-      .filter((name) => {
-        if (name === ALL_DONE_TOOL_NAME) return true;
-        if (activeToolNames !== undefined && !activeToolNames.includes(name)) return false;
-        if (disallowedTools !== undefined && disallowedTools.includes(name)) return false;
-        return true;
-      });
+    const all = this.toolRegistry.list().map((info) => info.name);
+    const active = all.filter((name) => {
+      if (name === ALL_DONE_TOOL_NAME) return true;
+      return this.toolPolicy.isToolActive(name);
+    });
+    return active.length === all.length ? undefined : active;
   }
 
   private maxRetriesPerStep(): number | undefined {

@@ -2017,9 +2017,13 @@ describe('Rust engine approval flow (manual mode)', () => {
     ctx = createTestAgent();
     ctx.get(IAgentLoopService);
     const errors: Array<Record<string, unknown>> = [];
+    const turnEnded: Array<Record<string, unknown>> = [];
     ctx.get(IEventBus).subscribe((event) => {
-      if ((event as { type?: string }).type === 'error') {
+      const type = (event as { type?: string }).type;
+      if (type === 'error') {
         errors.push(event as Record<string, unknown>);
+      } else if (type === 'turn.ended') {
+        turnEnded.push(event as Record<string, unknown>);
       }
     });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'fail me' }] });
@@ -2029,6 +2033,13 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]!['message']).toBe('provider exploded');
     expect(errors[0]!['name']).toBeDefined();
+    // P1-5 (adversarial review): the `turn.ended` event itself also carries a
+    // full DimiErrorPayload (name/retryable), not the engine's {message,code}.
+    const ended = turnEnded.find((e) => e['reason'] === 'failed');
+    expect(ended).toBeDefined();
+    const endedError = ended!['error'] as Record<string, unknown>;
+    expect(endedError['name']).toBeDefined();
+    expect(endedError['retryable']).toBe(false);
   });
 
   it('streams external-tool updates as tool.progress (TS dispatchToolProgress parity)', async () => {
@@ -2290,6 +2301,9 @@ describe('Rust engine approval flow (manual mode)', () => {
     );
     expect(started.length).toBeGreaterThan(0);
     expect(started[0]!['origin']).toMatchObject({ kind: 'task', taskId: 'task_1' });
+    // P1-1 (adversarial review): a task-origin turn must NOT leak its
+    // steering prompt into `turn.started.prompt` (TS `isDisplayablePromptOrigin`).
+    expect(started[0]!['prompt']).toBeUndefined();
   });
 
   it('filters tools by the profile activeToolNames (TS isToolActive parity)', async () => {
@@ -2392,5 +2406,66 @@ describe('Rust engine approval flow (manual mode)', () => {
     // PostToolUse is fire-and-forget: allow a beat for the async trigger.
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(calls).toContainEqual({ event: 'PostToolUse', toolName: 'Bash' });
+  });
+
+  it('publishes turn.step.completed with TS four-component usage on the bus (P0-1)', async () => {
+    // The live transcript projector folds the bus event's usage per step —
+    // it must be the TS TokenUsage shape (inputOther/output/inputCacheRead/
+    // inputCacheCreation), not the engine's TranscriptUsage shape, or the
+    // turn header usage degrades to NaN→null and the zod contract breaks.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'usage bus' },
+        { type: 'usage', promptTokens: 10, completionTokens: 20 },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const stepCompleted: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'turn.step.completed') {
+        stepCompleted.push(event as Record<string, unknown>);
+      }
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'usage on bus' }] });
+    await waitForContext(
+      ctx,
+      (messages) => messages.some((message) => message.role === 'assistant'),
+      'assistant message',
+    );
+    expect(stepCompleted.length).toBeGreaterThan(0);
+    const usage = stepCompleted[0]!['usage'] as Record<string, unknown>;
+    expect(usage['inputOther']).toBe(10);
+    expect(usage['output']).toBe(20);
+    expect(usage['inputCacheRead']).toBe(0);
+    expect(usage['inputCacheCreation']).toBe(0);
+    expect(usage['inputTokens']).toBeUndefined();
+  });
+
+  it('fires the Stop hook after a non-tool step (P1-3 parity)', async () => {
+    const stops: string[] = [];
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async (event: string) => {
+        if (event === 'Stop') stops.push('Stop');
+        return undefined;
+      },
+      fireAndForgetTrigger: async () => [],
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: 'plain answer' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([externalHookServices(hookRunner)]);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'stop hook' }] });
+    await waitForContext(
+      ctx,
+      (messages) => messages.some((message) => message.role === 'assistant'),
+      'assistant message',
+    );
+    // The hook trigger is fire-and-forget: allow a beat for the async call.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(stops).toContain('Stop');
   });
 });

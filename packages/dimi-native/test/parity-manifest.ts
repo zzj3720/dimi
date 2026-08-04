@@ -154,7 +154,30 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
     domain: 'turn.ended failed error payload includes name',
     migrated: true,
     coveredBy:
-      'rustEngineTurnRunner.test.ts (failed-turn error carries name — toDimiErrorPayload parity)',
+      'rustEngineTurnRunner.test.ts (failed-turn error + turn.ended.error carry name/retryable — DimiErrorPayload parity)',
+  },
+  {
+    domain: 'bus turn.step.completed usage shape (TS TokenUsage, P0-1)',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (bus turn.step.completed.usage is four-component; transcript projector contract)',
+  },
+  {
+    domain: 'turn.started prompt stripped for non-displayable origins',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (task-origin turn.started has no prompt — isDisplayablePromptOrigin parity)',
+  },
+  {
+    domain: 'external hooks Stop hook (onDidFinishStep continuation)',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (Stop hook fires after a non-tool step; continuation steers/launches)',
+  },
+  {
+    domain: 'tool-call step assistant text preserved in context',
+    migrated: true,
+    coveredBy: 'engine tool_call_step_preserves_assistant_text_in_next_request (P1-4)',
   },
   {
     domain: 'runner usage reset between steps',

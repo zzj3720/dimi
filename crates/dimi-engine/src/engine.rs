@@ -92,8 +92,10 @@ enum StepDisposition {
     /// No tool calls — the turn is complete; carries the provider's finish
     /// reason (truncated/filtered responses change the turn outcome).
     Complete { finish: FinishReason },
-    /// Tool calls to run through the policy gate.
-    Continue(Vec<ToolCall>),
+    /// Tool calls to run through the policy gate, plus the step's assistant
+    /// text (TS parity: an assistant message may carry BOTH text and tool
+    /// calls — the text must reach the next request's context).
+    Continue { calls: Vec<ToolCall>, text: String },
 }
 
 /// Accumulates usage across steps; per-step usage is reported in
@@ -1363,14 +1365,17 @@ impl TurnSession {
                         }
                     }
                 }
-                StepDisposition::Continue(calls) => {
+                StepDisposition::Continue { calls, text } => {
                     // The assistant message carrying the tool calls must
                     // precede the tool results (providers reject a `tool`
                     // message without a preceding `tool_calls`; the TS loop
-                    // pushes it the same way).
+                    // pushes it the same way). P1-4 (adversarial review): the
+                    // step's assistant TEXT is preserved alongside the calls —
+                    // TS `appendResponseContent` keeps it in the context, so
+                    // the next request must see the same text.
                     self.messages.push(LlmMessage {
                         role: "assistant".to_string(),
-                        content: serde_json::Value::String(String::new()),
+                        content: serde_json::Value::String(text),
                         name: None,
                         tool_call_id: None,
                         tool_calls: Some(
@@ -1651,7 +1656,10 @@ async fn execute_step(
     if tool_calls.is_empty() {
         return Ok(StepDisposition::Complete { finish });
     }
-    Ok(StepDisposition::Continue(tool_calls))
+    Ok(StepDisposition::Continue {
+        calls: tool_calls,
+        text: assistant.text.clone(),
+    })
 }
 
 fn emit(on_event: &mut dyn FnMut(EngineEvent), event: EngineEvent) {
@@ -1880,6 +1888,109 @@ mod tests {
         let started = serde_json::to_value(&events[0]).unwrap();
         assert_eq!(started["origin"]["kind"], "user");
         assert!(started["origin"].get("payload").is_none());
+    }
+
+    #[tokio::test]
+    async fn tool_call_step_preserves_assistant_text_in_next_request() {
+        // P1-4 (adversarial review): TS keeps the step's assistant TEXT
+        // alongside its tool calls in the context; the next request must see
+        // the same assistant message (text + tool_calls), not an
+        // empty-content stub.
+        struct TextAndCallClient(std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TextAndCallClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<crate::llm::StreamedTurn, crate::llm::LlmError> {
+                let mut recorded = self.0.lock().unwrap();
+                recorded.push(request.messages.clone());
+                let is_first = recorded.len() == 1;
+                drop(recorded);
+                if is_first {
+                    let args = "{\"command\":\"echo hi\"}".to_string();
+                    return Ok(crate::llm::StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "I will check".to_string(),
+                            },
+                            LlmStreamEvent::ToolCall {
+                                tool_call_id: "call_1".to_string(),
+                                name: Some("Bash".to_string()),
+                                arguments_part: Some(args.clone()),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("tool_calls".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![crate::types::LlmToolCall {
+                                id: "call_1".to_string(),
+                                call_type: Some("function".to_string()),
+                                function: crate::types::LlmToolCallFunction {
+                                    name: "Bash".to_string(),
+                                    arguments: args,
+                                },
+                            }],
+                            text: "I will check".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                Ok(crate::llm::StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "done".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "done".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = TextAndCallClient(std::sync::Arc::clone(&recorded));
+        let __bash = crate::tool::BashTool::default();
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input(vec![user_message("go")]));
+        let TurnProgress::Completed(outcome) = session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await
+        else {
+            panic!("turn must complete");
+        };
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        let requests = recorded.lock().unwrap();
+        assert!(requests.len() >= 2, "two LLM requests");
+        // The second request's assistant message carries the text AND the call.
+        let second = &requests[1];
+        let assistant = second
+            .iter()
+            .find(|m| m.role == "assistant")
+            .expect("assistant message in the second request");
+        assert_eq!(
+            assistant.content,
+            serde_json::Value::String("I will check".to_string())
+        );
+        assert_eq!(
+            assistant
+                .tool_calls
+                .as_ref()
+                .map(|calls| calls.len())
+                .unwrap_or(0),
+            1
+        );
     }
 
     #[test]
