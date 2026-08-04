@@ -19,8 +19,13 @@
 
 pub mod ansi;
 pub mod component;
+pub mod components;
 pub mod container;
+pub mod markdown;
+pub mod markdown_theme;
+pub mod style;
 pub mod terminal;
 pub mod theme;
 pub mod tui;
 pub mod width;
+pub mod wrap;

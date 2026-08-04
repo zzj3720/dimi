@@ -7,6 +7,7 @@
 //! mirrors per the apps/dimi AGENTS.md hard rule).
 
 /// Semantic color tokens consumed by every UI component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorPalette {
     // ── Brand ──
     /// Dominant interactive/brand colour: links & inline code, the selected
@@ -119,9 +120,243 @@ pub const LIGHT_COLORS: ColorPalette = ColorPalette {
     shell_mode: "#5E35B1",
 };
 
+/// Semantic color token — mirrors `ColorToken` (`keyof ColorPalette`) in the
+/// TS theme. Used to look up a hex value from a palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorToken {
+    Primary,
+    Accent,
+    Text,
+    TextStrong,
+    TextDim,
+    TextMuted,
+    Border,
+    BorderFocus,
+    Success,
+    Warning,
+    Error,
+    DiffAdded,
+    DiffRemoved,
+    DiffAddedStrong,
+    DiffRemovedStrong,
+    DiffGutter,
+    DiffMeta,
+    RoleUser,
+    ShellMode,
+}
+
+impl ColorToken {
+    pub fn hex(&self, palette: &ColorPalette) -> &'static str {
+        match self {
+            ColorToken::Primary => palette.primary,
+            ColorToken::Accent => palette.accent,
+            ColorToken::Text => palette.text,
+            ColorToken::TextStrong => palette.text_strong,
+            ColorToken::TextDim => palette.text_dim,
+            ColorToken::TextMuted => palette.text_muted,
+            ColorToken::Border => palette.border,
+            ColorToken::BorderFocus => palette.border_focus,
+            ColorToken::Success => palette.success,
+            ColorToken::Warning => palette.warning,
+            ColorToken::Error => palette.error,
+            ColorToken::DiffAdded => palette.diff_added,
+            ColorToken::DiffRemoved => palette.diff_removed,
+            ColorToken::DiffAddedStrong => palette.diff_added_strong,
+            ColorToken::DiffRemovedStrong => palette.diff_removed_strong,
+            ColorToken::DiffGutter => palette.diff_gutter,
+            ColorToken::DiffMeta => palette.diff_meta,
+            ColorToken::RoleUser => palette.role_user,
+            ColorToken::ShellMode => palette.shell_mode,
+        }
+    }
+}
+
+/// Parse a `#RRGGBB` hex color into `(r, g, b)`.
+pub(crate) fn hex_to_rgb(hex: &str) -> (u8, u8, u8) {
+    let hex = hex.strip_prefix('#').unwrap_or(hex);
+    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
+    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
+    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
+    (r, g, b)
+}
+
+/// Theme — the `currentTheme` singleton equivalent. Holds the active palette;
+/// style methods return ANSI-styled strings (byte-aligned with the TS
+/// `Theme` class which delegates to chalk).
+#[derive(Debug, Clone)]
+pub struct Theme {
+    palette: ColorPalette,
+}
+
+impl Theme {
+    pub fn new(palette: ColorPalette) -> Self {
+        Theme { palette }
+    }
+
+    pub fn palette(&self) -> &ColorPalette {
+        &self.palette
+    }
+
+    pub fn set_palette(&mut self, palette: ColorPalette) {
+        self.palette = palette;
+    }
+
+    /// The hex color string for a token.
+    pub fn color(&self, token: ColorToken) -> String {
+        token.hex(&self.palette).to_owned()
+    }
+
+    fn fg_style(&self, token: ColorToken) -> crate::style::Style {
+        let (r, g, b) = hex_to_rgb(token.hex(&self.palette));
+        crate::style::fg_hex(r, g, b)
+    }
+
+    fn bg_style(&self, token: ColorToken) -> crate::style::Style {
+        let (r, g, b) = hex_to_rgb(token.hex(&self.palette));
+        crate::style::bg_hex(r, g, b)
+    }
+
+    /// `chalk.hex(token)(text)` — foreground only.
+    pub fn fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(self.fg_style(token)).apply(text)
+    }
+
+    /// `chalk.hex(token).bold(text)`.
+    pub fn bold_fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{BOLD, StyleChain};
+        StyleChain::new(vec![self.fg_style(token), BOLD]).apply(text)
+    }
+
+    /// `chalk.hex(token).dim(text)`.
+    pub fn dim_fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{DIM, StyleChain};
+        StyleChain::new(vec![self.fg_style(token), DIM]).apply(text)
+    }
+
+    /// `chalk.hex(token).italic(text)`.
+    pub fn italic_fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{ITALIC, StyleChain};
+        StyleChain::new(vec![self.fg_style(token), ITALIC]).apply(text)
+    }
+
+    /// `chalk.hex(token).underline(text)`.
+    pub fn underline_fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{StyleChain, UNDERLINE};
+        StyleChain::new(vec![self.fg_style(token), UNDERLINE]).apply(text)
+    }
+
+    /// `chalk.hex(token).strikethrough(text)`.
+    pub fn strikethrough_fg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{STRIKETHROUGH, StyleChain};
+        StyleChain::new(vec![self.fg_style(token), STRIKETHROUGH]).apply(text)
+    }
+
+    /// `chalk.bgHex(token)(text)`.
+    pub fn bg(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(self.bg_style(token)).apply(text)
+    }
+
+    /// `chalk.bold(text)`.
+    pub fn bold(&self, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(crate::style::BOLD).apply(text)
+    }
+
+    /// `chalk.dim(text)`.
+    pub fn dim(&self, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(crate::style::DIM).apply(text)
+    }
+
+    /// `chalk.italic(text)`.
+    pub fn italic(&self, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(crate::style::ITALIC).apply(text)
+    }
+
+    /// `chalk.underline(text)`.
+    pub fn underline(&self, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(crate::style::UNDERLINE).apply(text)
+    }
+
+    /// `chalk.strikethrough(text)`.
+    pub fn strikethrough(&self, text: &str) -> String {
+        use crate::style::StyleChain;
+        StyleChain::single(crate::style::STRIKETHROUGH).apply(text)
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme::new(DARK_COLORS)
+    }
+}
+
+thread_local! {
+    /// Global theme singleton — mirrors `currentTheme` in the TS TUI.
+    /// Initialised with the dark palette; switch via [`set_palette`].
+    static CURRENT_THEME: std::cell::RefCell<Theme> = std::cell::RefCell::new(Theme::default());
+}
+
+/// Read the current theme (snapshot copy).
+pub fn current_theme() -> Theme {
+    CURRENT_THEME.with(|t| t.borrow().clone())
+}
+
+/// Replace the global palette (theme switch).
+pub fn set_palette(palette: ColorPalette) {
+    CURRENT_THEME.with(|t| t.borrow_mut().set_palette(palette));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_hex_matches_palette() {
+        assert_eq!(ColorToken::Primary.hex(&DARK_COLORS), "#4FA8FF");
+        assert_eq!(ColorToken::RoleUser.hex(&DARK_COLORS), "#FFCB6B");
+        assert_eq!(ColorToken::ShellMode.hex(&DARK_COLORS), "#BD93F9");
+        assert_eq!(ColorToken::Text.hex(&DARK_COLORS), "#E0E0E0");
+        assert_eq!(ColorToken::TextDim.hex(&DARK_COLORS), "#888888");
+        assert_eq!(ColorToken::TextMuted.hex(&DARK_COLORS), "#6B6B6B");
+        assert_eq!(ColorToken::Border.hex(&DARK_COLORS), "#5A5A5A");
+    }
+
+    #[test]
+    fn theme_fg_bytes() {
+        let theme = Theme::new(DARK_COLORS);
+        // chalk.hex('#E0E0E0')('x')
+        assert_eq!(
+            theme.fg(ColorToken::Text, "x"),
+            "\x1b[38;2;224;224;224mx\x1b[39m"
+        );
+        // chalk.hex('#FFCB6B').bold('x')
+        assert_eq!(
+            theme.bold_fg(ColorToken::RoleUser, "x"),
+            "\x1b[38;2;255;203;107m\x1b[1mx\x1b[22m\x1b[39m"
+        );
+        // chalk.dim('x')
+        assert_eq!(theme.dim("x"), "\x1b[2mx\x1b[22m");
+        // chalk.hex('#E85454').italic('x')
+        assert_eq!(
+            theme.italic_fg(ColorToken::Error, "x"),
+            "\x1b[38;2;232;84;84m\x1b[3mx\x1b[23m\x1b[39m"
+        );
+    }
+
+    #[test]
+    fn singleton_defaults_dark() {
+        let t = current_theme();
+        assert_eq!(t.color(ColorToken::Primary), "#4FA8FF");
+        set_palette(LIGHT_COLORS);
+        let t = current_theme();
+        assert_eq!(t.color(ColorToken::Primary), "#1565C0");
+        set_palette(DARK_COLORS);
+    }
 
     #[test]
     fn dark_palette_has_all_tokens_filled() {
