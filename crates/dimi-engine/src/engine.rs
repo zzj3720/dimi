@@ -336,11 +336,14 @@ pub struct TurnSession {
 pub struct PendingApproval {
     pub request: ApprovalRequest,
     pub call: ToolCall,
+    /// The pending call's position inside `batch` — where the resumed batch
+    /// continues (siblings before it already ran; ones after it still must).
+    pub index: usize,
     /// The full assistant-message batch this call came from — carried across
     /// the approval pause so a resumed call still sees its same-round
-    /// siblings (TS `ToolResolutionContext.toolCalls` parity; the engine
-    /// executes only the pending call after resume, but AllDone's
-    /// mixed-use guard needs the whole original batch).
+    /// siblings and the batch continues after the pending call (TS
+    /// `ToolResolutionContext.toolCalls` parity; AllDone's mixed-use guard
+    /// needs the whole original batch).
     pub batch: Vec<ToolCall>,
 }
 
@@ -514,9 +517,35 @@ impl TurnSession {
             reasoning: None,
         });
         if result.stop_turn {
+            // The pending call itself stopped the turn: the remaining
+            // siblings never run and get synthetic skipped results (P2-7
+            // parity), so no tool_call dangles in the next request.
+            self.synthesize_skipped_siblings(&pending.batch, pending.index + 1, on_event);
             return self.finish_turn(TurnEndReason::Completed, on_event);
         }
-        self.run_loop(llm, tools, policy, on_event).await
+        // P1-1: an approval pauses the batch, it does not cancel the round —
+        // after the pending call the remaining siblings still run (TS
+        // parity). A sibling that needs approval pauses the turn again.
+        match self
+            .execute_batch(
+                &pending.batch,
+                pending.index + 1,
+                tools,
+                policy,
+                on_event,
+                self.input.turn_id,
+                self.steps,
+            )
+            .await
+        {
+            Ok(stop_turn) => {
+                if stop_turn {
+                    return self.finish_turn(TurnEndReason::Completed, on_event);
+                }
+                self.run_loop(llm, tools, policy, on_event).await
+            }
+            Err(progress) => progress,
+        }
     }
 
     fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
@@ -528,6 +557,169 @@ impl TurnSession {
                 .clone()
                 .unwrap_or_else(dimi_exec::env::default_shell),
             tool_calls: calls.to_vec(),
+        }
+    }
+
+    /// Execute the tool-call batch from `start` onward (approval-resume
+    /// parity): returns `Ok(stop_turn)` when the batch finished, or
+    /// `Err(TurnProgress)` when a sibling needs approval (the caller returns
+    /// the NeedsApproval progress) or the turn was cancelled mid-batch.
+    ///
+    /// The batch loop is shared between the initial step (start = 0) and an
+    /// approval resume (start = pending.index + 1) so an approval pauses the
+    /// round instead of cancelling it (P1-1), and a stop_turn inside the
+    /// batch synthesizes skipped results for the unrun siblings (P2-7).
+    async fn execute_batch(
+        &mut self,
+        calls: &[ToolCall],
+        start: usize,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+        turn_id: i64,
+        step_number: u32,
+    ) -> Result<bool, TurnProgress> {
+        let mut stop_turn = false;
+        for (index, call) in calls.iter().enumerate().skip(start) {
+            let input = PolicyInput {
+                mode: policy.mode,
+                tool_name: call.name.clone(),
+                args: call.arguments.clone(),
+                rules: policy.rules.clone(),
+                session_approved_patterns: policy.session_approved_patterns.clone(),
+                match_arg: call
+                    .arguments
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+            };
+            match evaluate(&input) {
+                PolicyDecision::Approve => {
+                    // Carry the step's full tool-call batch in the context so
+                    // external tools can validate the round (e.g. the TS
+                    // AllDone tool rejects a mixed batch).
+                    let ctx = self.tool_ctx(calls);
+                    let result = tokio::select! {
+                        result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
+                        _ = self.cancel.cancelled() => {
+                            tools.abort(call);
+                            emit(
+                                on_event,
+                                EngineEvent::TurnStepInterrupted {
+                                    turn_id,
+                                    step: step_number as i64,
+                                    step_id: None,
+                                    reason: "aborted".to_string(),
+                                    message: None,
+                                },
+                            );
+                            return Err(self.finish_turn_with_error(
+                                TurnEndReason::Cancelled,
+                                None,
+                                None,
+                                on_event,
+                            ));
+                        }
+                    };
+                    emit_tool_result(&result, turn_id, on_event);
+                    self.messages.push(LlmMessage {
+                        role: "tool".to_string(),
+                        content: serde_json::Value::String(result.output.clone()),
+                        name: Some(result.tool_name.clone()),
+                        tool_call_id: Some(result.tool_call_id.clone()),
+                        tool_calls: None,
+                        reasoning: None,
+                    });
+                    if result.stop_turn {
+                        // P2-7: the unrun siblings get synthetic error
+                        // results so every tool_call in the assistant
+                        // message has a matching tool result (TS
+                        // toolExecutorService parity).
+                        self.synthesize_skipped_siblings(calls, index + 1, on_event);
+                        stop_turn = true;
+                        break;
+                    }
+                }
+                PolicyDecision::Deny { reason } => {
+                    // The call still happened (the fold's tool.result needs
+                    // the tool.call record).
+                    emit_tool_call_started(call, turn_id, on_event);
+                    let result = ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output: reason,
+                        is_error: true,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                    emit_tool_result(&result, turn_id, on_event);
+                    self.messages.push(LlmMessage {
+                        role: "tool".to_string(),
+                        content: serde_json::Value::String(result.output),
+                        name: Some(call.name.clone()),
+                        tool_call_id: Some(call.id.clone()),
+                        tool_calls: None,
+                        reasoning: None,
+                    });
+                }
+                PolicyDecision::Ask => {
+                    // The call is announced before the pause (TS onToolCall
+                    // semantics), so a rejected resume still folds a proper
+                    // tool message.
+                    emit_tool_call_started(call, turn_id, on_event);
+                    let request = ApprovalRequest {
+                        request_id: format!("approval-{turn_id}-{}", call.id),
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        action: Some("Run tool".to_string()),
+                        display: Some(serde_json::json!({
+                            "tool": call.name,
+                            "args": call.arguments
+                        })),
+                        tool_input: Some(call.arguments.clone()),
+                    };
+                    self.pending = Some(PendingApproval {
+                        request: request.clone(),
+                        call: call.clone(),
+                        batch: calls.to_vec(),
+                        index,
+                    });
+                    return Err(TurnProgress::NeedsApproval(request));
+                }
+            }
+        }
+        Ok(stop_turn)
+    }
+
+    /// P2-7: synthesize an error tool result for every unrun sibling in the
+    /// batch (a previous call stopped the turn), keeping the assistant
+    /// message's tool_calls fully resolved (TS toolExecutorService parity).
+    fn synthesize_skipped_siblings(
+        &mut self,
+        calls: &[ToolCall],
+        after: usize,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        for sibling in &calls[after..] {
+            let skipped = ToolResult {
+                tool_call_id: sibling.id.clone(),
+                tool_name: sibling.name.clone(),
+                output:
+                    "Tool was not run because a previous tool in the same round stopped the turn."
+                        .to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            };
+            emit_tool_result(&skipped, self.input.turn_id, on_event);
+            self.messages.push(LlmMessage {
+                role: "tool".to_string(),
+                content: serde_json::Value::String(skipped.output),
+                name: Some(skipped.tool_name.clone()),
+                tool_call_id: Some(skipped.tool_call_id.clone()),
+                tool_calls: None,
+                reasoning: None,
+            });
         }
     }
 
@@ -1010,114 +1202,15 @@ impl TurnSession {
                         ),
                         reasoning: None,
                     });
-                    let mut stop_turn = false;
-                    // One context per batch: every call in the assistant
-                    // message sees the full same-batch tool calls (external
-                    // tools build `ToolResolutionContext.toolCalls` from it).
-                    let ctx = self.tool_ctx(&calls);
-                    for call in &calls {
-                        let input = PolicyInput {
-                            mode: policy.mode,
-                            tool_name: call.name.clone(),
-                            args: call.arguments.clone(),
-                            rules: policy.rules.clone(),
-                            session_approved_patterns: policy.session_approved_patterns.clone(),
-                            match_arg: call
-                                .arguments
-                                .get("command")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_owned),
-                        };
-                        match evaluate(&input) {
-                            PolicyDecision::Approve => {
-                                // Carry the step's full tool-call batch in the
-                                // context so external tools can validate the
-                                // round (e.g. the TS AllDone tool rejects a
-                                // mixed batch).
-                                let mut ctx = self.tool_ctx(&calls);
-                                let result = tokio::select! {
-                                    result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
-                                    _ = self.cancel.cancelled() => {
-                                        tools.abort(&call);
-                                        emit(
-                                            on_event,
-                                            EngineEvent::TurnStepInterrupted {
-                                                turn_id,
-                                                step: step_number as i64,
-                                                step_id: None,
-                                                reason: "aborted".to_string(),
-                                                message: None,
-                                            },
-                                        );
-                                        return self.finish_turn_with_error(
-                                            TurnEndReason::Cancelled,
-                                            None,
-                                            None,
-                                            on_event,
-                                        );
-                                    }
-                                };
-                                emit_tool_result(&result, turn_id, on_event);
-                                self.messages.push(LlmMessage {
-                                    role: "tool".to_string(),
-                                    content: serde_json::Value::String(result.output.clone()),
-                                    name: Some(result.tool_name.clone()),
-                                    tool_call_id: Some(result.tool_call_id.clone()),
-                                    tool_calls: None,
-                                    reasoning: None,
-                                });
-                                if result.stop_turn {
-                                    stop_turn = true;
-                                    break;
-                                }
-                            }
-                            PolicyDecision::Deny { reason } => {
-                                // The call still happened (the fold's
-                                // tool.result needs the tool.call record).
-                                emit_tool_call_started(&call, turn_id, on_event);
-                                let result = ToolResult {
-                                    tool_call_id: call.id.clone(),
-                                    tool_name: call.name.clone(),
-                                    output: reason,
-                                    is_error: true,
-                                    stop_turn: false,
-                                    updates: vec![],
-                                };
-                                emit_tool_result(&result, turn_id, on_event);
-                                self.messages.push(LlmMessage {
-                                    role: "tool".to_string(),
-                                    content: serde_json::Value::String(result.output),
-                                    name: Some(call.name.clone()),
-                                    tool_call_id: Some(call.id.clone()),
-                                    tool_calls: None,
-                                    reasoning: None,
-                                });
-                            }
-                            PolicyDecision::Ask => {
-                                // The call is announced before the pause (TS
-                                // onToolCall semantics), so a rejected resume
-                                // still folds a proper tool message.
-                                emit_tool_call_started(call, turn_id, on_event);
-                                let request = ApprovalRequest {
-                                    request_id: format!("approval-{turn_id}-{}", call.id),
-                                    tool_call_id: call.id.clone(),
-                                    tool_name: call.name.clone(),
-                                    action: Some("Run tool".to_string()),
-                                    display: Some(serde_json::json!({
-                                        "tool": call.name,
-                                        "args": call.arguments
-                                    })),
-                                    tool_input: Some(call.arguments.clone()),
-                                };
-                                self.pending = Some(PendingApproval {
-                                    request: request.clone(),
-                                    call: call.clone(),
-                                    batch: calls.clone(),
-                                });
-                                return TurnProgress::NeedsApproval(request);
-                            }
-                        }
-                    }
+                    let stop_turn = match self
+                        .execute_batch(&calls, 0, tools, policy, on_event, turn_id, step_number)
+                        .await
+                    {
+                        Ok(stop_turn) => stop_turn,
+                        // A sibling needs approval (or the turn was cancelled
+                        // mid-batch): surface that progress to the caller.
+                        Err(progress) => return progress,
+                    };
                     if stop_turn {
                         self.mark_finished();
                         emit(
@@ -3605,5 +3698,250 @@ mod cancel_tests {
         assert_eq!(empty.reason(), None);
         empty.cancel_with_reason(Some("user abort".to_string()));
         assert_eq!(empty.reason().as_deref(), Some("user abort"));
+    }
+}
+
+#[cfg(test)]
+mod approval_batch_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
+    use crate::permission::PermissionMode;
+    use crate::types::ProviderConfig;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn msg(role: &str, text: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    fn result(call_id: &str, name: &str, output: &str, stop_turn: bool) -> ToolResult {
+        ToolResult {
+            tool_call_id: call_id.to_string(),
+            tool_name: name.to_string(),
+            output: output.to_string(),
+            is_error: false,
+            stop_turn,
+            updates: vec![],
+        }
+    }
+
+    /// Records which tool calls were executed and returns scripted results
+    /// (calls without a scripted result get a plain success result).
+    struct RecordingToolExecutor {
+        executed: Arc<Mutex<Vec<String>>>,
+        results: HashMap<String, ToolResult>,
+    }
+
+    impl RecordingToolExecutor {
+        fn new(results: Vec<ToolResult>) -> Self {
+            Self {
+                executed: Arc::new(Mutex::new(Vec::new())),
+                results: results
+                    .into_iter()
+                    .map(|r| (r.tool_call_id.clone(), r))
+                    .collect(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for RecordingToolExecutor {
+        async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+            self.executed.lock().unwrap().push(call.id.clone());
+            self.results.get(&call.id).cloned().unwrap_or_else(|| {
+                result(&call.id, &call.name, &format!("ran {}", call.name), false)
+            })
+        }
+    }
+
+    /// Every assistant `tool_calls` entry must have a matching `tool` result
+    /// (providers reject a dangling tool_call on the next request).
+    fn assert_no_dangling_tool_calls(messages: &[LlmMessage]) {
+        for message in messages {
+            let Some(calls) = &message.tool_calls else { continue };
+            for call in calls {
+                let has_result = messages.iter().any(|m| {
+                    m.role == "tool" && m.tool_call_id.as_deref() == Some(call.id.as_str())
+                });
+                assert!(
+                    has_result,
+                    "dangling tool_call {} (no tool result) in: {:?}",
+                    call.id, messages
+                );
+            }
+        }
+    }
+
+    fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://example.test/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(5),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+        }
+    }
+
+    fn policy(mode: PermissionMode) -> PolicyConfig {
+        PolicyConfig {
+            mode,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    /// One assistant message with two tool calls: Bash (manual mode asks) +
+    /// Read (default-approve sibling).
+    fn batch_segment() -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_bash".to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+            },
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_read".to_string(),
+                name: Some("Read".to_string()),
+                arguments_part: Some("{\"path\":\"hello.txt\"}".to_string()),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("tool_calls".to_string()),
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn approval_resume_continues_the_tool_batch() {
+        // P1-1: an approval pauses the batch — the remaining siblings must
+        // still run after the Approved resume (TS parity: approval pauses,
+        // it does not cancel the round). Bash asks in manual mode; Read is a
+        // default-approve tool.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        let TurnProgress::NeedsApproval(request) = progress else {
+            panic!("expected NeedsApproval, got {progress:?}");
+        };
+        assert_eq!(request.tool_call_id, "call_bash");
+        // The batch call itself has not run before the pause.
+        assert_eq!(*executor.executed.lock().unwrap(), Vec::<String>::new());
+
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // BOTH batch calls ran — the sibling is no longer dropped.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string(), "call_read".to_string()]
+        );
+        // The next request has no dangling tool_call: every assistant
+        // tool_calls entry has a matching tool result.
+        assert_no_dangling_tool_calls(session.messages());
+        let tool_results: Vec<_> = session
+            .messages()
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_results.len(), 2, "both batch calls have results");
+        assert_eq!(tool_results[0].tool_call_id.as_deref(), Some("call_bash"));
+        assert_eq!(tool_results[1].tool_call_id.as_deref(), Some("call_read"));
+    }
+
+    #[tokio::test]
+    async fn stop_turn_in_batch_synthesizes_skipped_sibling_results() {
+        // P2-7: when a batch call stops the turn, the unrun siblings still
+        // get a synthetic error result so no tool_call dangles (TS
+        // toolExecutorService parity).
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping now", true),
+            // call_read must NOT run.
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Auto),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Only the stopping call ran.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string()]
+        );
+        // The sibling has a synthetic tool result — nothing dangles.
+        assert_no_dangling_tool_calls(session.messages());
+        let sibling = session
+            .messages()
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_read"))
+            .expect("sibling tool result");
+        assert!(
+            sibling
+                .content
+                .as_str()
+                .unwrap()
+                .contains("Tool was not run because a previous tool in the same round stopped the turn."),
+            "sibling result: {:?}",
+            sibling.content
+        );
     }
 }
