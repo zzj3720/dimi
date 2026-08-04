@@ -546,11 +546,16 @@ export const modelRow = css({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  background: colors.hover,
+  background: 'transparent',
   borderRadius: 12,
   padding: '10px 16px',
   fontSize: 14,
   cursor: 'pointer',
+  '&:hover': { background: colors.hover },
+});
+
+export const modelRowSelected = css({
+  background: colors.hover,
   '&:hover': { background: colors.hoverStrong },
 });
 

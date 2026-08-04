@@ -18,7 +18,7 @@ import {
   reasoningShell, reasoningShellCollapsed, reasoningBody, thinkingMd,
   toolsCol,
   welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
-  welcomeModelsTitle, modelRow, modelName, modelLevel, md,
+  welcomeModelsTitle, modelRow, modelRowSelected, modelName, modelLevel, md,
 } from './Transcript.styles';
 
 // Turn action-row glyphs beyond the copy icon. icons.ts is a frozen design
@@ -382,6 +382,52 @@ function suggest(text: string): void {
   window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'suggestion_send', text } }));
 }
 
+// Welcome model rows (codex empty-thread model picker): list the server
+// models with the current one first, instead of hardcoded rows.
+const welcomeModelList = ref<{ value: string; label: string }[]>([]);
+let welcomeModelsLoaded = false;
+
+async function loadWelcomeModels(): Promise<void> {
+  if (welcomeModelsLoaded) return;
+  welcomeModelsLoaded = true;
+  try {
+    const data = await api('GET', '/api/v1/models');
+    const items = ((data?.data?.items as { provider: string; model: string; display_name?: string }[] | undefined) ?? []).slice(0, 6);
+    const list = items.map((m) => ({
+      value: `${m.provider}/${m.model}`,
+      label: m.display_name ?? m.model,
+    }));
+    const cur = state.modelName;
+    if (cur) {
+      const rest = list.filter((m) => m.value !== cur);
+      welcomeModelList.value = [{ value: cur, label: cur.split('/').pop() ?? cur }, ...rest];
+    } else {
+      welcomeModelList.value = list;
+    }
+  } catch {
+    welcomeModelList.value = [];
+  }
+}
+
+function pickWelcomeModel(refName: string): void {
+  void api('POST', `/api/v1/models/${encodeURIComponent(refName)}:set_default`, {})
+    .then(() => {
+      state.modelName = refName;
+      state.statusMsg = `default model → ${refName}`;
+    })
+    .catch((e) => {
+      state.statusMsg = `model set failed: ${(e as Error).message}`;
+    });
+}
+
+watch(
+  () => state.entries.length,
+  (n) => {
+    if (n === 0) void loadWelcomeModels();
+  },
+  { immediate: true },
+);
+
 function shellCmd(args: string): string {
   return '$ ' + args;
 }
@@ -507,8 +553,15 @@ function cleanText(s: string): string {
       </div>
       <div :class="welcomeModels">
         <div :class="welcomeModelsTitle">模型</div>
-        <div :class="modelRow" @click="dispatch(Msg.SettingsOpen())"><span :class="modelName">{{ state.modelName || '模型' }}</span><span :class="modelLevel">轻度</span></div>
-        <div :class="modelRow"><span :class="modelName">5.6 Sol</span><span :class="modelLevel">极高</span></div>
+        <div
+          v-for="m in welcomeModelList"
+          :key="m.value"
+          :class="[modelRow, { [modelRowSelected]: m.value === state.modelName }]"
+          @click="pickWelcomeModel(m.value)"
+        >
+          <span :class="modelName">{{ m.label }}</span>
+          <span :class="modelLevel">{{ m.value === state.modelName ? '当前' : '' }}</span>
+        </div>
       </div>
     </div>
 
