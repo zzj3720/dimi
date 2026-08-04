@@ -123,8 +123,7 @@ impl ProcessTerminal {
 
     /// Process a chunk of raw stdin through the buffer, handling Kitty
     /// negotiation and forwarding complete sequences to `on_input`.
-    #[allow(dead_code)] // wired by the event-loop slice
-    fn process_stdin_chunk(&mut self, chunk: &str, on_input: &mut dyn FnMut(&str)) {
+    pub fn process_stdin_chunk(&mut self, chunk: &str, on_input: &mut dyn FnMut(&str)) {
         let mut owned = self.stdin_buffer.take();
         let mut sink = CollectSink::default();
         if let Some(buf) = owned.as_mut() {
@@ -213,8 +212,8 @@ impl ProcessTerminal {
         self.modify_other_keys_active = false;
     }
 
-    #[allow(dead_code)] // wired by the event-loop slice
-    fn read_stdin(&mut self, on_input: &mut dyn FnMut(&str)) {
+    #[allow(dead_code)] // convenience for app shells
+    pub fn read_stdin(&mut self, on_input: &mut dyn FnMut(&str)) {
         let mut buf = [0u8; 4096];
         loop {
             match std::io::stdin().read(&mut buf) {
