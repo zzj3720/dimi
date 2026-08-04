@@ -2225,7 +2225,14 @@ pub struct AsyncAgentTool {
     /// subagent turns must advertise the same tool set to their LLM, or the
     /// subagent model never learns the tools exist (it then claims there are
     /// no file-reading tools etc.). The nested input is built with these.
-    pub tools_defs: Vec<crate::types::EngineTool>,
+    ///
+    /// Shared with the napi session: the session's tool registry is populated
+    /// AFTER construction (TS hands an empty `tools` array and the bridge
+    /// re-syncs the defs before every run/resume), so a snapshot taken at
+    /// construction would stay empty forever. The bridge writes the synced
+    /// set into this shared cell and the subagent reads the latest defs at
+    /// launch time.
+    pub tools_defs: std::sync::Arc<std::sync::Mutex<Vec<crate::types::EngineTool>>>,
     pub policy: crate::permission::PolicyConfig,
     pub max_steps: Option<u32>,
     pub shell: String,
@@ -2624,7 +2631,11 @@ impl AsyncAgentTool {
         let tools = Arc::clone(&self.tools);
         // Copy the parent's tool definitions out of `&self` before the worker
         // spawn (the nested turn advertises the same tool set to its LLM).
-        let tools_defs = self.tools_defs.clone();
+        let tools_defs = self
+            .tools_defs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
         let policy = self.policy.clone();
         let max_steps = self.max_steps;
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -3022,7 +3033,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: sub_llm,
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3088,7 +3099,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: sub_llm,
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3336,7 +3347,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3423,11 +3434,11 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: std::sync::Arc::clone(&recorded) as Arc<dyn LlmClient>,
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![crate::types::EngineTool {
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![crate::types::EngineTool {
                 name: "Read".to_string(),
                 description: "Read a file".to_string(),
                 args_schema: serde_json::json!({"type": "object", "properties": {}}),
-            }],
+            }])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3479,6 +3490,109 @@ mod async_agent_tests {
         );
     }
 
+    /// The napi session constructs AsyncAgentTool BEFORE the tool registry is
+    /// populated (TS hands an empty `tools` array; the bridge re-syncs the
+    /// defs on every run/resume). The shared tools_defs cell must reflect the
+    /// synced set at subagent launch time — a construction-time snapshot
+    /// would advertise an empty tool set and the subagent model would fall
+    /// back to made-up tool formats.
+    #[tokio::test]
+    async fn subagent_advertises_tools_synced_after_construction() {
+        use crate::llm::{ChatRequest, LlmClient, LlmError, StreamedTurn};
+        use crate::events::EventSink;
+        struct RecordingClient(std::sync::Mutex<Vec<Option<Vec<serde_json::Value>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, LlmError> {
+                self.0.lock().unwrap().push(request.tools.clone());
+                Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "done".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "done".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+        let recorded = std::sync::Arc::new(RecordingClient(std::sync::Mutex::new(Vec::new())));
+        let tasks = AgentTasks::new();
+        // Construction-time cell: EMPTY (the napi session receives `tools: []`
+        // from TS; the registry is populated later).
+        let tools_defs = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let agent = AsyncAgentTool {
+            llm: std::sync::Arc::clone(&recorded) as Arc<dyn LlmClient>,
+            tools: Arc::new(BashTool::default()),
+            tools_defs: std::sync::Arc::clone(&tools_defs),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+        };
+        // Bridge run()/resume() re-sync: the shared cell now holds the real
+        // tool set.
+        *tools_defs.lock().unwrap() = vec![crate::types::EngineTool {
+            name: "Bash".to_string(),
+            description: "Run a command".to_string(),
+            args_schema: serde_json::json!({"type": "object", "properties": {}}),
+        }];
+
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({"prompt": "read something"}),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+
+        let requests = recorded.0.lock().unwrap();
+        assert!(!requests.is_empty(), "nested turn must issue an LLM request");
+        let tools = requests[0].as_ref().expect("nested request must carry tools");
+        assert!(
+            tools.iter().any(|t| t["name"] == "Bash"),
+            "nested request must advertise the post-construction synced tool set: {tools:?}"
+        );
+    }
+
 
     #[tokio::test]
     async fn subagent_emits_task_started_and_settled_events() {
@@ -3500,7 +3614,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3606,7 +3720,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3789,7 +3903,7 @@ mod async_agent_tests {
                 second_started: tokio::sync::Mutex::new(Some(second_tx)),
             }),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3939,7 +4053,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             // One step only: after step 1 (streamed text + Bash tool call)
             // the max-steps guard fails the turn.
@@ -4077,7 +4191,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4220,7 +4334,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4291,7 +4405,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4361,7 +4475,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
             tools: Arc::new(BashTool::default()),
-            tools_defs: vec![],
+            tools_defs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
