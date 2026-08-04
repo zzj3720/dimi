@@ -1,15 +1,27 @@
 {
   "name": "dimi-native",
   "version": "0.1.0",
-  "description": "Dimi native desktop client (Electron) — 1:1 TUI feature parity",
+  "description": "Dimi native desktop client (Electron) — Codex-style UI on vite-plus + Vue 3 + TS",
   "private": true,
   "type": "module",
   "main": "src/main/index.js",
   "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev:electron": "vp build && electron ."
+  },
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9",
+    "vue": "^3.5.35"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "@vitejs/plugin-vue": "^5.2.4",
+    "electron": "^33.0.0",
+    "typescript": "^6.0.2",
+    "vite": "^6.3.3",
+    "vite-plus": "^0.2.7",
+    "vue-tsc": "^2.2.0"
   }
 }
