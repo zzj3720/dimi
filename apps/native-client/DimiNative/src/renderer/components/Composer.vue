@@ -5,7 +5,7 @@
 // Auto single-line/multiline switch follows the codex bvs/Tvs measurement
 // logic (hidden measure span + 32px buffer); empty drafts keep the send
 // button enabled (codex), the submit guard lives in submitDraft().
-import { ref, watch, nextTick, computed, onMounted } from 'vue';
+import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention, pickModel } from '../api';
 import { icons } from '../icons';
@@ -310,8 +310,27 @@ watch(
   },
 );
 
+// Model picker closes on outside click / Escape (codex DropdownMenu behavior).
+function onPickerGlobalDown(): void {
+  if (modelPickerOpen.value) modelPickerOpen.value = false;
+}
+
+function onPickerGlobalEsc(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && modelPickerOpen.value) {
+    modelPickerOpen.value = false;
+    e.stopPropagation();
+  }
+}
+
 onMounted(() => {
   void nextTick(() => inputEl.value?.focus());
+  document.addEventListener('mousedown', onPickerGlobalDown);
+  document.addEventListener('keydown', onPickerGlobalEsc);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', onPickerGlobalDown);
+  document.removeEventListener('keydown', onPickerGlobalEsc);
 });
 
 function acceptCompletion(): void {
