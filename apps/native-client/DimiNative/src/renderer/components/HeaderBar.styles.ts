@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { colors, font, size } from '../styles/theme';
+import { colors, font, size, elevation } from '../styles/theme';
 
 // Codex header: 46px fixed transparent bar. The whole header is
 // pointer-events:none — only the buttons re-enable it (S17), so empty header
@@ -242,4 +242,36 @@ export const headerTitleInput = css({
   boxSizing: 'border-box',
   pointerEvents: 'auto',
   WebkitAppRegion: 'no-drag',
+});
+
+// ---- session context menu (fixed overlay, codex HeaderContextMenuItem) ----
+export const headerCtxMenu = css({
+  position: 'fixed',
+  zIndex: 80,
+  minWidth: 180,
+  padding: 6,
+  background: colors.surface2,
+  borderRadius: 12,
+  boxShadow: elevation.prominent,
+  display: 'flex',
+  flexDirection: 'column',
+});
+
+export const ctxMenuItem = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 32,
+  padding: '0 8px',
+  borderRadius: 8,
+  border: 'none',
+  background: 'transparent',
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  fontWeight: 445,
+  color: colors.text,
+  textAlign: 'left',
+  cursor: 'default',
+  whiteSpace: 'nowrap',
+  '&:hover': { background: colors.hover },
 });

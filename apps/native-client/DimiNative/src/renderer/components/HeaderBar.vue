@@ -3,14 +3,14 @@
 // + session title (click → inline rename) + More + share pill + pinned
 // summary + toggle-sidebar. No segmented control and no status badges —
 // Codex keeps the header clean; status lives in the composer area.
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { state } from '../store';
 import { api, dispatch } from '../api';
 import { icons } from '../icons';
 import {
   header, headerSide, headerSideOpen, headerSideClosed, headerSideGroup,
   headerMain, headerTitle, headerTitleInput, iconBtn, moreBtn, headerRight,
-  shareBtn, pinnedBtn, pinnedBtnOn,
+  shareBtn, pinnedBtn, pinnedBtnOn, headerCtxMenu, ctxMenuItem,
 } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
@@ -94,6 +94,91 @@ function cancelRename(): void {
 // Switching sessions while editing discards the draft (no commit).
 watch(() => state.currentSessionId, () => cancelRename());
 
+// ---- session context menu on the title (codex HeaderContextMenuItem) ----
+const headerMenu = ref<{ x: number; y: number } | null>(null);
+const viewport = computed(() => ({ w: window.innerWidth, h: window.innerHeight }));
+
+function openHeaderMenu(e: MouseEvent): void {
+  e.preventDefault();
+  headerMenu.value = { x: e.clientX, y: e.clientY };
+}
+
+function closeHeaderMenu(): void {
+  headerMenu.value = null;
+}
+
+function headerCopyId(): void {
+  const id = state.currentSessionId;
+  headerMenu.value = null;
+  if (!id) return;
+  void navigator.clipboard.writeText(id).then(() => {
+    state.statusMsg = '会话 ID 已复制';
+  });
+}
+
+function headerCopyCwd(): void {
+  const cwd = state.currentCwd;
+  headerMenu.value = null;
+  if (!cwd) {
+    state.statusMsg = '该会话无工作目录';
+    return;
+  }
+  void navigator.clipboard.writeText(cwd).then(() => {
+    state.statusMsg = '工作目录已复制';
+  });
+}
+
+function headerFork(): void {
+  const id = state.currentSessionId;
+  headerMenu.value = null;
+  if (!id) return;
+  api('POST', `/api/v1/sessions/${id}:fork`, {})
+    .then((data) => {
+      const fid = (data?.data?.id as string) ?? '';
+      state.statusMsg = fid ? `forked ${fid}` : 'forked';
+    })
+    .catch((e) => {
+      state.statusMsg = `fork failed: ${(e as Error).message}`;
+    });
+}
+
+function headerExport(): void {
+  const id = state.currentSessionId;
+  headerMenu.value = null;
+  if (!id) return;
+  api('POST', `/api/v1/sessions/${id}/export`, {})
+    .then((data) => {
+      const text = typeof data?.data === 'string' ? data.data : JSON.stringify(data?.data ?? {});
+      void navigator.clipboard.writeText(text).then(() => {
+        state.statusMsg = '导出已复制';
+      });
+    })
+    .catch((e) => {
+      state.statusMsg = `export failed: ${(e as Error).message}`;
+    });
+}
+
+function onHeaderMenuDown(): void {
+  if (headerMenu.value) headerMenu.value = null;
+}
+
+function onHeaderMenuEsc(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && headerMenu.value) {
+    headerMenu.value = null;
+    e.stopPropagation();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', onHeaderMenuDown);
+  document.addEventListener('keydown', onHeaderMenuEsc);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', onHeaderMenuDown);
+  document.removeEventListener('keydown', onHeaderMenuEsc);
+});
+
 // 固定摘要 (pinned summary): Codex toggles a summary panel (pressed → white
 // 5% bg + aria-pressed). dimi has no summary panel yet, so this is a local
 // visual toggle only — needs product wiring when the feature lands (A2).
@@ -141,7 +226,7 @@ function openHelp(): void {
              @keydown.enter.prevent="commitRename"
              @keydown.esc.prevent="cancelRename"
              @blur="commitRename" />
-      <button v-else :class="headerTitle" type="button" @click="startRename">
+      <button v-else :class="headerTitle" type="button" @click="startRename" @contextmenu.prevent="openHeaderMenu($event)">
         <span ref="titleSpan">{{ current?.title || '' }}</span>
       </button>
       <button :class="[iconBtn, moreBtn]" type="button" aria-label="ChatGPT 对话操作" @click="openHelp">
@@ -164,6 +249,31 @@ function openHelp(): void {
            secondary state is left off to match codex's default ghost look. -->
       <button :class="iconBtn" type="button" aria-label="切换侧边栏" :aria-pressed="state.sidebarVisible" @click="toggleSidebar">
         <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true" style="transform: rotate(180deg)"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
+      </button>
+    </div>
+
+    <!-- Session context menu (codex HeaderContextMenuItem subset) -->
+    <div
+      v-if="headerMenu"
+      :class="headerCtxMenu"
+      :style="{ left: Math.min(headerMenu.x, viewport.w - 200) + 'px', top: Math.min(headerMenu.y, viewport.h - 220) + 'px' }"
+      role="menu"
+      @mousedown.stop
+    >
+      <button :class="ctxMenuItem" type="button" role="menuitem" @click="startRename">
+        <span>重命名会话</span>
+      </button>
+      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyId">
+        <span>复制会话 ID</span>
+      </button>
+      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyCwd">
+        <span>复制工作目录</span>
+      </button>
+      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerFork">
+        <span>Fork 会话</span>
+      </button>
+      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerExport">
+        <span>导出复制</span>
       </button>
     </div>
   </header>

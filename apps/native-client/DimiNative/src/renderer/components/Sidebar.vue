@@ -13,7 +13,7 @@ import {
   watch,
 } from 'vue';
 import { state, Msg, SIDEBAR_WIDTH_KEY, type SessionSummary } from '../store';
-import { dispatch } from '../api';
+import { dispatch, api } from '../api';
 import { icons, type IconDef } from '../icons';
 import {
   sidebar, sidebarTop, sidebarTopSearch, sidebarTopScrolled,
@@ -23,7 +23,7 @@ import {
   folderGroup, folderRow, folderRowIcon, folderRowName, folderRowActions, folderRowBtn, sessionList,
   sessionItem, sessionItemActive,
   resizeHandle, resizeHandleLine, sidebarBottom, userRow, userRowOpen, sidebarBottomBtn, sidebarBottomBtnOpen,
-  menuAnchor, menuAnchorGrow, menu, menuWide, menuTop, menuBottomLeft, menuBottomRight, menuItem, menuCheck,
+  menuAnchor, menuAnchorGrow, menu, menuWide, menuTop, menuBottomLeft, menuBottomRight, menuItem, menuCheck, ctxMenuStyle, editInput,
   searchView, searchInputRow, searchInput, searchClear,
 } from './Sidebar.styles';
 
@@ -111,6 +111,125 @@ function newChat(): void {
 function comingSoon(name: string): void {
   state.statusMsg = `${name}（暂未实现）`;
 }
+
+// ---- session row context menu (codex Work Ztu: right-click thread row) ----
+// Codex shows a 15-item menu (pin / rename / archive / read-state / fork /
+// folder / copy cwd / copy id / copy link / open in new window). dimi
+// implements the subset its server supports: rename (inline edit), fork,
+// export-to-clipboard, copy id, copy cwd.
+const ctxMenu = ref<{ x: number; y: number; session: SessionSummary } | null>(null);
+const editingSessionId = ref<string | null>(null);
+const editDraft = ref('');
+const editInputEl = ref<HTMLInputElement | null>(null);
+const viewport = computed(() => ({ w: window.innerWidth, h: window.innerHeight }));
+
+function openCtxMenu(e: MouseEvent, s: SessionSummary): void {
+  e.preventDefault();
+  e.stopPropagation();
+  editingSessionId.value = null;
+  ctxMenu.value = { x: e.clientX, y: e.clientY, session: s };
+}
+
+function closeCtxMenu(): void {
+  ctxMenu.value = null;
+  editingSessionId.value = null;
+}
+
+function ctxRename(): void {
+  const s = ctxMenu.value?.session;
+  if (!s) return;
+  editDraft.value = sessionTitle(s);
+  editingSessionId.value = s.id;
+  ctxMenu.value = null;
+  void nextTick(() => editInputEl.value?.focus());
+}
+
+function commitRename(id: string): void {
+  const t = editDraft.value.trim();
+  editingSessionId.value = null;
+  if (!t) return;
+  api('POST', `/api/v1/sessions/${id}/profile`, { title: t })
+    .then(() => {
+      state.statusMsg = `renamed to ${t}`;
+    })
+    .catch((e) => {
+      state.statusMsg = `rename failed: ${(e as Error).message}`;
+    });
+}
+
+function ctxCopyId(): void {
+  const s = ctxMenu.value?.session;
+  ctxMenu.value = null;
+  if (!s) return;
+  void navigator.clipboard.writeText(s.id).then(() => {
+    state.statusMsg = '会话 ID 已复制';
+  });
+}
+
+function ctxCopyCwd(): void {
+  const s = ctxMenu.value?.session;
+  ctxMenu.value = null;
+  if (!s) return;
+  const cwd = sessionCwd(s);
+  if (!cwd) {
+    state.statusMsg = '该会话无工作目录';
+    return;
+  }
+  void navigator.clipboard.writeText(cwd).then(() => {
+    state.statusMsg = '工作目录已复制';
+  });
+}
+
+function ctxFork(): void {
+  const s = ctxMenu.value?.session;
+  ctxMenu.value = null;
+  if (!s) return;
+  api('POST', `/api/v1/sessions/${s.id}:fork`, {})
+    .then((data) => {
+      const id = (data?.data?.id as string) ?? '';
+      state.statusMsg = id ? `forked ${id}` : 'forked';
+    })
+    .catch((e) => {
+      state.statusMsg = `fork failed: ${(e as Error).message}`;
+    });
+}
+
+function ctxExport(): void {
+  const s = ctxMenu.value?.session;
+  ctxMenu.value = null;
+  if (!s) return;
+  api('POST', `/api/v1/sessions/${s.id}/export`, {})
+    .then((data) => {
+      const text = typeof data?.data === 'string' ? data.data : JSON.stringify(data?.data ?? {});
+      void navigator.clipboard.writeText(text).then(() => {
+        state.statusMsg = '导出已复制';
+      });
+    })
+    .catch((e) => {
+      state.statusMsg = `export failed: ${(e as Error).message}`;
+    });
+}
+
+function onGlobalDown(): void {
+  if (ctxMenu.value) closeCtxMenu();
+}
+
+function onGlobalEsc(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && (ctxMenu.value || editingSessionId.value)) {
+    closeCtxMenu();
+    e.stopPropagation();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', onGlobalDown);
+  document.addEventListener('keydown', onGlobalEsc);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', onGlobalDown);
+  document.removeEventListener('keydown', onGlobalEsc);
+});
 
 // ---- scroll-linked header state (02-sidebar-code §2.5, C state) ----
 // scrolledContentUnderHeader: once the session list actually scrolls
@@ -352,10 +471,22 @@ function marqueeLeave(id: string): void {
                   :aria-current="s.id === state.currentSessionId ? 'page' : undefined"
                   :title="sessionTitle(s)"
                   @click="select(s.id)"
+                  @contextmenu.prevent="openCtxMenu($event, s)"
                 >
                   <span class="sb-slot"></span>
                   <span class="s-title" @mouseenter="marqueeEnter($event, s.id)" @mouseleave="marqueeLeave(s.id)">
-                    <span class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
+                    <template v-if="editingSessionId === s.id">
+                      <input
+                        v-model="editDraft"
+                        :class="editInput"
+                        type="text"
+                        :aria-label="`重命名 ${sessionTitle(s)}`"
+                        @click.stop
+                        @keydown.enter.prevent="commitRename(s.id)"
+                        @keydown.esc.stop.prevent="editingSessionId = null"
+                      />
+                    </template>
+                    <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
                   </span>
                   <span class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
                   <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
@@ -402,10 +533,23 @@ function marqueeLeave(id: string): void {
               :aria-current="s.id === state.currentSessionId ? 'page' : undefined"
               :title="sessionTitle(s)"
               @click="select(s.id)"
+              @contextmenu.prevent="openCtxMenu($event, s)"
             >
               <span class="sb-slot"></span>
               <span class="s-title" @mouseenter="marqueeEnter($event, s.id)" @mouseleave="marqueeLeave(s.id)">
-                <span class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
+                <template v-if="editingSessionId === s.id">
+                  <input
+                    ref="editInputEl"
+                    v-model="editDraft"
+                    :class="editInput"
+                    type="text"
+                    :aria-label="`重命名 ${sessionTitle(s)}`"
+                    @click.stop
+                    @keydown.enter.prevent="commitRename(s.id)"
+                    @keydown.esc.stop.prevent="editingSessionId = null"
+                  />
+                </template>
+                <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
               </span>
               <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
               <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
@@ -449,10 +593,22 @@ function marqueeLeave(id: string): void {
             :aria-current="s.id === state.currentSessionId ? 'page' : undefined"
             :title="sessionTitle(s)"
             @click="select(s.id)"
+            @contextmenu.prevent="openCtxMenu($event, s)"
           >
             <span class="sb-slot"></span>
             <span class="s-title" @mouseenter="marqueeEnter($event, s.id)" @mouseleave="marqueeLeave(s.id)">
-              <span class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
+              <template v-if="editingSessionId === s.id">
+                <input
+                  v-model="editDraft"
+                  :class="editInput"
+                  type="text"
+                  :aria-label="`重命名 ${sessionTitle(s)}`"
+                  @click.stop
+                  @keydown.enter.prevent="commitRename(s.id)"
+                  @keydown.esc.stop.prevent="editingSessionId = null"
+                />
+              </template>
+              <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
             </span>
             <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
             <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
@@ -514,6 +670,36 @@ function marqueeLeave(id: string): void {
     <!-- Codex-style resize handle on the right edge -->
     <div :class="resizeHandle" role="separator" aria-orientation="vertical" @mousedown="startResize">
       <div :class="resizeHandleLine"></div>
+    </div>
+
+    <!-- Session row context menu (codex Work Ztu subset) -->
+    <div
+      v-if="ctxMenu"
+      :class="ctxMenuStyle"
+      :style="{ left: Math.min(ctxMenu.x, viewport.w - 200) + 'px', top: Math.min(ctxMenu.y, viewport.h - 220) + 'px' }"
+      role="menu"
+      @mousedown.stop
+    >
+      <button :class="menuItem" type="button" role="menuitem" @click="ctxRename">
+        <span :class="menuCheck"></span>
+        <span>重命名会话</span>
+      </button>
+      <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyId">
+        <span :class="menuCheck"></span>
+        <span>复制会话 ID</span>
+      </button>
+      <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyCwd">
+        <span :class="menuCheck"></span>
+        <span>复制工作目录</span>
+      </button>
+      <button :class="menuItem" type="button" role="menuitem" @click="ctxFork">
+        <span :class="menuCheck"></span>
+        <span>Fork 会话</span>
+      </button>
+      <button :class="menuItem" type="button" role="menuitem" @click="ctxExport">
+        <span :class="menuCheck"></span>
+        <span>导出复制</span>
+      </button>
     </div>
   </aside>
 </template>

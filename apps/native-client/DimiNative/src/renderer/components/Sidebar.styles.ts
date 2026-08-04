@@ -733,3 +733,31 @@ export const searchClear = css({
   '&:hover': { background: cHover, color: cText },
   '& svg': { width: 14, height: 14, flexShrink: 0 },
 });
+
+// ---- session row context menu (fixed overlay, codex Ztu subset) ----
+export const ctxMenuStyle = css({
+  position: 'fixed',
+  zIndex: 80,
+  minWidth: 180,
+  padding: 6,
+  background: colors.surface2,
+  borderRadius: 12,
+  boxShadow: elevation.prominent,
+  display: 'flex',
+  flexDirection: 'column',
+});
+
+// Inline rename input inside a session row (codex thread-title edit).
+export const editInput = css({
+  flex: 1,
+  minWidth: 0,
+  height: 22,
+  padding: '0 6px',
+  borderRadius: 8,
+  border: `1px solid ${colors.borderFocus}`,
+  background: colors.surface2,
+  color: cText,
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  outline: 'none',
+});
