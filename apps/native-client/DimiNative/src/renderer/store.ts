@@ -29,6 +29,8 @@ export interface Entry {
    * (Codex behavior) — history-load path merges tool_use into the thinking
    * entry; live SSE appends tool calls to the in-flight thinking entry. */
   tools?: ToolRef[];
+  /** Live-streamed thinking duration in ms (Codex: "思考了 2m 0s"). */
+  durationMs?: number;
   streaming?: boolean;
   folded?: boolean;
   expanded?: boolean;
@@ -90,6 +92,8 @@ export interface State {
   entries: Entry[];
   entryCount: number;
   displayMode: 'summary' | 'tools' | 'full';
+  /** Live-stream thinking start timestamp (ms) for the duration badge. */
+  thinkingStartTs: number;
 
   busy: boolean;
   phase: Phase;
@@ -189,6 +193,7 @@ export function createInitialState(): State {
 
     entries: [],
     entryCount: 0,
+    thinkingStartTs: 0,
     displayMode: 'summary',
 
     busy: false,
@@ -784,6 +789,13 @@ export function handleSseEvent(s: State, evt: unknown): void {
       if (last && last.kind === 'assistant' && last.streaming) {
         last.text += text;
       } else {
+        // First assistant text chunk: thinking is over — stamp the duration.
+        if (s.thinkingStartTs > 0) {
+          const dur = Date.now() - s.thinkingStartTs;
+          s.thinkingStartTs = 0;
+          const t = s.entries[s.entries.length - 1];
+          if (t && t.kind === 'thinking') t.durationMs = dur;
+        }
         s.entries.push({ kind: 'assistant', text, streaming: true });
       }
       s.entryCount = s.entries.length;
@@ -797,6 +809,8 @@ export function handleSseEvent(s: State, evt: unknown): void {
       if (last && last.kind === 'thinking' && last.streaming) {
         last.text += text;
       } else {
+        // First thinking chunk of this turn: start the duration clock.
+        if (s.thinkingStartTs === 0) s.thinkingStartTs = Date.now();
         s.entries.push({ kind: 'thinking', text, streaming: true });
       }
       return;

@@ -26,7 +26,7 @@ export const md = css({
   whiteSpace: 'normal',
   fontSize: font.chat,
   lineHeight: font.chatLh,
-  '& p': { margin: '0 0 10px', lineHeight: font.chatLh },
+  '& p': { margin: '0 0 11px', lineHeight: font.chatLh },
   '& strong': { fontWeight: 600 },
   '& em': { fontStyle: 'italic' },
   '& s': { textDecoration: 'line-through' },
@@ -87,5 +87,7 @@ export const md = css({
     padding: '8px 24px 8px 0',
     whiteSpace: 'nowrap',
   },
+  '& th:last-child': { paddingRight: 40 }, // Codex header column spacing
   '& td': { padding: '10px 24px 10px 0', verticalAlign: 'top' },
+  '& td:last-child': { paddingRight: 0 },
 });

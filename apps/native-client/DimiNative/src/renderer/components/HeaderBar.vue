@@ -5,7 +5,7 @@
 import { computed } from 'vue';
 import { state, Msg } from '../store';
 import { dispatch, loadSessions } from '../api';
-import { header, headerSide, headerSideGroup, headerMain, headerTitle, iconBtn, headerRight, shareBtn } from './HeaderBar.styles';
+import { header, headerSide, headerSideGroup, headerMain, headerTitle, iconBtn, iconBtnBordered, headerRight, shareBtn } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
 
@@ -60,7 +60,7 @@ function navSession(delta: number): void {
         <span>{{ current?.title || '' }}</span>
         <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.5 5.5 7 9l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button :class="iconBtn" title="More" @click="dispatch(Msg.HelpOpen())">
+      <button :class="[iconBtn, iconBtnBordered]" title="More" @click="dispatch(Msg.HelpOpen())">
         <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="3" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="9" r="1.4" fill="currentColor"/></svg>
       </button>
     </div>

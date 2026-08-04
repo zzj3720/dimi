@@ -94,12 +94,17 @@ export const iconBtn = css({
   '& svg': { width: 18, height: 18 },
 });
 
+// The "…" more button carries a visible border in Codex.
+export const iconBtnBordered = css({
+  borderColor: colors.border,
+});
+
 export const headerRight = css({
   display: 'flex',
   alignItems: 'center',
   gap: 6,
   flexShrink: 0,
-  paddingRight: 8,
+  paddingRight: 42, // Codex keeps a 36px non-interactive spacer at the far right
 });
 
 // Codex share-style pill button on the right.

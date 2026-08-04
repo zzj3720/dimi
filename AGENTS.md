@@ -92,6 +92,7 @@ Gotchas:
 ## Workflow Requirements
 
 - Prefer `rg` / `rg --files` when reading code.
+- **任何已知问题都必须处理掉，不得遗留。** 无论严重度高低（视觉/结构/逻辑/数据差异都算），发现即修，修复后验证，循环到完全收敛；不得把已知问题作为"遗留项"留给用户或后续任务。只有真正无法在代码层解决的（如外部服务故障、用户必须决策的取舍）才允许明确标注，且必须当场向用户说明并给出处理方案。
 - When designing changes, follow existing boundaries and local patterns first.
 - In public text and test data, replace real internal identifiers with neutral placeholders such as `example.com`, `example.test`, and `YOUR_API_KEY`. Before opening a PR, ask a read-only agent to audit the diff for context-specific internal identifiers.
 - When creating a PR, the PR title must follow Conventional Commit style, e.g. `chore: remove legacy format commands`.

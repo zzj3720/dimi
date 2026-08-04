@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Codex-style composer: 25px capsule + completion popup + bottom toolbar.
 // Keyboard handling mirrors the old main.js editor bindings.
-import { ref, watch, nextTick, computed } from 'vue';
+import { ref, watch, nextTick, computed, onMounted } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention } from '../api';
 import {
@@ -20,7 +20,7 @@ const shortModelName = computed(() => {
   return last.length > 24 ? last.slice(0, 22) + '…' : last;
 });
 
-const inputEl = ref<HTMLTextAreaElement | null>(null);
+const inputEl = ref<HTMLElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
 
 // Keep the selected completion row in view (Codex list behavior).
@@ -40,7 +40,7 @@ function ctrlKey(evt: KeyboardEvent): boolean {
 }
 
 function onInput(e: Event): void {
-  const text = (e.target as HTMLTextAreaElement).value;
+  const text = (e.target as HTMLElement).textContent ?? '';
   dispatch(Msg.DraftChange(text));
   void maybeUpdateAtMention(text);
 }
@@ -154,9 +154,9 @@ function onKeydown(evt: KeyboardEvent): void {
     const k = evt.key.toLowerCase();
     if (k === 'c') {
       // Let Cmd/Ctrl+C copy when there is a text selection; otherwise cancel.
-      const ta = evt.target as HTMLTextAreaElement;
-      const noSelection = ta.selectionStart === ta.selectionEnd;
-      if (!noSelection) return;
+      const sel = window.getSelection();
+      const hasSelection = sel && !sel.isCollapsed && sel.toString().length > 0;
+      if (hasSelection) return;
       evt.preventDefault();
       if (state.currentApproval) {
         dispatch(Msg.ApprovalReject());
@@ -219,13 +219,19 @@ function onKeydown(evt: KeyboardEvent): void {
   }
 }
 
-// Keep textarea value in sync (IME-safe) and re-run @mention on composition end.
+// Keep the editable div content in sync (IME-safe); don't touch the DOM when
+// they already match so the caret position is preserved.
 watch(
   () => state.draft,
   (v) => {
-    if (inputEl.value && inputEl.value.value !== v) inputEl.value.value = v;
+    const el = inputEl.value;
+    if (el && (el.textContent ?? '') !== v) el.textContent = v;
   },
 );
+
+onMounted(() => {
+  void nextTick(() => inputEl.value?.focus());
+});
 
 function acceptCompletion(): void {
   dispatch(Msg.CompletionAccept());
@@ -275,25 +281,25 @@ function steerMode(mode: 'steer' | 'queue'): void {
       <div :class="footer">
         <div :class="inputRow">
           <div :class="inputWrap">
-            <textarea
+            <div
               ref="inputEl"
-              v-model="state.draft"
               :class="input"
-              rows="1"
-              placeholder="Message…"
-              autofocus
+              contenteditable="true"
+              data-placeholder="Message…"
+              role="textbox"
+              aria-multiline="true"
               data-testid="composer-input"
               @input="onInput"
               @keydown="onKeydown"
               @compositionend="onInput"
-            ></textarea>
+            ></div>
           </div>
         </div>
         <div :class="composerLeft">
           <button :class="composerBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">⚙</button>
         </div>
         <div :class="composerRight">
-          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}</span>
+          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}<span :class="modelPillMode">轻度</span></span>
           <button
             :class="composerBtn"
             title="Attach"
@@ -313,6 +319,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
         </div>
       </div>
     </div>
+
+    <!-- Codex keeps model/mode info inside the capsule pill, no extra row -->
+    
 
     <div v-if="state.busy || state.statusMsg || state.queued.length > 0" :class="composerToolbar">
       <span v-if="state.queued.length > 0" :class="queuedCount">{{ state.queued.length }} queued</span>

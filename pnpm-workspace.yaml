@@ -8,6 +8,8 @@ onlyBuiltDependencies:
   # blocks dependency build scripts by default, which leaves the pty
   # differential suite (and the legacy terminal backend) without a binary.
   - node-pty
+  # electron's postinstall downloads the platform binary.
+  - electron
 
 catalog:
   zod: 4.3.6

@@ -20,6 +20,7 @@ export const capsule = css({
   padding: '14px 0 0', // Codex: inner grid starts 14px below the capsule top
   display: 'flex',
   flexDirection: 'column',
+  boxSizing: 'border-box', // total outer height stays 98px with the 1px border
   boxShadow:
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
   transition: 'border-color 0.12s ease',
@@ -44,7 +45,6 @@ export const inputRow = css({
 });
 
 export const inputWrap = css({
-  marginBottom: 4,
   flexGrow: 1,
   overflowY: 'auto',
   padding: '0 12px',
@@ -72,7 +72,7 @@ export const composerBtn = css({
   width: size.composerBtn,
   height: size.composerBtn,
   padding: 0,
-  border: '1px solid rgba(255, 255, 255, 0.15)', // Codex left button has a visible 1px border
+  border: '1px solid transparent', // Codex: 1px but transparent
   borderRadius: radius.pill,
   background: 'transparent',
   color: colors.textTertiary,
@@ -101,9 +101,30 @@ export const modelPill = css({
   '&:hover': { background: colors.hover, color: colors.text },
 });
 
+export const modelPillMode = css({ color: colors.textTertiary, opacity: 0.85 });
+
+// Codex model row below the capsule: model name + mode indicator.
+export const modelRow = css({
+  maxWidth: `calc(${size.threadMaxW} - 32px)`,
+  margin: '8px auto 0',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  fontSize: font.sm,
+  lineHeight: '18px',
+  color: colors.textTertiary,
+  cursor: 'pointer',
+  padding: '4px 10px',
+  borderRadius: 9999,
+  '&:hover': { background: colors.hover, color: colors.text },
+});
+
+export const modelRowName = css({ color: 'inherit' });
+export const modelRowLevel = css({ color: colors.textTertiary });
+
 export const input = css({
   flex: 1,
-  resize: 'none',
   border: 'none',
   background: 'transparent',
   color: colors.text,
@@ -113,9 +134,18 @@ export const input = css({
   padding: 0,
   maxHeight: 160,
   outline: 'none',
+  overflowY: 'auto',
   display: 'block',
   width: '100%',
-  '&::placeholder': { color: colors.textMuted },
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  userSelect: 'text',
+  caretColor: colors.text,
+  '&:empty::before': {
+    content: 'attr(data-placeholder)',
+    color: colors.textMuted,
+    pointerEvents: 'none',
+  },
 });
 
 export const sendBtn = css({

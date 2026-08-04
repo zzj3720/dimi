@@ -79,6 +79,14 @@ function shellCmd(args: string): string {
   return '$ ' + args;
 }
 
+function fmtDuration(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+
 // Agent-internal blocks must never surface in the UI regardless of source
 // (history load, SSE stream, prompt echoes).
 function cleanText(s: string): string {
@@ -140,7 +148,7 @@ function copyEntry(e: Entry): void {
              button (Codex behavior); content appears on expand -->
         <div v-else-if="e.kind === 'thinking'" :class="clickable" @click="toggleThinking(e)">
           <div :class="reasoningTitle">
-            <span>思考</span>
+            <span>{{ e.durationMs ? '思考了 ' + fmtDuration(e.durationMs) : '思考' }}</span>
             <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <div v-if="expandedThinking.has(e)" :class="bodyThinking">{{ cleanText(e.text) }}</div>
