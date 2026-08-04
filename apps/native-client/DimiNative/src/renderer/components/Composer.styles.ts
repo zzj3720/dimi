@@ -10,7 +10,7 @@ export const composer = css({
 
 export const capsule = css({
   maxWidth: `calc(${size.threadMaxW} - 32px)`,
-  minHeight: 98,
+  minHeight: 96, // border-box: 14+76+6 content + 2px border = 98 outer
   margin: '0 auto',
   background: colors.composerBg,
   backdropFilter: 'blur(16px)',
@@ -33,7 +33,7 @@ export const footer = css({
   alignItems: 'center',
   columnGap: 5, // Codex template "28px 0px 682px" leaves 5px gaps each side
   padding: '0 8px',
-  marginBottom: 8, // capsule top 14 + 76 + 8 = 98
+  marginBottom: 6, // capsule: 14 + 76 + 6 + 2 border = 98 outer
   minHeight: 76,
 });
 
@@ -102,26 +102,6 @@ export const modelPill = css({
 });
 
 export const modelPillMode = css({ color: colors.textTertiary, opacity: 0.85 });
-
-// Codex model row below the capsule: model name + mode indicator.
-export const modelRow = css({
-  maxWidth: `calc(${size.threadMaxW} - 32px)`,
-  margin: '8px auto 0',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 6,
-  fontSize: font.sm,
-  lineHeight: '18px',
-  color: colors.textTertiary,
-  cursor: 'pointer',
-  padding: '4px 10px',
-  borderRadius: 9999,
-  '&:hover': { background: colors.hover, color: colors.text },
-});
-
-export const modelRowName = css({ color: 'inherit' });
-export const modelRowLevel = css({ color: colors.textTertiary });
 
 export const input = css({
   flex: 1,

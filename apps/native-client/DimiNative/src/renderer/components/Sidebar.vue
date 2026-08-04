@@ -92,7 +92,7 @@ function navComingSoon(name: string): void {
     </div>
     <div :class="sessions">
       <!-- Codex: 站点 / 已安排 / 插件 live at the top of the SCROLLING list -->
-      <div :class="navBlock" style="padding: 0 8px; margin-bottom: 8px">
+      <div :class="navBlock" style="padding: 0; margin-bottom: 8px">
         <button :class="navItem" @click="navComingSoon('站点')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg><span>站点</span></button>
         <button :class="navItem" @click="navComingSoon('已安排')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="5" width="11" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 5V4a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.3"/></svg><span>已安排</span></button>
         <button :class="navItem" @click="navComingSoon('插件')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 8h8M8 4v8" stroke="currentColor" stroke-width="1.3"/></svg><span>插件</span></button>

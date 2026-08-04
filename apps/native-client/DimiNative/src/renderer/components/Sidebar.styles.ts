@@ -63,7 +63,7 @@ export const brand = css({
   lineHeight: '24px',
   fontWeight: 600,
   color: 'rgba(255, 255, 255, 0.85)',
-  padding: '4px 8px', // Codex brand row is 32px tall
+  padding: '2px 8px', // Codex brand row is 32px tall
   borderRadius: 15,
   border: '1px solid transparent',
   whiteSpace: 'nowrap',
@@ -191,7 +191,7 @@ export const sessionItemActive = css({
 // ---- sidebar bottom (Codex user/account row: clickable, avatar + name) ----
 export const sidebarBottom = css({
   padding: '6px 8px', // Codex bottom row is 46px tall
-  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+  borderTop: '0.5px solid rgba(255, 255, 255, 0.1)', // Codex hairline
   display: 'flex',
   alignItems: 'center',
   gap: 8,

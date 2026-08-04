@@ -6,7 +6,7 @@ import type { Entry } from '../store';
 import { dispatch } from '../api';
 import { renderMarkdown } from '../markdown';
 import {
-  transcript, thread, entry, entrySameTurn, entryHasActions, entryActions, entryActionBtn,
+  transcript, thread, entry, entrySameTurn, entryNewTurn, entryHasActions, entryActions, entryActionBtn,
   bodyMuted, bodyTool, bodyThinking, bodyCompaction,
   toolName, toolCard, toolCardHeader, toolCardIcon, toolCardName, toolCardStatus, toolCardBody,
   clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
@@ -126,7 +126,7 @@ function copyEntry(e: Entry): void {
         :key="e"
         :class="[
           entry,
-          i > 0 && isSameTurn(state.entries[i - 1], e) ? entrySameTurn : null,
+          i > 0 ? (isSameTurn(state.entries[i - 1], e) ? entrySameTurn : entryNewTurn) : null,
           e.kind === 'user' || e.kind === 'assistant' ? entryHasActions : null,
           e.kind === 'user' ? entryUser : e.kind === 'assistant' ? entryAssistant : e.kind === 'thinking' ? entryThinking : e.kind === 'tool' ? entryTool : entryStatus,
         ]"

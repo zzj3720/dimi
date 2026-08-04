@@ -70,7 +70,6 @@ export const headerTitle = css({
     flexShrink: 1,
   },
   '&:hover': { opacity: 0.85, background: colors.hover },
-  '& svg': { width: 14, height: 14, flexShrink: 0, color: colors.textTertiary },
 });
 
 export const iconBtn = css({
@@ -97,6 +96,25 @@ export const iconBtn = css({
 // The "…" more button carries a visible border in Codex.
 export const iconBtnBordered = css({
   borderColor: colors.border,
+});
+
+// Codex: the title chevron is a separate clickable element right after the
+// title button (glyph ~12×9 inside a 14×14 viewBox).
+export const headerChevron = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 14,
+  height: 14,
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: colors.textTertiary,
+  cursor: 'pointer',
+  flexShrink: 0,
+  borderRadius: 4,
+  '&:hover': { color: colors.textDim, background: colors.hover },
+  '& svg': { width: 14, height: 14 },
 });
 
 export const headerRight = css({

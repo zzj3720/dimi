@@ -171,8 +171,9 @@ export const entryStatus = css({ '& .body': { color: colors.textMuted, fontSize:
 
 // Extra top margin for consecutive entries inside the same turn: the thread
 // gap (6px) + this margin (6px) = the 12px inner spacing Codex uses between
-// blocks of a turn. Turn boundaries (a new user entry) keep the plain 6px gap.
+// blocks of a turn. A NEW turn (next user message) gets 6 + 16 = 22px.
 export const entrySameTurn = css({ marginTop: 6 });
+export const entryNewTurn = css({ marginTop: 16 });
 
 // ---- reasoning disclosure (Codex: collapsed = a "思考" button only) ----
 export const reasoningTitle = css({

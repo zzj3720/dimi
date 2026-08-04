@@ -10,6 +10,7 @@ injectGlobal`
     font-family: ${font.family};
     font-size: 16px;
     line-height: 1.5;
+    font-weight: 445; /* Codex variable-font default */
     color: var(--text, #ffffff);
     background: var(--bg, #141414);
     overflow: hidden;
