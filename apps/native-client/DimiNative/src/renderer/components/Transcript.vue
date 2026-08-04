@@ -144,6 +144,29 @@ function copyEntry(e: Entry): void {
             <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <div v-if="expandedThinking.has(e)" :class="bodyThinking">{{ cleanText(e.text) }}</div>
+          <!-- Tool calls live inside the reasoning disclosure (Codex) -->
+          <div v-if="expandedThinking.has(e) && e.tools && e.tools.length > 0" style="margin-top: 12px; display: flex; flex-direction: column; gap: 6px">
+            <div
+              v-for="t in e.tools"
+              :key="t.id"
+              :class="[toolCard, clickable]"
+              @click.stop="toggleTool(t.id)"
+            >
+              <div :class="toolCardHeader">
+                <svg :class="toolCardIcon" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5 5 7 2 10.5M7 11h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span :class="toolCardName">{{ t.name }}</span>
+                <span :class="toolCardStatus">{{ t.text && t.text.length > 0 ? '已完成' : '进行中' }}</span>
+              </div>
+              <div
+                v-if="expandedTools.has(t.id) && t.args"
+                :class="toolCardBody"
+              >{{ cleanText(shellCmd(t.args)) }}</div>
+              <div
+                v-if="expandedTools.has(t.id) && t.text && t.text.length > 0"
+                :class="toolCardBody"
+              >{{ cleanText(t.text) }}</div>
+            </div>
+          </div>
         </div>
 
         <!-- tool: Codex-style card -->

@@ -11,12 +11,24 @@ export type Phase = 'idle' | 'streaming' | 'shell' | 'compacting';
 export type BusyInputMode = 'steer' | 'queue';
 export type PermissionMode = 'manual' | 'auto' | 'yolo';
 
+export interface ToolRef {
+  id: string;
+  name: string;
+  args: string;
+  /** tool_result output; empty string = still in progress */
+  text: string;
+}
+
 export interface Entry {
   kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'status' | 'compaction';
   text: string;
   toolName?: string;
   toolCallId?: string;
   args?: string;
+  /** For thinking entries: tool calls rendered INSIDE the reasoning disclosure
+   * (Codex behavior) — history-load path merges tool_use into the thinking
+   * entry; live SSE appends tool calls to the in-flight thinking entry. */
+  tools?: ToolRef[];
   streaming?: boolean;
   folded?: boolean;
   expanded?: boolean;
@@ -793,36 +805,44 @@ export function handleSseEvent(s: State, evt: unknown): void {
     case 'tool.call.started': {
       const ti = p.toolInput ?? p.tool_input ?? p.args;
       const id = (p.toolCallId as string) ?? (p.id as string) ?? '';
-      // History reload may already have created this tool card (msgsToEntries);
-      // update it instead of stacking a duplicate "in progress" row.
+      const name = (p.toolName as string) ?? (p.name as string) ?? 'tool';
+      const args =
+        typeof p.toolInput === 'string'
+          ? p.toolInput
+          : typeof p.tool_input === 'string'
+            ? p.tool_input
+            : typeof p.arguments === 'string'
+              ? p.arguments
+              : ti
+                ? JSON.stringify(ti)
+                : '';
+      // Codex renders tool calls INSIDE the reasoning disclosure: attach to
+      // the current turn's thinking entry when one exists (live path).
+      for (let i = s.entries.length - 1; i >= 0; i--) {
+        const e = s.entries[i];
+        if (e.kind === 'assistant' || e.kind === 'user') break; // past this turn
+        if (e.kind === 'thinking') {
+          const arr = e.tools ?? (e.tools = []);
+          const ex = arr.find((t) => t.id === id);
+          if (ex) {
+            if (args) ex.args = args;
+          } else {
+            arr.push({ id, name, args, text: '' });
+          }
+          return;
+        }
+      }
+      // Fallback: no thinking entry in the current turn — standalone tool row.
       const existing = s.entries.find((e) => e.kind === 'tool' && e.toolCallId === id);
       if (existing) {
-        existing.args =
-          typeof p.toolInput === 'string'
-            ? p.toolInput
-            : typeof p.tool_input === 'string'
-              ? p.tool_input
-              : typeof p.arguments === 'string'
-                ? p.arguments
-                : ti
-                  ? JSON.stringify(ti)
-                  : existing.args;
+        if (args) existing.args = args;
         return;
       }
       s.entries.push({
         kind: 'tool',
-        toolName: (p.toolName as string) ?? (p.name as string) ?? 'tool',
+        toolName: name,
         toolCallId: id,
-        args:
-          typeof p.toolInput === 'string'
-            ? p.toolInput
-            : typeof p.tool_input === 'string'
-              ? p.tool_input
-              : typeof p.arguments === 'string'
-                ? p.arguments
-                : ti
-                  ? JSON.stringify(ti)
-                  : '',
+        args,
         text: '',
         streaming: false,
       });
@@ -831,10 +851,19 @@ export function handleSseEvent(s: State, evt: unknown): void {
     }
 
     case 'tool.result': {
+      const id = (p.toolCallId as string) ?? (p.id as string) ?? '';
+      const output = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
       for (let i = s.entries.length - 1; i >= 0; i--) {
         const e = s.entries[i];
-        if (e.kind === 'tool' && e.toolCallId === ((p.toolCallId as string) ?? (p.id as string) ?? '')) {
-          e.text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
+        if (e.kind === 'thinking' && e.tools) {
+          const t = e.tools.find((x) => x.id === id);
+          if (t) {
+            t.text = output;
+            return;
+          }
+        }
+        if (e.kind === 'tool' && e.toolCallId === id) {
+          e.text = output;
           e.streaming = false;
           return;
         }

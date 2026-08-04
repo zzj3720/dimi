@@ -831,17 +831,27 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
       continue;
     }
 
-    // tool results attach to the matching tool card instead of polluting
-    // the thread as a raw status row.
+    // tool results attach to the matching tool call instead of polluting
+    // the thread as a raw status row. Tool calls live inside the thinking
+    // entry (Codex) or as standalone tool entries (live-stream fallback).
     if (role === 'tool') {
       const parts = Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
       for (const p of parts) {
         if (p && p.type === 'tool_result') {
           const id = (p.tool_call_id as string) ?? (p.toolCallId as string) ?? '';
+          const output =
+            typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
           for (let i = entries.length - 1; i >= 0; i--) {
-            if (entries[i].kind === 'tool' && entries[i].toolCallId === id) {
-              entries[i].text =
-                typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
+            const e = entries[i];
+            if (e.kind === 'thinking' && e.tools) {
+              const t = e.tools.find((x) => x.id === id);
+              if (t) {
+                t.text = output;
+                break;
+              }
+            }
+            if (e.kind === 'tool' && e.toolCallId === id) {
+              e.text = output;
               break;
             }
           }
@@ -870,11 +880,17 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
       }
       const text = texts.join('\n').trim();
       const think = thinks.join('\n').trim();
-      if (think) entries.push({ kind: 'thinking', text: think, streaming: false });
-      if (text) entries.push({ kind: 'assistant', text, streaming: false });
-      for (const t of tools) {
-        entries.push({ kind: 'tool', toolName: t.name, toolCallId: t.id, args: t.input, text: '', streaming: false });
+      // Codex renders tool calls INSIDE the reasoning disclosure: merge
+      // thinking + tools into one entry when either is present.
+      if (think || tools.length > 0) {
+        entries.push({
+          kind: 'thinking',
+          text: think,
+          tools: tools.map((t) => ({ id: t.id, name: t.name, args: t.input, text: '' })),
+          streaming: false,
+        });
       }
+      if (text) entries.push({ kind: 'assistant', text, streaming: false });
       continue;
     }
 
