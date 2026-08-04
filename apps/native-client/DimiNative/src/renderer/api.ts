@@ -184,6 +184,7 @@ export async function fetchStatus(sessionId: string): Promise<void> {
   } catch {
     /* non-fatal */
   }
+  loadEffort();
 }
 
 export function subscribeSse(sessionId: string): void {
@@ -205,6 +206,37 @@ export function subscribeSse(sessionId: string): void {
       }, 0);
     }
   });
+}
+
+// Codex Work model picker (04-composer §5): the pill opens an in-composer
+// panel of model × reasoning-strength options. dimi's strength maps to the
+// server thinking effort (off|low|high). Load the current effort from the
+// global config once per session connect.
+export function loadEffort(): void {
+  api('GET', '/api/v1/config')
+    .then((data) => {
+      const c = (data?.data ?? {}) as Record<string, unknown>;
+      const th = (c.thinking ?? {}) as Record<string, unknown>;
+      const e = th.effort as string | undefined;
+      if (e === 'off' || e === 'low' || e === 'high') state.effort = e;
+    })
+    .catch(() => {
+      /* non-fatal */
+    });
+}
+
+// Model picker select: set the session default model + thinking effort,
+// mirroring the /model and /effort commands.
+export async function pickModel(ref: string, effort: string): Promise<void> {
+  try {
+    await api('POST', `/api/v1/models/${encodeURIComponent(ref)}:set_default`, {});
+    state.modelName = ref;
+    await api('POST', `/api/v1/config`, { thinking: { effort } });
+    state.effort = effort;
+    state.statusMsg = `model → ${ref} · ${effort}`;
+  } catch (e) {
+    state.statusMsg = `model set failed: ${(e as Error).message}`;
+  }
 }
 
 // ------------------------------------------------------------------ submit

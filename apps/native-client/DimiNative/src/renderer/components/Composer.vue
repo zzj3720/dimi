@@ -5,18 +5,19 @@
 // Auto single-line/multiline switch follows the codex bvs/Tvs measurement
 // logic (hidden measure span + 32px buffer); empty drafts keep the send
 // button enabled (codex), the submit guard lives in submitDraft().
-import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
+import { ref, watch, nextTick, computed, onMounted } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
-import { dispatch, maybeUpdateAtMention } from '../api';
+import { dispatch, maybeUpdateAtMention, pickModel } from '../api';
 import { icons } from '../icons';
 import {
-  composer, composerWrapper, capsule, surfaceSingle, surfaceBody, attachments, measure,
+  composer, composerWrapper, capsule, surfaceSingle, surfaceBody, attachments,
   footer, footerSingle, inputRow, inputRowSingle, inputWrap, inputWrapSingle,
   composerLeft, composerLeftSingle, composerRight, composerRightSingle,
   composerExpanding, composerActions,
   composerBtn, modelPill, modelPillName, modelPillMode, input, inputSingle, sendBtn,
   composerToolbar, hint, queuedCount,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
+  modelPicker, modelPickerList, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
   btn, btnGhost,
 } from './Composer.styles';
 
@@ -28,6 +29,45 @@ const shortModelName = computed(() => {
   const last = m.split('/').pop() ?? m;
   return last.length > 24 ? last.slice(0, 22) + '…' : last;
 });
+
+// Codex Work model picker (04-composer §5): the pill opens an in-composer
+// panel listing model × reasoning-strength options (e.g. "5.6 Terra 轻度 /
+// 极高 / 最高"). dimi's strength maps to the server thinking effort
+// off|low|high, labelled like codex's strength tiers.
+const EFFORT_LABEL: Record<string, string> = { off: '无思考', low: '轻度', high: '极高' };
+const EFFORT_ORDER: { value: string; label: string }[] = [
+  { value: 'low', label: '轻度' },
+  { value: 'high', label: '极高' },
+  { value: 'off', label: '无思考' },
+];
+const modelPickerOpen = ref(false);
+const models = ref<{ value: string; label: string }[]>([]);
+let modelsLoaded = false;
+
+async function loadModels(): Promise<void> {
+  if (modelsLoaded) return;
+  modelsLoaded = true;
+  try {
+    const data = await window.dimi!.request({ method: 'GET', url: '/api/v1/models' });
+    const items = ((data.json as { data?: { items?: { provider: string; model: string; display_name?: string }[] } })?.data?.items) ?? [];
+    models.value = items.map((m) => ({
+      value: `${m.provider}/${m.model}`,
+      label: m.display_name ?? m.model,
+    }));
+  } catch {
+    models.value = [];
+  }
+}
+
+function toggleModelPicker(): void {
+  modelPickerOpen.value = !modelPickerOpen.value;
+  if (modelPickerOpen.value) void loadModels();
+}
+
+function onModelPickerSelect(refName: string, effort: string): void {
+  modelPickerOpen.value = false;
+  void pickModel(refName, effort);
+}
 
 // Icon paths measured from codex (design/04-composer.md §8). Inlined here
 // until icons.ts grows `chevron` / `mic` entries — swap to icons.* when added.
@@ -54,15 +94,15 @@ const stopIcon = {
 
 const inputEl = ref<HTMLElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
-const surfaceEl = ref<HTMLElement | null>(null);
-const pillEl = ref<HTMLElement | null>(null);
-const actionsEl = ref<HTMLElement | null>(null);
-const measureEl = ref<HTMLElement | null>(null);
 
-// Codex composerLayoutMode='auto-single-line': the composer starts as a
-// single-line pill and switches to multiline when the text wraps or contains
-// a newline (or would have attachments). No transition animation, class only.
-const layout = ref<'multiline' | 'single-line'>('single-line');
+// Codex composerLayoutMode: the dimi client is a Work-style app (sidebar +
+// projects + sessions), which in codex resolves to `'multiline'` — the
+// composer is ALWAYS the full two-row surface, no single-line pill collapse
+// (reverse-engineered from the codex bundle: Work threads / chat+project →
+// `'multiline'` with zero measurement; only the pure-chat home page uses
+// `auto-single-line` width-based collapse). Kept as a variable for future
+// chat-mode support.
+const layout = ref<'multiline' | 'single-line'>('multiline');
 
 // Keep the selected completion row in view (Codex list behavior).
 watch(
@@ -267,43 +307,12 @@ watch(
   (v) => {
     const el = inputEl.value;
     if (el && (el.textContent ?? '') !== v) el.textContent = v;
-    // Re-run the single-line fit test after the template (measure span) and
-    // the synced input content are in the DOM.
-    void nextTick(updateLayout);
   },
 );
 
-// Codex bvs/Tvs: auto-single-line → multiline when the editor has block
-// content (doc.childCount > 1) or the text contains '\n'; otherwise
-// textFitsSingleLine = measured width + 32px buffer ≤ available width.
-function updateLayout(): void {
-  const text = state.draft;
-  if (text.includes('\n') || (inputEl.value?.childElementCount ?? 0) > 1) {
-    layout.value = 'multiline';
-    return;
-  }
-  const surface = surfaceEl.value;
-  const measureSpan = measureEl.value;
-  if (!surface || !measureSpan) return;
-  // Single-line geometry: surface − px-2 (16) − left button (28) − right
-  // cluster (pill + actions) − gap-2 ×2 (16); + codex Dvs=32 buffer.
-  const rightW = (pillEl.value?.offsetWidth ?? 0) + (actionsEl.value?.offsetWidth ?? 0);
-  const available = surface.offsetWidth - 16 - 28 - rightW - 16;
-  layout.value = measureSpan.offsetWidth + 32 <= available ? 'single-line' : 'multiline';
-}
-
-let ro: ResizeObserver | null = null;
-
 onMounted(() => {
   void nextTick(() => inputEl.value?.focus());
-  void nextTick(updateLayout);
-  if (surfaceEl.value && typeof ResizeObserver !== 'undefined') {
-    ro = new ResizeObserver(() => updateLayout());
-    ro.observe(surfaceEl.value);
-  }
 });
-
-onUnmounted(() => ro?.disconnect());
 
 function acceptCompletion(): void {
   dispatch(Msg.CompletionAccept());
@@ -364,7 +373,6 @@ function steerMode(mode: 'steer' | 'queue'): void {
     <!-- Codex wrapper (gap-2) > surface (composer-surface-chrome) -->
     <div :class="composerWrapper">
       <div
-        ref="surfaceEl"
         :class="[capsule, layout === 'single-line' ? surfaceSingle : null]"
         @mousedown="onSurfaceMousedown"
       >
@@ -373,9 +381,6 @@ function steerMode(mode: 'steer' | 'queue'): void {
                dimi has no attach UI, so the slot stays empty and the left
                button still reports 附件（暂未实现）. -->
           <div :class="attachments"></div>
-
-          <!-- Hidden single-line text measure span (codex bvs) -->
-          <span ref="measureEl" :class="measure">{{ state.draft }}</span>
 
           <!-- Codex Tds footer grid: multiline two-row / single-line one-row -->
           <div :class="[footer, layout === 'single-line' ? footerSingle : null]">
@@ -407,21 +412,21 @@ function steerMode(mode: 'steer' | 'queue'): void {
                    so the pill stays right-aligned and truncates at max-w-48.
                    Single-line packs the pill directly into the shrink-0 row. -->
               <div v-if="layout === 'multiline'" :class="composerExpanding">
-                <button ref="pillEl" type="button" :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
+                <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
                   <span :class="modelPillName">{{ shortModelName }}</span>
-                  <span :class="modelPillMode">轻度</span>
+                  <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
                   <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
                 </button>
               </div>
               <template v-else>
-                <button ref="pillEl" type="button" :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
+                <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
                   <span :class="modelPillName">{{ shortModelName }}</span>
-                  <span :class="modelPillMode">轻度</span>
+                  <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
                   <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
                 </button>
               </template>
               <!-- Codex FooterActions: gap-2 (听写 ↔ 发送 8px) -->
-              <div :class="composerActions" ref="actionsEl">
+              <div :class="composerActions">
                 <button type="button" :class="composerBtn" aria-label="听写" @click="state.statusMsg = '听写（暂未实现）'">
                   <svg :viewBox="micIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in micIcon.paths" :key="i" :d="p" /></svg>
                 </button>
@@ -451,6 +456,27 @@ function steerMode(mode: 'steer' | 'queue'): void {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Codex Work model picker panel: opens above the capsule (bottom
+           anchored), listing model × strength options like the codex
+           _ModelPickerTriggerLabel_ rows (04-composer §5). -->
+      <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
+        <div :class="modelPickerList">
+          <template v-for="m in models" :key="m.value">
+            <button
+              v-for="ef in EFFORT_ORDER"
+              :key="m.value + ef.value"
+              type="button"
+              :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+              @click="onModelPickerSelect(m.value, ef.value)"
+            >
+              <span :class="modelPickerItemName">{{ m.label }}</span>
+              <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+            </button>
+          </template>
+          <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
         </div>
       </div>
     </div>

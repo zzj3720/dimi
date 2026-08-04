@@ -24,9 +24,12 @@ export const composerWrapper = css({
 // Height follows content (empty = 98px: 14 attachments + 76 footer + 8 mb-2);
 // there is NO fixed min-height and NO border / focus-within rule (the only
 // focus feedback is the white caret in the editor).
+// Width = codex two-layer formula `min(768, 主区) − 32` (reverse-engineered:
+// w-full + max-w-(--thread-content-max-width:48rem) + px-toolbar 16×2 →
+// min(736, calc(100% − 32px))); keeps a 16px gutter in narrow windows instead
+// of the old fixed 736px that squeezed the capsule to a 3px edge gap.
 export const capsule = css({
-  width: '100%', // flex-item context (composerWrapper): fill then clamp to threadMaxW
-  maxWidth: size.threadMaxW,
+  width: 'min(736px, calc(100% - 32px))',
   margin: '0 auto',
   background: colors.composerBg,
   backdropFilter: 'blur(16px)',
@@ -410,4 +413,64 @@ export const completionSelected = css({
   background: colors.hoverStrong,
   [`& .${completionPointer}`]: { color: colors.primary },
   [`& .${completionValue}`]: { color: colors.text },
+});
+
+// ---- Codex Work model picker panel (04-composer §5) ----
+// Opens above the capsule (composerWrapper is position:relative), styled like
+// the codex model picker: surface panel + hover rows with model + strength.
+export const modelPicker = css({
+  position: 'absolute',
+  bottom: 'calc(100% + 8px)',
+  right: 0,
+  minWidth: 260,
+  maxHeight: '40vh',
+  overflowY: 'auto',
+  background: colors.surface2,
+  borderRadius: 14,
+  border: `1px solid ${colors.border}`,
+  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+  padding: 4,
+  zIndex: 60,
+});
+
+export const modelPickerList = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+});
+
+export const modelPickerItem = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '6px 10px',
+  borderRadius: 8,
+  border: 'none',
+  background: 'transparent',
+  color: colors.text,
+  fontSize: font.sm,
+  lineHeight: '18px',
+  cursor: 'default',
+  textAlign: 'left',
+  '&:hover': { background: colors.hover },
+});
+
+export const modelPickerItemName = css({
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+});
+
+export const modelPickerItemEffort = css({
+  flexShrink: 0,
+  color: colors.textMuted,
+  fontSize: font.xs,
+});
+
+export const modelPickerItemSelected = css({
+  background: colors.hoverStrong,
+  [`& .${modelPickerItemEffort}`]: { color: colors.text },
 });

@@ -24,10 +24,12 @@ export const transcript = css({
 });
 
 // Codex column shell: 768px (48rem) outer column with 16px side padding
-// (px-toolbar) and 32px bottom padding (pb-8).
+// (px-toolbar) and 32px bottom padding (pb-8). Width follows the same
+// two-layer formula as the composer capsule: min(736px, 100% − 32px), so the
+// message column keeps a 16px gutter in narrow windows (codex 717px at a
+// 1024 viewport) instead of clamping to a fixed 736px.
 export const threadWrap = css({
-  width: '100%',
-  maxWidth: size.threadMaxW, // 736px — the visible column (Codex 768+16 wrapper collapses to 736; direct 736 keeps capsule 1:1 alignment in narrow windows too)
+  width: 'min(736px, calc(100% - 32px))',
   margin: '0 auto',
   padding: '0 0 32px',
   display: 'flex',

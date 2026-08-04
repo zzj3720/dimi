@@ -107,6 +107,7 @@ export interface State {
   planMode: boolean;
   permissionMode: PermissionMode;
   modelName: string;
+  effort: string; // thinking effort off|low|high (codex Work model picker strength)
   currentCwd: string;
   footerTips: string;
   queued: { text: string; mode: string; promptId?: string }[];
@@ -231,6 +232,7 @@ export function createInitialState(): State {
     planMode: false,
     permissionMode: 'manual',
     modelName: '',
+    effort: 'low',
     currentCwd: '',
     footerTips: '/init: generate AGENTS.md | @: mention files',
     queued: [],
