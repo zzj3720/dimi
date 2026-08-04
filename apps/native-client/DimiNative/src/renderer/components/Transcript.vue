@@ -8,7 +8,8 @@ import { renderMarkdown } from '../markdown';
 import {
   transcript, thread, entry, entrySameTurn, entryHasActions, entryActions, entryActionBtn,
   bodyMuted, bodyTool, bodyThinking, bodyCompaction,
-  toolName, clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
+  toolName, toolCard, toolCardHeader, toolCardIcon, toolCardName, toolCardStatus, toolCardBody,
+  clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
   reasoningTitle, welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
   welcomeModelsTitle, modelRow, modelName, modelLevel, md,
 } from './Transcript.styles';
@@ -142,16 +143,20 @@ function copyEntry(e: Entry): void {
           <div v-if="thinkingPreview(e).hint" :class="bodyMuted">{{ thinkingPreview(e).hint }}</div>
         </div>
 
-        <!-- tool -->
-        <div v-else-if="e.kind === 'tool'" :class="clickable" @click="toggleTool(e.toolCallId)">
-          <div :class="bodyTool">
-            <span :class="toolName">{{ e.text && e.text.length > 0 ? 'Used' : 'Using' }} {{ e.toolName }}</span>
+        <!-- tool: Codex-style card -->
+        <div v-else-if="e.kind === 'tool'" :class="[toolCard, clickable]" @click="toggleTool(e.toolCallId)">
+          <div :class="toolCardHeader">
+            <svg :class="toolCardIcon" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5 5 7 2 10.5M7 11h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span :class="toolCardName">{{ e.toolName }}</span>
+            <span :class="toolCardStatus">{{ e.text && e.text.length > 0 ? '已完成' : '进行中' }}</span>
           </div>
-          <div v-if="e.args" :class="bodyTool" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ shellCmd(e.args) }}</div>
           <div
-            v-if="e.text && e.text.length > 0"
-            :class="bodyTool"
-            :style="{ maxHeight: expandedTools.has(e.toolCallId) ? 'none' : '4.2em', overflow: 'hidden', fontFamily: 'ui-monospace, SF Mono, Menlo, monospace' }"
+            v-if="expandedTools.has(e.toolCallId) && e.args"
+            :class="toolCardBody"
+          >{{ shellCmd(e.args) }}</div>
+          <div
+            v-if="expandedTools.has(e.toolCallId) && e.text && e.text.length > 0"
+            :class="toolCardBody"
           >{{ e.text }}</div>
         </div>
 

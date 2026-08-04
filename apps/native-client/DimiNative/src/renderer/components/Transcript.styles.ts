@@ -52,6 +52,59 @@ export const bodyThinking = css({
 });
 export const bodyCompaction = css({ color: colors.textMuted, fontSize: font.chat });
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
+
+// Codex-style tool call card: icon + name + status header, collapsible body.
+export const toolCard = css({
+  background: 'rgba(255, 255, 255, 0.03)',
+  border: `1px solid ${colors.border}`,
+  borderRadius: 10,
+  padding: '6px 10px',
+  margin: '2px 0',
+  cursor: 'pointer',
+  userSelect: 'none',
+  '&:hover': { borderColor: colors.borderHeavy },
+});
+
+export const toolCardHeader = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: font.chat,
+  lineHeight: font.chatLh,
+});
+
+export const toolCardIcon = css({
+  width: 14,
+  height: 14,
+  flexShrink: 0,
+  color: colors.textTertiary,
+});
+
+export const toolCardName = css({
+  color: colors.text,
+  fontWeight: 500,
+  flexShrink: 0,
+});
+
+export const toolCardStatus = css({
+  color: colors.textTertiary,
+  fontSize: font.sm,
+  lineHeight: font.smLh,
+  marginLeft: 'auto',
+  whiteSpace: 'nowrap',
+});
+
+export const toolCardBody = css({
+  marginTop: 6,
+  paddingTop: 6,
+  borderTop: `1px solid ${colors.border}`,
+  fontSize: font.chat,
+  lineHeight: font.chatLh,
+  color: colors.textDim,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  fontFamily: font.mono,
+});
 export const clickable = css({ cursor: 'pointer' });
 
 // Hover action buttons on messages (Codex: copy / retry etc.)
