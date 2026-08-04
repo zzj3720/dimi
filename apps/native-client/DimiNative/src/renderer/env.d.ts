@@ -14,11 +14,8 @@ interface DimiBridge {
     headers?: Record<string, string>;
     body?: unknown;
   }): Promise<{ status: number; ok: boolean; json: unknown; text: string }>;
-  subscribeEvents(channel: string, url: string): void;
-  stopEvents(channel: string): void;
-  listFs(dir: string): Promise<{ ok: boolean; entries: unknown[]; error?: string }>;
-  onEvent(channel: string, cb: (payload: unknown) => void): void;
-  cwd?: string;
+  subscribeEvents(url: string, onEvent: (payload: unknown) => void): () => void;
+  fsList(dir: string): Promise<{ ok: boolean; entries?: { name: string; isDirectory: boolean; path: string }[]; error?: string }>;
 }
 
 interface Window {

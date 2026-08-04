@@ -14,7 +14,8 @@ export const transcript = css({
 export const thread = css({
   maxWidth: size.threadMaxW,
   margin: '0 auto',
-  padding: '0 16px 32px',
+  // py-5: top 20px, bottom 32px (thread) + 20px (msgList) = 52px
+  padding: '20px 16px 52px',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
@@ -34,17 +35,35 @@ export const entry = css({
 });
 
 export const bodyMuted = css({ color: colors.textMuted, fontSize: font.chat });
-export const bodyTool = css({ color: colors.textDim, fontSize: font.chat, cursor: 'pointer' });
-export const bodyThinking = css({ color: colors.textDim, fontSize: font.chat });
+export const bodyTool = css({
+  color: colors.textDim,
+  fontSize: font.chat,
+  lineHeight: font.chatLh,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  cursor: 'pointer',
+});
+export const bodyThinking = css({
+  color: colors.textDim,
+  fontSize: font.chat,
+  lineHeight: font.chatLh,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+});
 export const bodyCompaction = css({ color: colors.textMuted, fontSize: font.chat });
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
 export const clickable = css({ cursor: 'pointer' });
 
-export const entryUser = css({ '& .body': { color: colors.text } });
+export const entryUser = css({ '& .body': { color: colors.text, lineHeight: '21px' } });
 export const entryAssistant = css({ '& .body': { color: colors.text } });
 export const entryThinking = css({ '& .body': { color: colors.textDim, fontSize: font.chat } });
 export const entryTool = css({ '& .body': { color: colors.textDim, fontSize: font.chat } });
 export const entryStatus = css({ '& .body': { color: colors.textMuted, fontSize: font.chat } });
+
+// Extra top margin for consecutive entries inside the same turn: the thread
+// gap (6px) + this margin (6px) = the 12px inner spacing Codex uses between
+// blocks of a turn. Turn boundaries (a new user entry) keep the plain 6px gap.
+export const entrySameTurn = css({ marginTop: 6 });
 
 // ---- reasoning disclosure ----
 export const reasoningTitle = css({

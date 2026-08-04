@@ -88,6 +88,12 @@ export const listItemSub = css({
 
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
 
+// Multi-line body text inside dialogs (BTW prompt/answer, approval action).
+export const bodyText = css({
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+});
+
 // ---- buttons ----
 export const btn = css({
   fontSize: font.sm,

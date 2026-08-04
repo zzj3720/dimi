@@ -9,7 +9,8 @@ export const composer = css({
 });
 
 export const capsule = css({
-  maxWidth: size.threadMaxW,
+  maxWidth: `calc(${size.threadMaxW} - 32px)`,
+  minHeight: 98,
   margin: '0 auto',
   background: colors.composerBg,
   backdropFilter: 'blur(16px)',
@@ -130,8 +131,8 @@ export const sendBtn = css({
   alignItems: 'center',
   justifyContent: 'center',
   padding: 2,
-  '&:hover': { background: '#f0f0f0' },
-  '&:disabled': { background: colors.hoverStrong, color: colors.textMuted, cursor: 'default' },
+  '&:hover:not(:disabled)': { background: '#f0f0f0' },
+  '&:disabled': { opacity: 0.5, cursor: 'default' },
   '& svg': { width: 16, height: 16 },
 });
 

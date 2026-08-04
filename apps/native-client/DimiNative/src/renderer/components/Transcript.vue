@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Codex-style thread: welcome page when empty, else 768px centered messages.
-import { ref, watch, nextTick } from 'vue';
-import { state } from '../store';
+import { ref, watch, nextTick, onMounted } from 'vue';
+import { state, Msg } from '../store';
 import type { Entry } from '../store';
+import { dispatch } from '../api';
 import { renderMarkdown } from '../markdown';
 import {
-  transcript, thread, entry, bodyMuted, bodyTool, bodyThinking, bodyCompaction,
+  transcript, thread, entry, entrySameTurn, bodyMuted, bodyTool, bodyThinking, bodyCompaction,
   toolName, clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
   reasoningTitle, welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
   welcomeModelsTitle, modelRow, modelName, modelLevel, md,
@@ -23,6 +24,8 @@ function scrollToBottom(): void {
   if (nearBottom) el.scrollTop = el.scrollHeight;
 }
 
+onMounted(() => void nextTick(scrollToBottom));
+
 watch(
   () => state.entries.length,
   () => void nextTick(scrollToBottom),
@@ -31,6 +34,22 @@ watch(
   () => state.entries[state.entries.length - 1]?.text,
   () => void nextTick(scrollToBottom),
 );
+// Whole-array replacement (e.g. switching sessions) can keep length + last
+// text identical; watching the array reference catches those too.
+watch(
+  () => state.entries,
+  () => void nextTick(scrollToBottom),
+);
+
+// Same-turn grouping: a new turn starts at every user message; thinking/tool/
+// assistant entries that follow (until the next user) belong to that turn.
+// Status/compaction rows are meta and never join a group.
+function isSameTurn(prev: Entry | undefined, e: Entry): boolean {
+  if (!prev) return false;
+  if (e.kind === 'user' || e.kind === 'status' || e.kind === 'compaction') return false;
+  if (prev.kind === 'status' || prev.kind === 'compaction') return false;
+  return true;
+}
 
 function toggleThinking(e: Entry): void {
   if (window.getSelection && window.getSelection().toString().length > 0) return;
@@ -78,7 +97,7 @@ function shellCmd(args: string): string {
       </div>
       <div :class="welcomeModels">
         <div :class="welcomeModelsTitle">模型</div>
-        <div :class="modelRow"><span :class="modelName">5.3 Codex Spark</span><span :class="modelLevel">轻度</span></div>
+        <div :class="modelRow" @click="dispatch(Msg.SettingsOpen())"><span :class="modelName">{{ state.modelName || '模型' }}</span><span :class="modelLevel">轻度</span></div>
         <div :class="modelRow"><span :class="modelName">5.6 Sol</span><span :class="modelLevel">极高</span></div>
       </div>
     </div>
@@ -86,10 +105,11 @@ function shellCmd(args: string): string {
     <!-- Message thread -->
     <div v-else :class="thread">
       <div
-        v-for="e in state.entries"
+        v-for="(e, i) in state.entries"
         :key="e"
         :class="[
           entry,
+          i > 0 && isSameTurn(state.entries[i - 1], e) ? entrySameTurn : null,
           e.kind === 'user' ? entryUser : e.kind === 'assistant' ? entryAssistant : e.kind === 'thinking' ? entryThinking : e.kind === 'tool' ? entryTool : entryStatus,
         ]"
       >

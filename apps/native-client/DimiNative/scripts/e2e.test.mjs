@@ -79,7 +79,8 @@ async function test(name, fn) {
 
 async function setInput(text) {
   return cdp.eval(`(async () => {
-    const ta = document.querySelector('#input');
+    const ta = document.querySelector('[data-testid="composer-input"]');
+    if (!ta) throw new Error('composer input not found');
     ta.focus();
     ta.value = ${JSON.stringify(text)};
     ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -90,7 +91,8 @@ async function setInput(text) {
 
 async function key(keyName, mods = {}) {
   return cdp.eval(`(async () => {
-    const ta = document.querySelector('#input');
+    const ta = document.querySelector('[data-testid="composer-input"]');
+    if (!ta) throw new Error('composer input not found');
     ta.focus();
     const mod = ${JSON.stringify(mods)};
     ta.dispatchEvent(new KeyboardEvent('keydown', {
@@ -103,7 +105,7 @@ async function key(keyName, mods = {}) {
 }
 
 async function completionItems() {
-  return cdp.eval(`[...document.querySelectorAll('.completion-item .value')].map(e => e.textContent)`);
+  return cdp.eval(`[...document.querySelectorAll('[data-testid="completion-value"]')].map(e => e.textContent)`);
 }
 
 async function dialogItems() {
@@ -118,22 +120,41 @@ async function fireSse(type, payload) {
   })()`);
 }
 
+// The Vue renderer exposes `dispatch` on window as __dimiDispatch (api.ts):
+// the pre-Vue renderer routed every message through the window 'dimi:msg'
+// event (fireSse above), while the Vue renderer only consumes new_chat /
+// suggestion_send there — so inject store messages through this hook.
+async function injectSse(type, payload) {
+  return cdp.eval(`(async () => {
+    if (typeof window.__dimiDispatch !== 'function') throw new Error('__dimiDispatch not reachable');
+    window.__dimiDispatch({ type: 'sse_event', evt: { payload: { type: ${JSON.stringify(type)}, ...${JSON.stringify(payload)} } } });
+    await new Promise(r => setTimeout(r, 100));
+    return true;
+  })()`);
+}
+
 // Reset UI state between tests: close dialogs, clear draft, clear
 // completion, dismiss any approval/question panel.
 async function cleanup() {
   await cdp.eval(`(async () => {
+    // Legacy pre-Vue bridge events — no-ops in the Vue renderer, harmless.
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'approval_reject' } }));
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_dismiss' } }));
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_close' } }));
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_close' } }));
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'completion_close' } }));
-    // Close any remaining layer (help dialog, btw, etc.) with repeated Esc.
-    for (let i = 0; i < 4; i++) {
-      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'escape' } }));
+    // Vue renderer: close layers through the store directly (approval_reject /
+    // question_dismiss also fire the server-side reject/dismiss effects).
+    if (typeof window.__dimiDispatch === 'function') {
+      for (const t of ['approval_reject', 'question_dismiss', 'picker_close', 'settings_close', 'completion_close']) {
+        window.__dimiDispatch({ type: t });
+      }
     }
-    const ta = document.querySelector('#input');
-    ta.value = '';
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    const ta = document.querySelector('[data-testid="composer-input"]');
+    if (ta) {
+      ta.value = '';
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     await new Promise(r => setTimeout(r, 150));
     return true;
   })()`);
@@ -282,6 +303,52 @@ async function main() {
     await fireSse('event.session.work_changed', { busy: false, main_turn_active: false });
     const hidden = await cdp.eval(`document.querySelector('#btn-steer').classList.contains('hidden')`);
     if (!hidden) throw new Error('steer button should hide when idle');
+  });
+
+  await test('@mention: Enter accepts a single-@ value (no double @)', async () => {
+    // Diff case: with draft '@src/ma' and item '@src/main.py', completion_accept
+    // must produce '@src/main.py' — never '@@src/main.py' or '@src@src/…'.
+    // Use '@./' + the first real cwd entry: the mention value is '@' + dir +
+    // name, so the accepted draft must equal '@./' + the item label exactly.
+    await setInput('@./');
+    let label = null;
+    for (let i = 0; i < 20; i++) {
+      const items = await completionItems();
+      if (items.length > 0) {
+        label = items[0];
+        break;
+      }
+      await sleep(100);
+    }
+    if (!label) throw new Error('mention popup did not open (empty cwd?)');
+    await key('Enter');
+    const draft = await cdp.eval(`document.querySelector('[data-testid="composer-input"]').value`);
+    const expected = '@./' + label;
+    if (draft !== expected) throw new Error(`expected draft '${expected}', got '${draft}'`);
+    if (draft.startsWith('@@')) throw new Error(`double-@ regression: ${draft}`);
+    const popupClosed = await cdp.eval(`!document.querySelector('[data-testid="completion"]')`);
+    if (!popupClosed) throw new Error('completion popup should close after accept');
+  });
+
+  await test('approval: empty feedback on "Reject with feedback…" never POSTs', async () => {
+    await injectSse('event.approval.requested', {
+      approval_id: 'e2e_approval_empty', tool_name: 'Bash', action: 'run', tool_input_display: 'ls',
+    });
+    // Digit-4 shortcut selects "Reject with feedback…" and enters feedback mode.
+    await key('4');
+    const feedbackShown = await cdp.eval(`!!document.querySelector('input[placeholder="Feedback…"]')`);
+    if (!feedbackShown) throw new Error('feedback input should be visible after selecting row 4');
+    // Confirm while the feedback is still empty: the reducer + submitApproval
+    // guards must keep the dialog open and surface 'enter feedback first'
+    // instead of POSTing a feedback-less rejection (which would clear the
+    // approval and close the panel).
+    await key('Enter');
+    const status = await cdp.eval(`document.querySelector('[data-testid="status-msg"]')?.textContent ?? ''`);
+    if (status !== 'enter feedback first') throw new Error(`expected 'enter feedback first', got '${status}'`);
+    const stillOpen = await cdp.eval(`!!document.querySelector('input[placeholder="Feedback…"]')`);
+    if (!stillOpen) throw new Error('approval dialog should stay open when feedback is empty');
+    // Clean up: resolve the approval so it doesn't leak into the next test.
+    await injectSse('event.approval.resolved', { approval_id: 'e2e_approval_empty' });
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

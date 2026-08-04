@@ -7,7 +7,7 @@ import HeaderBar from './components/HeaderBar.vue';
 import Transcript from './components/Transcript.vue';
 import Composer from './components/Composer.vue';
 import Dialogs from './components/Dialogs.vue';
-import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from './store';
+import { state, Msg } from './store';
 import { dispatch, createSession, detachCurrentTask, recallLastQueued } from './api';
 import { app } from './styles/global';
 import { shell, mainCol } from './App.styles';
@@ -33,6 +33,8 @@ function onWindowKeydown(evt: KeyboardEvent): void {
     if (k === 'e') {
       if (state.currentApproval) {
         evt.preventDefault();
+        // approvalPreview toggles the preview/detail view inside the approval
+        // dialog (rendered by Dialogs).
         state.approvalPreview = !state.approvalPreview;
       }
       return;
@@ -86,13 +88,21 @@ function onWindowKeydown(evt: KeyboardEvent): void {
 
     case 'Tab':
       if (!typing) {
-        evt.preventDefault();
-        if (evt.shiftKey) dispatch({ type: 'plan_mode_toggle' });
-        else dispatch({ type: 'completion_tab' });
+        if (evt.shiftKey) {
+          evt.preventDefault();
+          dispatch({ type: 'plan_mode_toggle' });
+        } else if (state.completionOpen) {
+          evt.preventDefault();
+          dispatch(Msg.CompletionAccept());
+        }
+        // Otherwise let Tab drive native focus navigation.
       }
       return;
 
     case 'Escape':
+      // Element-level handlers (composer / dialogs) preventDefault on Esc;
+      // skip so one keypress doesn't reach the reducer twice.
+      if (evt.defaultPrevented) return;
       evt.preventDefault();
       dispatch(Msg.Escape());
       return;

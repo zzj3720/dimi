@@ -2,7 +2,7 @@
 // All server communication goes through window.dimi (Electron main bridge).
 // Vue reactivity replaces the old imperative render() calls.
 
-import { state, update, Msg, saveHistory, isBashDraft, findSlashCommand, APPROVAL_CHOICES } from './store';
+import { state, update, Msg, saveHistory, isBashDraft, findSlashCommand, APPROVAL_CHOICES, closeCompletion } from './store';
 import type { Msg as MsgType, State, Entry, SessionSummary } from './store';
 
 // ------------------------------------------------------------------ bridge
@@ -26,6 +26,13 @@ export function dispatch(msg: MsgType): void {
   update(state, msg);
   afterDispatch(msg);
 }
+
+// e2e bridge (scripts/e2e.test.mjs): the pre-Vue renderer routed every store
+// message through the window 'dimi:msg' event; the Vue renderer only consumes
+// new_chat / suggestion_send there, so the CDP suite injects store messages
+// through this hook to drive dialogs deterministically. The renderer is
+// sandboxed and already holds full app trust.
+(window as unknown as { __dimiDispatch?: (msg: MsgType) => void }).__dimiDispatch = dispatch;
 
 function afterDispatch(msg: MsgType): void {
   switch (msg.type) {
@@ -214,6 +221,16 @@ export function submitDraft(): void {
   if (draft.trim().length === 0) return;
   if (!state.currentSessionId) {
     state.statusMsg = 'select a session first';
+    return;
+  }
+
+  // An @-mention fsList may still be in flight (the popup hasn't opened yet):
+  // don't submit the raw @draft as a prompt. Only block while a list is
+  // actually pending — once it settles, the mention is accepted/closed via the
+  // popup and a later Enter submits normally (text starting with @ is still
+  // sendable after the popup is gone).
+  if (draft.startsWith('@') && state.atMentionPending > 0) {
+    state.statusMsg = 'file list loading…';
     return;
   }
 
@@ -718,6 +735,14 @@ export function submitApproval(): void {
   const a = state.currentApproval;
   if (!a) return;
   const idx = state.approvalSelectedIndex;
+  // Effect-layer guard: dispatch() runs afterDispatch unconditionally, so the
+  // reducer's approval_confirm guard can't stop this side effect. Never POST a
+  // feedback-less rejection from the "Reject with feedback…" row (idx 3), no
+  // matter how approvalFeedbackMode got set (or cleared by Esc / navigation).
+  if (idx === 3 && !(state.approvalFeedbackText ?? '').trim()) {
+    state.statusMsg = 'enter feedback first';
+    return;
+  }
   let decision = 'approved';
   let scope: string | undefined;
   if (idx === 1) scope = 'session';
@@ -834,7 +859,12 @@ export async function createSession(): Promise<string | null> {
     const cur = state.sessions.find((s) => s.id === state.currentSessionId);
     const cwd = cur?.metadata?.cwd ?? state.currentCwd;
     const data = await api('POST', '/api/v1/sessions', { metadata: { cwd } });
-    return (data?.data?.id as string) ?? (data?.id as string) ?? null;
+    const id = (data?.data?.id as string) ?? (data?.id as string) ?? null;
+    if (id && !state.sessions.some((s) => s.id === id)) {
+      // Show the fresh session in the sidebar immediately (before any reload).
+      state.sessions.unshift({ id, title: '', metadata: { cwd } });
+    }
+    return id;
   } catch (e) {
     state.statusMsg = `create failed: ${(e as Error).message}`;
     return null;
@@ -861,17 +891,32 @@ export function rememberSession(id: string): void {
 export async function maybeUpdateAtMention(text: string): Promise<void> {
   const m = text.match(/(?:^|\s)@([^\s]*)$/);
   if (!m) {
-    state.atMentionOpen = false;
+    // The @-mention pattern no longer matches (e.g. a trailing space was
+    // typed) but the popup may still show stale mention items — close the
+    // whole popup so Enter can't accept a stale item and clobber the draft.
+    // Only touch mention-driven popups: this runs on every keystroke, and a
+    // slash-command popup (opened by updateCompletion) must never be closed
+    // here. closeCompletion resets atMentionOpen too.
+    if (state.atMentionOpen) closeCompletion(state);
     return;
   }
   const prefix = m[1];
+  state.atMentionPending += 1;
   try {
     const slashIdx = prefix.lastIndexOf('/');
     const dir = slashIdx >= 0 ? prefix.slice(0, slashIdx + 1) : (state.currentCwd || '.');
     const namePrefix = slashIdx >= 0 ? prefix.slice(slashIdx + 1) : prefix;
-    const res = await dimi().listFs(dir || '.');
+    const res = await dimi().fsList(dir || '.');
+    // The draft may have changed while fsList was in flight (more typing, the
+    // '@' deleted, or the draft switched to a slash command): only apply this
+    // result if the current draft still carries the exact same @-mention
+    // prefix. A stale response would otherwise reopen a popup for a mention
+    // that no longer exists (and let Enter accept an outdated item).
+    const cur = state.draft.match(/(?:^|\s)@([^\s]*)$/);
+    if (!cur || cur[1] !== prefix) return;
     if (!res?.ok) {
       state.atMentionOpen = false;
+      state.completionOpen = false;
       return;
     }
     const entries = (res.entries ?? []) as { name: string; isDirectory: boolean; path: string }[];
@@ -884,14 +929,24 @@ export async function maybeUpdateAtMention(text: string): Promise<void> {
       }));
     if (filtered.length === 0) {
       state.atMentionOpen = false;
+      state.completionOpen = false;
       return;
     }
+    // Drive the same completion popup as slash commands: the template and the
+    // keyboard branch (Arrow/Enter/Tab/Escape) both key off completionOpen.
     state.atMentionOpen = true;
+    state.completionOpen = true;
+    // Index of the matched '@' (text.length - prefix.length - 1): completion_accept
+    // slices the draft up to this point (dropping the '@'), and item.value
+    // re-adds '@', so accepting never yields a double '@'.
     state.atMentionPrefix = text.length - prefix.length - 1;
     state.completionItems = filtered;
     state.completionSelected = 0;
   } catch {
     state.atMentionOpen = false;
+    state.completionOpen = false;
+  } finally {
+    state.atMentionPending -= 1;
   }
 }
 

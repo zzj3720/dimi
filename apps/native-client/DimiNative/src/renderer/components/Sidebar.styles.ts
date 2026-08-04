@@ -61,7 +61,7 @@ export const brand = css({
   gap: 4,
   fontSize: 17,
   lineHeight: '24px',
-  fontWeight: 500,
+  fontWeight: 600,
   color: 'rgba(255, 255, 255, 0.85)',
   padding: '2px 8px',
   marginLeft: -8,
@@ -77,6 +77,35 @@ export const brandActions = css({
   display: 'flex',
   alignItems: 'center',
   gap: 4,
+});
+
+// ---- sidebar nav block (Codex: 新对话 / 站点 / 已安排 / 插件) ----
+export const navBlock = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  padding: '0 8px',
+});
+
+export const navItem = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '5px 8px',
+  borderRadius: size.sidebarItemRadius,
+  fontSize: font.sm,
+  lineHeight: font.smLh,
+  color: colors.text,
+  cursor: 'pointer',
+  border: 'none',
+  background: 'transparent',
+  textAlign: 'left',
+  width: '100%',
+  overflow: 'hidden',
+  flexShrink: 0,
+  '&:hover': { background: colors.hover8 },
+  '& svg': { width: 16, height: 16, flexShrink: 0, color: colors.textDim },
+  '& span': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 });
 
 export const iconBtn = css({
@@ -102,7 +131,7 @@ export const iconBtn = css({
 export const sessions = css({
   flex: 1,
   overflowY: 'auto',
-  padding: '1px 8px 54px',
+  padding: '1px 8px 16px',
   marginTop: -4,
   display: 'flex',
   flexDirection: 'column',
@@ -125,7 +154,6 @@ export const sessionGroupTitle = css({
   color: colors.textTertiary,
   padding: '2px 4px 2px 0',
   borderRadius: 10,
-  marginBottom: 4,
   minHeight: 25,
   userSelect: 'none',
   '& .chevron': { width: 14, height: 14, flexShrink: 0, color: colors.textTertiary },
@@ -160,13 +188,15 @@ export const sessionItemActive = css({
   '& .s-icon': { color: colors.text },
 });
 
-// ---- sidebar bottom ----
+// ---- sidebar bottom (Codex user/account row) ----
 export const sidebarBottom = css({
-  padding: '10px 12px',
+  padding: '8px 12px',
   borderTop: `1px solid ${colors.border}`,
   display: 'flex',
   alignItems: 'center',
   gap: 8,
   fontSize: font.sm,
   color: colors.textDim,
+  flexShrink: 0,
+  '& .sb-user': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 });

@@ -24,7 +24,7 @@ export const colors = {
 };
 
 export const font = {
-  family: '-apple-system, "system-ui", "Segoe UI", sans-serif',
+  family: '-apple-system, "system-ui", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, monospace',
   chat: '14px',
   chatLh: '22px',
@@ -53,4 +53,22 @@ export const radius = {
   pill: '9999px',
   md: '12px',
   lg: '16px',
+};
+
+// Runtime theme CSS variables — names must match the ones api.ts
+// `applyTheme()` sets via the `/theme` command (`--bg`, `--surface`, `--text`).
+// Static `colors` above stay the default palette; styles that should follow
+// the runtime theme must consume these vars instead of a static token, e.g.
+//   background: ${runtimeVars.bg}   ->  var(--bg, #141414)
+//   color: ${runtimeVars.text}      ->  var(--text, #ffffff)
+// NOTE (cross-file): global.ts consumes `--bg` / `--text` for the html/body
+// background and body text color, so `/theme` visibly switches the window
+// background + text. `--surface` is not yet consumed — the main column
+// background (App.styles.ts mainCol) and the per-component stylesheets
+// (Dialogs, Composer, Sidebar, Transcript, HeaderBar) still use static
+// colors, which is a known limitation of the runtime theme.
+export const runtimeVars = {
+  bg: 'var(--bg, #141414)',
+  surface: 'var(--surface, #212121)',
+  text: 'var(--text, #ffffff)',
 };

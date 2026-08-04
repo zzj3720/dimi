@@ -112,6 +112,7 @@ export interface State {
   completionPrefix: number;
   atMentionOpen: boolean;
   atMentionPrefix: number;
+  atMentionPending: number;
 
   btwOpen: boolean;
   btwDraft: string;
@@ -211,6 +212,7 @@ export function createInitialState(): State {
     completionPrefix: 0,
     atMentionOpen: false,
     atMentionPrefix: 0,
+    atMentionPending: 0,
 
     btwOpen: false,
     btwDraft: '',
@@ -348,6 +350,11 @@ export function update(s: State, msg: Msg): void {
       s.busy = false;
       s.phase = 'idle';
       s.statusMsg = `session ${s.currentSessionId}`;
+      // A freshly created session may not be in the sidebar list yet (e.g.
+      // /new or the new-chat button) — surface it so the sidebar reflects it.
+      if (!s.sessions.some((x) => x.id === s.currentSessionId)) {
+        s.sessions.unshift({ id: s.currentSessionId, title: '' });
+      }
       {
         const sess = s.sessions.find((x) => x.id === s.currentSessionId);
         if (sess) s.currentCwd = sess.metadata?.cwd ?? sess.cwd ?? '';
@@ -509,7 +516,18 @@ export function update(s: State, msg: Msg): void {
 
     case 'approval_confirm':
       if (!s.currentApproval) return;
-      if (s.approvalFeedbackMode) {
+      if (s.approvalFeedbackMode || s.approvalSelectedIndex === 3) {
+        // Never submit a feedback-less rejection. Enter can reach this from
+        // the Composer textarea or the feedback input while the feedback is
+        // still empty (double-click / focus race / Esc then re-Enter, which
+        // clears the mode flag but leaves the selection on row 3), and it
+        // would otherwise fall back to a plain rejection; stay in feedback
+        // mode instead. submitApproval() enforces the same invariant at the
+        // effect layer, since afterDispatch runs unconditionally.
+        if (!s.approvalFeedbackText.trim()) {
+          s.statusMsg = 'enter feedback first';
+          return;
+        }
         s.statusMsg = 'submitting feedback…';
         s.approvalFeedbackMode = false;
         return;
@@ -853,6 +871,7 @@ export function handleSseEvent(s: State, evt: unknown): void {
       s.approvalSelectedIndex = 0;
       s.approvalFeedbackMode = false;
       s.approvalFeedbackText = '';
+      s.approvalPreview = false;
       return;
     }
 
@@ -1046,10 +1065,32 @@ function slashCommandDescription(cmd: SlashCommand): string | undefined {
 
 export function updateCompletion(s: State): void {
   const text = s.draft;
-  if (text.length === 0 || text[0] !== '/' || isBashDraft(text)) {
+  if (text.length === 0) {
     closeCompletion(s);
     return;
   }
+  // @-mention drafts are driven by the async fsList result
+  // (maybeUpdateAtMention in api.ts): never close the popup synchronously
+  // here, or it flickers on every keystroke (close now, reopen after fsList)
+  // and Enter can race the in-flight list and submit the @draft as a prompt.
+  if (text[0] === '@') {
+    // But do close a stale slash-command popup when the draft is switched to
+    // an @-mention (e.g. select-all then '@'): the old slash items would
+    // linger until fsList resolves, and Enter in the window could accept one
+    // — turning the draft into a slash command and submitting it. The mention
+    // popup is (re)opened by maybeUpdateAtMention when its fsList settles.
+    if (s.completionOpen && !s.atMentionOpen) closeCompletion(s);
+    return;
+  }
+  if (text[0] !== '/' || isBashDraft(text)) {
+    closeCompletion(s);
+    return;
+  }
+  // This is a slash-command popup, not a mention popup: clear a latched
+  // atMentionOpen so maybeUpdateAtMention's no-match branch (it runs after
+  // every keystroke, after this reducer) never closes the popup we just
+  // opened below.
+  s.atMentionOpen = false;
 
   const whitespaceMatch = text.match(/^\/(\S+)\s+(\S*)$/);
   if (whitespaceMatch) {
@@ -1105,7 +1146,7 @@ function bestMatchIndex(items: (string | { name: string })[], prefix: string): n
   return 0;
 }
 
-function closeCompletion(s: State): void {
+export function closeCompletion(s: State): void {
   s.completionOpen = false;
   s.completionItems = [];
   s.completionSelected = 0;
@@ -1129,5 +1170,5 @@ function syncQuestionTab(s: State): void {
   q.allowOther = qq.allowOther;
   q.otherLabel = qq.otherLabel;
   s.questionSelectedIndex = 0;
-  s.questionOtherText = '';
+  s.questionOtherText = qq.otherText ?? '';
 }

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // Modal dialogs: session picker, settings, help, BTW, approval, question.
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { state, Msg, filteredSessions, slashCommands, APPROVAL_CHOICES } from '../store';
-import type { Question } from '../store';
-import { dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
+import type { PermissionMode, Question } from '../store';
+import { api, dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
 import {
   dialogRoot, dialogBackdrop, dialog, dialogTitle, dialogBody, dialogFooter,
   searchInput, listItem, listItemSelected, listItemTitle, listItemSub, toolName,
-  btn, btnGhost, btnPrimary, badge, badgePrimary, badgeOutline, badgeSecondary,
+  btn, btnGhost, btnPrimary, badge, badgePrimary, badgeOutline, bodyText,
 } from './Dialogs.styles';
 
 // ---- session picker
@@ -36,6 +36,7 @@ function onPickerScroll(e: Event): void {
 // ---- settings
 const models = ref<{ value: string; label: string }[]>([]);
 let modelsLoaded = false;
+const feedbackInput = ref<HTMLInputElement | null>(null);
 async function openSettings(): Promise<void> {
   if (modelsLoaded) return;
   modelsLoaded = true;
@@ -49,6 +50,61 @@ async function openSettings(): Promise<void> {
   } catch {
     models.value = [];
   }
+}
+
+// The Settings selects call the server directly (mirrors the /model and
+// /permission slash commands in api.ts) — the legacy `settings_set_*`
+// dimi:msg events were never consumed anywhere.
+async function setDefaultModel(ref: string): Promise<void> {
+  if (!ref) return;
+  try {
+    const data = await api('POST', `/api/v1/models/${encodeURIComponent(ref)}:set_default`, {});
+    state.statusMsg = `default model → ${data?.data?.default_model ?? ref}`;
+  } catch (e) {
+    state.statusMsg = `model set failed: ${(e as Error).message}`;
+  }
+}
+
+async function setPermissionMode(mode: string): Promise<void> {
+  try {
+    await api('POST', '/api/v1/config', { default_permission_mode: mode });
+    state.permissionMode = mode as PermissionMode;
+    state.statusMsg = `permission mode → ${mode}`;
+  } catch (e) {
+    state.statusMsg = `permission failed: ${(e as Error).message}`;
+  }
+}
+
+// Approval row click: choices 0-2 select + confirm immediately; choice 3
+// (Reject with feedback) only enters feedback mode on first click and
+// confirms on a second click, so an empty feedback can't be submitted
+// accidentally (Enter in the feedback input also confirms).
+function onApprovalChoice(i: number): void {
+  if (i === 3) {
+    if (state.approvalSelectedIndex === i) {
+      // Second click on "Reject with feedback…" confirms, but never with an
+      // empty feedback — keep the dialog in feedback mode and focus the input.
+      if (!state.approvalFeedbackText.trim()) {
+        // Esc may have left the selection on row 3 with the mode flag cleared;
+        // re-enter feedback mode (matching the first-click path) so Enter in
+        // the visible feedback input goes through the guarded feedback branch
+        // instead of a plain 'approving…' → feedback-less rejection.
+        state.approvalFeedbackMode = true;
+        void nextTick(() => feedbackInput.value?.focus());
+        return;
+      }
+      dispatch(Msg.ApprovalConfirm());
+    } else {
+      dispatch(Msg.ApprovalSelect(i));
+      // Match the keyboard digit-4 path so the statusMsg text and Esc
+      // behavior (exit feedback mode instead of rejecting) stay consistent.
+      state.approvalFeedbackMode = true;
+      void nextTick(() => feedbackInput.value?.focus());
+    }
+    return;
+  }
+  dispatch(Msg.ApprovalSelect(i));
+  dispatch(Msg.ApprovalConfirm());
 }
 
 // ---- question helpers
@@ -100,14 +156,14 @@ function btwSend(): void {
         <div :class="dialogBody">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
             <span :class="listItemSub" style="min-width: 110px">Default model</span>
-            <select :class="searchInput" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_model', ref: ($event.target as HTMLSelectElement).value } }))">
-              <option v-if="models.length === 0">loading…</option>
+            <select :class="searchInput" :value="state.modelName" @change="setDefaultModel(($event.target as HTMLSelectElement).value)">
+              <option v-if="models.length === 0" value="">loading…</option>
               <option v-for="m in models" :key="m.value" :value="m.value">{{ m.label }}</option>
             </select>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
             <span :class="listItemSub" style="min-width: 110px">Permission mode</span>
-            <select :class="searchInput" :value="state.permissionMode" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_permission', mode: ($event.target as HTMLSelectElement).value } }))">
+            <select :class="searchInput" :value="state.permissionMode" @change="setPermissionMode(($event.target as HTMLSelectElement).value)">
               <option value="manual">manual</option>
               <option value="auto">auto</option>
               <option value="yolo">yolo</option>
@@ -145,13 +201,13 @@ function btwSend(): void {
         <div :class="dialogTitle">BTW</div>
         <div :class="dialogBody">
           <div v-if="state.btwPrompt" :class="listItem">
-            <div class="body">{{ state.btwPrompt }}</div>
+            <div :class="bodyText">{{ state.btwPrompt }}</div>
           </div>
           <div v-if="state.btwAnswer" :class="listItem">
-            <div class="body">{{ state.btwAnswer }}</div>
+            <div :class="bodyText">{{ state.btwAnswer }}</div>
           </div>
           <div v-else-if="state.btwBusy" :class="listItemSub">…</div>
-          <input :class="searchInput" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc="state.btwOpen = false" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
+          <input :class="searchInput" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc.prevent="dispatch(Msg.Escape())" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
           <div :class="listItemSub" style="margin-top: 8px">Enter to ask · Esc to close</div>
         </div>
       </div>
@@ -162,18 +218,20 @@ function btwSend(): void {
       <div :class="dialog">
         <div :class="dialogTitle">{{ state.currentApproval.toolName || 'Approval required' }}</div>
         <div :class="dialogBody">
-          <div class="body" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ state.currentApproval.action }}</div>
-          <pre v-if="state.currentApproval.command" class="body" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 72px; overflow: auto">{{ state.currentApproval.command }}</pre>
+          <div :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ state.currentApproval.action }}</div>
+          <pre v-if="state.currentApproval.command" :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 72px; overflow: auto">{{ state.currentApproval.command }}</pre>
+          <pre v-if="state.approvalPreview && state.currentApproval.command" :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 320px; overflow: auto">{{ state.currentApproval.command }}</pre>
           <div style="margin-top: 8px">
             <div
               v-for="(opt, i) in APPROVAL_CHOICES"
               :key="i"
               :class="[listItem, { [listItemSelected]: i === state.approvalSelectedIndex }]"
-              @mousedown.prevent="dispatch(Msg.ApprovalSelect(i)); dispatch(Msg.ApprovalConfirm())"
+              @mousedown.prevent="onApprovalChoice(i)"
             >{{ opt.label }}</div>
           </div>
           <input
             v-if="state.approvalSelectedIndex === 3"
+            ref="feedbackInput"
             :class="searchInput"
             placeholder="Feedback…"
             :value="state.approvalFeedbackText"
@@ -205,13 +263,13 @@ function btwSend(): void {
               :key="i"
               :class="[listItem, { [listItemSelected]: i === state.questionSelectedIndex }]"
               @mousedown.prevent="state.currentQuestion.kind === 'multi' ? dispatch({ type: 'question_toggle', index: i }) : (dispatch({ type: 'question_select', index: i }), dispatch(Msg.QuestionConfirm()))"
-            >{{ (state.currentQuestion.kind === 'multi' || state.currentQuestion.kind === 'multi_with_other') ? (opt.selected ? '✓ ' : '○ ') : (i === state.questionSelectedIndex ? '● ' : '○ ') }}{{ opt.label }}</div>
+            >{{ (state.currentQuestion.kind === 'multi' || state.currentQuestion.kind === 'multi_with_other') ? (opt.selected ? '✓ ' : '○ ') : (opt.selected ? '● ' : '○ ') }}{{ opt.label }}</div>
           </div>
           <input
             v-if="state.currentQuestion.allowOther"
             :class="searchInput"
             :placeholder="state.currentQuestion.otherLabel || 'Other…'"
-            :value="state.currentQuestion.otherText ?? ''"
+            :value="state.questionOtherText"
             @input="dispatch({ type: 'question_other', text: ($event.target as HTMLInputElement).value })"
           />
           <div :class="listItemSub" style="margin-top: 8px">←/→ tabs · 1-9 select · space toggle · Enter confirm</div>

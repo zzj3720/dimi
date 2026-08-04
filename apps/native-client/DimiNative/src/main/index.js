@@ -3,7 +3,7 @@
 // everything to the renderer via contextBridge. All business logic lives
 // in the renderer; the main process is only a transport + window shell.
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -32,6 +32,21 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));
+
+  // Open external http(s) links in the system browser instead of navigating
+  // the app window away or spawning a child window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const current = mainWindow.webContents.getURL();
+    if (url !== current) {
+      e.preventDefault();
+      if (/^https?:/i.test(url)) shell.openExternal(url);
+    }
+  });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
