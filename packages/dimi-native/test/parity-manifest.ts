@@ -149,22 +149,23 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'turn.ended failed error payload includes name',
-    migrated: false,
-    gap: 'runner error bus event lacks name/stack fields',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (failed-turn error carries name — toDimiErrorPayload parity)',
   },
   {
     domain: 'runner usage reset between steps',
-    migrated: false,
-    gap: 'step.end without usage inherits the previous step usage',
+    migrated: true,
+    coveredBy: 'rustEngineTurnRunner.test.ts (usage-less step gets zeros, not the previous step)',
   },
   {
     domain: 'thinking/text flush ordering',
-    migrated: false,
-    gap: 'runner flushes think before text regardless of stream order',
+    migrated: true,
+    coveredBy: 'rustEngineTurnRunner.test.ts (parts recorded in stream order, not merged think-before-text)',
   },
   {
     domain: 'dead sync AgentTool removal',
-    migrated: false,
-    gap: 'tool.rs still carries the unused synchronous AgentTool (bridge uses AsyncAgentTool)',
+    migrated: true,
+    coveredBy: 'tool.rs no longer carries the sync AgentTool (bridge uses AsyncAgentTool); AgentTasks kept',
   },
 ];
