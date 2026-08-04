@@ -2347,4 +2347,50 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(toolText).toContain('not found');
     expect(toolText).not.toContain('StubInactive executed');
   });
+
+  it('fires PostToolUse for native in-engine tools (TS notifyPostToolUse parity)', async () => {
+    // TS fires PostToolUse for EVERY executed tool. Native tools (Bash/…)
+    // execute inside the engine and bypass the external-tool callback, so
+    // the runner fires the hook on the mirrored tool.result.
+    const calls: Array<{ event: string; toolName?: string }> = [];
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async () => undefined,
+      fireAndForgetTrigger: async (event: string, args?: { matcherValue?: string }) => {
+        calls.push({ event, toolName: args?.matcherValue });
+        return [];
+      },
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_native_bash',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo native-hook"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after native' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto'), externalHookServices(hookRunner)]);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run native tool' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after native')),
+      'post-native reply',
+    );
+    // PostToolUse is fire-and-forget: allow a beat for the async trigger.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(calls).toContainEqual({ event: 'PostToolUse', toolName: 'Bash' });
+  });
 });

@@ -80,8 +80,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'PreToolUse/PostToolUse external hooks',
-    migrated: false,
-    gap: 'runner triggers hooks for EXTERNAL tools only; native tools (Bash/Agent/WaitFor) still bypass them — user-configured veto hooks do not apply to Bash',
+    migrated: true,
+    coveredBy:
+      'engine-event-matrix.test.ts (native gate veto) + rustEngineTurnRunner.test.ts (external veto/hooks + native PostToolUse)',
   },
   {
     domain: 'tool dedupe (toolDedupe dup detection)',

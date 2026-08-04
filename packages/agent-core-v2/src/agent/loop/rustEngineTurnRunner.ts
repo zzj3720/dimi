@@ -928,6 +928,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // TS lands the step's text as soon as its response completes; a step
     // interrupted mid-tool must flush, a step interrupted mid-stream must not.
     let stepSawToolCall = false;
+    // Native (in-engine) tool calls seen this turn: toolCallId → {name, input}.
+    // TS fires PostToolUse for EVERY executed tool; native tools bypass the
+    // external-tool callback, so the runner fires it on the mirrored
+    // `tool.result` (fire-and-forget, informational).
+    const nativeToolCalls = new Map<string, { name: string; input: unknown }>();
     let usage = emptyUsage();
 
     const publish = (event: Record<string, unknown>): void => {
@@ -1048,6 +1053,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const id = toText(event["toolCallId"]);
           const name = toText(event["name"]);
           stepSawToolCall = true;
+          if (ENGINE_NATIVE_TOOLS.has(name)) {
+            nativeToolCalls.set(id, { name, input: event["args"] });
+          }
           this.context.appendLoopEvent({
             type: "tool.call",
             stepUuid: stepUuid!,
@@ -1064,6 +1072,34 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const id = toText(event["toolCallId"]);
           const output = toText(event["output"]);
           const isError = event["isError"] === true;
+          // TS `notifyPostToolUse` parity for native tools: the engine
+          // executed the call in-process, so the runner fires the
+          // fire-and-forget hook on the mirrored result.
+          const native = nativeToolCalls.get(id);
+          if (native !== undefined) {
+            nativeToolCalls.delete(id);
+            const hooksRunner = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+            );
+            if (hooksRunner !== undefined) {
+              void hooksRunner.fireAndForgetTrigger(
+                isError ? "PostToolUseFailure" : "PostToolUse",
+                {
+                  matcherValue: native.name,
+                  signal: new AbortController().signal,
+                  sessionId: this.sessionContext.sessionId,
+                  inputData: {
+                    toolName: native.name,
+                    toolInput: isPlainRecord(native.input) ? native.input : {},
+                    toolCallId: id,
+                    error: isError ? toDimiErrorPayload(output) : undefined,
+                    toolOutput: isError ? undefined : output.slice(0, 2000),
+                  },
+                },
+              );
+            }
+          }
           this.context.appendLoopEvent({
             type: "tool.result",
             toolCallId: id,
