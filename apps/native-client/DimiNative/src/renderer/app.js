@@ -504,6 +504,8 @@ export function update(state, msg) {
         return;
       }
       if (state.busy) {
+        // TUI: Esc cancels the current stream/compaction (editor-keyboard.ts:195-204).
+        state.cancelStreamRequested = true;
         state.statusMsg = 'cancelling…';
         return;
       }

@@ -62,7 +62,17 @@ function afterDispatch(msg) {
       submitApproval();
       break;
     case 'approval_reject':
-      rejectApproval();
+      if (model.approvalRejectRequested) {
+        model.approvalRejectRequested = false;
+        rejectApproval();
+      }
+      break;
+
+    case 'question_dismiss':
+      if (model.questionDismissRequested) {
+        model.questionDismissRequested = false;
+        dismissQuestion();
+      }
       break;
     case 'question_confirm':
       submitQuestion();
@@ -81,6 +91,11 @@ function afterDispatch(msg) {
       if (model.questionDismissRequested) {
         model.questionDismissRequested = false;
         dismissQuestion();
+      }
+      // Esc on a busy stream cancels it (TUI editor-keyboard.ts:195-204).
+      if (model.cancelStreamRequested) {
+        model.cancelStreamRequested = false;
+        doCancel();
       }
       // return focus to composer unless a dialog is open
       if (!model.pickerOpen && !model.currentApproval && !model.currentQuestion && !model.settingsDialogOpen) {
@@ -135,8 +150,10 @@ els.input.addEventListener('keydown', (evt) => {
           // TUI: number key on multi toggles the option (question-dialog.ts:184-194).
           dispatch({ type: 'question_toggle', index: idx });
         } else {
+          // TUI: single selection advances to the next unanswered question
+          // or the Submit tab (question-dialog.ts:358-363), not submit-all.
           dispatch({ type: 'question_select', index: idx });
-          dispatch(Msg.QuestionConfirm());
+          dispatch(Msg.QuestionTab(1));
         }
       }
       return;
@@ -150,14 +167,20 @@ els.input.addEventListener('keydown', (evt) => {
     if (evt.key === 'ArrowRight' || evt.key === 'Tab') { evt.preventDefault(); dispatch(Msg.QuestionTab(1)); return; }
   }
 
-  // Approval dialog: number keys select+confirm (TUI approval-panel.ts:313-317).
+  // Approval dialog: number keys select+confirm (TUI approval-panel.ts:313-317);
+  // index 3 (Reject with feedback) enters feedback mode instead of submitting.
   if (model.currentApproval) {
     if (/^[1-9]$/.test(evt.key)) {
       evt.preventDefault();
       const idx = Number(evt.key) - 1;
       if (idx < APPROVAL_CHOICES.length) {
         dispatch(Msg.ApprovalSelect(idx));
-        dispatch(Msg.ApprovalConfirm());
+        if (idx === 3) {
+          model.approvalFeedbackMode = true;
+          render();
+        } else {
+          dispatch(Msg.ApprovalConfirm());
+        }
       }
       return;
     }
@@ -227,7 +250,18 @@ els.input.addEventListener('keydown', (evt) => {
         if (model.currentApproval) {
           dispatch(Msg.ApprovalConfirm());
         } else if (model.currentQuestion) {
-          dispatch(Msg.QuestionConfirm());
+          // TUI: Enter activates the cursor option; single advances to the
+          // next tab, multi toggles.
+          const q = model.currentQuestion;
+          const idx = model.questionSelectedIndex;
+          if (q.kind === 'multi' || q.kind === 'multi_with_other') {
+            dispatch({ type: 'question_toggle', index: idx });
+          } else {
+            if ((q.options ?? []).length > 0) {
+              dispatch({ type: 'question_select', index: idx });
+              dispatch(Msg.QuestionTab(1));
+            }
+          }
         } else {
           dispatch(Msg.Submit());
         }
@@ -410,13 +444,16 @@ export function subscribeSse(sessionId) {
     // (TUI finalizeTurn drains one queued message per turn end).
     if (type === 'turn.ended' || type === 'prompt.completed' || type === 'prompt.steered') {
       refreshPromptQueue();
-      // TUI drainOneQueuedMessage: after a turn ends, run the first queued
-      // bash command (prompt messages drain via the server prompt queue).
-      if (type === 'turn.ended' && !model.busy) {
-        drainQueuedBash();
-      }
     }
     dispatch(Msg.SseEvent(evt));
+    // TUI drainOneQueuedMessage: after a turn ends, run the first queued
+    // bash command. Check AFTER the reducer processed turn.ended (which
+    // clears busy) — checking before would see busy still true.
+    if (type === 'turn.ended' && !model.busy) {
+      setTimeout(() => {
+        if (!model.busy) drainQueuedBash();
+      }, 0);
+    }
   });
 }
 
@@ -774,12 +811,15 @@ function submitQuestion() {
   for (const qq of all) {
     const itemId = qq.itemId || qq.id;
     const selected = (qq.options ?? []).filter((o) => o.selected).map((o) => o.id);
-    if ((qq.kind === 'multi' || qq.kind === 'multi_with_other') && selected.length > 0) {
+    const otherText = (qq.otherText ?? '').trim();
+    if ((qq.kind === 'multi' || qq.kind === 'multi_with_other') && selected.length > 0 && otherText.length > 0) {
+      answers[itemId] = { kind: 'multi_with_other', option_ids: selected, other_text: otherText };
+    } else if ((qq.kind === 'multi' || qq.kind === 'multi_with_other') && selected.length > 0) {
       answers[itemId] = { kind: 'multi', option_ids: selected };
     } else if (selected.length === 1) {
       answers[itemId] = { kind: 'single', option_id: selected[0] };
-    } else if (qq.allowOther && qq.otherText && qq.otherText.trim().length > 0) {
-      answers[itemId] = { kind: 'other', text: qq.otherText.trim() };
+    } else if (qq.allowOther && otherText.length > 0) {
+      answers[itemId] = { kind: 'other', text: otherText };
     } else {
       answers[itemId] = { kind: 'skipped' };
     }
@@ -834,26 +874,31 @@ function openExternalEditor() {
 }
 
 // @mention completion (TUI file-mention-provider): extract the `@<prefix>`
-// after whitespace, browse the server's directory listing, fuzzy-filter and
-// show in the same completion popup.
+// after whitespace, list the local directory via the main process, filter
+// and show in the same completion popup.
 async function maybeUpdateAtMention(text) {
   const m = text.match(/(?:^|\s)@([^\s]*)$/);
   if (!m) { model.atMentionOpen = false; render(); return; }
   const prefix = m[1];
   try {
-    const data = await api('GET', `/api/v1/fs::browse?path=${encodeURIComponent(prefix || '.')}`);
-    const entries = data?.data?.entries ?? data?.data ?? [];
-    const items = entries
-      .filter((e) => typeof e === 'string' || e?.name)
-      .map((e) => {
-        const name = typeof e === 'string' ? e : e.name;
-        const isDir = typeof e === 'string' ? false : !!e.isDirectory;
-        return { value: `@${name}${isDir ? '/' : ''}`, label: `${name}${isDir ? '/' : ''}`, description: undefined };
-      });
-    const filtered = prefix ? items.filter((i) => i.label.toLowerCase().includes(prefix.toLowerCase())) : items;
+    // Directory part = everything before the last '/', or the cwd.
+    const slashIdx = prefix.lastIndexOf('/');
+    const dir = slashIdx >= 0 ? prefix.slice(0, slashIdx + 1) : (window.dimiCwd || '.');
+    const namePrefix = slashIdx >= 0 ? prefix.slice(slashIdx + 1) : prefix;
+    const res = await window.dimi.fsList(dir || '.');
+    if (!res?.ok) { model.atMentionOpen = false; render(); return; }
+    const entries = res.entries ?? [];
+    const filtered = entries
+      .filter((e) => e.name.toLowerCase().startsWith(namePrefix.toLowerCase()))
+      .map((e) => ({
+        value: `@${dir}${e.name}${e.isDirectory ? '/' : ''}`,
+        label: `${e.name}${e.isDirectory ? '/' : ''}`,
+        description: e.isDirectory ? undefined : e.path,
+      }));
     if (filtered.length === 0) { model.atMentionOpen = false; render(); return; }
     model.atMentionOpen = true;
-    model.atMentionPrefix = text.length - prefix.length - 1; // position of '@'
+    // Position of '@' in the draft: the prefix starts after it.
+    model.atMentionPrefix = text.length - prefix.length - 1;
     model.completionItems = filtered;
     model.completionSelected = 0;
     render();

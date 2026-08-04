@@ -17,6 +17,9 @@ const api = {
       ipcRenderer.invoke('sse-stop', { channel }).catch(() => {});
     };
   },
+
+  // List a directory's entries (local fs; @mention completion).
+  fsList: (dir) => ipcRenderer.invoke('fs-list', { dir }),
 };
 
 contextBridge.exposeInMainWorld('dimi', api);

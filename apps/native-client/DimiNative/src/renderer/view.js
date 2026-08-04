@@ -339,6 +339,19 @@ function renderApproval(root) {
     fb.addEventListener('input', () => {
       model.approvalFeedbackText = fb.value;
     });
+    fb.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Enter') {
+        evt.preventDefault();
+        // Submit the rejection with feedback.
+        model.approvalFeedbackMode = false;
+        window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'approval_confirm' } }));
+      } else if (evt.key === 'Escape') {
+        evt.preventDefault();
+        model.approvalFeedbackMode = false;
+        model.approvalFeedbackText = '';
+        render();
+      }
+    });
     body.appendChild(fb);
   }
 
@@ -368,7 +381,20 @@ function renderQuestion(root) {
     t.addEventListener('mousedown', (evt) => {
       evt.preventDefault();
       model.currentQuestion.questionTabIndex = i;
-      syncQuestionView();
+      // Sync the tab's question into the top-level fields the view reads.
+      const q = model.currentQuestion;
+      const qq = q.allQuestions?.[i];
+      if (qq) {
+        q.itemId = qq.itemId;
+        q.question = qq.question;
+        q.kind = qq.kind;
+        q.options = qq.options;
+        q.allowOther = qq.allowOther;
+        q.otherLabel = qq.otherLabel;
+        q.otherText = qq.otherText;
+      }
+      model.questionSelectedIndex = 0;
+      render();
     });
     tabs.appendChild(t);
   });
@@ -379,7 +405,7 @@ function renderQuestion(root) {
   submitTab.addEventListener('mousedown', (evt) => {
     evt.preventDefault();
     model.currentQuestion.questionTabIndex = total - 1;
-    syncQuestionView();
+    render();
   });
   tabs.appendChild(submitTab);
   body.appendChild(tabs);
@@ -460,11 +486,6 @@ function renderQuestion(root) {
 
 function hasAnswer(qq) {
   return (qq.options ?? []).some((o) => o.selected) || (qq.otherText && qq.otherText.trim().length > 0);
-}
-
-function syncQuestionView() {
-  // Re-render after a tab click (the reducer handles keyboard-driven tabs).
-  render();
 }
 
 export { els };

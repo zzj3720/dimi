@@ -54,6 +54,28 @@ ipcMain.handle('http-request', async (_evt, { method = 'GET', url, headers = {},
   return { status: resp.status, ok: resp.ok, json, text };
 });
 
+// --- IPC: list directory entries for @mention completion (local fs).
+// The renderer is sandboxed (contextIsolation) so the main process reads
+// the current working directory. Semantic close to the TUI's fd file
+// search for @ mentions.
+
+import { readdirSync, statSync } from 'node:fs';
+
+ipcMain.handle('fs-list', (_evt, { dir = process.cwd() } = {}) => {
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true })
+      .map((d) => ({
+        name: d.name,
+        isDirectory: d.isDirectory(),
+        path: `${dir}/${d.name}`,
+      }))
+      .sort((a, b) => (a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1));
+    return { ok: true, entries };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
 // --- IPC: SSE stream. The main process owns the fetch stream and forwards
 // parsed event lines to the renderer on the requested channel. This keeps a
 // single live stream per channel and survives renderer reloads poorly (the
