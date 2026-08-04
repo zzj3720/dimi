@@ -2468,4 +2468,50 @@ describe('Rust engine approval flow (manual mode)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(stops).toContain('Stop');
   });
+
+  it('resets the Stop-hook continuation latch per turn (P1-3 focused review)', async () => {
+    // TS resets `stopHookContinuationUsed` on every turn.ended — the Stop
+    // hook must fire again on the NEXT turn even after a continuation was
+    // used. The hook returns a continuation once (setting the latch), then
+    // stays silent.
+    const stops: string[] = [];
+    let returned = false;
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async (
+        event: string,
+      ): Promise<{ block: true; reason: string } | undefined> => {
+        if (event === 'Stop') {
+          stops.push('Stop');
+          if (!returned) {
+            returned = true;
+            return { block: true, reason: 'continue please' };
+          }
+        }
+        return undefined;
+      },
+      fireAndForgetTrigger: async () => [],
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: 'first answer' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([externalHookServices(hookRunner)]);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first' }] });
+    await waitForContext(
+      ctx,
+      (messages) => messages.some((message) => message.role === 'assistant'),
+      'first assistant',
+    );
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'second' }] });
+    await waitForContext(
+      ctx,
+      (messages) => messages.filter((message) => message.role === 'assistant').length >= 2,
+      'second assistant',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Turn 1 fired Stop (continuation returned → latch set); turn 2 must
+    // fire it again — the latch was reset on turn.ended.
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+  });
 });

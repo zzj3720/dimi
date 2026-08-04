@@ -1265,6 +1265,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           // Failed turns surface the error bus event (TS failLoopStep
           // parity) so error handlers/subscribers see it, with the same
           // DimiErrorPayload shape the `turn.ended` event now carries.
+          // P1-3 (focused review): TS resets `stopHookContinuationUsed` on
+          // every turn.ended — the Stop hook must fire again on the next turn.
+          this.stopHookContinuationUsed = false;
           if (event["reason"] === "failed" && event["error"] !== undefined) {
             this.eventBus.publish({
               type: "error",
@@ -1375,6 +1378,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    */
   private runStopHook(turnId: number): void {
     if (this.stopHookContinuationUsed) return;
+    // Synchronous latch (P1-3 focused review): set BEFORE any await so a
+    // concurrent `turn.ended` reset cannot clobber an in-flight delivery.
+    // TS sets it after runStop resolves, inside the step lifecycle; the
+    // runner's step handler and turn.ended handler are sequential, so the
+    // synchronous set here is equivalent (a non-tool step without a
+    // continuation ends the turn — a second non-tool step in the same turn
+    // cannot occur).
+    this.stopHookContinuationUsed = true;
     const hooksRunner = this.instantiation.invokeFunction(
       (accessor) =>
         accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
@@ -1389,7 +1400,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         });
         const reason = block?.reason;
         if (reason === undefined || reason.length === 0) return;
-        this.stopHookContinuationUsed = true;
         const origin: SystemTriggerOrigin = { kind: "system_trigger", name: "stop_hook" };
         if (
           this.turnRunning &&
