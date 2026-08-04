@@ -593,11 +593,14 @@ export function applyTheme(theme: string): void {
 export async function sendPrompt(text: string): Promise<void> {
   if (!state.currentSessionId) return;
   try {
+    const content: { type: string; text?: string; file_id?: string }[] = [{ type: 'text', text }];
+    for (const a of state.attachments) content.push({ type: 'file', file_id: a.fileId });
     const data = await api('POST', `/api/v1/sessions/${state.currentSessionId}/prompts`, {
-      content: [{ type: 'text', text }],
+      content,
     });
     state.entries.push({ kind: 'user', text, streaming: false, ts: Date.now() });
     state.entryCount = state.entries.length;
+    if (state.attachments.length > 0) state.attachments = [];
     const promptId = (data?.data?.prompt_id as string) ?? '';
     const steering = state.busy && state.busyInputMode === 'steer' && state.phase !== 'compacting' && promptId;
     if (steering) {

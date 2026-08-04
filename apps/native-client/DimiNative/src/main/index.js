@@ -91,6 +91,40 @@ ipcMain.handle('fs-list', (_evt, { dir = process.cwd() } = {}) => {
   }
 });
 
+// --- IPC: native file picker + multipart upload for the attachment button.
+// dialog is main-process-only; upload uses FormData so the JSON http-request
+// bridge cannot carry it.
+
+import { dialog } from 'electron';
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+
+ipcMain.handle('pick-files', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] });
+  if (result.canceled) return { ok: true, paths: [] };
+  return { ok: true, paths: result.filePaths };
+});
+
+ipcMain.handle('upload-file', async (_evt, { path: filePath } = {}) => {
+  try {
+    const buf = readFileSync(filePath);
+    const form = new FormData();
+    form.append('file', new Blob([buf]), basename(filePath));
+    const fullUrl = `${serverUrl}/api/v1/files`;
+    const resp = await fetch(fullUrl, {
+      method: 'POST',
+      headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
+      body: form,
+    });
+    const text = await resp.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* keep null */ }
+    return { status: resp.status, ok: resp.ok, json, text };
+  } catch (e) {
+    return { status: 0, ok: false, json: null, text: String(e) };
+  }
+});
+
 // --- IPC: SSE stream. The main process owns the fetch stream and forwards
 // parsed event lines to the renderer on the requested channel. This keeps a
 // single live stream per channel and survives renderer reloads poorly (the

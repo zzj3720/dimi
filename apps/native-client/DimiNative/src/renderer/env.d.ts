@@ -16,6 +16,10 @@ interface DimiBridge {
   }): Promise<{ status: number; ok: boolean; json: unknown; text: string }>;
   subscribeEvents(url: string, onEvent: (payload: unknown) => void): () => void;
   fsList(dir: string): Promise<{ ok: boolean; entries?: { name: string; isDirectory: boolean; path: string }[]; error?: string }>;
+  pickFiles(): Promise<{ ok: boolean; paths?: string[]; error?: string }>;
+  uploadFile(
+    filePath: string,
+  ): Promise<{ status: number; ok: boolean; json: unknown; text: string }>;
 }
 
 interface Window {

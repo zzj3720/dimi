@@ -20,6 +20,12 @@ const api = {
 
   // List a directory's entries (local fs; @mention completion).
   fsList: (dir) => ipcRenderer.invoke('fs-list', { dir }),
+
+  // Native file picker (attachment button).
+  pickFiles: () => ipcRenderer.invoke('pick-files'),
+
+  // Upload a local file to the server /files endpoint (multipart) → FileMeta.
+  uploadFile: (filePath) => ipcRenderer.invoke('upload-file', { path: filePath }),
 };
 
 contextBridge.exposeInMainWorld('dimi', api);

@@ -116,6 +116,7 @@ export interface State {
   busyInputMode: BusyInputMode;
   draft: string;
   inputHistory: string[];
+  attachments: { fileId: string; name: string }[]; // codex attachment chips (server /files uploads)
   historyIndex: number;
   historyBase?: string;
   exitConfirmTicks: number;
@@ -243,6 +244,7 @@ export function createInitialState(): State {
     busyInputMode: 'steer',
     draft: '',
     inputHistory: loadHistory(),
+    attachments: [],
     historyIndex: -1,
     exitConfirmTicks: -1,
     tipTicks: 0,

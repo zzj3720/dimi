@@ -474,3 +474,40 @@ export const modelPickerItemSelected = css({
   background: colors.hoverStrong,
   [`& .${modelPickerItemEffort}`]: { color: colors.text },
 });
+
+// ---- attachment chips (codex xds attachments slot) ----
+export const attachmentChip = css({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  maxWidth: 240,
+  padding: '3px 8px',
+  borderRadius: 9999,
+  background: colors.hover,
+  color: colors.text,
+  fontSize: font.xs,
+  lineHeight: '16px',
+  '& svg': { width: 12, height: 12, flexShrink: 0, color: colors.textMuted },
+});
+
+export const attachmentChipName = css({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+});
+
+export const attachmentChipRemove = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 16,
+  height: 16,
+  padding: 0,
+  border: 'none',
+  borderRadius: 9999,
+  background: 'transparent',
+  color: colors.textMuted,
+  cursor: 'pointer',
+  '&:hover': { background: colors.hoverStrong, color: colors.text },
+  '& svg': { width: 10, height: 10, color: 'inherit' },
+});

@@ -15,7 +15,7 @@ import {
   composerLeft, composerLeftSingle, composerRight, composerRightSingle,
   composerExpanding, composerActions,
   composerBtn, modelPill, modelPillName, modelPillMode, input, inputSingle, sendBtn,
-  composerToolbar, hint, queuedCount,
+  composerToolbar, hint, queuedCount, attachmentChip, attachmentChipName, attachmentChipRemove,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
   modelPicker, modelPickerList, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
   btn, btnGhost,
@@ -67,6 +67,31 @@ function toggleModelPicker(): void {
 function onModelPickerSelect(refName: string, effort: string): void {
   modelPickerOpen.value = false;
   void pickModel(refName, effort);
+}
+
+// ---- attachments (codex xds: native picker → server /files upload → chips)
+async function addAttachments(): Promise<void> {
+  try {
+    const picked = await window.dimi!.pickFiles();
+    const paths = (picked?.paths ?? []) as string[];
+    for (const p of paths) {
+      const up = await window.dimi!.uploadFile(p);
+      const meta = (up?.json as { data?: { file_id?: string; filename?: string; id?: string } } | null)?.data;
+      const fileId = meta?.file_id ?? meta?.id;
+      if (!fileId) {
+        state.statusMsg = `上传失败: ${up?.text?.slice(0, 120) ?? 'unknown'}`;
+        continue;
+      }
+      state.attachments = [...state.attachments, { fileId: String(fileId), name: meta?.filename ?? p.split('/').pop() ?? p }];
+    }
+    state.statusMsg = state.attachments.length > 0 ? '' : state.statusMsg;
+  } catch (e) {
+    state.statusMsg = `附件失败: ${(e as Error).message}`;
+  }
+}
+
+function removeAttachment(fileId: string): void {
+  state.attachments = state.attachments.filter((a) => a.fileId !== fileId);
 }
 
 // Icon paths measured from codex (design/04-composer.md §8). Inlined here
@@ -396,10 +421,17 @@ function steerMode(mode: 'steer' | 'queue'): void {
         @mousedown="onSurfaceMousedown"
       >
         <div :class="surfaceBody">
-          <!-- Codex xds attachments slot (8px inset + 6px bottom = 14px empty).
-               dimi has no attach UI, so the slot stays empty and the left
-               button still reports 附件（暂未实现）. -->
-          <div :class="attachments"></div>
+          <!-- Codex xds attachments slot: uploaded file chips (server /files
+               upload → prompt content {type:'file'}). -->
+          <div v-if="state.attachments.length > 0" :class="attachments">
+            <span v-for="a in state.attachments" :key="a.fileId" :class="attachmentChip">
+              <svg :viewBox="icons.paperclip.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.paperclip.paths" :key="i" :d="p" /></svg>
+              <span :class="attachmentChipName">{{ a.name }}</span>
+              <button type="button" :class="attachmentChipRemove" aria-label="移除附件" @click="removeAttachment(a.fileId)">
+                <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.close.paths" :key="i" :d="p" /></svg>
+              </button>
+            </span>
+          </div>
 
           <!-- Codex Tds footer grid: multiline two-row / single-line one-row -->
           <div :class="[footer, layout === 'single-line' ? footerSingle : null]">
@@ -425,9 +457,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
               </div>
             </div>
             <div :class="[composerLeft, layout === 'single-line' ? composerLeftSingle : null]">
-              <!-- Codex left button: 添加文件等内容 (plus). dimi has no attach UI,
-                   so it reports the same "not implemented" status as before. -->
-              <button type="button" :class="composerBtn" aria-label="添加文件等内容" @click="state.statusMsg = '附件（暂未实现）'">
+              <!-- Codex left button: 添加文件等内容 (plus). Picks local files
+                   via the native dialog and uploads them to the server. -->
+              <button type="button" :class="composerBtn" aria-label="添加文件等内容" data-tooltip="添加文件" @click="addAttachments">
                 <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
               </button>
             </div>
