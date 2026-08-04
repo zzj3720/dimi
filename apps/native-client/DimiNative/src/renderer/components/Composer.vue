@@ -421,9 +421,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
         @mousedown="onSurfaceMousedown"
       >
         <div :class="surfaceBody">
-          <!-- Codex xds attachments slot: uploaded file chips (server /files
-               upload → prompt content {type:'file'}). -->
-          <div v-if="state.attachments.length > 0" :class="attachments">
+          <!-- Codex xds attachments slot: always rendered (8px inset + 6px
+               bottom = 14px), chips appear when files are attached. -->
+          <div :class="attachments">
             <span v-for="a in state.attachments" :key="a.fileId" :class="attachmentChip">
               <svg :viewBox="icons.paperclip.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.paperclip.paths" :key="i" :d="p" /></svg>
               <span :class="attachmentChipName">{{ a.name }}</span>

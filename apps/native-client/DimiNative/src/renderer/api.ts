@@ -210,8 +210,8 @@ export function subscribeSse(sessionId: string): void {
 
 // Codex Work model picker (04-composer §5): the pill opens an in-composer
 // panel of model × reasoning-strength options. dimi's strength maps to the
-// server thinking effort (off|low|high). Load the current effort from the
-// global config once per session connect.
+// server thinking effort (off|low|high). Load the current effort and the
+// default model from the global config once per session connect.
 export function loadEffort(): void {
   api('GET', '/api/v1/config')
     .then((data) => {
@@ -219,6 +219,8 @@ export function loadEffort(): void {
       const th = (c.thinking ?? {}) as Record<string, unknown>;
       const e = th.effort as string | undefined;
       if (e === 'off' || e === 'low' || e === 'high') state.effort = e;
+      const dm = c.default_model as string | undefined;
+      if (dm && !state.modelName) state.modelName = dm;
     })
     .catch(() => {
       /* non-fatal */
