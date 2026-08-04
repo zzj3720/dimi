@@ -22,6 +22,7 @@ use dimi_wire::model::TranscriptUsage;
 #[cfg(test)]
 use dimi_wire::model::TurnOrigin;
 
+use crate::dedupe::{DedupeCheck, DedupeState};
 use crate::events::{EngineEvent, FinishReason};
 use crate::llm::{ChatRequest, LlmClient, LlmStreamEvent};
 use crate::permission::{
@@ -345,6 +346,10 @@ pub struct TurnSession {
     /// compaction is skipped — prevents immediate re-compaction loops when
     /// the summary message itself approaches the window.
     last_compacted_tokens: Option<u64>,
+    /// Tool-call dedupe state (TS `AgentToolDedupeService`): same-step
+    /// suppression + cross-step repeat reminders. Per-turn by construction —
+    /// a fresh session starts with a cleared streak.
+    dedupe: DedupeState,
     /// Cooperative cancellation (RPC cancel → engine).
     cancel: std::sync::Arc<CancelSignal>,
     /// Set once the turn has ended (every finish path): a steer racing the
@@ -418,6 +423,7 @@ impl TurnSession {
             pending: None,
             steer,
             last_compacted_tokens: None,
+            dedupe: DedupeState::default(),
             cancel,
             finished,
         }
@@ -575,20 +581,16 @@ impl TurnSession {
                 }
             }
         };
+        let result = self.dedupe.finalize_result(&pending.call.id, result);
         emit_tool_result(&result, self.input.turn_id, on_event);
-        self.messages.push(LlmMessage {
-            role: "tool".to_string(),
-            content: serde_json::Value::String(result.output.clone()),
-            name: Some(result.tool_name.clone()),
-            tool_call_id: Some(result.tool_call_id.clone()),
-            tool_calls: None,
-            reasoning: None,
-        });
+        self.messages.push(tool_result_message(&result));
         if result.stop_turn {
-            // The pending call itself stopped the turn: the remaining
-            // siblings never run and get synthetic skipped results (P2-7
-            // parity), so no tool_call dangles in the next request.
+            // The pending call itself stopped the turn (or the dedupe
+            // force-stop fired): the remaining siblings never run and get
+            // synthetic skipped results (P2-7 parity), so no tool_call
+            // dangles in the next request.
             self.synthesize_skipped_siblings(&pending.batch, pending.index + 1, on_event);
+            self.dedupe.end_step();
             self.emit_step_completed(
                 pending_step,
                 &pending_usage,
@@ -745,6 +747,43 @@ impl TurnSession {
                 cwd: self.input.cwd.clone(),
                 paths: crate::permission::extract_access_paths(&call.name, &call.arguments),
             };
+            // Same-step dedupe (TS `onBeforeExecuteTool` veto): the check runs
+            // before the policy gate — the veto fires before the allow
+            // decision, so a same-step duplicate is suppressed even when the
+            // original would be denied. The duplicate is announced but never
+            // executed and settles with the original's finalized result.
+            match self.dedupe.check(&call.id, &call.name, &call.arguments) {
+                DedupeCheck::Duplicate { key } => {
+                    let mut shared = self
+                        .dedupe
+                        .shared_result(&key)
+                        .cloned()
+                        .unwrap_or_else(|| ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: "Tool call deduplicated but original result was lost"
+                                .to_string(),
+                            is_error: true,
+                            stop_turn: false,
+                            updates: vec![],
+                        });
+                    // TS parity: the duplicate carries its own call id in the
+                    // `tool.result` (the executor settles the dispatched call)
+                    // but shares the original's output verbatim.
+                    shared.tool_call_id = call.id.clone();
+                    shared.tool_name = call.name.clone();
+                    emit_tool_call_started(call, turn_id, on_event);
+                    emit_tool_result(&shared, turn_id, on_event);
+                    self.messages.push(tool_result_message(&shared));
+                    if shared.stop_turn {
+                        self.synthesize_skipped_siblings(calls, index + 1, on_event);
+                        stop_turn = true;
+                        break;
+                    }
+                    continue;
+                }
+                DedupeCheck::Original => {}
+            }
             match evaluate(&input) {
                 PolicyDecision::Approve => {
                     // Carry the step's full tool-call batch in the context so
@@ -773,15 +812,13 @@ impl TurnSession {
                             ));
                         }
                     };
+                    // Cross-step repeat reminders (TS `finalizeResult`): the
+                    // reminder is appended to the result output before the
+                    // model sees it, and the result is recorded so same-step
+                    // duplicates share it.
+                    let result = self.dedupe.finalize_result(&call.id, result);
                     emit_tool_result(&result, turn_id, on_event);
-                    self.messages.push(LlmMessage {
-                        role: "tool".to_string(),
-                        content: serde_json::Value::String(result.output.clone()),
-                        name: Some(result.tool_name.clone()),
-                        tool_call_id: Some(result.tool_call_id.clone()),
-                        tool_calls: None,
-                        reasoning: None,
-                    });
+                    self.messages.push(tool_result_message(&result));
                     if result.stop_turn {
                         // P2-7: the unrun siblings get synthetic error
                         // results so every tool_call in the assistant
@@ -807,15 +844,12 @@ impl TurnSession {
                         stop_turn: false,
                         updates: vec![],
                     };
+                    // Denied calls flow through the dedupe finalize like any
+                    // other executed call (TS `onDidExecuteTool` fires for
+                    // them too): reminders apply to the deny output.
+                    let result = self.dedupe.finalize_result(&call.id, result);
                     emit_tool_result(&result, turn_id, on_event);
-                    self.messages.push(LlmMessage {
-                        role: "tool".to_string(),
-                        content: serde_json::Value::String(result.output),
-                        name: Some(call.name.clone()),
-                        tool_call_id: Some(call.id.clone()),
-                        tool_calls: None,
-                        reasoning: None,
-                    });
+                    self.messages.push(tool_result_message(&result));
                 }
                 PolicyDecision::Ask => {
                     // The call is announced when it is dispatched after the
@@ -846,6 +880,11 @@ impl TurnSession {
                 }
             }
         }
+        // TS `endStep` (onDidFinishStep): the step's batch fully resolved —
+        // fold every call of the step into the cross-step streak. Not run on
+        // the approval-pause path (this returns Err above), because the
+        // paused step continues on resume.
+        self.dedupe.end_step();
         Ok(stop_turn)
     }
 
@@ -1058,6 +1097,9 @@ impl TurnSession {
 
             self.steps += 1;
             let step_number = self.steps;
+            // TS `onWillBeginStep` (toolDedupe beginStep): reset the per-step
+            // dedupe state; the cross-step streak survives.
+            self.dedupe.begin_step();
             emit(
                 on_event,
                 EngineEvent::TurnStepStarted {
@@ -1519,6 +1561,20 @@ fn emit_tool_result(
         is_error: Some(result.is_error),
         synthetic: None,
     });
+}
+
+/// The `tool` message the engine appends to its working messages after a
+/// tool result (providers reject a `tool` message without a preceding
+/// `tool_calls`; the TS loop pushes the same shape).
+fn tool_result_message(result: &ToolResult) -> LlmMessage {
+    LlmMessage {
+        role: "tool".to_string(),
+        content: serde_json::Value::String(result.output.clone()),
+        name: Some(result.tool_name.clone()),
+        tool_call_id: Some(result.tool_call_id.clone()),
+        tool_calls: None,
+        reasoning: None,
+    }
 }
 
 /// Execute one step's LLM phase: stream → parse → tool call list. The tool
@@ -2592,7 +2648,10 @@ mod completion_review_tests {
                 let mut tool_calls = Vec::new();
                 for i in 0..2 {
                     let id = format!("call_{i}");
-                    let args = "{}".to_string();
+                    // Distinct args per call so the batch-context assertion is
+                    // not confounded by toolDedupe (two identical calls in
+                    // one step would suppress the second).
+                    let args = format!(r#"{{"probe":{i}}}"#);
                     events.push(LlmStreamEvent::ToolCall {
                         tool_call_id: id.clone(),
                         name: Some("Probe".to_string()),
@@ -4911,5 +4970,366 @@ mod approval_batch_tests {
             )),
             "cancel must interrupt the paused step: {events:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::*;
+    use crate::dedupe::{REMINDER_TEXT_1, REMINDER_TEXT_3, make_reminder_text_2};
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient, StreamedTurn};
+    use crate::permission::{PermissionMode, PolicyConfig};
+    use crate::types::ProviderConfig;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
+
+    fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            provider: ProviderConfig {
+                base_url: "http://example.test/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: None,
+            cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        }
+    }
+
+    fn user_message(text: &str) -> LlmMessage {
+        LlmMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    fn policy_auto() -> PolicyConfig {
+        PolicyConfig {
+            mode: PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    /// One step's LLM segment: `(id, command)` tool calls, then the
+    /// `tool_calls` finish.
+    fn tool_call_segment(calls: &[(&str, &str)]) -> Vec<LlmStreamEvent> {
+        let mut events = Vec::new();
+        for (id, command) in calls {
+            events.push(LlmStreamEvent::ToolCall {
+                tool_call_id: id.to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: Some(format!(r#"{{"command":"{command}"}}"#)),
+            });
+        }
+        events.push(LlmStreamEvent::Finish {
+            finish_reason: Some("tool_calls".to_string()),
+        });
+        events
+    }
+
+    fn text_segment(text: &str) -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::Text {
+                delta: text.to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]
+    }
+
+    /// Scripted client that also records every request's messages (so the
+    /// tests can assert what the LLM actually saw).
+    struct RecordingScripted {
+        recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>>,
+        inner: ScriptedLlmClient,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingScripted {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, crate::llm::LlmError> {
+            self.recorded.lock().unwrap().push(request.messages.clone());
+            self.inner.stream_chat(request).await
+        }
+    }
+
+    /// Counts executions and returns a per-call-id output (so shared vs
+    /// executed results are distinguishable).
+    struct CountingExecutor {
+        executed: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for CountingExecutor {
+        async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+            self.executed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("executed-{}", call.id),
+                is_error: false,
+                stop_turn: false,
+                updates: vec![],
+            }
+        }
+    }
+
+    fn tool_results(events: &[EngineEvent]) -> Vec<&EngineEvent> {
+        events
+            .iter()
+            .filter(|event| matches!(event, EngineEvent::ToolResult { .. }))
+            .collect()
+    }
+
+    fn tool_call_started(events: &[EngineEvent]) -> Vec<&EngineEvent> {
+        events
+            .iter()
+            .filter(|event| matches!(event, EngineEvent::ToolCallStarted { .. }))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn same_step_duplicate_is_suppressed_and_shares_the_result() {
+        // Step 1: the model emits TWO identical Bash calls in one step. The
+        // second must not execute; both `tool.call.started` + `tool.result`
+        // pairs must exist and the second result shares the first's output.
+        let llm = RecordingScripted {
+            recorded: Arc::new(Mutex::new(Vec::new())),
+            inner: ScriptedLlmClient::new(vec![
+                tool_call_segment(&[("call_1", "echo hi"), ("call_2", "echo hi")]),
+                text_segment("done"),
+            ]),
+        };
+        let executed = Arc::new(AtomicUsize::new(0));
+        let tools = CountingExecutor {
+            executed: Arc::clone(&executed),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 2);
+        assert_eq!(
+            executed.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "the duplicate must not execute the tool again"
+        );
+
+        let started = tool_call_started(&events);
+        assert_eq!(started.len(), 2, "both calls are announced");
+        let started_values: Vec<serde_json::Value> =
+            started.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(started_values[0]["toolCallId"], "call_1");
+        assert_eq!(started_values[1]["toolCallId"], "call_2");
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 2, "both calls have a result");
+        let result_values: Vec<serde_json::Value> =
+            results.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(result_values[0]["toolCallId"], "call_1");
+        assert_eq!(result_values[1]["toolCallId"], "call_2");
+        assert_eq!(result_values[0]["output"], "executed-call_1");
+        assert_eq!(
+            result_values[1]["output"], "executed-call_1",
+            "the duplicate shares the original's output"
+        );
+
+        // The model's next request carries BOTH tool messages with the same
+        // content (TS pushes a tool message per dispatched call).
+        let recorded = llm.recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 2, "one request per step");
+        let tool_messages: Vec<&LlmMessage> = recorded[1]
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_messages.len(), 2);
+        assert_eq!(tool_messages[0].content, tool_messages[1].content);
+        assert_eq!(
+            tool_messages[0].tool_call_id.as_deref(),
+            Some("call_1")
+        );
+        assert_eq!(
+            tool_messages[1].tool_call_id.as_deref(),
+            Some("call_2")
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_step_repeats_append_reminders_at_3_5_and_8() {
+        // One identical call per step: the 3rd result gets REMINDER_TEXT_1,
+        // the 5th makeReminderText2(5), the 8th REMINDER_TEXT_3.
+        let mut segments = Vec::new();
+        for step in 1..=8u32 {
+            segments.push(tool_call_segment(&[(&format!("call_{step}"), "echo x")]));
+        }
+        segments.push(text_segment("done"));
+        let llm = ScriptedLlmClient::new(segments);
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 9);
+        assert_eq!(
+            tools.executed.load(std::sync::atomic::Ordering::Relaxed),
+            8,
+            "every repeat still executes (cross-step repeats are reminders, not suppression)"
+        );
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 8);
+        let outputs: Vec<String> = results
+            .iter()
+            .map(|e| {
+                serde_json::to_value(e).unwrap()["output"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        // 1st and 2nd: no reminder.
+        assert_eq!(outputs[0], "executed-call_1");
+        assert_eq!(outputs[1], "executed-call_2");
+        // 3rd and 4th: REMINDER_TEXT_1.
+        assert_eq!(outputs[2], format!("executed-call_3{REMINDER_TEXT_1}"));
+        assert_eq!(outputs[3], format!("executed-call_4{REMINDER_TEXT_1}"));
+        // 5th-7th: makeReminderText2 with the streak.
+        assert_eq!(outputs[4], format!("executed-call_5{}", make_reminder_text_2(5)));
+        assert_eq!(outputs[5], format!("executed-call_6{}", make_reminder_text_2(6)));
+        assert_eq!(outputs[6], format!("executed-call_7{}", make_reminder_text_2(7)));
+        // 8th: REMINDER_TEXT_3.
+        assert_eq!(outputs[7], format!("executed-call_8{REMINDER_TEXT_3}"));
+    }
+
+    #[tokio::test]
+    async fn twelve_consecutive_repeats_force_stop_the_turn() {
+        // The 12th identical call force-stops the turn (REPEAT_FORCE_STOP_STREAK):
+        // the turn completes right after step 12 with no further LLM request.
+        let mut segments = Vec::new();
+        for step in 1..=12u32 {
+            segments.push(tool_call_segment(&[(&format!("call_{step}"), "echo x")]));
+        }
+        let llm = RecordingScripted {
+            recorded: Arc::new(Mutex::new(Vec::new())),
+            inner: ScriptedLlmClient::new(segments),
+        };
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 12, "the turn stops after the 12th step");
+        let recorded = llm.recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 12, "no step-13 LLM request after the stop");
+        drop(recorded);
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 12);
+        let last = serde_json::to_value(results.last().unwrap()).unwrap();
+        assert_eq!(last["toolCallId"], "call_12");
+        assert_eq!(
+            last["output"],
+            format!("executed-call_12{REMINDER_TEXT_3}"),
+            "the force-stop result carries REMINDER_TEXT_3"
+        );
+        // The earlier results are unaffected.
+        let third = serde_json::to_value(&results[2]).unwrap();
+        assert_eq!(
+            third["output"],
+            format!("executed-call_3{REMINDER_TEXT_1}")
+        );
+    }
+
+    #[tokio::test]
+    async fn different_args_are_not_deduplicated() {
+        // Two calls with different args in the same step both execute and
+        // produce their own results.
+        let llm = ScriptedLlmClient::new(vec![
+            tool_call_segment(&[("call_a", "echo a"), ("call_b", "echo b")]),
+            text_segment("done"),
+        ]);
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(
+            tools.executed.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "different args are distinct calls"
+        );
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 2);
+        let values: Vec<serde_json::Value> =
+            results.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(values[0]["output"], "executed-call_a");
+        assert_eq!(values[1]["output"], "executed-call_b");
+        assert_ne!(values[0]["output"], values[1]["output"]);
     }
 }

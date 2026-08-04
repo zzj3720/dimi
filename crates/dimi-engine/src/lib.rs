@@ -12,6 +12,7 @@
 pub mod aimux;
 pub mod compaction;
 pub mod context;
+pub mod dedupe;
 pub mod engine;
 pub mod events;
 pub mod llm;

@@ -85,8 +85,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'tool dedupe (toolDedupe dup detection)',
-    migrated: false,
-    gap: 'not implemented — repeated identical calls execute twice',
+    migrated: true,
+    coveredBy:
+      'engine dedupe_tests (same-step suppression, cross-step reminders 3/5/8, force-stop 12, distinct-args passthrough)',
   },
   {
     domain: 'activeToolNames filtering (policy [tools]/disabled)',
