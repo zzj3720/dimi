@@ -3011,10 +3011,13 @@ impl ToolExecutor for AgentOutputTool {
     }
 }
 
-/// `WaitForTool` — wait for a background subagent to finish (or timeout).
-/// Always ends the turn after executing (`stop_turn: true`), mirroring the
-/// TS `waitForTool.ts` `stopTurn: true`: WaitFor is a deliberate turn stop
-/// (wait for the user/task, then the next turn resumes).
+/// `WaitForTool` — wait for a background subagent task to finish (or
+/// timeout). Always ends the turn after executing (`stop_turn: true`),
+/// mirroring the TS `waitForTool.ts` `stopTurn: true`: WaitFor is a
+/// deliberate turn stop, and the next turn resumes. NOTE (P1-2): this engine
+/// tool waits on a SUBAGENT task by `agent_id` only — the TS user-wait /
+/// notification-wake parking semantics are NOT implemented here, and the def
+/// the runner advertises says so explicitly.
 pub struct WaitForTool {
     pub tasks: AgentTasks,
 }
@@ -3039,6 +3042,7 @@ impl ToolExecutor for WaitForTool {
             .get("agent_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
+            .trim()
             .to_string();
         let timeout = normalize_wait_timeout(
             call.arguments
@@ -3046,6 +3050,40 @@ impl ToolExecutor for WaitForTool {
                 .and_then(|v| v.as_u64()),
         );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
+        // P1-2 (review): the advertised def REQUIRES `agent_id`, so a call
+        // with a missing/unknown id is a model error — fail fast instead of
+        // parking for the full timeout. The old behavior turned the schema
+        // gap into a guaranteed ~60s blind wait: the def had no agent_id, the
+        // model called without one, the lookup always missed, and WaitFor
+        // blocked the whole turn before returning "Wait expired". A task that
+        // EXISTS but is still running keeps the wait loop below (the
+        // legitimate timeout path).
+        if agent_id.is_empty() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: "WaitFor requires a non-empty `agent_id` of a subagent task launched by the Agent tool."
+                    .to_string(),
+                is_error: true,
+                stop_turn: true,
+                updates: vec![],
+            };
+        }
+        if self
+            .tasks
+            .get(&agent_id)
+            .or_else(|| self.tasks.find_by_agent_id(&agent_id))
+            .is_none()
+        {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("No subagent task found for agent_id: {agent_id}"),
+                is_error: true,
+                stop_turn: true,
+                updates: vec![],
+            };
+        }
         loop {
             if let Some(state) = self
                 .tasks
@@ -3229,15 +3267,69 @@ mod async_agent_tests {
     }
 
     #[tokio::test]
-    async fn waitfor_times_out_for_missing_task() {
+    async fn waitfor_missing_agent_fails_fast() {
+        // P1-2 (review): the WaitFor def the runner advertises REQUIRES
+        // `agent_id`, so a call with an unknown agent id (or none at all) is
+        // a model error — it must fail immediately instead of parking for
+        // the full timeout. The old behavior returned "Wait expired" after a
+        // guaranteed ~60s blind wait: the def had no agent_id, the model
+        // called without one, and the registry lookup always missed.
         let tasks = AgentTasks::new();
         let wait = WaitForTool { tasks };
+        let started = std::time::Instant::now();
         let waited = wait
             .execute(
                 &ToolCall {
                     id: "call_w".to_string(),
                     name: "WaitFor".to_string(),
                     arguments: serde_json::json!({ "agent_id": "agent-missing", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        let elapsed = started.elapsed();
+        assert!(waited.is_error, "output: {}", waited.output);
+        assert!(
+            waited.output.contains("agent-missing"),
+            "output: {}",
+            waited.output
+        );
+        // Fail fast — well under even the 1s timeout the old code would
+        // have slept through.
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "missing agent must fail fast, took {elapsed:?}"
+        );
+        // An error is still a turn stop (TS `stopTurn: true` parity).
+        assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_running_task_still_times_out() {
+        // The legitimate timeout path survives the P1-2 fast-fail: a task
+        // that EXISTS but never leaves `running` still waits out its
+        // `timeout_seconds` and reports "Wait expired" (is_error: false).
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-slow".to_string(),
+            TaskState {
+                agent_id: "agent-slow".to_string(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                deadline: std::time::Instant::now(),
+                cancel: None,
+            },
+        );
+        let wait = WaitForTool { tasks };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-slow", "timeout_seconds": 1 }),
                 },
                 &ctx(),
             )

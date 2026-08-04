@@ -923,7 +923,14 @@ impl TurnSession {
                         );
                         if reviewable && self.steps >= config.min_steps {
                             step_complete();
-                            let reminder = config.reminder.clone();
+                            // P2-4 (review): wrap the reminder in
+                            // `<system-reminder>` markers (TS
+                            // `appendSystemReminder` parity). The wrap is
+                            // idempotent: the runner passes the bare
+                            // `COMPLETION_REVIEW_REMINDER`, tests may pass an
+                            // already-wrapped one — both reach the LLM (and
+                            // the mirror event) wrapped exactly once.
+                            let reminder = wrap_system_reminder(&config.reminder);
                             self.messages.push(LlmMessage {
                                 role: "user".to_string(),
                                 content: serde_json::Value::String(reminder.clone()),
@@ -1342,6 +1349,20 @@ async fn execute_step(
 
 fn emit(on_event: &mut dyn FnMut(EngineEvent), event: EngineEvent) {
     on_event(event);
+}
+
+/// TS `AgentSystemReminderService.appendSystemReminder` parity: reminders are
+/// wrapped in `<system-reminder>` markers before they reach the LLM. The wrap
+/// is idempotent — the reminder may already be wrapped (the engine tests
+/// supply one; the runner's `COMPLETION_REVIEW_REMINDER` is bare text, which
+/// gets wrapped here) — so an already-wrapped reminder is left untouched.
+fn wrap_system_reminder(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.starts_with("<system-reminder>") && trimmed.ends_with("</system-reminder>") {
+        trimmed.to_string()
+    } else {
+        format!("<system-reminder>\n{trimmed}\n</system-reminder>")
+    }
 }
 
 /// Last user message text — the `prompt` field of `turn.started`
@@ -1957,10 +1978,11 @@ mod completion_review_tests {
         }
     }
 
-    fn review_input(
+    fn review_input_with_reminder(
         messages: Vec<LlmMessage>,
         min_steps: u32,
         max_steps: Option<u32>,
+        reminder: String,
     ) -> EngineTurnInput {
         EngineTurnInput {
             turn_id: 1,
@@ -1986,9 +2008,22 @@ mod completion_review_tests {
             max_running_tasks: None,
             completion_review: Some(CompletionReviewConfig {
                 min_steps,
-                reminder: "<system-reminder>\nreview now\n</system-reminder>".to_string(),
+                reminder,
             }),
         }
+    }
+
+    fn review_input(
+        messages: Vec<LlmMessage>,
+        min_steps: u32,
+        max_steps: Option<u32>,
+    ) -> EngineTurnInput {
+        review_input_with_reminder(
+            messages,
+            min_steps,
+            max_steps,
+            "<system-reminder>\nreview now\n</system-reminder>".to_string(),
+        )
     }
 
     fn policy_auto() -> crate::permission::PolicyConfig {
@@ -2057,6 +2092,57 @@ mod completion_review_tests {
                 .iter()
                 .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. })),
             "completion.review.injected event missing: {events:?}"
+        );
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn bare_completion_review_reminder_is_wrapped_before_injection() {
+        // P2-4 (review): the runner's `COMPLETION_REVIEW_REMINDER` is bare
+        // text, but the TS `AgentSystemReminderService.appendSystemReminder`
+        // wraps reminders in `<system-reminder>` markers before they reach
+        // the LLM. The engine must wrap a bare configured reminder (and
+        // leave an already-wrapped one untouched — see
+        // `tool_free_step_at_threshold_injects_reminder_and_keeps_the_turn_alive`).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 9);
+        let input = review_input_with_reminder(
+            vec![user_message("complete the task")],
+            10,
+            Some(11),
+            "review now".to_string(),
+        );
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 11, "requests: {requests:?}");
+        let request_11 = &requests[10];
+        let texts_11: Vec<&str> = request_11
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts_11.contains(&"<system-reminder>\nreview now\n</system-reminder>"),
+            "step-11 request must carry the WRAPPED reminder: {texts_11:?}"
+        );
+        // The bare text must never be injected as a message on its own.
+        assert!(
+            !texts_11.iter().any(|t| *t == "review now"),
+            "bare reminder must not be injected unwrapped: {texts_11:?}"
+        );
+        // The injected (wrapped) reminder is announced on the event stream.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::CompletionReviewInjected { reminder, .. }
+                    if reminder.contains("<system-reminder>")
+            )),
+            "injection event must carry the wrapped reminder: {events:?}"
         );
         assert!(matches!(progress, TurnProgress::Completed(_)));
     }

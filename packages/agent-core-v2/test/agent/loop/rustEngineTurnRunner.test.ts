@@ -180,6 +180,25 @@ describe('Rust engine turn runner (default)', () => {
       expect(parameters.type).toBe('object');
       expect(parameters.properties).toBeDefined();
     }
+    // P1-2: WaitFor's def must match the ENGINE implementation. The TS
+    // waitForTool.ts schema (`reason`/`timeout_seconds`, no `agent_id`)
+    // describes the TS user-wait semantics, but the engine waits for a
+    // background SUBAGENT task by `agent_id` — advertising the TS schema made
+    // the model call without `agent_id`, which the engine then resolved to an
+    // empty id and parked for the full 60s timeout. The runner must advertise
+    // `agent_id` as required and describe the subagent-wait boundary honestly
+    // (user-wait / notification-wake semantics are NOT implemented).
+    const waitForDef = byName.get('WaitFor')!;
+    const waitForParameters = JSON.parse(waitForDef.parametersJson) as {
+      type?: unknown;
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(waitForParameters.required).toEqual(['agent_id']);
+    expect(waitForParameters.properties).toHaveProperty('agent_id');
+    expect(waitForParameters.properties).toHaveProperty('timeout_seconds');
+    expect(waitForDef.description).toContain('subagent');
+    expect(waitForDef.description).not.toContain('waits on the current agent');
   });
 
   it('fails the turn explicitly instead of hanging when a native def registration throws', async () => {
@@ -1722,6 +1741,17 @@ describe('Rust engine approval flow (manual mode)', () => {
         message.origin?.kind === 'system_trigger' && message.origin.name === 'completion_review',
     );
     expect(reminders).toHaveLength(1);
+    // P2-4: the mirrored reminder must be wrapped in `<system-reminder>`
+    // markers — TS `AgentSystemReminderService.appendSystemReminder` parity —
+    // never injected as bare text (the engine wraps the configured reminder
+    // and the runner mirrors it; an already-wrapped reminder is left alone).
+    const reminderText = reminders[0]!.content
+      .filter((part) => part.type === 'text')
+      .map((part) => (part as { text?: string }).text ?? '')
+      .join('');
+    expect(reminderText).toBe(
+      `<system-reminder>\n${COMPLETION_REVIEW_REMINDER.trim()}\n</system-reminder>`,
+    );
     expect(JSON.stringify(reminders)).toContain(COMPLETION_REVIEW_REMINDER.trim());
     // The review was forced: an assistant step calling AllDone exists.
     const allDoneCall = context.find(

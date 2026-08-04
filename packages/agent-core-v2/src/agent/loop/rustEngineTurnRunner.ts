@@ -63,6 +63,56 @@ import {
   COMPLETION_REVIEW_REMINDER,
 } from "#/agent/completion/completion";
 
+// P1-2 (review): the engine's WaitFor waits for a background SUBAGENT task by
+// `agent_id` — a different tool from the TS `waitForTool.ts`, whose schema
+// (`reason`/`timeout_seconds`, no `agent_id`) describes TS user-wait /
+// notification-wake semantics (a parking gap the engine does not implement).
+// The def the model sees must match the engine implementation: `agent_id`
+// required + `timeout_seconds` optional + an honest description of the
+// boundary (subagent wait only, not user wait). An unknown `agent_id` now
+// fails fast on the engine side, so the model gets a real error instead of a
+// guaranteed full-timeout blind wait.
+const WAIT_FOR_NATIVE_DESCRIPTION = [
+  "Wait for a background subagent task to finish (or time out).",
+  "Pass the `agent_id` of a subagent launched by the Agent tool (from its launch output).",
+  "The call blocks until that subagent completes, fails, or the timeout expires, then returns its final status and output.",
+  "This waits on a specific subagent task, NOT on the user: user-wait (waking on user notifications) is not implemented.",
+  "Prefer AgentOutput for a quick status check; use WaitFor when the turn should pause until the subagent finishes.",
+].join(" ");
+
+const WAIT_FOR_NATIVE_PARAMETERS = {
+  type: "object",
+  properties: {
+    agent_id: {
+      type: "string",
+      description:
+        "Agent id of the running subagent task to wait for, as returned by the Agent tool launch output.",
+    },
+    timeout_seconds: {
+      type: "integer",
+      minimum: 1,
+      maximum: 1800,
+      description:
+        "How long to wait for the subagent before giving up. Defaults to 60; maximum 1800.",
+    },
+  },
+  required: ["agent_id"],
+  additionalProperties: false,
+};
+
+// P2-4 (review): TS `AgentSystemReminderService.appendSystemReminder` parity —
+// idempotently wrap a reminder in `<system-reminder>` markers. The engine
+// already wraps the completion-review reminder it injects (and mirrors on the
+// `completion.review.injected` event), so an already-wrapped text is left
+// untouched; a bare one is wrapped before it reaches the context.
+function wrapSystemReminder(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<system-reminder>") && trimmed.endsWith("</system-reminder>")) {
+    return trimmed;
+  }
+  return `<system-reminder>\n${trimmed}\n</system-reminder>`;
+}
+
 import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
 import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
 
@@ -533,11 +583,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           // before each run/resume. Bash keeps the bridge's hardcoded def, so
           // only the three async tools are pushed from here.
           if (info.name !== 'Bash') {
-            session.registerNativeToolDef(
-              info.name,
-              info.description,
-              JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
-            );
+            if (info.name === 'WaitFor') {
+              // P1-2 (review): the TS `waitForTool.ts` def (user-wait
+              // semantics, no `agent_id`) does NOT describe the engine's
+              // WaitFor (waits for a subagent task by `agent_id`). Push the
+              // engine-matching def so the model passes `agent_id`.
+              session.registerNativeToolDef(
+                info.name,
+                WAIT_FOR_NATIVE_DESCRIPTION,
+                JSON.stringify(WAIT_FOR_NATIVE_PARAMETERS),
+              );
+            } else {
+              session.registerNativeToolDef(
+                info.name,
+                info.description,
+                JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+              );
+            }
           }
           continue;
         }
@@ -735,7 +797,16 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         // (TS emits no bus event for the reminder).
         this.context.append({
           role: "user",
-          content: [{ type: "text", text: toText(event["reminder"]) }],
+          content: [
+            {
+              type: "text",
+              // P2-4 (review): TS `appendSystemReminder` wraps reminders in
+              // `<system-reminder>` markers. The engine injects (and
+              // announces) the wrapped reminder; wrap idempotently here so a
+              // bare reminder from any source still lands wrapped.
+              text: wrapSystemReminder(toText(event["reminder"])),
+            },
+          ],
           toolCalls: [],
           origin: { kind: "system_trigger", name: "completion_review" },
           id: randomUUID(),

@@ -31,14 +31,16 @@ use crate::wire_error;
 
 /// Process-level subagent registries, scoped per agent (code-review P1-1/P1-3
 /// fix): every `RustTurnSession` of the same agent shares ONE `SessionRegistry`
-/// (subagent tasks + steering queues). The Agent tool hardcodes `stop_turn:
-/// true`, so the launching turn ends immediately and the NEXT turn runs in a
-/// NEW session — a per-session registry would make the launched subagent
-/// invisible to AgentOutput / WaitFor / Agent(resume). Scoping by an explicit
-/// registry id (the TS runner passes a per-agent uuid) keeps different agents
-/// (and different sessions in a server) from seeing each other's subagents —
-/// agent ids like `agent-0` are only unique within one agent, so a process-
-/// wide table would leak tasks across sessions. The runner calls
+/// (subagent tasks + steering queues). The Agent tool no longer hardcodes
+/// `stop_turn: true` — launches are non-blocking (same-turn continue), but the
+/// launching turn still ends while the subagent runs (WaitFor stops the turn,
+/// or a plain text reply ends it), and the NEXT turn runs in a NEW session —
+/// a per-session registry would make the launched subagent invisible to
+/// AgentOutput / WaitFor / Agent(resume). Scoping by an explicit registry id
+/// (the TS runner passes a per-agent uuid) keeps different agents (and
+/// different sessions in a server) from seeing each other's subagents — agent
+/// ids like `agent-0` are only unique within one agent, so a process-wide
+/// table would leak tasks across sessions. The runner calls
 /// `drop_task_registry` when the agent scope is disposed.
 struct SessionRegistry {
     tasks: AgentTasks,
