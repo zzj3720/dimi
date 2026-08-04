@@ -634,8 +634,11 @@ export const menu = css({
   position: 'absolute',
   zIndex: 40,
   minWidth: 160,
-  padding: 4, // Radix p-1
+  margin: 1, // Codex m-px
+  padding: 4, // Radix px-1 py-1
   background: 'rgba(45, 45, 45, 0.9)', // --color-token-dropdown-background @ 90%
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   boxShadow: elevation.dropdown,
   display: 'flex',
@@ -745,8 +748,11 @@ export const ctxMenuStyle = css({
   position: 'fixed',
   zIndex: 80,
   minWidth: 180,
+  margin: 1, // Codex m-px
   padding: 4,
   background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown (CDP-measured)
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   boxShadow: elevation.dropdown,
   display: 'flex',

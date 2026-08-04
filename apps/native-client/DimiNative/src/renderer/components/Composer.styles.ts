@@ -379,7 +379,10 @@ export const completion = css({
   transform: 'translateX(-50%)',
   bottom: 128,
   width: 'min(640px, calc(100vw - 48px))',
+  margin: 1, // Codex m-px
   background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   maxHeight: 260,
   overflowY: 'auto',
@@ -424,7 +427,10 @@ export const modelPicker = css({
   minWidth: 260,
   maxHeight: '40vh',
   overflowY: 'auto',
+  margin: 1, // Codex m-px
   background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface (CDP-measured)
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   boxShadow: elevation.dropdown,
   padding: 4,

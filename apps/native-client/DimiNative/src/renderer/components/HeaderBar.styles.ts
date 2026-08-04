@@ -102,8 +102,11 @@ export const projectPicker = css({
   zIndex: 80,
   minWidth: 240,
   maxWidth: 420,
+  margin: 1, // Codex m-px
   padding: 4,
   background: 'rgba(45, 45, 45, 0.9)',
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   boxShadow: elevation.dropdown,
   display: 'flex',
@@ -317,8 +320,11 @@ export const headerCtxMenu = css({
   position: 'fixed',
   zIndex: 80,
   minWidth: 180,
+  margin: 1, // Codex m-px
   padding: 4,
   background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface (CDP-measured)
+  backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm
+  WebkitBackdropFilter: 'blur(8px)',
   borderRadius: 15,
   boxShadow: elevation.dropdown,
   display: 'flex',
