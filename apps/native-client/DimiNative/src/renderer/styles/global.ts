@@ -22,17 +22,38 @@ export const app = css({ height: '100%' });
 export const hidden = css({ display: 'none !important' });
 export const spacer = css({ flex: 1 });
 
+// Screen-reader-only utility (codex turns carry an `h4.sr-only` role
+// heading — "你说：" / assistant role — see design doc §1.2 / gap 8.2-13).
+export const srOnly = css({
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap',
+  border: 0,
+});
+
+// Codex markdown line-height is `calc(font-size + 8px)` = 22px at the 14px
+// chat font (design doc §6.1). dimi's theme token `font.chatLh` is 21px (a
+// documented deviation kept in theme.ts, which is read-only for this task);
+// thread markdown follows the measured codex value.
+const MD_LH = '22px';
+
 // ---- markdown (assistant messages, Codex-style rich rendering) ----
 export const md = css({
   whiteSpace: 'normal',
   fontSize: font.chat,
-  lineHeight: font.chatLh,
+  lineHeight: MD_LH,
   color: colors.text,
   overflowWrap: 'anywhere',
   // Codex zeroes the container's first/last child margins.
   '& > :first-child': { marginTop: 0 },
   '& > :last-child': { marginBottom: 0 },
-  '& p': { margin: '0 0 11px', lineHeight: font.chatLh },
+  '& p': { margin: '0 0 11px', lineHeight: MD_LH },
   '& strong': { fontWeight: 600 },
   '& em': { fontStyle: 'italic' },
   '& s': { textDecoration: 'line-through' },
@@ -93,20 +114,71 @@ export const md = css({
   '& hr': { border: 'none', borderTop: '1px solid rgba(255, 255, 255, 0.156)', margin: '28px 0' },
   // Lists: flush margins, 21px indent, 8px between items, markers inherit #fff.
   '& ul, & ol': { margin: 0, paddingLeft: '1.3125rem', listStylePosition: 'outside' },
-  '& li': { paddingLeft: '0.125rem', lineHeight: font.chatLh },
+  '& li': { paddingLeft: '0.125rem', lineHeight: MD_LH },
   '& li + li': { marginTop: 8 },
   '& li > p': { margin: 0 },
   '& li > p + p': { marginTop: 11 },
   '& li > ul, & li > ol': { marginTop: 8 },
   '& p:has(+ ul), & p:has(+ ol)': { marginBottom: 10 },
   '& ul:not(:last-child), & ol:not(:last-child)': { marginBottom: 10 },
+  // Code blocks: a copy button floats over the block's top-right corner,
+  // revealed on hover (codex `_codeBlockPlaceholder` actions). The button
+  // sits OUTSIDE the scrollable <pre> so it stays put when wide code
+  // scrolls; `.md-code-copied` swaps the glyph for a check.
+  '& .md-code-block': {
+    position: 'relative',
+    margin: '14px 0', // pre's margin moves to the wrapper so the button aligns with the block corner
+  },
+  '& .md-code-block pre': { margin: 0 },
+  '& .md-code-copy': {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 26,
+    height: 26,
+    padding: 4,
+    border: '1px solid transparent',
+    borderRadius: 10,
+    background: 'transparent',
+    color: colors.textTertiary,
+    cursor: 'pointer',
+    opacity: 0,
+    transition: 'opacity 0.12s ease',
+    '&:hover': { background: 'rgba(255, 255, 255, 0.078)' }, // list-hover-background
+    '&:active': { background: 'rgba(255, 255, 255, 0.15)' },
+    '&:focus-visible': { outline: 'none', boxShadow: '0 0 0 2px rgba(131, 195, 255, 0.76)', opacity: 1 },
+    '& svg': { width: 16, height: 16 },
+    '& .md-code-copy-check': { display: 'none' },
+    '&.md-code-copied .md-code-copy-glyph': { display: 'none' },
+    '&.md-code-copied .md-code-copy-check': { display: 'block' },
+  },
+  '& .md-code-block:hover .md-code-copy': { opacity: 1 },
   // Tables: roomy cells, header underline + row separators, 24px last-row
-  // bottom padding. The table renders inside `.md-table-container` (custom
-  // marked renderer in markdown.ts) which bleeds 24px into the column padding
-  // (codex `._tableContainer`); the table itself stays fit-content.
+  // bottom padding. markdown.ts renders
+  //   .md-table-container (bleed) > .md-table-scroller > .md-table-wrapper > table
+  // (codex `._tableContainer` / `._tableScroller` / `._tableWrapper`): the
+  // container bleeds 24px into the column padding; the scroller scrolls
+  // horizontally when the table is wider than the column (`safe center`
+  // keeps narrow tables centered without hiding the overflow head); the
+  // wrapper spans the text column (calc(100% − 48px) inside the bleed) and
+  // the table fills it up to fit-content.
   '& .md-table-container': {
     width: 'calc(100% + 48px)',
     marginInline: '-24px',
+  },
+  '& .md-table-scroller': {
+    display: 'flex',
+    justifyContent: 'safe center',
+    overflowX: 'auto',
+    scrollbarWidth: 'thin',
+  },
+  '& .md-table-wrapper': {
+    width: 'calc(100% - 48px)',
+    marginInline: '24px',
+    flexShrink: 0,
   },
   '& table': {
     borderCollapse: 'separate',
@@ -114,8 +186,9 @@ export const md = css({
     textAlign: 'start',
     margin: 0,
     fontSize: font.chat,
-    lineHeight: font.chatLh,
+    lineHeight: MD_LH,
     width: 'fit-content',
+    minWidth: '100%',
   },
   '& th': {
     textAlign: 'left',

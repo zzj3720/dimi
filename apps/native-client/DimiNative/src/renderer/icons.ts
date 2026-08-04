@@ -7,6 +7,10 @@
 // Codex usage: header / sidebar-nav / message-row buttons = icon-xs 16;
 // More/help buttons = icon-sm 18; mode/section chevron + table buttons =
 // icon-2xs 14; dialog close x renders icon-xs 16 inside a 24x24 button.
+// The menu icons below (check … magic) were extracted from the codex bundle's
+// lucide `createLucideIcon` chunks (05-design §1.3); they use the stock
+// lucide 24x24 viewBox. `line`/`polyline` elements were converted to path
+// `d` strings because the renderer only emits <path>.
 export interface IconDef {
   vb: string;
   paths: string[];
@@ -110,5 +114,69 @@ export const icons: Record<string, IconDef> = {
   ] },
   radio: { vb: "0 0 17 17", paths: [
     "M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z",
+  ] },
+
+  // ---- lucide menu icons (extracted from codex bundle chunks, vb 24) ----
+  check: { vb: "0 0 24 24", paths: ["M20 6 9 17l-5-5"] },
+  chevronRight: { vb: "0 0 24 24", paths: ["m9 18 6-6-6-6"] },
+  refreshCw: { vb: "0 0 24 24", paths: [
+    "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8",
+    "M21 3v5h-5",
+    "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16",
+    "M8 16H3v5",
+  ] },
+  rotateCw: { vb: "0 0 24 24", paths: [
+    "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8",
+    "M21 3v5h-5",
+  ] },
+  trash: { vb: "0 0 24 24", paths: [
+    "M3 6h18",
+    "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6",
+    "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2",
+  ] },
+  trash2: { vb: "0 0 24 24", paths: [
+    "M3 6h18",
+    "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6",
+    "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2",
+    "M10 11 L10 17",
+    "M14 11 L14 17",
+  ] },
+  pencil: { vb: "0 0 24 24", paths: [
+    "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+    "m15 5 4 4",
+  ] },
+  edit: { vb: "0 0 24 24", paths: [ // lucide SquarePen (bundle `edit` re-exports square-pen)
+    "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7",
+    "M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
+  ] },
+  externalLink: { vb: "0 0 24 24", paths: [
+    "M15 3h6v6",
+    "M10 14 21 3",
+    "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6",
+  ] },
+  download: { vb: "0 0 24 24", paths: [
+    "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4",
+    "M7 10 L12 15 L17 10",
+    "M12 15 L12 3",
+  ] },
+  command: { vb: "0 0 24 24", paths: [
+    "M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3",
+  ] },
+  sparkles: { vb: "0 0 24 24", paths: [
+    "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z",
+    "M20 3v4",
+    "M22 5h-4",
+    "M4 17v2",
+    "M5 18H3",
+  ] },
+  magic: { vb: "0 0 24 24", paths: [ // lucide WandSparkles — the "magic" icon family
+    "m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72",
+    "m14 7 3 3",
+    "M5 6v4",
+    "M19 14v4",
+    "M10 2v2",
+    "M7 8H3",
+    "M21 16h-4",
+    "M11 3H9",
   ] },
 };

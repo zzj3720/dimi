@@ -10,9 +10,10 @@ import Dialogs from './components/Dialogs.vue';
 import { state, Msg } from './store';
 import { dispatch, createSession, detachCurrentTask, recallLastQueued } from './api';
 import { app } from './styles/global';
-import { shell, mainCol, rootScroll } from './App.styles';
+import { shell, mainCol, mainColWin, rootScroll } from './App.styles';
 
 const isMac = navigator.platform.startsWith('Mac');
+const isWin = navigator.platform.startsWith('Win');
 function ctrlKey(evt: KeyboardEvent): boolean {
   return isMac ? evt.metaKey : evt.ctrlKey;
 }
@@ -200,8 +201,12 @@ onUnmounted(() => {
   <div :class="[app, rootScroll]">
     <HeaderBar />
     <div :class="shell">
-      <Sidebar v-if="state.sidebarVisible" />
-      <div :class="mainCol">
+      <!-- Sidebar show/hide animates the panel width (codex AnimatePresence
+           spring .5s bounce .1) instead of an instant DOM swap. -->
+      <Transition name="dimi-sb">
+        <Sidebar v-if="state.sidebarVisible" />
+      </Transition>
+      <div :class="[mainCol, { [mainColWin]: isWin }]">
         <Transcript />
         <Composer />
       </div>

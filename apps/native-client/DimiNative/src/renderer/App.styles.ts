@@ -1,12 +1,16 @@
-import { css } from '@emotion/css';
-import { colors } from './styles/theme';
+import { css, injectGlobal } from '@emotion/css';
+import { colors, elevation, radius, runtimeVars } from './styles/theme';
 
 export const shell = css({
   display: 'flex',
   height: '100%',
 });
 
-// Codex: main content surface is #181818 over body #141414.
+// Codex: main content surface is #181818 over body #141414, and carries
+// --elevation-prominent (0.5px hairline + double black shadow) so it floats
+// one step above the canvas (design §4.2/§5.1). The surface color follows the
+// runtime theme via --surface (default = colors.surface). overflow:hidden
+// matches codex [data-app-shell-main-surface=default].
 // position:relative anchors the future right floating panel
 // (absolute right-0, top/bottom 12px, z-40, 316px — design §0).
 export const mainCol = css({
@@ -15,8 +19,41 @@ export const mainCol = css({
   flexDirection: 'column',
   flex: 1,
   minWidth: 0,
-  background: colors.surface,
+  overflow: 'hidden',
+  background: runtimeVars.surface,
+  boxShadow: elevation.prominent,
 });
+
+// Codex win32 only: the main surface gets border-top-left-radius: radius-lg
+// (design §1.1). macOS keeps square corners; applied conditionally from App.vue.
+export const mainColWin = css({
+  borderTopLeftRadius: radius.lg,
+});
+
+// Codex sidebar show/hide = width change (AnimatePresence spring, duration
+// .5s, bounce .1 — design §4.1/§5.1), not instant DOM removal. dimi keeps
+// `v-if` but animates the width through Vue <Transition name="dimi-sb">
+// classes applied to the <aside> root: `width: 0 !important` overrides the
+// component's inline width during enter-from/leave-to, and overflow:hidden
+// clips the content mid-animation (codex wraps the panel in overflow-hidden).
+// prefers-reduced-motion drops the animation (codex duration=0).
+injectGlobal`
+  .dimi-sb-enter-active,
+  .dimi-sb-leave-active {
+    transition: width 0.5s cubic-bezier(0.34, 1.3, 0.64, 1);
+    overflow: hidden;
+  }
+  .dimi-sb-enter-from,
+  .dimi-sb-leave-to {
+    width: 0 !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dimi-sb-enter-active,
+    .dimi-sb-leave-active {
+      transition: none;
+    }
+  }
+`;
 
 // Codex scrollbar theming (design §3): the main scroll containers keep the
 // macOS overlay scrollbar and only get `scrollbar-color` (thumb 8.4% white /

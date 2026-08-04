@@ -2,41 +2,110 @@ import { css } from '@emotion/css';
 import { colors, font, size, radius } from '../styles/theme';
 
 // ---- composer shell ----
+// Codex root: form.relative.flex.flex-col (data-thread-find-composer) — layout
+// only, no background/border; the visual capsule is the nested surface layer.
 export const composer = css({
   position: 'relative',
   flexShrink: 0,
-  padding: '0 0 16px',
+  padding: '0 0 16px', // sticky wrapper pb-4 (16px)
 });
 
+// Codex wrapper between form and surface: div.relative.flex.w-full.flex-col.gap-2.
+export const composerWrapper = css({
+  position: 'relative',
+  display: 'flex',
+  width: '100%',
+  flexDirection: 'column',
+  gap: 8,
+});
+
+// Codex bds ComposerSurface — the visual capsule (thread composer defaults:
+// multiline surface, bg 90% + blur(16px), overflow-y-auto, elevation shadow).
+// Height follows content (empty = 98px: 14 attachments + 76 footer + 8 mb-2);
+// there is NO fixed min-height and NO border / focus-within rule (the only
+// focus feedback is the white caret in the editor).
 export const capsule = css({
+  width: '100%', // flex-item context (composerWrapper): fill then clamp to threadMaxW
   maxWidth: size.threadMaxW,
-  minHeight: 98, // border-box: 14 (attachment slot) + 76 (footer) + 8 (mb-2) = 98 outer
   margin: '0 auto',
   background: colors.composerBg,
   backdropFilter: 'blur(16px)',
   WebkitBackdropFilter: 'blur(16px)',
   borderRadius: size.composerRadius,
-  padding: '14px 0 0', // Codex: inner grid starts 14px below the capsule top
   display: 'flex',
   flexDirection: 'column',
   boxSizing: 'border-box',
-  // Codex has NO border on the capsule: the hairline ring is the 0.5px
-  // box-shadow spread, and focus does NOT change the capsule (no
-  // focus-within rule; the only focus feedback is the white caret).
+  overflowY: 'auto', // multiline surfaceOverflow=auto; single-line overrides to visible
+  // Hairline ring: 0.5px box-shadow spread (codex elevation-prominent); no border.
   boxShadow:
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
 });
 
+// Codex single-line surface: overflow-visible (no scroll container).
+export const surfaceSingle = css({ overflow: 'visible', overflowY: 'visible' });
+
+// Codex Pds Body: div.relative.z-10.flex.min-h-0.flex-1.flex-col.
+export const surfaceBody = css({
+  position: 'relative',
+  zIndex: 10,
+  display: 'flex',
+  minHeight: 0,
+  flex: 1,
+  flexDirection: 'column',
+});
+
+// Codex xds Attachments slot: _attachmentsDefault_1xj1z_2 — 8px inset + 6px
+// bottom = 14px empty-state height. dimi has no attachment UI, the slot stays
+// empty (the 附件 button still reports 暂未实现).
+export const attachments = css({
+  padding: '8px 8px 6px',
+});
+
+// Codex bvs hidden text-measure span (auto-single-line fit test):
+// pointer-events-none invisible absolute h-0 w-max max-w-none overflow-hidden
+// whitespace-pre text-size-chat — same font as the editor input.
+export const measure = css({
+  position: 'absolute',
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  height: 0,
+  width: 'max-content',
+  maxWidth: 'none',
+  overflow: 'hidden',
+  whiteSpace: 'pre',
+  fontSize: 14,
+  fontWeight: 445,
+});
+
+// Codex Tds Footer (multiline): grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)]
+// items-center gap-x-[5px] select-none mb-2 px-2. _footer_1xj1z_2 is the
+// container-query anchor: hides the footer label ≤440px (electron ≤475px).
 export const footer = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, auto) auto minmax(0, 1fr)',
   alignItems: 'center',
-  columnGap: 5, // Codex template "28px 0px 682px" leaves 5px gaps each side
+  columnGap: 5,
   padding: '0 8px',
-  marginBottom: 8, // Codex mb-2; capsule: 14 + 76 + 8 = 98 outer
-  minHeight: 76,
+  marginBottom: 8, // mb-2; the 98px empty height = 14 + 76 + 8
+  minHeight: 76, // 48 (input row) + 28 (button row) — codex height is content-driven
+  userSelect: 'none',
+  containerType: 'inline-size',
 });
 
+// Codex single-line footer: grid-cols-[auto_minmax(0,1fr)_auto] gap-2 px-2 py-1
+// (no mb-2, no fixed min-height).
+export const footerSingle = css({
+  gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+  columnGap: 8,
+  rowGap: 8,
+  padding: '4px 8px',
+  marginBottom: 0,
+  minHeight: 0,
+});
+
+// Multiline input row: col-span-full row-start-1 with -mx-2 cancelling the
+// footer px-2 so the input spans the full capsule width (codex AdaptiveFooter
+// placement; the middle grid column stays an empty placeholder for single-line).
 export const inputRow = css({
   gridColumn: '1 / -1',
   gridRow: 1,
@@ -44,6 +113,14 @@ export const inputRow = css({
   margin: '0 -8px',
 });
 
+export const inputRowSingle = css({
+  gridColumn: 2,
+  gridRow: 1,
+  margin: 0,
+});
+
+// Codex Sds Input (multiline): mb-1 flex-grow overflow-y-auto px-3; the
+// editor's own min-height (2.75rem = 44px) drives the row height.
 export const inputWrap = css({
   flexGrow: 1,
   overflowY: 'auto',
@@ -55,15 +132,57 @@ export const inputWrap = css({
   display: 'flex',
 });
 
+// Codex single-line editor host: h-9 (36px) flex items-center overflow-hidden,
+// no px-3 / mb-1 (the footer px-2 + gap-2 provide the spacing).
+export const inputWrapSingle = css({
+  height: 36,
+  minHeight: 0,
+  marginBottom: 0,
+  padding: 0,
+  alignItems: 'center',
+  overflow: 'hidden',
+  overflowY: 'hidden',
+});
+
 export const composerLeft = css({ gridColumn: 1, gridRow: 2, minWidth: 0 });
+export const composerLeftSingle = css({ gridColumn: 1, gridRow: 1 });
+
+// Codex FooterControls: multiline = flex min-w-0 items-center justify-end w-full.
 export const composerRight = css({
   gridColumn: 3,
   gridRow: 2,
   minWidth: 0,
+  width: '100%',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'flex-end',
-  // Codex gaps: pill ↔ 听写 0px; 听写 ↔ 发送 8px (margin-left on sendBtn).
+});
+
+// Codex single-line FooterControls: shrink-0 gap-2 (no w-full).
+export const composerRightSingle = css({
+  gridColumn: 3,
+  gridRow: 1,
+  width: 'auto',
+  flexShrink: 0,
+  gap: 8,
+});
+
+// Codex FooterExpandingControls: flex min-w-0 flex-1 justify-end — the model
+// pill's elastic placeholder; the pill truncates at max-w-48 on narrow windows.
+export const composerExpanding = css({
+  display: 'flex',
+  minWidth: 0,
+  flex: 1,
+  justifyContent: 'flex-end',
+});
+
+// Codex FooterActions: flex shrink-0 items-center gap-2 (听写 ↔ 发送 8px;
+// pill ↔ 听写 0px in multiline comes from the expanding div's gap-less adjacency).
+export const composerActions = css({
+  display: 'flex',
+  flexShrink: 0,
+  alignItems: 'center',
+  gap: 8,
 });
 
 export const composerBtn = css({
@@ -105,6 +224,8 @@ export const modelPill = css({
   whiteSpace: 'nowrap',
   height: size.composerBtn,
   minWidth: 0,
+  maxWidth: 192, // Codex max-w-48 (12rem); truncates via the name span
+  overflow: 'hidden',
   // Codex: hover/active only change bg, color stays tertiary.
   '&:hover': { background: 'rgba(255, 255, 255, 0.078)' },
   '&:active': { background: 'rgba(255, 255, 255, 0.15)' },
@@ -112,7 +233,16 @@ export const modelPill = css({
   '& svg': { width: 14, height: 14, flexShrink: 0 }, // chevron 14×14
 });
 
-export const modelPillName = css({ color: colors.text }); // model name is token-text (#fff)
+// Model name is token-text (#fff); truncates (Codex span.truncate) and hides on
+// narrow footers (Codex _footerLabel container query, electron ≤475px).
+export const modelPillName = css({
+  color: colors.text,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  '@container (max-width: 475px)': { display: 'none' },
+});
 
 export const modelPillMode = css({ color: colors.textTertiary });
 
@@ -138,8 +268,22 @@ export const input = css({
   '&:empty::before': {
     content: 'attr(data-placeholder)',
     color: colors.textTertiary, // Codex placeholder = text-tertiary rgba(255,255,255,0.498)
+    opacity: 0.5, // Codex adds opacity .5 → final ≈ rgba(255,255,255,.249)
     pointerEvents: 'none',
   },
+});
+
+// Codex single-line ProseMirror: !h-5 !min-h-5 leading-5 nowrap ellipsis
+// overflow-hidden (clips instead of wrapping/scroll).
+export const inputSingle = css({
+  height: 20,
+  minHeight: 20,
+  maxHeight: 'none',
+  overflow: 'hidden',
+  overflowY: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+  wordBreak: 'normal',
 });
 
 export const sendBtn = css({
@@ -157,7 +301,7 @@ export const sendBtn = css({
   alignItems: 'center',
   justifyContent: 'center',
   padding: 2,
-  marginLeft: 8, // Codex: 听写 ↔ 发送 gap 8px (pill ↔ 听写 gap 0)
+  // 听写 ↔ 发送 gap 8px comes from FooterActions gap-2 (composerActions).
   transition: 'opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
   // Codex has NO hover background (class carries only transition-opacity).
   '&:focus-visible': { outline: '2px solid rgb(13, 13, 13)' }, // Codex outline-2 token-button-background
@@ -168,7 +312,8 @@ export const sendBtn = css({
 export const queuedCount = css({ color: colors.textMuted, fontSize: 12 });
 
 // Busy-state controls float ABOVE the capsule (TUI functionality preserved
-// without pushing the capsule off Codex's 98px composer geometry).
+// without pushing the capsule off Codex's 98px composer geometry). Codex has
+// no such toolbar — dimi TUI leftover, kept for steer/queue/Cancel.
 export const composerToolbar = css({
   position: 'absolute',
   bottom: 'calc(100% + 8px)',
@@ -213,7 +358,7 @@ export const btnGhost = css({
   '&:hover': { background: colors.hover },
 });
 
-// ---- completion popup (floats ABOVE the 98px capsule + 16px bottom margin)
+// ---- completion popup (floats ABOVE the capsule + 16px bottom margin)
 export const completion = css({
   position: 'absolute',
   left: '50%',

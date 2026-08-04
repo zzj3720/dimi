@@ -1,5 +1,5 @@
-import { css } from '@emotion/css';
-import { colors, font, size } from '../styles/theme';
+import { css, keyframes } from '@emotion/css';
+import { colors, font, size, elevation } from '../styles/theme';
 
 // ---- Codex sidebar tokens (measured live, see design/02-sidebar.md) ----
 // Brand row prefers "OpenAI Sans"; keep the system stack as fallback.
@@ -58,7 +58,9 @@ export const resizeHandle = css({
   [`&:hover .${resizeHandleLine}, &:active .${resizeHandleLine}`]: { opacity: 1 },
 });
 
-// ---- sidebar header block (padding 0 8px 1px, gap 8 → 70px total) ----
+// ---- sidebar header block ----
+// pb is 1px in normal mode and 8px in search mode
+// (--sidebar-scroll-header-spacing, 02-sidebar-code §2.5 / gap A1).
 export const sidebarTop = css({
   padding: '0 8px 1px',
   display: 'flex',
@@ -66,6 +68,10 @@ export const sidebarTop = css({
   gap: 8,
   position: 'relative',
   zIndex: 10,
+});
+
+export const sidebarTopSearch = css({
+  padding: '0 8px 8px', // search mode: --sidebar-scroll-header-spacing 8px
 });
 
 // ---- brand row (32px): mode-switch button + search + priority ----
@@ -105,6 +111,11 @@ export const brand = css({
   '& svg': { width: 14, height: 14, flexShrink: 0, color: cTertiary },
 });
 
+// data-[state=open]:bg-token-list-hover-background (Radix open highlight)
+export const brandOpen = css({
+  background: cHover,
+});
+
 export const brandActions = css({
   marginLeft: 'auto',
   display: 'flex',
@@ -129,8 +140,15 @@ export const brandIconBtn = css({
   '& svg': { width: 16, height: 16, flexShrink: 0 },
 });
 
+// Codex search button carries `ms-auto translate-x-0.5` (2px optical shift).
+export const brandIconBtnSearch = css({
+  transform: 'translateX(2px)',
+});
+
 // ---- nav rows ----
 // 新对话 (header block) = 29px row; 站点/已安排/插件 (scroll block) = 30px rows.
+// text-sm in the codex window is 13px (JS-injected --text-sm), lh 18.5714px
+// (13 × 1.42857); session rows use leading-5 → 20px. (02-sidebar-code B1/B2)
 const navItemBase = (height: number) =>
   css({
     display: 'flex',
@@ -139,8 +157,8 @@ const navItemBase = (height: number) =>
     padding: '0 8px',
     height,
     borderRadius: size.sidebarItemRadius,
-    fontSize: font.xs, // 14px
-    lineHeight: '21px', // Codex nav text 14px/21px
+    fontSize: 13,
+    lineHeight: '18.5714px',
     fontWeight: 445, // variable-font weight
     color: cText,
     cursor: 'default',
@@ -159,24 +177,35 @@ export const navItemHeader = navItemBase(29);
 export const navItemScroll = navItemBase(30);
 
 // Fixed nav block at the top of the scroll area: 3×30 + 2×1 = 92px.
+// Codex nests two layers: outer .gap-1 (4px) + inner .gap-px (1px)
+// (02-sidebar-code §2.4 / gap A3).
 export const navBlockScroll = css({
   display: 'flex',
   flexDirection: 'column',
-  gap: 1,
+  gap: 4, // outer .gap-1
   flexShrink: 0,
   padding: '0 8px',
+});
+
+export const navBlockItems = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1, // inner .gap-px
 });
 
 // ---- sessions scroll area ----
 const scrollMask =
   'linear-gradient(to bottom, transparent 0, #000 1px, #000 calc(100% - 40px), transparent 100%)';
+// search mode (--sidebar-scroll-header-fade-start 8px / -distance 16px):
+const scrollMaskSearch =
+  'linear-gradient(to bottom, transparent 0, transparent 8px, #000 24px, #000 calc(100% - 40px), transparent 100%)';
 
 export const sessions = css({
   flex: '1 1 0%',
   overflowX: 'hidden',
   overflowY: 'auto',
   padding: '1px 0 54px', // bottom 54px = footer 46px + --padding-row-x 8px
-  marginTop: -1,
+  marginTop: -1, // -mt-[--sidebar-scroll-header-spacing] (1px normal)
   display: 'flex',
   flexDirection: 'column',
   gap: 16, // section spacing
@@ -184,6 +213,14 @@ export const sessions = css({
   scrollbarColor: 'rgba(255, 255, 255, 0.082) rgba(0, 0, 0, 0)',
   maskImage: scrollMask, // top ~1px + bottom ~40px fade
   WebkitMaskImage: scrollMask,
+});
+
+// Search mode: -mt 8px (--sidebar-scroll-header-spacing 8px), pt stays 1px;
+// top mask fade moves to 8px→24px.
+export const sessionsSearch = css({
+  marginTop: -8,
+  maskImage: scrollMaskSearch,
+  WebkitMaskImage: scrollMaskSearch,
 });
 
 // ---- sections (项目 / 最近) ----
@@ -218,7 +255,7 @@ export const sectionToggle = css({
   background: 'transparent',
   textAlign: 'left',
   cursor: 'default',
-  fontSize: font.xs,
+  fontSize: font.xs, // section titles stay 14px (text-base)
   lineHeight: '21px',
   fontWeight: 500,
   color: cTertiary,
@@ -285,8 +322,8 @@ export const folderRow = css({
   height: 30,
   padding: '0 8px',
   borderRadius: size.sidebarItemRadius,
-  fontSize: font.xs,
-  lineHeight: '21px',
+  fontSize: 13, // folder row name text-sm → 13px
+  lineHeight: '18.5714px',
   fontWeight: 445,
   color: cText,
   cursor: 'default',
@@ -350,6 +387,14 @@ export const sessionList = css({
   overflow: 'hidden',
 });
 
+// Marquee (02-sidebar-code A6): the exact codex keyframes are 无法确定, so the
+// title scrolls by its measured overflow while the row is hovered. The
+// distance is injected as --sb-marquee-dx per row from Sidebar.vue.
+const marqueeKeyframes = keyframes`
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--sb-marquee-dx, -40px)); }
+`;
+
 export const sessionItem = css({
   position: 'relative',
   display: 'flex',
@@ -358,8 +403,8 @@ export const sessionItem = css({
   height: 30,
   padding: '0 4px 0 8px', // left 8 (--padding-row-cell-x), right 4 (.pe-1)
   borderRadius: size.sidebarItemRadius,
-  fontSize: font.xs,
-  lineHeight: '20px', // Codex session text 14px/20px (leading-5)
+  fontSize: 13, // session text-sm → 13px
+  lineHeight: '20px', // Codex session text leading-5 (20px)
   fontWeight: 445,
   color: cText,
   cursor: 'default',
@@ -375,6 +420,15 @@ export const sessionItem = css({
     justifyContent: 'center',
   },
   '& .s-title': { flex: 1, minWidth: 0, ...fadeTruncate },
+  // inner span is what marquees inside the masked viewport
+  '& .sb-title-inner': {
+    display: 'inline-block',
+    maxWidth: '100%',
+    whiteSpace: 'nowrap',
+  },
+  '& .sb-title-inner.sb-marquee': {
+    animation: `${marqueeKeyframes} 0.9s ease-in-out forwards`,
+  },
   // hover suffix label (Codex hidden → group-hover:inline, color 0.498)
   '& .sb-suffix': { display: 'none', flexShrink: 0, color: cTertiary },
   '&:hover .sb-suffix': { display: 'inline' },
@@ -481,7 +535,7 @@ export const userRow = css({
   border: 'none',
   background: 'transparent',
   textAlign: 'left',
-  fontSize: font.xs,
+  fontSize: font.xs, // user row stays 14px (measured)
   lineHeight: '21px',
   fontWeight: 445,
   color: '#ffffff',
@@ -502,6 +556,8 @@ export const userRow = css({
   '& .sb-user': { flex: 1, minWidth: 0, ...fadeTruncate, color: '#ffffff' },
 });
 
+export const userRowOpen = css({ background: cHover });
+
 export const sidebarBottomBtn = css({
   display: 'flex',
   alignItems: 'center',
@@ -517,4 +573,131 @@ export const sidebarBottomBtn = css({
   flexShrink: 0,
   '&:hover': { background: cHover, color: cText },
   '& svg': { width: 18, height: 18 }, // icon-sm 18×18
+});
+
+export const sidebarBottomBtnOpen = css({ background: cHover });
+
+// ---- dropdown menus (mode switch / profile / help) ----
+// Codex renders these as Radix DropdownMenus (p-1.5, menuWide). Item
+// geometry (height/padding/radius) is not extractable from the bundle —
+// 无法确定 — so the rows follow the sidebar's own scale (13px text).
+export const menuAnchor = css({
+  position: 'relative',
+  display: 'flex',
+  minWidth: 0,
+});
+
+export const menuAnchorGrow = css({
+  flex: 1,
+  minWidth: 0,
+});
+
+export const menu = css({
+  position: 'absolute',
+  zIndex: 40,
+  minWidth: 160,
+  padding: 6, // p-1.5
+  background: colors.surface2, // --color-token-dropdown-background
+  borderRadius: 12,
+  boxShadow: elevation.prominent,
+  display: 'flex',
+  flexDirection: 'column',
+});
+
+// codex `menuWide`
+export const menuWide = css({ minWidth: 180 });
+
+// anchors
+export const menuTop = css({
+  top: 'calc(100% + 4px)',
+  left: -8, // cancels the brand button's -ms-2
+});
+
+export const menuBottomLeft = css({
+  bottom: 'calc(100% + 4px)',
+  left: 0,
+});
+
+export const menuBottomRight = css({
+  bottom: 'calc(100% + 4px)',
+  right: 0,
+});
+
+export const menuItem = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 32,
+  padding: '0 8px',
+  borderRadius: 8,
+  border: 'none',
+  background: 'transparent',
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  fontWeight: 445,
+  color: cText,
+  textAlign: 'left',
+  cursor: 'default',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+  '&:hover': { background: cHover },
+});
+
+// fixed 16px slot: check icon for radio items, empty spacer otherwise
+export const menuCheck = css({
+  width: 16,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  '& svg': { width: 14, height: 14, color: cText },
+});
+
+// ---- search mode view (02-sidebar-code C4 / A1) ----
+// The idu search-view internals are 无法确定 (待补全), so the input row
+// follows the sidebar-item scale; the rest is dimi's own approximation.
+export const searchView = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  flexShrink: 0,
+});
+
+export const searchInputRow = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 30,
+  padding: '0 8px',
+  borderRadius: size.sidebarItemRadius,
+  '& svg': { width: 16, height: 16, flexShrink: 0, color: cTertiary },
+});
+
+export const searchInput = css({
+  flex: 1,
+  minWidth: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  fontWeight: 445,
+  color: cText,
+  '&::placeholder': { color: cTertiary },
+});
+
+export const searchClear = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 20,
+  height: 20,
+  padding: 0,
+  border: '1px solid transparent',
+  borderRadius: 10,
+  background: 'transparent',
+  color: cTertiary,
+  cursor: 'default',
+  '&:hover': { background: cHover, color: cText },
+  '& svg': { width: 14, height: 14, flexShrink: 0 },
 });

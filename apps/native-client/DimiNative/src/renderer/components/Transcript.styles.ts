@@ -2,6 +2,10 @@ import { css } from '@emotion/css';
 import { colors, font, size } from '../styles/theme';
 import { md } from '../styles/global';
 
+// Codex markdown line-height: font-size + 8px = 22px at the 14px chat font
+// (design doc §6.1; theme token font.chatLh stays 21px — read-only).
+const MD_LH = '22px';
+
 // ---- transcript scroll ----
 // The 46px header is position:fixed (transparent) and overlays the window top,
 // so the scroll container keeps a 47px top padding: the first message then
@@ -74,6 +78,16 @@ export const userBubble = css({
   // single-newline input stays on separate lines. `.userBubble .md` (0,2,0)
   // wins over `.md`'s own `white-space: normal` (0,1,0).
   [`& .${md}`]: { whiteSpace: 'pre-wrap' },
+  // Codex bubble-only markdown overrides (design doc §6.2, CDP-verified):
+  // paragraphs are flush with 20px between adjacent ones (`[&_p]:!m-0
+  // [&_p+p]:!mt-5`), lists indent 24px (`!ps-6`), list items get no extra
+  // gap (`[&_li+li]:!mt-0 [&_li>ol]:!mt-0 [&_li>p+p]:!mt-0 [&_li>ul]:!mt-0`).
+  [`& .${md} p`]: { margin: 0 },
+  [`& .${md} p + p`]: { marginTop: 20 },
+  [`& .${md} ul, & .${md} ol`]: { paddingLeft: 24 },
+  [`& .${md} li + li`]: { marginTop: 0 },
+  [`& .${md} li > ul, & .${md} li > ol`]: { marginTop: 0 },
+  [`& .${md} li > p + p`]: { marginTop: 0 },
 });
 
 // Single "复制消息" button below the bubble; hidden until the turn is hovered
@@ -82,35 +96,17 @@ export const userCopyRow = css({
   display: 'flex',
   flexDirection: 'row-reverse',
   alignItems: 'center',
-  gap: 4,
+  gap: 8, // codex gap-2 (only one button renders, so this is inert)
   margin: '0 4px', // me-1 ms-1
   opacity: 0,
   transition: 'opacity 0.12s ease',
 });
 
-// ---- turn ----
-// Codex: one turn = user + thinking + assistant until the next user message,
-// wrapped in a single `group flex flex-col py-2` container. The thread parent
-// gap (6px) plus the two 8px paddings give the 22px new-turn spacing (the old
-// entrySameTurn/entryNewTurn margin hacks are gone); the content column's 12px
-// gap is the intra-turn spacing (codex gap-3).
-export const turn = css({
-  display: 'flex',
-  flexDirection: 'column',
-  padding: '8px 0', // py-2
-  [`&:hover .${userCopyRow}, &:focus-within .${userCopyRow}`]: { opacity: 1 },
-});
-
-export const turnContent = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12, // gap-3
-});
-
-// Turn-level action row (assistant). Codex build has NO opacity classes here —
-// the row is always visible — left-aligned, mt-1.5 (6px), h-5 (20px),
-// gap-0.5 (2px), translated -4px on electron (buttons sit 4px left of the
-// column edge).
+// Turn-level action row (assistant). Codex Fvl: `mt-1.5 flex h-5 items-center
+// justify-start gap-0.5 electron:-translate-x-1` — margin-top 6px, height
+// 20px, gap 2px, −4px electron shift — and the row is HIDDEN by default
+// (`opacity-0 group-focus-within:opacity-100 group-hover:opacity-100`),
+// revealed when the owning turn is hovered or focused (design doc §4.1).
 export const turnActions = css({
   display: 'flex',
   alignItems: 'center',
@@ -119,6 +115,42 @@ export const turnActions = css({
   marginTop: 6,
   height: 20,
   transform: 'translateX(-4px)',
+  opacity: 0,
+  transition: 'opacity 0.12s ease',
+});
+
+// ---- turn ----
+// Codex: one turn = user + thinking + assistant until the next user message,
+// wrapped in a single `group flex flex-col py-2` container. The thread parent
+// gap (6px) plus the two 8px paddings give the 22px new-turn spacing; blocks
+// inside the turn are separated by 16px dividers (codex s8c,
+// `--conversation-item-gap`). The turn carries codex's per-item rendering
+// hint (`content-visibility: auto` + `contain-intrinsic-size: auto 240px`,
+// design doc §5.6) so long sessions skip offscreen turns.
+export const turn = css({
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '8px 0', // py-2
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 240px',
+  // group-hover / group-focus-within reveal for both action rows (user copy
+  // row + assistant action row).
+  [`&:hover .${userCopyRow}, &:focus-within .${userCopyRow}, &:hover .${turnActions}, &:focus-within .${turnActions}`]: {
+    opacity: 1,
+  },
+});
+
+export const turnContent = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 0, // block spacing comes from the 16px itemDivider separators
+});
+
+// Codex s8c: 16px separator between turn items (`--conversation-item-gap`).
+export const itemDivider = css({
+  height: 16,
+  width: '100%',
+  flexShrink: 0,
 });
 
 // Action buttons (user copy + turn row): 26×26, radius 10, 1px transparent
@@ -140,6 +172,7 @@ export const entryActionBtn = css({
   '&:hover': { background: 'rgba(255, 255, 255, 0.078)' }, // list-hover-background
   '&:active': { background: 'rgba(255, 255, 255, 0.15)' }, // foreground/15
   '&:focus-visible': { outline: 'none', boxShadow: '0 0 0 2px rgba(131, 195, 255, 0.76)' },
+  '&:disabled': { cursor: 'default', opacity: 0.5 },
   '& svg': { width: 16, height: 16 },
 });
 
@@ -148,16 +181,13 @@ export const entryActionBtnReplyBad = css({
   transform: 'rotate(180deg)',
 });
 
-// ---- reasoning disclosure (codex: collapsed = one "思考了 …" button) ----
+// ---- reasoning disclosure (codex mAl: collapsed = one "思考了 …" button) ----
 export const thinkingBlock = css({
   minWidth: 0,
   fontSize: font.chat,
   position: 'relative',
   overflow: 'visible',
   padding: 0,
-});
-
-export const thinkingColumn = css({
   display: 'flex',
   flexDirection: 'column',
 });
@@ -169,13 +199,14 @@ export const reasoningTitle = css({
   gap: 2, // gap-0.5
   maxWidth: '100%',
   minWidth: 0,
+  height: 21, // codex computed button height 21px
   padding: 0, // p-0
   border: 'none',
   background: 'transparent',
   fontFamily: 'inherit',
   textAlign: 'left',
   fontSize: font.chat,
-  lineHeight: '21px', // codex button height 21px
+  lineHeight: '21px',
   fontWeight: 445,
   color: colors.textTertiary,
   cursor: 'pointer',
@@ -183,39 +214,66 @@ export const reasoningTitle = css({
   '&:hover': { color: colors.text }, // hover:text-token-text-primary
 });
 
+// Codex: 20×20 chevron (`icon-xs`), transition-transform, rotate-180 expanded.
 export const reasoningChevron = css({
-  width: 16,
-  height: 16,
+  width: 20,
+  height: 20,
   flexShrink: 0,
   // Inherits the button's currentColor; transition 0.3s cubic-bezier(0.4,0,0.2,1).
   transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
 });
 
 export const reasoningChevronOpen = css({
-  transform: 'rotate(90deg)',
+  transform: 'rotate(180deg)',
 });
 
-// Expanded content: codex `flex flex-col gap-4 pt-4` (16px gaps, 16px top).
-// The disclosure stays v-if (DOM removed when collapsed) instead of codex's
-// overflow-hidden + inline height/opacity — visually equivalent, and the
-// height animation is not observable in the measured build.
+// Height+opacity animation shell (codex rf.div): the shell always stays in
+// the DOM, its inline height/opacity flip between 0 and the measured content
+// height with a 300ms cubic-bezier(0.19,1,0.22,1) transition. The collapsed
+// class delays `visibility: hidden` until the fade-out finishes and disables
+// pointer events, so hidden content is neither clickable nor tabbable.
+export const reasoningShell = css({
+  overflow: 'hidden',
+  transition:
+    'height 0.3s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.3s cubic-bezier(0.19, 1, 0.22, 1)',
+});
+
+export const reasoningShellCollapsed = css({
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  transition:
+    'height 0.3s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.3s cubic-bezier(0.19, 1, 0.22, 1), visibility 0s linear 0.3s',
+});
+
+// Capped reasoning body: max 140px (8.75rem) even when expanded, bottom edge
+// fade applied via an inline mask when the content actually overflows
+// (codex eAl `maxHeightByState` + `--edge-fade-distance: 1rem`).
 export const reasoningBody = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 16,
-  paddingTop: 16,
+  maxHeight: '8.75rem',
+  overflow: 'hidden',
 });
 
-// Tool calls inside the disclosure: each card is one block of the gap-4 column.
+// Codex reasoning markdown overrides (design doc §1.5 / §3.4): tighter
+// heading/paragraph spacing than the assistant body — h1/h2/h3 mt 8px, the
+// element after a heading mt 4px, adjacent paragraphs mt 4px, p m-0,
+// ul/ol my-0 ps-4 (16px).
+export const thinkingMd = css({
+  [`&.${md} p`]: { margin: 0 },
+  [`&.${md} > p + p`]: { marginTop: 4 },
+  [`&.${md} > h1, &.${md} > h2, &.${md} > h3`]: { marginTop: 8 },
+  [`&.${md} > h1 + *, &.${md} > h2 + *, &.${md} > h3 + *`]: { marginTop: 4 },
+  [`&.${md} ul, &.${md} ol`]: { margin: 0, paddingLeft: 16 },
+});
+
+// Tool activity is an independent item in codex (separate from the reasoning
+// disclosure, 16px divider between them) — each card is one block of the
+// column.
 export const toolsCol = css({
   display: 'flex',
   flexDirection: 'column',
   gap: 16,
 });
 
-// Codex-style tool call row: avatar-stack icon + summary text, NO card chrome.
-// (Tool-card form is "待验证" in the design doc — kept as the existing
-// expandable card inside the disclosure, per task instructions.)
 export const toolCard = css({
   background: 'transparent',
   border: 'none',
@@ -232,7 +290,7 @@ export const toolCardHeader = css({
   alignItems: 'center',
   gap: 8,
   fontSize: font.chat,
-  lineHeight: font.chatLh,
+  lineHeight: MD_LH,
   color: colors.textTertiary,
 });
 
@@ -245,6 +303,11 @@ export const toolCardIcon = css({
   background: 'rgba(255, 255, 255, 0.1)',
   padding: 3,
   boxSizing: 'border-box',
+  transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+});
+
+export const toolCardIconOpen = css({
+  transform: 'rotate(180deg)',
 });
 
 export const toolCardName = css({
@@ -261,15 +324,33 @@ export const toolCardStatus = css({
   whiteSpace: 'nowrap',
 });
 
+// Shell card (codex Pbl): command + output on the code-block background,
+// radius 12.5px (`--radius-lg`), 8px padding, 12px/20px mono; the same
+// height+opacity animation as the reasoning body.
+export const toolShell = css({
+  overflow: 'hidden',
+  background: 'rgba(255, 255, 255, 0.052)', // text-code-block-background
+  borderRadius: 12.5,
+  padding: 8,
+  transition:
+    'height 0.3s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.3s cubic-bezier(0.19, 1, 0.22, 1)',
+});
+
+export const toolShellCollapsed = css({
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  transition:
+    'height 0.3s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.3s cubic-bezier(0.19, 1, 0.22, 1), visibility 0s linear 0.3s',
+});
+
 export const toolCardBody = css({
-  marginTop: 4,
-  paddingTop: 4,
-  fontSize: font.chat,
-  lineHeight: font.chatLh,
+  fontSize: 12,
+  lineHeight: 20,
   color: colors.textDim,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   fontFamily: font.mono,
+  overflowX: 'auto',
 });
 
 export const clickable = css({ cursor: 'pointer' });

@@ -1,15 +1,16 @@
 <script setup lang="ts">
-// Codex-style header (46px, transparent, fixed): hide-sidebar/back/forward +
-// session title button + More + share pill + pinned summary + toggle-sidebar.
-// No segmented control and no status badges — Codex keeps the header clean;
-// status lives in the composer area.
-import { computed, ref } from 'vue';
-import { state, Msg } from '../store';
-import { dispatch, loadSessions } from '../api';
+// Codex-style header (46px, transparent, fixed): sidebar-trigger/back/forward
+// + session title (click → inline rename) + More + share pill + pinned
+// summary + toggle-sidebar. No segmented control and no status badges —
+// Codex keeps the header clean; status lives in the composer area.
+import { computed, nextTick, ref, watch } from 'vue';
+import { state } from '../store';
+import { api, dispatch } from '../api';
 import { icons } from '../icons';
 import {
-  header, headerSide, headerSideGroup, headerMain, headerTitle, iconBtn,
-  moreBtn, headerRight, shareBtn, pinnedBtn, pinnedBtnOn,
+  header, headerSide, headerSideOpen, headerSideClosed, headerSideGroup,
+  headerMain, headerTitle, headerTitleInput, iconBtn, moreBtn, headerRight,
+  shareBtn, pinnedBtn, pinnedBtnOn,
 } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
@@ -20,6 +21,11 @@ const current = computed(() => state.sessions.find((s) => s.id === state.current
 const navIndex = computed(() => state.sessions.findIndex((s) => s.id === state.currentSessionId));
 const canBack = computed(() => navIndex.value > 0);
 const canForward = computed(() => navIndex.value >= 0 && navIndex.value < state.sessions.length - 1);
+
+// Codex left slot width = spring(sidebar width, default 275); dimi's sidebar
+// is v-if so the zone snaps between the open width and the natural 180px
+// when it is hidden (§1.2 / §2).
+const sideWidthClass = computed(() => (state.sidebarVisible ? headerSideOpen : headerSideClosed));
 
 function toggleSidebar(): void {
   dispatch({ type: 'sidebar_toggle' });
@@ -37,26 +43,63 @@ function navSession(delta: number): void {
   }
 }
 
-// Codex title is a button that opens a title menu / jumps — dimi has no title
-// menu, so open the session picker (closest equivalent; A6).
-function openTitleMenu(): void {
-  dispatch(Msg.PickerOpen());
-  void loadSessions();
+// ---- inline title rename (S12/A5) ----
+// Codex: clicking the title swaps it for an inline <input>; Enter/Blur commit
+// via onRename, Esc cancels, and the text is auto-selected. dimi's server
+// rename endpoint is `POST /sessions/:id/profile {title}` — the same call the
+// `/title` slash command makes — so the full interaction is doable in-place.
+const editing = ref(false);
+const draftTitle = ref('');
+const editWidth = ref(160);
+const titleSpan = ref<HTMLSpanElement | null>(null);
+const titleInput = ref<HTMLInputElement | null>(null);
+
+function startRename(): void {
+  if (!state.currentSessionId) return;
+  editing.value = true;
+  draftTitle.value = current.value?.title ?? '';
+  // Size the input to the rendered title (codex's input falls back to its
+  // ~20ch default width); a 160px floor keeps very short titles editable.
+  editWidth.value = Math.min(320, Math.max(160, titleSpan.value?.offsetWidth ?? 160));
+  void nextTick(() => titleInput.value?.select());
 }
 
-// 固定摘要 (pinned summary): Codex toggles a summary panel (measured ON, white
-// 5% bg). dimi has no summary panel yet, so this is a local visual toggle only
-// — needs product wiring when the feature lands (A4). OFF style (transparent)
-// is inferred from the generic icon-button default (unobservable in Codex).
+function commitRename(): void {
+  if (!editing.value) return;
+  const id = state.currentSessionId;
+  const title = draftTitle.value.trim();
+  editing.value = false;
+  if (!id || !title) return; // empty → cancel (server keeps the auto title)
+  const sess = state.sessions.find((s) => s.id === id);
+  api('POST', `/api/v1/sessions/${id}/profile`, { title })
+    .then(() => {
+      // Local mirror; the session.meta.updated SSE also refreshes the title.
+      if (sess) sess.title = title;
+    })
+    .catch((e) => {
+      state.statusMsg = `rename failed: ${(e as Error).message}`;
+    });
+}
+
+function cancelRename(): void {
+  if (!editing.value) return;
+  editing.value = false;
+  draftTitle.value = '';
+}
+
+// Switching sessions while editing discards the draft (no commit).
+watch(() => state.currentSessionId, () => cancelRename());
+
+// 固定摘要 (pinned summary): Codex toggles a summary panel (pressed → white
+// 5% bg + aria-pressed). dimi has no summary panel yet, so this is a local
+// visual toggle only — needs product wiring when the feature lands (A2).
 const pinnedSummaryOn = ref(true);
 function togglePinnedSummary(): void {
   pinnedSummaryOn.value = !pinnedSummaryOn.value;
 }
 
 // More / Share are behavior placeholders in dimi (no conversation-actions or
-// share menu yet, A2/A3): keep the previous intent — open the help dialog.
-// The old Msg.HelpOpen() message does not exist in store.ts (would throw), so
-// set the dialog flag directly.
+// share menu yet, A3/A4): keep the previous intent — open the help dialog.
 function openHelp(): void {
   state.helpDialogOpen = true;
 }
@@ -64,39 +107,58 @@ function openHelp(): void {
 
 <template>
   <header :class="header">
-    <!-- Left zone (0..275px, safe-left 88px): hide-sidebar / back / forward -->
-    <div :class="headerSide">
+    <!-- Left zone (sidebar-width slot, safe-left 88px): sidebar-trigger / back / forward -->
+    <div :class="[headerSide, sideWidthClass]">
       <div :class="headerSideGroup">
-        <button :class="iconBtn" aria-label="隐藏边栏" @click="toggleSidebar">
-          <svg :viewBox="icons.hideSidebar.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.hideSidebar.paths" :key="i" :d="p" /></svg>
+        <!-- The first button IS the sidebar trigger in codex (L2): aria-label
+             and icon follow sidebar visibility (A7/§6.2). icons.ts lacks the
+             wRr (show-sidebar) glyph — codex's wRr is DRr's mirror (§8), so
+             hideSidebar is mirrored with scaleX(-1). -->
+        <button :class="iconBtn" type="button" data-app-shell-sidebar-trigger
+                :aria-label="state.sidebarVisible ? '隐藏边栏' : '显示边栏'"
+                @click="toggleSidebar">
+          <svg :viewBox="icons.hideSidebar.vb" fill="currentColor" aria-hidden="true"
+               :style="state.sidebarVisible ? undefined : { transform: 'scaleX(-1)' }">
+            <path v-for="(p, i) in icons.hideSidebar.paths" :key="i" :d="p" />
+          </svg>
         </button>
-        <button :class="iconBtn" aria-label="返回" :disabled="!canBack" @click="navSession(-1)">
+        <button :class="iconBtn" type="button" aria-label="返回" :disabled="!canBack" @click="navSession(-1)">
           <svg :viewBox="icons.back.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.back.paths" :key="i" :d="p" /></svg>
         </button>
-        <button :class="iconBtn" aria-label="前进" :disabled="!canForward" @click="navSession(1)">
+        <button :class="iconBtn" type="button" aria-label="前进" :disabled="!canForward" @click="navSession(1)">
           <svg :viewBox="icons.forward.vb" fill="currentColor" aria-hidden="true" style="transform: scaleX(-1)"><path v-for="(p, i) in icons.forward.paths" :key="i" :d="p" /></svg>
         </button>
       </div>
     </div>
-    <!-- Main zone: session title button + More -->
+    <!-- Main zone: session title (inline rename) + More -->
     <div :class="headerMain">
-      <button :class="headerTitle" @click="openTitleMenu">
-        <span>{{ current?.title || '' }}</span>
+      <input v-if="editing" ref="titleInput" v-model="draftTitle" :class="headerTitleInput"
+             :style="{ width: `${editWidth}px` }" aria-label="会话标题"
+             @keydown.enter.prevent="commitRename"
+             @keydown.esc.prevent="cancelRename"
+             @blur="commitRename" />
+      <button v-else :class="headerTitle" type="button" @click="startRename">
+        <span ref="titleSpan">{{ current?.title || '' }}</span>
       </button>
-      <button :class="[iconBtn, moreBtn]" aria-label="ChatGPT 对话操作" @click="openHelp">
+      <button :class="[iconBtn, moreBtn]" type="button" aria-label="ChatGPT 对话操作" @click="openHelp">
         <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true" style="width: 18px; height: 18px"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
       </button>
     </div>
     <!-- Right zone: share pill + pinned summary + toggle sidebar -->
     <div :class="headerRight">
-      <button :class="shareBtn" aria-label="分享" @click="openHelp">
+      <button :class="shareBtn" type="button" aria-label="分享" @click="openHelp">
         <svg :viewBox="icons.share.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.share.paths" :key="i" :d="p" /></svg>
         <span>分享</span>
       </button>
-      <button :class="[pinnedBtn, { [pinnedBtnOn]: pinnedSummaryOn }]" aria-label="切换固定摘要" title="切换固定摘要" @click="togglePinnedSummary">
+      <button :class="[pinnedBtn, { [pinnedBtnOn]: pinnedSummaryOn }]" type="button"
+              :aria-pressed="pinnedSummaryOn" aria-label="切换固定摘要" title="切换固定摘要"
+              @click="togglePinnedSummary">
         <svg :viewBox="icons.dots.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.dots.paths" :key="i" :d="p" /></svg>
       </button>
-      <button :class="iconBtn" aria-label="切换侧边栏" @click="toggleSidebar">
+      <!-- dimi maps codex's right-panel toggle (HeaderButton pressed=isOpen)
+           onto the left sidebar until a right panel exists; the pressed
+           secondary state is left off to match codex's default ghost look. -->
+      <button :class="iconBtn" type="button" aria-label="切换侧边栏" @click="toggleSidebar">
         <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true" style="transform: rotate(180deg)"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
       </button>
     </div>

@@ -1,13 +1,21 @@
 <script setup lang="ts">
 // Codex-style composer: 25px capsule + completion popup + bottom toolbar.
-// Keyboard handling mirrors the old main.js editor bindings.
-import { ref, watch, nextTick, computed, onMounted } from 'vue';
+// Structure mirrors the codex bundle: form[data-thread-find-composer] >
+// wrapper(gap-2) > surface(chrome) > body > attachments slot + footer grid.
+// Auto single-line/multiline switch follows the codex bvs/Tvs measurement
+// logic (hidden measure span + 32px buffer); empty drafts keep the send
+// button enabled (codex), the submit guard lives in submitDraft().
+import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention } from '../api';
 import { icons } from '../icons';
 import {
-  composer, capsule, footer, inputRow, inputWrap, composerLeft, composerRight,
-  composerBtn, modelPill, modelPillName, modelPillMode, input, sendBtn, composerToolbar, hint, queuedCount,
+  composer, composerWrapper, capsule, surfaceSingle, surfaceBody, attachments, measure,
+  footer, footerSingle, inputRow, inputRowSingle, inputWrap, inputWrapSingle,
+  composerLeft, composerLeftSingle, composerRight, composerRightSingle,
+  composerExpanding, composerActions,
+  composerBtn, modelPill, modelPillName, modelPillMode, input, inputSingle, sendBtn,
+  composerToolbar, hint, queuedCount,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
   btn, btnGhost,
 } from './Composer.styles';
@@ -38,6 +46,15 @@ const micIcon = {
 
 const inputEl = ref<HTMLElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
+const surfaceEl = ref<HTMLElement | null>(null);
+const pillEl = ref<HTMLElement | null>(null);
+const actionsEl = ref<HTMLElement | null>(null);
+const measureEl = ref<HTMLElement | null>(null);
+
+// Codex composerLayoutMode='auto-single-line': the composer starts as a
+// single-line pill and switches to multiline when the text wraps or contains
+// a newline (or would have attachments). No transition animation, class only.
+const layout = ref<'multiline' | 'single-line'>('single-line');
 
 // Keep the selected completion row in view (Codex list behavior).
 watch(
@@ -242,20 +259,51 @@ watch(
   (v) => {
     const el = inputEl.value;
     if (el && (el.textContent ?? '') !== v) el.textContent = v;
+    // Re-run the single-line fit test after the template (measure span) and
+    // the synced input content are in the DOM.
+    void nextTick(updateLayout);
   },
 );
 
+// Codex bvs/Tvs: auto-single-line → multiline when the editor has block
+// content (doc.childCount > 1) or the text contains '\n'; otherwise
+// textFitsSingleLine = measured width + 32px buffer ≤ available width.
+function updateLayout(): void {
+  const text = state.draft;
+  if (text.includes('\n') || (inputEl.value?.childElementCount ?? 0) > 1) {
+    layout.value = 'multiline';
+    return;
+  }
+  const surface = surfaceEl.value;
+  const measureSpan = measureEl.value;
+  if (!surface || !measureSpan) return;
+  // Single-line geometry: surface − px-2 (16) − left button (28) − right
+  // cluster (pill + actions) − gap-2 ×2 (16); + codex Dvs=32 buffer.
+  const rightW = (pillEl.value?.offsetWidth ?? 0) + (actionsEl.value?.offsetWidth ?? 0);
+  const available = surface.offsetWidth - 16 - 28 - rightW - 16;
+  layout.value = measureSpan.offsetWidth + 32 <= available ? 'single-line' : 'multiline';
+}
+
+let ro: ResizeObserver | null = null;
+
 onMounted(() => {
   void nextTick(() => inputEl.value?.focus());
+  void nextTick(updateLayout);
+  if (surfaceEl.value && typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(() => updateLayout());
+    ro.observe(surfaceEl.value);
+  }
 });
+
+onUnmounted(() => ro?.disconnect());
 
 function acceptCompletion(): void {
   dispatch(Msg.CompletionAccept());
 }
 
-function onSend(): void {
-  // The send button must not bypass an open completion popup: clicking it
-  // while a popup is showing (slash command or @-mention) would submit the
+function onSubmit(): void {
+  // The send button must not bypass an open completion popup: submitting
+  // while a popup is showing (slash command or @-mention) would send the
   // raw @draft or partial command. Mirror the keyboard Enter branch — accept
   // the highlighted item first, and submit afterwards only when the accepted
   // draft is a complete slash command.
@@ -267,7 +315,19 @@ function onSend(): void {
     }
     return;
   }
+  // Codex keeps the button enabled on empty drafts; submitDraft() guards the
+  // actual send (empty text + no attachments → no-op), so an empty click is
+  // visually allowed but harmless.
   dispatch(Msg.Submit());
+}
+
+function onSurfaceMousedown(e: MouseEvent): void {
+  // Codex Fds: mousedown on a non-interactive spot of the capsule
+  // preventDefaults and focuses the editor (click-anywhere-to-type).
+  const t = e.target as HTMLElement;
+  if (t.closest('a, button, input, select, textarea, [contenteditable], [role="button"]')) return;
+  e.preventDefault();
+  inputEl.value?.focus();
 }
 
 function steerMode(mode: 'steer' | 'queue'): void {
@@ -276,7 +336,7 @@ function steerMode(mode: 'steer' | 'queue'): void {
 </script>
 
 <template>
-  <footer :class="composer">
+  <form :class="composer" data-thread-find-composer="true" @submit.prevent="onSubmit">
     <!-- Completion popup -->
     <div v-if="state.completionOpen && state.completionItems.length > 0" ref="completionEl" :class="completion" data-testid="completion">
       <div
@@ -293,66 +353,97 @@ function steerMode(mode: 'steer' | 'queue'): void {
       </div>
     </div>
 
-    <div :class="capsule">
-      <div :class="footer">
-        <div :class="inputRow">
-          <div :class="inputWrap">
-            <div
-              ref="inputEl"
-              :class="input"
-              contenteditable="true"
-              data-placeholder="Message…"
-              role="textbox"
-              aria-multiline="true"
-              data-testid="composer-input"
-              @input="onInput"
-              @keydown="onKeydown"
-              @compositionend="onInput"
-            ></div>
+    <!-- Codex wrapper (gap-2) > surface (composer-surface-chrome) -->
+    <div :class="composerWrapper">
+      <div
+        ref="surfaceEl"
+        :class="[capsule, layout === 'single-line' ? surfaceSingle : null]"
+        @mousedown="onSurfaceMousedown"
+      >
+        <div :class="surfaceBody">
+          <!-- Codex xds attachments slot (8px inset + 6px bottom = 14px empty).
+               dimi has no attach UI, so the slot stays empty and the left
+               button still reports 附件（暂未实现）. -->
+          <div :class="attachments"></div>
+
+          <!-- Hidden single-line text measure span (codex bvs) -->
+          <span ref="measureEl" :class="measure">{{ state.draft }}</span>
+
+          <!-- Codex Tds footer grid: multiline two-row / single-line one-row -->
+          <div :class="[footer, layout === 'single-line' ? footerSingle : null]">
+            <div :class="[inputRow, layout === 'single-line' ? inputRowSingle : null]">
+              <div :class="[inputWrap, layout === 'single-line' ? inputWrapSingle : null]">
+                <div
+                  ref="inputEl"
+                  :class="[input, layout === 'single-line' ? inputSingle : null]"
+                  contenteditable="true"
+                  data-placeholder="使用 Dimi"
+                  role="textbox"
+                  aria-multiline="true"
+                  data-testid="composer-input"
+                  @input="onInput"
+                  @keydown="onKeydown"
+                  @compositionend="onInput"
+                ></div>
+              </div>
+            </div>
+            <div :class="[composerLeft, layout === 'single-line' ? composerLeftSingle : null]">
+              <!-- Codex left button: 添加文件等内容 (plus). dimi has no attach UI,
+                   so it reports the same "not implemented" status as before. -->
+              <button type="button" :class="composerBtn" aria-label="添加文件等内容" @click="state.statusMsg = '附件（暂未实现）'">
+                <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
+              </button>
+            </div>
+            <div :class="[composerRight, layout === 'single-line' ? composerRightSingle : null]">
+              <!-- Codex FooterExpandingControls (multiline): elastic placeholder
+                   so the pill stays right-aligned and truncates at max-w-48.
+                   Single-line packs the pill directly into the shrink-0 row. -->
+              <div v-if="layout === 'multiline'" :class="composerExpanding">
+                <button ref="pillEl" type="button" :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
+                  <span :class="modelPillName">{{ shortModelName }}</span>
+                  <span :class="modelPillMode">轻度</span>
+                  <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                </button>
+              </div>
+              <template v-else>
+                <button ref="pillEl" type="button" :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
+                  <span :class="modelPillName">{{ shortModelName }}</span>
+                  <span :class="modelPillMode">轻度</span>
+                  <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                </button>
+              </template>
+              <!-- Codex FooterActions: gap-2 (听写 ↔ 发送 8px) -->
+              <div :class="composerActions" ref="actionsEl">
+                <button type="button" :class="composerBtn" aria-label="听写" @click="state.statusMsg = '听写（暂未实现）'">
+                  <svg :viewBox="micIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in micIcon.paths" :key="i" :d="p" /></svg>
+                </button>
+                <button
+                  type="submit"
+                  :class="sendBtn"
+                  :disabled="!state.currentSessionId"
+                  aria-label="发送"
+                  data-testid="send-btn"
+                >
+                  <svg :viewBox="icons.send.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.send.paths" :key="i" :d="p" /></svg>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-        <div :class="composerLeft">
-          <!-- Codex left button: 添加文件等内容 (plus). dimi has no attach UI,
-               so it reports the same "not implemented" status as before. -->
-          <button :class="composerBtn" aria-label="添加文件等内容" @click="state.statusMsg = '附件（暂未实现）'">
-            <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
-          </button>
-        </div>
-        <div :class="composerRight">
-          <!-- Codex model pill: short model name (#fff) + mode (tertiary) + chevron 14×14.
-               dimi has no model picker — clicking still opens settings. -->
-          <button :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
-            <span :class="modelPillName">{{ shortModelName }}</span>
-            <span :class="modelPillMode">轻度</span>
-            <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
-          </button>
-          <button :class="composerBtn" aria-label="听写" @click="state.statusMsg = '听写（暂未实现）'">
-            <svg :viewBox="micIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in micIcon.paths" :key="i" :d="p" /></svg>
-          </button>
-          <button
-            :class="sendBtn"
-            :disabled="!state.draft.trim() || !state.currentSessionId"
-            aria-label="发送"
-            data-testid="send-btn"
-            @click="onSend"
-          >
-            <svg :viewBox="icons.send.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.send.paths" :key="i" :d="p" /></svg>
-          </button>
         </div>
       </div>
     </div>
 
     <!-- Codex keeps model/mode info inside the capsule pill, no extra row -->
-    
 
+    <!-- dimi TUI leftover (codex has no such toolbar): busy-state controls -->
     <div v-if="state.busy || state.statusMsg || state.queued.length > 0" :class="composerToolbar">
       <span v-if="state.queued.length > 0" :class="queuedCount">{{ state.queued.length }} queued</span>
       <template v-if="state.busy">
-        <button :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'steer' }]" @click="steerMode('steer')">steer</button>
-        <button :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'queue' }]" @click="steerMode('queue')">queue</button>
-        <button :class="[btn, btnGhost]" @click="dispatch(Msg.Cancel())">Cancel</button>
+        <button type="button" :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'steer' }]" @click="steerMode('steer')">steer</button>
+        <button type="button" :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'queue' }]" @click="steerMode('queue')">queue</button>
+        <button type="button" :class="[btn, btnGhost]" @click="dispatch(Msg.Cancel())">Cancel</button>
       </template>
       <span :class="hint" data-testid="status-msg">{{ state.statusMsg }}</span>
     </div>
-  </footer>
+  </form>
 </template>

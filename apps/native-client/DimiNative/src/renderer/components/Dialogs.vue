@@ -7,26 +7,53 @@ import { api, dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
 import { icons } from '../icons';
 import {
   dialogRoot, dialogBackdrop, dialog, dialogPicker, dialogApproval, dialogTitle, dialogBody, dialogClose,
-  searchInput, listItem, listItemIcon, listItemTitle, listItemHint, listItemSub, listItemSelected, toolName,
-  btn, btnGhost, btnPrimary, badge, badgePrimary, badgeOutline, bodyText,
+  searchInput, menuSearchInput, iconXs, listItem, listItemIcon, listItemTitle, listItemHint, listItemSub, listItemSelected, toolName,
+  btn, btnGhost, btnPrimary, btnBlock, badge, badgePrimary, badgeOutline, bodyText,
 } from './Dialogs.styles';
 
 // ---- session picker
 const pickerList = computed(() => filteredSessions(state));
+
+// Codex menu keyboard (05-design §5.2): ↓ from the search box focuses the
+// first item, ↑ focuses the last, then arrows step through items (the store
+// wraps around). dimi keeps focus in the input (rows aren't focusable), so a
+// local "arrow chain" flag emulates codex: the first arrow after opening or
+// typing jumps to the edge, subsequent arrows move relatively.
+let pickerArrowChain = false;
 function pickerKeydown(e: KeyboardEvent): void {
+  const n = pickerList.value.length;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
-    dispatch(Msg.PickerMove(1));
+    if (n === 0) return;
+    if (!pickerArrowChain && state.pickerSelectedIndex !== 0) {
+      dispatch(Msg.PickerMove(-state.pickerSelectedIndex));
+    } else {
+      dispatch(Msg.PickerMove(1));
+    }
+    pickerArrowChain = true;
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
-    dispatch(Msg.PickerMove(-1));
+    if (n === 0) return;
+    if (!pickerArrowChain && state.pickerSelectedIndex !== n - 1) {
+      dispatch(Msg.PickerMove(n - 1 - state.pickerSelectedIndex));
+    } else {
+      dispatch(Msg.PickerMove(-1));
+    }
+    pickerArrowChain = true;
   } else if (e.key === 'Enter') {
     e.preventDefault();
     dispatch(Msg.PickerSelect());
   } else if (e.key === 'Escape') {
     e.preventDefault();
     dispatch(Msg.Escape());
+  } else {
+    pickerArrowChain = false;
   }
+}
+
+function onPickerInput(e: Event): void {
+  pickerArrowChain = false;
+  dispatch(Msg.PickerSearch((e.target as HTMLInputElement).value));
 }
 
 function onPickerScroll(e: Event): void {
@@ -127,16 +154,16 @@ function btwSend(): void {
     <!-- Session picker: compact command menu -->
     <div v-if="state.pickerOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.PickerClose())">
       <div :class="dialogPicker">
-        <input :class="searchInput" placeholder="Search sessions…" :value="state.pickerQuery" @input="dispatch(Msg.PickerSearch(($event.target as HTMLInputElement).value))" @keydown="pickerKeydown" />
+        <input :class="menuSearchInput" placeholder="Search sessions…" :value="state.pickerQuery" @focus="pickerArrowChain = false" @input="onPickerInput" @keydown="pickerKeydown" />
         <div style="overflow-y: auto; max-height: 300px; margin-top: 6px">
           <div
             v-for="(s, i) in pickerList"
             :key="s.id"
-            :class="[listItem, { [listItemSelected]: i === state.pickerSelectedIndex }]"
+            :class="[listItem, 'group', { selected: i === state.pickerSelectedIndex, [listItemSelected]: i === state.pickerSelectedIndex }]"
             @mousedown.prevent="dispatch(Msg.PickerSelect())"
           >
-            <span :class="listItemIcon">
-              <svg v-if="i === state.pickerSelectedIndex" :viewBox="icons.radio.vb" fill="currentColor" aria-hidden="true"><path :d="icons.radio.paths[0]" /></svg>
+            <span :class="[listItemIcon, iconXs]">
+              <svg v-if="i === state.pickerSelectedIndex" :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path :d="icons.check.paths[0]" /></svg>
             </span>
             <span :class="listItemTitle">{{ s.title || '(untitled)' }}</span>
             <span :class="listItemHint">{{ s.last_prompt || s.cwd || '' }}</span>
@@ -151,7 +178,7 @@ function btwSend(): void {
     <div v-if="state.settingsDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.SettingsClose())">
       <div :class="dialog" @click="openSettings">
         <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.SettingsClose())">
-          <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
         </button>
         <div :class="dialogBody">
           <div :class="dialogTitle" style="margin-bottom: 16px">Settings</div>
@@ -174,8 +201,8 @@ function btwSend(): void {
             <span :class="listItemSub" style="min-width: 110px">Plan mode</span>
             <button :class="[btn, btnGhost]" @click="dispatch({ type: 'plan_mode_toggle' })">{{ state.planMode ? 'on (toggle)' : 'off (toggle)' }}</button>
           </div>
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
-            <button :class="[btn, btnGhost]" @click="dispatch(Msg.SettingsClose())">Close</button>
+          <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px">
+            <button :class="[btn, btnGhost, btnBlock]" @click="dispatch(Msg.SettingsClose())">Close</button>
           </div>
         </div>
       </div>
@@ -185,7 +212,7 @@ function btwSend(): void {
     <div v-if="state.helpDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.Escape())">
       <div :class="dialog">
         <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
-          <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
         </button>
         <div :class="dialogBody" style="max-height: 420px">
           <div :class="dialogTitle" style="margin-bottom: 12px">Help</div>
@@ -193,8 +220,8 @@ function btwSend(): void {
             <span :class="toolName">{{ '/' + c.name }}</span>
             <span :class="listItemSub" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.hint }} — {{ c.desc }}</span>
           </div>
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
-            <button :class="[btn, btnGhost]" @click="dispatch(Msg.Escape())">Close</button>
+          <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px">
+            <button :class="[btn, btnGhost, btnBlock]" @click="dispatch(Msg.Escape())">Close</button>
           </div>
         </div>
       </div>
@@ -204,7 +231,7 @@ function btwSend(): void {
     <div v-if="state.btwOpen" :class="dialogBackdrop" @mousedown.self="state.btwOpen = false">
       <div :class="dialog">
         <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
-          <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
         </button>
         <div :class="dialogBody">
           <div :class="dialogTitle" style="margin-bottom: 12px">BTW</div>
@@ -225,7 +252,7 @@ function btwSend(): void {
     <div v-if="state.currentApproval" :class="dialogBackdrop">
       <div :class="dialogApproval">
         <button :class="dialogClose" aria-label="Reject" @click="dispatch(Msg.Escape())">
-          <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
         </button>
         <div :class="dialogBody">
           <div :class="dialogTitle" style="margin-bottom: 12px">{{ state.currentApproval.toolName || 'Approval required' }}</div>
@@ -258,7 +285,7 @@ function btwSend(): void {
     <div v-if="state.currentQuestion" :class="dialogBackdrop">
       <div :class="dialog">
         <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.QuestionDismiss())">
-          <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
         </button>
         <div :class="dialogBody">
           <div :class="dialogTitle" style="margin-bottom: 12px">Question</div>
@@ -287,8 +314,8 @@ function btwSend(): void {
             @input="dispatch({ type: 'question_other', text: ($event.target as HTMLInputElement).value })"
           />
           <div :class="listItemSub" style="margin-top: 8px">←/→ tabs · 1-9 select · space toggle · Enter confirm</div>
-          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
-            <button :class="[btn, btnPrimary]" @click="dispatch(Msg.QuestionConfirm())">Submit</button>
+          <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px">
+            <button :class="[btn, btnPrimary, btnBlock]" @click="dispatch(Msg.QuestionConfirm())">Submit</button>
           </div>
         </div>
       </div>

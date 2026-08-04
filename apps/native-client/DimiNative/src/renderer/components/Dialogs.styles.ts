@@ -1,4 +1,4 @@
-import { css } from '@emotion/css';
+import { css, keyframes } from '@emotion/css';
 import { colors, font, radius } from '../styles/theme';
 
 export const dialogRoot = css({
@@ -20,66 +20,96 @@ export const dialogBackdrop = css({
 });
 
 // Shared modal shell (codex-dialog §2.1): rgb(45,45,45) @ 90% + backdrop
-// blur(24px), rounded 24, NO border — a 0.5px ring + shadow-lg combined in one
-// box-shadow. The close button is absolutely positioned, so the shell is
-// position: relative and hides overflow (matches codex `overflow-hidden`).
+// blur(24px), rounded-3xl = 1.25rem × 1.25 scale = 25px, NO border — a 0.5px
+// ring (token border 0.084) + shadow-lg combined in one box-shadow. The close
+// button is absolutely positioned, so the shell is position: relative and
+// hides overflow (matches codex `overflow-hidden`).
 const modalShell = {
   position: 'relative',
   background: 'rgba(45, 45, 45, 0.9)',
   backdropFilter: 'blur(24px)',
   WebkitBackdropFilter: 'blur(24px)',
-  borderRadius: 24,
+  borderRadius: 25,
   maxWidth: '92vw',
   maxHeight: '80%',
   display: 'flex',
   flexDirection: 'column',
-  boxShadow: '0 0 0 0.5px rgba(255, 255, 255, 0.082), 0 4px 8px -2px rgba(0, 0, 0, 0.1)',
+  boxShadow: `0 0 0 0.5px ${colors.border}, 0 4px 8px -2px rgba(0, 0, 0, 0.1)`,
   overflow: 'hidden',
+} as const;
+
+// Codex dialog width ladder (05-design §2.3). dimi dialogs currently use
+// `default` (520); the rest is available for future pickers/panels. The
+// `editor` / `full` / `tall` variants are height/body modifiers not needed
+// by the current dialogs.
+export const dialogSizes = {
+  narrow: '380px',
+  feature: '400px',
+  compact: '420px',
+  default: '520px',
+  wide: '600px',
+  xwide: '680px',
+  xxwide: '800px',
 } as const;
 
 export const dialog = css({
   ...modalShell,
-  width: 520,
+  width: dialogSizes.default,
 });
 
 // Session picker is a compact command menu (05-design §4.1 + §2.3), not a
 // modal. Codex menu tokens (radius 15, #2d2d2d@90%, ring 0.5px, shadow
-// 0 8px 16px -4px, padding 4px, backdrop blur small); dimi keeps its wider
+// 0 8px 16px -4px, padding 4px, backdrop blur-sm 8px); dimi keeps its wider
 // 440px column per the design note.
+// Enter animation mirrors the only animated codex menu instance — the
+// model-picker dropdown (05-design §5.4): 320ms cubic-bezier(.23,1,.32,1) +
+// 30ms delay, fade + scale(.98→1), disabled under prefers-reduced-motion.
+const pickerEnter = keyframes({
+  '0%': { opacity: 0, transform: 'scale(0.98)' },
+  '100%': { opacity: 1, transform: 'scale(1)' },
+});
+
 export const dialogPicker = css({
   ...modalShell,
   width: 440,
   borderRadius: 15,
-  backdropFilter: 'blur(4px)',
-  WebkitBackdropFilter: 'blur(4px)',
-  boxShadow: '0 0 0 0.5px rgba(255, 255, 255, 0.082), 0 8px 16px -4px rgba(0, 0, 0, 0.12)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+  boxShadow: `0 0 0 0.5px ${colors.border}, 0 8px 16px -4px rgba(0, 0, 0, 0.12)`,
   padding: 4,
+  transformOrigin: 'center',
+  animation: `${pickerEnter} 0.32s cubic-bezier(0.23, 1, 0.32, 1) 30ms both`,
+  willChange: 'opacity, transform',
+  '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
 });
 
 // Approval is a permission prompt (05-design §4.3): same modal shell, but
 // keeps dimi's accent top border (deliberate difference from codex).
 export const dialogApproval = css({
   ...modalShell,
-  width: 520,
+  width: dialogSizes.default,
   borderTop: `2px solid ${colors.primary}`,
 });
 
 // Title lives in the content flow (no title bar / bottom border): 20px/28px
-// weight 600, white. The 24x24 close button at the top-right is avoided by the
-// body's extra right padding (pe-8 in codex).
+// weight 600, white, letter-spacing -0.36px (codex heading-dialog). The 24x24
+// close button at the top-right floats above the body (codex px-5 py-5 layout;
+// the body no longer reserves right padding for it).
 export const dialogTitle = css({
   fontWeight: 600,
   fontSize: 20,
   lineHeight: '28px',
+  letterSpacing: '-0.36px',
 });
 
 export const dialogBody = css({
-  padding: '20px 32px 20px 20px',
+  padding: 20,
   overflowY: 'auto',
 });
 
 // codex-dialog close button (§2.1): 24x24, 16px from top/right, p-1 + rounded,
-// inner 16x16 x at rgba(255,255,255,0.8).
+// inner 16x16 x at rgba(255,255,255,0.8), hover toolbar-hover 7.8%,
+// focus-visible 1px ring in token focus border.
 export const dialogClose = css({
   position: 'absolute',
   top: 16,
@@ -95,8 +125,25 @@ export const dialogClose = css({
   background: 'transparent',
   color: 'rgba(255, 255, 255, 0.8)',
   cursor: 'pointer',
-  '& svg': { width: 16, height: 16 },
-  '&:hover': { background: colors.hover },
+  outline: 'none',
+  '&:hover': { background: colors.hoverStrong },
+  '&:focus-visible': { boxShadow: `0 0 0 1px ${colors.borderFocus}` },
+});
+
+// ---- icon size ladder (05-design §1.1) — the rendered size is decided by
+// the CSS class, NOT the svg width/height attributes. Apply the class to the
+// svg (or its wrapper) directly.
+export const icon3xs = css({ width: 10, height: 10 });
+export const iconXxs = css({ width: 12, height: 12 });
+export const icon2xs = css({ width: 14, height: 14 });
+export const iconXs = css({ width: 16, height: 16 });
+export const iconSm = css({ width: 18, height: 18 });
+export const iconBase = css({ width: 20, height: 20 });
+export const iconMd = css({ width: 24, height: 24 });
+export const iconLg = css({ width: 28, height: 28 });
+// codex .icon-tint: 50% foreground weak tint (05-design §1.1).
+export const iconTint = css({
+  color: 'color-mix(in oklab, var(--color-token-foreground, #ffffff) 50%, transparent)',
 });
 
 export const searchInput = css({
@@ -112,8 +159,28 @@ export const searchInput = css({
   '&:focus': { borderColor: colors.primary },
 });
 
+// Codex menu SearchInput (05-design §3.3): a borderless search row inside the
+// menu panel — rounded-sm (4px × 1.25 = 5px), row padding 8px/5px, text-sm,
+// no border, no outline. Used by the session picker (a menu surface); the
+// regular `searchInput` above stays for in-dialog form fields.
+export const menuSearchInput = css({
+  width: '100%',
+  minWidth: 0,
+  border: 'none',
+  borderRadius: 5,
+  padding: '5px 8px',
+  background: 'transparent',
+  color: colors.text,
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  outline: 'none',
+  '&:focus': { outline: 'none' },
+});
+
 // Radix menu item (§2.3): 29px high (8px 5px padding), rounded 12.5, 13px/
-// 18.5714px, single row with 6px gap.
+// 18.5714px, single row with 6px gap; hover/focus background = list-hover
+// rgba(255,255,255,0.078).
 export const listItem = css({
   display: 'flex',
   alignItems: 'center',
@@ -123,18 +190,23 @@ export const listItem = css({
   fontSize: 13,
   lineHeight: '18.5714px',
   cursor: 'pointer',
-  '&:hover': { background: colors.hover },
+  '&:hover': { background: colors.hoverStrong },
+  '&:focus': { background: colors.hoverStrong },
 });
 
-// Left indicator slot (icon-xs 16x16, vb 17 -> renders 16x17, opacity-75).
+// Left indicator slot (icon-xs 16x16, vb 24 check -> renders 16x16), static
+// opacity 75%; the row's `.group` class (added by Dialogs.vue) raises it to
+// 100% on hover/focus/selected, mirroring codex `pz.icon` group-hover/focus
+// (05-design §3.2 / §5.3).
 export const listItemIcon = css({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   flexShrink: 0,
-  width: 16,
   opacity: 0.75,
-  '& svg': { width: 16, height: 17 },
+  transition: 'opacity 0.1s ease',
+  '& svg': { width: 16, height: 16 },
+  '.group:hover &, .group:focus-within &, .group.selected &': { opacity: 1 },
 });
 
 export const listItemTitle = css({
@@ -214,6 +286,13 @@ export const btnPrimary = css({
   borderColor: 'rgba(255, 255, 255, 0.082)',
   fontWeight: 500,
   '&:hover': { background: '#ececec' },
+});
+
+// Codex DialogFooter single-button mode (expandSingleButton, 05-design §2.2):
+// the lone footer button stretches full width and centers its label.
+export const btnBlock = css({
+  width: '100%',
+  justifyContent: 'center',
 });
 
 // ---- badges ----
