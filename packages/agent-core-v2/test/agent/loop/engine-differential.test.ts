@@ -84,6 +84,7 @@ async function runRustEngine(
     }),
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
+    'test-registry',
   );
   // The engine streams every event through the per-event callback as it is
   // emitted; the response carries only the progress.

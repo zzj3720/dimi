@@ -29,6 +29,61 @@ use dimi_engine::types::EngineTurnInput;
 
 use crate::wire_error;
 
+/// Process-level subagent registries, scoped per agent (code-review P1-1/P1-3
+/// fix): every `RustTurnSession` of the same agent shares ONE `SessionRegistry`
+/// (subagent tasks + steering queues). The Agent tool no longer hardcodes
+/// `stop_turn: true` — launches are non-blocking (same-turn continue), but the
+/// launching turn still ends while the subagent runs (WaitFor stops the turn,
+/// or a plain text reply ends it), and the NEXT turn runs in a NEW session —
+/// a per-session registry would make the launched subagent invisible to
+/// AgentOutput / WaitFor / Agent(resume). Scoping by an explicit registry id
+/// (the TS runner passes a per-agent uuid) keeps different agents (and
+/// different sessions in a server) from seeing each other's subagents — agent
+/// ids like `agent-0` are only unique within one agent, so a process-wide
+/// table would leak tasks across sessions. The runner calls
+/// `drop_task_registry` when the agent scope is disposed.
+struct SessionRegistry {
+    tasks: AgentTasks,
+    steer_map: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
+            >,
+        >,
+    >,
+}
+
+static REGISTRIES: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<SessionRegistry>>>,
+> = std::sync::OnceLock::new();
+
+fn session_registry(registry_id: &str) -> std::sync::Arc<SessionRegistry> {
+    let map = REGISTRIES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard
+        .entry(registry_id.to_string())
+        .or_insert_with(|| {
+            std::sync::Arc::new(SessionRegistry {
+                tasks: AgentTasks::new(),
+                steer_map: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
+            })
+        })
+        .clone()
+}
+
+/// Release an agent's subagent registry (tasks + steering queues) when its
+/// scope is disposed. In-flight tasks settle against a registry that is no
+/// longer shared; the task states are dropped with the map.
+#[napi]
+pub fn drop_task_registry(registry_id: String) {
+    let map = REGISTRIES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.remove(&registry_id);
+}
+
 #[napi]
 pub struct RustEngine {
     inner: dimi_engine::Engine,
@@ -311,7 +366,7 @@ impl ToolExecutor for BridgeExternalTool {
     async fn execute(
         &self,
         call: &dimi_engine::tool::ToolCall,
-        _ctx: &dimi_engine::tool::ToolContext,
+        ctx: &dimi_engine::tool::ToolContext,
     ) -> dimi_engine::tool::ToolResult {
         let request_id = format!(
             "ext-{}",
@@ -326,6 +381,15 @@ impl ToolExecutor for BridgeExternalTool {
             "toolCallId": call.id,
             "name": call.name,
             "arguments": call.arguments,
+            // The full assistant-message batch this call is part of: the TS
+            // side builds `ToolResolutionContext.toolCalls` from it, so
+            // external tools see their same-round siblings (AllDone's
+            // mixed-use / "only tool call in its round" guard needs them).
+            "toolCalls": ctx.tool_calls.iter().map(|sibling| serde_json::json!({
+                "id": sibling.id,
+                "name": sibling.name,
+                "arguments": sibling.arguments,
+            })).collect::<Vec<_>>(),
         }))
         .unwrap_or_default();
         let _ = self
@@ -379,7 +443,18 @@ pub struct RustTurnSession {
     inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
     llm: std::sync::Arc<dyn LlmClient>,
     tools: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
-    policy: PolicyConfig,
+    /// LLM-visible tool whitelist (`EngineTurnInput.active_tools`): re-applied
+    /// on every run/resume tool re-sync so filtered defs never leak into a
+    /// request. `None` = all registered defs are advertised.
+    active_tools: Option<Vec<String>>,
+    /// Live policy: session-scope approvals recorded mid-turn are appended
+    /// here so the SAME turn's resumed batch honors them (P1-6 review — TS
+    /// session-approval-history reads live; a frozen snapshot would re-ask).
+    policy: std::sync::Arc<std::sync::Mutex<PolicyConfig>>,
+    /// Native-tool PreToolUse gate (A2 review): the TS runner vetoes native
+    /// tool calls before they execute, mirroring the TS pipeline the engine
+    /// bypasses.
+    tool_gate: std::sync::Arc<ToolGate>,
     /// TS tool call completions keyed by request id.
     pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     /// Subagent steering queues keyed by agent id.
@@ -427,8 +502,114 @@ impl Drop for RustTurnSession {
     }
 }
 
-/// Mutex-wrapped registry implementing ToolExecutor.
-struct LockedRegistry(std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>);
+/// Native-tool PreToolUse gate (A2 architecture review).
+///
+/// The TS toolExecutor runs PreToolUse hooks (veto) for EVERY tool — native
+/// and external. The Rust engine executes native tools (Bash/Agent/…) inside
+/// the engine, bypassing the TS pipeline, so without a gate a user-configured
+/// command-level veto hook silently never applies to Bash. This bridge lets
+/// the TS runner veto a native call before it executes:
+///
+/// 1. `LockedRegistry::execute` sends a gate request through the callback and
+///    awaits the verdict via a oneshot;
+/// 2. the runner triggers `PreToolUse` and answers `complete_tool_gate`;
+/// 3. a block verdict short-circuits the call with an error result.
+///
+/// The gate applies to every registry call (native + external); the runner
+/// answers `allow` immediately for external tools, which already run their
+/// own PreToolUse inside the external-tool callback.
+#[derive(Default)]
+struct ToolGate {
+    /// TS-side gate callback (fire-and-forget request → `complete_tool_gate`).
+    callback: std::sync::Mutex<Option<ToolCallback>>,
+    /// Pending gate requests awaiting the TS verdict.
+    pending: std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>,
+    >,
+    /// Monotonic gate request id.
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+impl ToolGate {
+    fn request_id(&self) -> String {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("gate-{id}")
+    }
+}
+
+/// Mutex-wrapped registry implementing ToolExecutor, with the native-tool
+/// PreToolUse gate (A2).
+struct LockedRegistry {
+    registry: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+    gate: std::sync::Arc<ToolGate>,
+}
+
+impl LockedRegistry {
+    fn with_gate(
+        registry: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+        gate: std::sync::Arc<ToolGate>,
+    ) -> Self {
+        Self { registry, gate }
+    }
+
+    /// Ask the TS runner for a PreToolUse verdict; `None` when no gate is
+    /// registered (no hooks configured — allow) or the runner never answers.
+    async fn pre_gate(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+    ) -> Option<dimi_engine::tool::ToolResult> {
+        let request_id = self.gate.request_id();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(request_id.clone(), tx);
+        let payload = serde_json::json!({
+            "requestId": request_id,
+            "toolName": call.name,
+            "arguments": call.arguments,
+        });
+        // The TSFN is not Clone — call while holding the guard (Blocking mode
+        // blocks only until the callback is scheduled, not until it runs).
+        // The guard must not survive the `rx.await` below (std guards are
+        // !Send), so the call happens inside a block that ends before it.
+        {
+            let guard = self.gate.callback.lock().unwrap_or_else(|p| p.into_inner());
+            let Some(callback) = guard.as_ref() else {
+                return None;
+            };
+            let _ = callback.call(payload.to_string(), ThreadsafeFunctionCallMode::Blocking);
+        }
+        match rx.await {
+            Ok(verdict_json) => {
+                let verdict: serde_json::Value =
+                    serde_json::from_str(&verdict_json).unwrap_or(serde_json::json!({ "decision": "allow" }));
+                match verdict.get("decision").and_then(|v| v.as_str()) {
+                    Some("block") => {
+                        let reason = verdict
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Tool was blocked by a PreToolUse hook.")
+                            .to_string();
+                        Some(dimi_engine::tool::ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: reason,
+                            is_error: true,
+                            stop_turn: false,
+                            updates: vec![],
+                        })
+                    }
+                    _ => None,
+                }
+            }
+            Err(_) => None,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl ToolExecutor for LockedRegistry {
@@ -437,8 +618,32 @@ impl ToolExecutor for LockedRegistry {
         call: &dimi_engine::tool::ToolCall,
         ctx: &dimi_engine::tool::ToolContext,
     ) -> dimi_engine::tool::ToolResult {
-        let registry = self.0.lock().await;
+        // A2: PreToolUse veto for native tools (the runner answers allow for
+        // external tools, which gate themselves inside their callback).
+        if let Some(blocked) = self.pre_gate(call).await {
+            return blocked;
+        }
+        let registry = self.registry.lock().await;
         registry.execute(call, ctx).await
+    }
+
+    /// Forward cancellation through the registry (P1-2 review): the engine's
+    /// cancel path calls `abort` on the executor it was given — the bridge
+    /// gives it a `LockedRegistry`, so without forwarding, a cancelled Bash
+    /// command would keep running as an orphan.
+    ///
+    /// Locking note (P2-9 review): `abort` runs inside the engine's
+    /// `tokio::select!` cancel branch, AFTER the in-flight `execute` future
+    /// (which holds the registry lock for the whole tool call) has been
+    /// dropped by the select — that drop is what releases the lock, so
+    /// `try_lock` succeeds here for the direct-Bash cancel case. Do not
+    /// switch the tool execution to `tokio::spawn` (a spawned future is not
+    /// dropped by the select) without revisiting this.
+    fn abort(&self, call: &dimi_engine::tool::ToolCall) {
+        let registry = self.registry.try_lock();
+        if let Ok(registry) = registry {
+            registry.abort(call);
+        }
     }
 }
 
@@ -474,21 +679,58 @@ fn make_client(
 }
 
 /// Convert the registry's LLM-facing defs into `EngineTool` (the engine's
-/// request `tools` field).
-fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> {
-    registry
-        .tool_defs()
-        .into_iter()
-        .filter_map(|def| {
-            let function = def.get("function")?;
-            serde_json::from_value(serde_json::json!({
-                "name": function.get("name")?.as_str()?,
-                "description": function.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-                "argsSchema": function.get("parameters").cloned().unwrap_or(serde_json::json!({"type":"object","properties":{}})),
-            }))
-            .ok()
-        })
-        .collect()
+/// request `tools` field). A def that cannot be converted is discarded with
+/// a warning (def name + reason) instead of being silently dropped; the
+/// returned list is unchanged otherwise. `active_tools` (TS
+/// `activeToolNames` parity) narrows the result to the whitelisted names —
+/// defs outside it are hidden from the LLM while their executors stay
+/// registered (the model just never sees them, so it never calls them).
+/// `None` = every registered def is advertised.
+fn engine_tools(
+    registry: &ToolRegistry,
+    active_tools: Option<&[String]>,
+) -> Vec<dimi_engine::types::EngineTool> {
+    let mut tools = Vec::new();
+    for def in registry.tool_defs() {
+        let Some(function) = def.get("function") else {
+            eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def (missing \"function\"): {def}"
+            );
+            continue;
+        };
+        let Some(name) = function.get("name").and_then(|n| n.as_str()) else {
+            eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def (missing string \"function.name\"): {def}"
+            );
+            continue;
+        };
+        // The whitelist hides non-listed defs from the LLM (execution
+        // registration is untouched — the filtered model never calls them).
+        if let Some(active) = active_tools {
+            if !active.iter().any(|n| n == name) {
+                continue;
+            }
+        }
+        let description = function
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("");
+        let args_schema = function
+            .get("parameters")
+            .cloned()
+            .unwrap_or(serde_json::json!({"type":"object","properties":{}}));
+        match serde_json::from_value(serde_json::json!({
+            "name": name,
+            "description": description,
+            "argsSchema": args_schema,
+        })) {
+            Ok(tool) => tools.push(tool),
+            Err(error) => eprintln!(
+                "[dimi-bridge] warn: dropping invalid tool def \"{name}\" (conversion failed: {error})"
+            ),
+        }
+    }
+    tools
 }
 
 #[napi]
@@ -498,14 +740,18 @@ impl RustTurnSession {
         input_json: String,
         policy_json: String,
         scripted_segments_json: Option<String>,
+        registry_id: String,
     ) -> napi::Result<Self> {
         let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
         let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
+        // Live policy (P1-6): the engine re-reads it on every run/resume, so
+        // `add_session_approval` recorded mid-turn takes effect immediately.
+        let policy = std::sync::Arc::new(std::sync::Mutex::new(policy));
         let llm: std::sync::Arc<dyn LlmClient> =
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
-        let tasks = AgentTasks::new();
-        let steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let registry = session_registry(&registry_id);
+        let tasks = registry.tasks.clone();
+        let steer_map = registry.steer_map.clone();
         let event_sink = EventSink::new();
         let mut registry = ToolRegistry::new();
         // The Bash def mirrors the TS tool's advertised contract
@@ -544,6 +790,7 @@ impl RustTurnSession {
                 }
             })),
         );
+        let tool_gate = std::sync::Arc::new(ToolGate::default());
         let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
         {
             let mut registry = tools
@@ -552,13 +799,35 @@ impl RustTurnSession {
             // Subagents execute through the same registry (all registered
             // tools — Bash, external TS tools, and the async tools).
             let subagent_tools: std::sync::Arc<dyn ToolExecutor> =
-                std::sync::Arc::new(LockedRegistry(std::sync::Arc::clone(&tools)));
+                std::sync::Arc::new(LockedRegistry::with_gate(
+                    std::sync::Arc::clone(&tools),
+                    std::sync::Arc::clone(&tool_gate),
+                ));
+            // Subagent model parity (TS `resolveSubagentBinding`): when the
+            // runner resolved a subagent model that differs from the parent's
+            // provider, build a dedicated aimux client for nested turns so
+            // they run on the bound model instead of inheriting the parent's.
+            // `None` = subagents reuse the parent's client (scripted segments
+            // under test are also reused, keeping the differential harness
+            // deterministic).
+            let (subagent_llm, subagent_provider): (
+                Option<std::sync::Arc<dyn LlmClient>>,
+                Option<dimi_engine::types::ProviderConfig>,
+            ) = match &input.subagent_model {
+                Some(model) if model != &input.provider => (
+                    Some(std::sync::Arc::new(AimuxLlmClient {
+                        model: openai_model(model),
+                    })),
+                    Some(model.clone()),
+                ),
+                _ => (None, None),
+            };
             registry.register(
                 "Agent",
                 Box::new(AsyncAgentTool {
                     llm: std::sync::Arc::clone(&llm),
                     tools: subagent_tools,
-                    policy: policy.clone(),
+                    policy: policy.lock().unwrap_or_else(|p| p.into_inner()).clone(),
                     max_steps: input.max_steps_per_turn,
                     shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
                     tasks: tasks.clone(),
@@ -567,6 +836,11 @@ impl RustTurnSession {
                     agent_id_counter: std::sync::atomic::AtomicU64::new(
                         input.next_agent_id.unwrap_or(0),
                     ),
+                    subagent_llm,
+                    subagent_provider,
+                    subagent_allowlist: input.subagent_allowlist.clone(),
+                    subagent_timeout_ms: input.subagent_timeout_ms,
+                    max_running_tasks: input.max_running_tasks,
                 }),
             );
             registry.register(
@@ -581,11 +855,12 @@ impl RustTurnSession {
         // re-synced before every run/resume so tools registered mid-session
         // become visible to the model).
         let mut input = input;
+        let active_tools = input.active_tools.clone();
         {
             let registry = tools
                 .try_lock()
                 .map_err(|_| napi::Error::from_reason("registry busy"))?;
-            input.tools = engine_tools(&registry);
+            input.tools = engine_tools(&registry, active_tools.as_deref());
         }
         let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -602,7 +877,9 @@ impl RustTurnSession {
             ),
             llm,
             tools,
+            active_tools,
             policy,
+            tool_gate,
             pending_external: std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
@@ -622,6 +899,43 @@ impl RustTurnSession {
     #[napi]
     pub fn cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Record a session-scope approval (P1-6 review): the engine's policy is
+    /// re-read on every run/resume, so a pattern approved for the session
+    /// mid-turn is honored by the SAME turn's remaining batch — the runner
+    /// calls this before resuming, matching the TS session-approval-history
+    /// policy which reads live (a frozen snapshot would re-ask).
+    #[napi]
+    pub fn add_session_approval(&self, pattern: String) {
+        let mut policy = self.policy.lock().unwrap_or_else(|p| p.into_inner());
+        if !policy.session_approved_patterns.contains(&pattern) {
+            policy.session_approved_patterns.push(pattern);
+        }
+    }
+
+    /// Register the native-tool PreToolUse gate (A2 review): every registry
+    /// tool call is first announced through this callback
+    /// (`{requestId, toolName, arguments}` JSON); the runner answers with
+    /// `completeToolGate(requestId, {decision:'allow'|'block', reason?})`.
+    /// A block short-circuits the call with an error result.
+    #[napi]
+    pub fn set_tool_gate(&self, callback: ToolCallback) {
+        *self.tool_gate.callback.lock().unwrap_or_else(|p| p.into_inner()) = Some(callback);
+    }
+
+    /// Answer a pending gate request (see `set_tool_gate`).
+    #[napi]
+    pub fn complete_tool_gate(&self, request_id: String, verdict_json: String) {
+        let sender = self
+            .tool_gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&request_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(verdict_json);
+        }
     }
 
     /// Cancel a background task (TaskStop parity): flips the task's cancel
@@ -741,14 +1055,17 @@ impl RustTurnSession {
             // registered since the session was constructed).
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry));
+                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
+            // Clone the policy snapshot (P1-6): the guard must not survive
+            // the await (std MutexGuard is !Send).
+            let policy = self.policy.lock().unwrap_or_else(|p| p.into_inner()).clone();
             inner
                 .run(
                     self.llm.as_ref(),
-                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
-                    &self.policy,
+                    &LockedRegistry::with_gate(std::sync::Arc::clone(&self.tools), std::sync::Arc::clone(&self.tool_gate)),
+                    &policy,
                     &mut move |event| {
                         let _ = channel.send(event);
                     },
@@ -809,6 +1126,41 @@ impl RustTurnSession {
         Ok(())
     }
 
+    /// Advertise the LLM-facing definition of a Rust-native tool (Agent /
+    /// AgentOutput / WaitFor): the tool is registered executor-first at
+    /// session construction, so the model could not see it in the request
+    /// `tools` field. The registry keeps the executor and only swaps in the
+    /// def, which the engine re-syncs into every request before each
+    /// run/resume.
+    #[napi]
+    pub fn register_native_tool_def(
+        &self,
+        name: String,
+        description: String,
+        parameters_json: String,
+    ) -> napi::Result<()> {
+        let parameters: serde_json::Value = serde_json::from_str(&parameters_json)
+            .map_err(|_| napi::Error::from_reason("invalid tool parameters JSON"))?;
+        let def = serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        });
+        let mut registry = self
+            .tools
+            .try_lock()
+            .map_err(|_| napi::Error::from_reason("session is busy"))?;
+        if !registry.set_def(&name, Some(def)) {
+            return Err(napi::Error::from_reason(format!(
+                "no native tool registered with name: {name}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Steer a running subagent (async-subagent semantics): the message is
     /// queued and drained into the subagent's next request.
     #[napi]
@@ -853,15 +1205,18 @@ impl RustTurnSession {
             let mut inner = self.inner.lock().await;
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry));
+                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
+            // Clone the policy snapshot (P1-6): the guard must not survive
+            // the await (std MutexGuard is !Send).
+            let policy = self.policy.lock().unwrap_or_else(|p| p.into_inner()).clone();
             inner
                 .resume(
                     decision,
                     self.llm.as_ref(),
-                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
-                    &self.policy,
+                    &LockedRegistry::with_gate(std::sync::Arc::clone(&self.tools), std::sync::Arc::clone(&self.tool_gate)),
+                    &policy,
                     &mut move |event| {
                         let _ = channel.send(event);
                     },
@@ -978,5 +1333,96 @@ mod tests {
             // Drain so the queue never fills across iterations.
             assert!(channel.recv().is_some());
         }
+    }
+
+    #[test]
+    fn task_registry_is_scoped_per_agent_and_shared_within_it() {
+        // P1-1/P1-3 (review): every `RustTurnSession` of the SAME agent must
+        // share ONE subagent task registry — the Agent tool hardcodes
+        // `stop_turn: true`, so the launching turn ends immediately and the
+        // NEXT turn (a new session) must still resolve the task via
+        // AgentOutput / WaitFor. Different agents must NOT see each other's
+        // tasks (agent ids like `agent-0` are only unique within an agent).
+        let first = session_registry("agent-a");
+        let second = session_registry("agent-a");
+        let other = session_registry("agent-b");
+        let task_id = "agent-shared-table-test".to_string();
+        first.tasks.insert(
+            task_id.clone(),
+            dimi_engine::tool::TaskState {
+                agent_id: "agent-0".to_string(),
+                status: "running".to_string(),
+                output: "partial".to_string(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                cancel: None,
+                deadline: std::time::Instant::now(),
+            },
+        );
+        // Same registry id → the second session handle sees the task.
+        let state = second
+            .tasks
+            .get(&task_id)
+            .expect("a task inserted via one session handle must be visible via another");
+        assert_eq!(state.agent_id, "agent-0");
+        assert_eq!(state.status, "running");
+        // Different registry id → isolated.
+        assert!(
+            other.tasks.get(&task_id).is_none(),
+            "a different agent's registry must not see the task"
+        );
+        // drop_task_registry removes the scope.
+        drop_task_registry("agent-a".to_string());
+        let fresh = session_registry("agent-a");
+        assert!(fresh.tasks.get(&task_id).is_none(), "drop must clear the scope");
+    }
+
+    #[test]
+    fn engine_tools_filters_defs_by_active_tools() {
+        // `active_tools` (TS `activeToolNames` parity) hides non-whitelisted
+        // defs from the LLM — today the bridge's hardcoded Bash def leaks even
+        // when the profile does not allow Bash. `None` (absent) keeps every
+        // registered def. Only the LLM-facing advertisement is filtered: the
+        // executors stay in the registry (the filtered model simply never
+        // calls them).
+        let mut registry = ToolRegistry::new();
+        for name in ["Bash", "Read", "Write"] {
+            registry.register_with_def(
+                name,
+                Box::new(BashTool::default()),
+                Some(serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": format!("{name} tool"),
+                        "parameters": { "type": "object", "properties": {} },
+                    }
+                })),
+            );
+        }
+        let names = |tools: Vec<dimi_engine::types::EngineTool>| -> Vec<String> {
+            tools.into_iter().map(|t| t.name).collect()
+        };
+
+        // No whitelist → every registered def is advertised.
+        let all = names(engine_tools(&registry, None));
+        assert_eq!(
+            all,
+            vec!["Bash".to_string(), "Read".to_string(), "Write".to_string()]
+        );
+
+        // Whitelist → only the listed defs; the hardcoded Bash def must not
+        // leak when it is outside the whitelist.
+        let whitelisted = names(engine_tools(&registry, Some(&["Read".to_string()])));
+        assert_eq!(whitelisted, vec!["Read".to_string()]);
+        assert!(
+            !whitelisted.iter().any(|n| n == "Bash"),
+            "Bash must not be advertised when it is outside the whitelist"
+        );
+
+        // An empty whitelist hides every tool.
+        let none = names(engine_tools(&registry, Some(&[])));
+        assert!(none.is_empty(), "an empty whitelist hides every tool");
     }
 }

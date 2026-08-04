@@ -27,10 +27,15 @@ import { RustTurnSession } from "@dimi-agent/dimi-native";
 
 import { escapeXml } from "#/_base/utils/xml-escape";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
-import type { ContextMessage, PromptOrigin, TaskOrigin } from "#/agent/contextMemory/types";
-import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
+import type {
+  ContextMessage,
+  PromptOrigin,
+  SystemTriggerOrigin,
+  TaskOrigin,
+} from "#/agent/contextMemory/types";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
+import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
 import { EngineTaskAdapter } from "#/agent/loop/engineTaskAdapter";
 import { renderNotificationXml } from "#/agent/task/notificationXml";
@@ -42,6 +47,10 @@ import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnO
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
 import { ILogService } from "#/_base/log/log";
+import { isPlainRecord } from "#/_base/utils/canonical-args";
+import { toDimiErrorPayload } from "#/errors";
+import { IExternalHooksRunnerService } from "#/app/externalHooksRunner/externalHooksRunner";
+import { IAgentToolResultTruncationService } from "#/agent/toolResultTruncation/toolResultTruncation";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
@@ -58,6 +67,66 @@ import {
   fullCompactionBegin,
   fullCompactionComplete,
 } from "#/agent/fullCompaction/compactionOps";
+import {
+  ALL_DONE_TOOL_NAME,
+  COMPLETION_REVIEW_MIN_STEPS,
+  COMPLETION_REVIEW_REMINDER,
+} from "#/agent/completion/completion";
+
+// P1-2 (review): the engine's WaitFor waits for a background SUBAGENT task by
+// `agent_id` — a different tool from the TS `waitForTool.ts`, whose schema
+// (`reason`/`timeout_seconds`, no `agent_id`) describes TS user-wait /
+// notification-wake semantics (a parking gap the engine does not implement).
+// The def the model sees must match the engine implementation: `agent_id`
+// required + `timeout_seconds` optional + an honest description of the
+// boundary (subagent wait only, not user wait). An unknown `agent_id` now
+// fails fast on the engine side, so the model gets a real error instead of a
+// guaranteed full-timeout blind wait.
+const WAIT_FOR_NATIVE_DESCRIPTION = [
+  "Wait for a background subagent task to finish (or time out).",
+  "Pass the `agent_id` of a subagent launched by the Agent tool (from its launch output).",
+  "The call blocks until that subagent completes, fails, or the timeout expires, then returns its final status and output.",
+  "This waits on a specific subagent task, NOT on the user: user-wait (waking on user notifications) is not implemented.",
+  "Prefer AgentOutput for a quick status check; use WaitFor when the turn should pause until the subagent finishes.",
+].join(" ");
+
+/** Engine-native tools that execute inside Rust (not through the TS
+ *  toolExecutor): the PreToolUse gate and the external-tool registration
+ *  distinguish them from TS-side tools. */
+const ENGINE_NATIVE_TOOLS = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
+
+const WAIT_FOR_NATIVE_PARAMETERS = {
+  type: "object",
+  properties: {
+    agent_id: {
+      type: "string",
+      description:
+        "Agent id of the running subagent task to wait for, as returned by the Agent tool launch output.",
+    },
+    timeout_seconds: {
+      type: "integer",
+      minimum: 1,
+      maximum: 1800,
+      description:
+        "How long to wait for the subagent before giving up. Defaults to 60; maximum 1800.",
+    },
+  },
+  required: ["agent_id"],
+  additionalProperties: false,
+};
+
+// P2-4 (review): TS `AgentSystemReminderService.appendSystemReminder` parity —
+// idempotently wrap a reminder in `<system-reminder>` markers. The engine
+// already wraps the completion-review reminder it injects (and mirrors on the
+// `completion.review.injected` event), so an already-wrapped text is left
+// untouched; a bare one is wrapped before it reaches the context.
+function wrapSystemReminder(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<system-reminder>") && trimmed.endsWith("</system-reminder>")) {
+    return trimmed;
+  }
+  return `<system-reminder>\n${trimmed}\n</system-reminder>`;
+}
 
 import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
 import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
@@ -99,6 +168,72 @@ function rustEngineEnabled(): boolean {
 /** Render an engine event/tool value as text (strings pass through). */
 function toText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value) ?? "";
+}
+
+/**
+ * Serialize a TS `PromptOrigin` into the wire `TurnOrigin` JSON shape the
+ * engine deserializes (`{ kind: 'user' }` / `{ kind: 'task', taskId }` /
+ * … — see `dimi-wire` `model.rs`). Unknown kinds fall back to a plain user
+ * origin (the wire default).
+ */
+function toEngineTurnOrigin(origin: PromptOrigin): Record<string, unknown> {
+  switch (origin.kind) {
+    case "task":
+      return { kind: "task", taskId: origin.taskId };
+    case "cron_job":
+      return { kind: "cron", taskId: origin.jobId };
+    case "cron_missed":
+      return { kind: "cron" };
+    case "hook_result":
+      return { kind: "hook" };
+    case "compaction_summary":
+      return { kind: "compaction" };
+    default:
+      return { kind: "user" };
+  }
+}
+
+/**
+ * TS `isDisplayablePromptOrigin` parity: only user-origin (and user-slash
+ * skill/plugin) turns expose their prompt on `turn.started`; task/cron/hook
+ * steering text must never leak into the transcript.
+ */
+function isDisplayablePromptOrigin(origin: PromptOrigin): boolean {
+  if (origin.kind === "user") return true;
+  return (
+    (origin.kind === "skill_activation" || origin.kind === "plugin_command") &&
+    origin.trigger === "user-slash"
+  );
+}
+
+/**
+ * TS `errorInfo(code).retryable` parity for the engine's provider codes
+ * (`app/providerRuntime/errors.ts` retryable list). The engine's wire error
+ * carries only `{ message, code }`; the runner maps the retryable verdict.
+ */
+const RETRYABLE_ERROR_CODES = new Set([
+  "provider.rate_limit",
+  "provider.connection_error",
+  "provider.overloaded",
+  "context.overflow",
+]);
+
+/**
+ * Build a DimiErrorPayload-shaped error from the engine's `{ message, code }`
+ * payload (TS `toDimiErrorPayload` parity): always carries `name` (the error
+ * class name, mapped from the code when the engine omitted it), `retryable`
+ * (mapped from the code per the TS registry) and `message`.
+ */
+function buildErrorPayload(rawError: Record<string, unknown>): Record<string, unknown> {
+  const error = { ...rawError };
+  if (error["name"] === undefined || error["name"] === null) {
+    error["name"] = error["code"] === "PROVIDER_FILTERED" ? "ProviderFilteredError" : "Error";
+  }
+  if (error["retryable"] === undefined) {
+    error["retryable"] =
+      typeof error["code"] === "string" && RETRYABLE_ERROR_CODES.has(error["code"] as string);
+  }
+  return error;
 }
 
 /** Optional numeric engine field (pid / exitCode). */
@@ -258,7 +393,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IEventBus private readonly eventBus: IEventBus,
     @IWireService private readonly wire: IWireService,
     @IConfigService private readonly config: IConfigService,
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
@@ -271,8 +405,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProviderRuntime private readonly providerRuntime: IProviderRuntime,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @ILogService private readonly log: ILogService,
-  ) {}
+  ) {
+    // Agent-scoped subagent registry id: every RustTurnSession of this agent
+    // shares one registry (subagent tasks + steering queues), and no other
+    // agent can see them. Released on dispose.
+    this.registryId = randomUUID();
+  }
+
+  /** Agent-scoped Rust subagent registry id (see constructor). */
+  private readonly registryId: string;
+
+  /** TS `stopHookContinuationUsed` parity: the Stop hook fires at most once
+   * after a continuation was delivered. */
+  private stopHookContinuationUsed = false;
 
   static isEnabled(): boolean {
     return rustEngineEnabled();
@@ -327,6 +474,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     if (this.disposed) return undefined;
     // 1. Turn clock + user message (mirrors loopService.startTurn).
     this.wire.dispatch(promptTurn({ input: [...payload.input], origin: payload.origin }));
+    // Turn ids are 0-based (TS parity): the TS loop reserves `nextTurnId - 1`
+    // — `reserveTurnId` reads the wire clock *before* the `turn.prompt` op is
+    // dispatched at start, so the first turn is 0 (verified by loop.test.ts
+    // telemetry `turn_id: 0` and the TurnModel clock reducer, which only stays
+    // consistent when engine event turn ids are 0-based). Do not "fix" this to
+    // 1-based: it diverges from TS and double-advances the wire clock.
     const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
 
     const userMessage: ContextMessage = {
@@ -387,6 +540,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.sessions.clear();
     this.taskSessions.clear();
     this.engineTaskAdapters.clear();
+    // Release the agent-scoped subagent registry (tasks + steering queues).
+    RustTurnSession.dropTaskRegistry(this.registryId);
   }
 
   private startQueuedTurn(entry: {
@@ -396,7 +551,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }): void {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
-    void this.runTurnNow(entry.turnId)
+    void this.runTurnNow(entry.turnId, entry.payload.origin)
       .catch(() => undefined)
       .finally(() => {
         this.turnRunning = false;
@@ -414,7 +569,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       });
   }
 
-  private async runTurnNow(turnId: number): Promise<{ readonly turnId: number }> {
+  private async runTurnNow(turnId: number, origin: PromptOrigin): Promise<{ readonly turnId: number }> {
     if (this.disposed) return { turnId };
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
@@ -428,6 +583,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const provider = await this.providerConfig();
     const inputJson = JSON.stringify({
       turnId,
+      origin: toEngineTurnOrigin(origin),
+      // TS `usesWorkerRejectionGuidance` parity: subagent/worker turns append
+      // the "Try a different approach…" suffix to permission-deny and
+      // approval-rejected tool outputs (toolApprovalService.ts).
+      usesWorkerRejectionGuidance: this.scopeContext.agentId !== 'main',
+      // TS `isToolActive` parity, engine side: the bridge filters its native
+      // defs (Bash/…) by this allowlist, so an inactive Bash no longer leaks
+      // into the request `tools` field. `null` = unconstrained (all tools).
+      activeTools: this.effectiveActiveTools() ?? null,
       messages,
       tools: [],
       provider,
@@ -439,6 +603,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // bash poller waits this long between SIGTERM and SIGKILL so a trap
       // keeps its cleanup window; the TS task service reads the same config.
       killGraceMs: this.killGracePeriodMs(),
+      // Completion-review protocol (TS `COMPLETION_REVIEW_MIN_STEPS`
+      // parity): after a tool-free step at/after the threshold the engine
+      // injects the reminder and keeps the turn alive until AllDone. Always
+      // passed for runnable profiles; short turns below the threshold are
+      // unaffected by the engine.
+      completionReview: {
+        minSteps: COMPLETION_REVIEW_MIN_STEPS,
+        reminder: COMPLETION_REVIEW_REMINDER,
+      },
       cwd: this.profile.data().cwd ?? process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
@@ -452,11 +625,56 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     });
     // Test hook: DIMI_RUST_ENGINE_SCRIPTED injects scripted LLM segments.
     const scripted = process.env["DIMI_RUST_ENGINE_SCRIPTED"];
-    const session = new RustTurnSession(inputJson, policyJson, scripted ?? undefined);
+    const session = new RustTurnSession(
+      inputJson,
+      policyJson,
+      scripted ?? undefined,
+      this.registryId,
+    );
     this.sessions.add(session);
     this.activeSession = session;
+    // A2 (review): native tools (Bash/Agent/…) execute inside the engine,
+    // bypassing the TS toolExecutor — register the PreToolUse gate so
+    // user-configured veto hooks apply to them too. External tools answer
+    // `allow` here (their callback runs its own PreToolUse).
+    session.setToolGate((payloadJson: string) => {
+      void (async () => {
+        const payload = JSON.parse(payloadJson) as {
+          requestId: string;
+          toolName: string;
+          arguments: unknown;
+        };
+        let verdict: { decision: "allow" } | { decision: "block"; reason: string } = {
+          decision: "allow",
+        };
+        try {
+          const hooksRunner = this.instantiation.invokeFunction(
+            (accessor) =>
+              accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+          );
+          if (hooksRunner !== undefined && ENGINE_NATIVE_TOOLS.has(payload.toolName)) {
+            const block = await hooksRunner.triggerBlock("PreToolUse", {
+              matcherValue: payload.toolName,
+              signal: new AbortController().signal,
+              sessionId: this.sessionContext.sessionId,
+              inputData: {
+                toolName: payload.toolName,
+                toolInput: isPlainRecord(payload.arguments) ? payload.arguments : {},
+                toolCallId: `native-${payload.toolName}`,
+              },
+            });
+            if (block !== undefined) {
+              verdict = { decision: "block", reason: block.reason };
+            }
+          }
+        } catch {
+          // Fail-open: no hooks configured / runner unavailable.
+        }
+        session.completeToolGate(payload.requestId, JSON.stringify(verdict));
+      })();
+    });
     try {
-      await this.runEngineSession(session, turnId, provider["model"] as string);
+      await this.runEngineSession(session, turnId, provider["model"] as string, origin);
     } finally {
       this.activeSession = undefined;
     }
@@ -471,6 +689,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     session: RustTurnSession,
     turnId: number,
     providerModel: string,
+    origin: PromptOrigin,
   ): Promise<void> {
     interface EngineProgress {
       progress: {
@@ -488,22 +707,85 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     }
     // Register the TS tool ecosystem (MCP / plugins / skills / built-in file
     // tools) into the engine; the Rust-native tools stay on the Rust side.
-    const engineNativeTools = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
+    // Registration is a synchronous napi call that can throw (unknown native
+    // tool name / malformed parameter JSON / registry lock busy) — a throw
+    // here must NOT escape into `startQueuedTurn`'s `.catch(() => undefined)`
+    // (the prompt op is already recorded, so the turn would never end): log
+    // it, then skip the tool, or fail the turn for the native-def path.
+    const engineNativeTools = ENGINE_NATIVE_TOOLS;
+    // TS `isToolActive` parity (profile allowlist/denylist): only active
+    // tools are exposed to the model. AllDone is always active (the
+    // completion-review protocol needs it). The engine's hardcoded native
+    // defs (Bash/…) are filtered by the same set via `activeTools`.
+    const activeSet = this.effectiveActiveTools();
+    const isToolActiveForRunner = (name: string): boolean =>
+      activeSet === undefined || activeSet.includes(name);
     for (const info of this.toolRegistry.list()) {
-      if (engineNativeTools.has(info.name)) continue;
-      const tool = this.toolRegistry.resolve(info.name);
-      if (tool === undefined) continue;
-      // The def (name/description/parameters) advertises the tool to the
-      // model; the engine re-syncs it into every request's `tools` field.
-      session.registerExternalTool(
-        info.name,
-        info.description,
-        JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
-        (payloadJson: string) => {
+      if (!isToolActiveForRunner(info.name)) continue;
+      try {
+        if (engineNativeTools.has(info.name)) {
+          // The Rust-native tools (Agent / AgentOutput / WaitFor) are
+          // registered executor-first on the engine side — without an
+          // LLM-facing def, so the model could not see them in the request
+          // `tools` field. Advertise their defs (name/description/parameters)
+          // through the bridge; the engine re-syncs them into every request
+          // before each run/resume. Bash keeps the bridge's hardcoded def, so
+          // only the three async tools are pushed from here.
+          if (info.name !== 'Bash') {
+            if (info.name === 'WaitFor') {
+              // P1-2 (review): the TS `waitForTool.ts` def (user-wait
+              // semantics, no `agent_id`) does NOT describe the engine's
+              // WaitFor (waits for a subagent task by `agent_id`). Push the
+              // engine-matching def so the model passes `agent_id`.
+              session.registerNativeToolDef(
+                info.name,
+                WAIT_FOR_NATIVE_DESCRIPTION,
+                JSON.stringify(WAIT_FOR_NATIVE_PARAMETERS),
+              );
+            } else {
+              session.registerNativeToolDef(
+                info.name,
+                info.description,
+                JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+              );
+            }
+          }
+          continue;
+        }
+        const tool = this.toolRegistry.resolve(info.name);
+        if (tool === undefined) continue;
+        // The def (name/description/parameters) advertises the tool to the
+        // model; the engine re-syncs it into every request's `tools` field.
+        session.registerExternalTool(
+          info.name,
+          info.description,
+          JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+          (payloadJson: string) => {
         void (async () => {
-          const payload = JSON.parse(payloadJson) as { requestId: string; toolCallId?: string; name: string; arguments: unknown };
+          const payload = JSON.parse(payloadJson) as {
+            requestId: string;
+            toolCallId?: string;
+            name: string;
+            arguments: unknown;
+            toolCalls?: Array<{ id?: string; name: string; arguments: unknown }>;
+          };
           try {
-            const execution = await tool.resolveExecution(payload.arguments);
+            // The engine carries the full assistant-message batch this call
+            // is part of (`ToolContext.tool_calls` → bridge `payload.toolCalls`):
+            // rebuild the TS `ToolResolutionContext` so same-round validations
+            // (AllDone's "only tool call in its round" / background-task
+            // guards) behave exactly like the TS loop, which passes
+            // `{ toolCalls: allCalls }` (toolExecutorService).
+            const toolCalls = (payload.toolCalls ?? []).map((call) => ({
+              type: "function" as const,
+              id: call.id ?? payload.toolCallId ?? payload.requestId,
+              name: call.name,
+              arguments:
+                typeof call.arguments === "string"
+                  ? call.arguments
+                  : (JSON.stringify(call.arguments) ?? "null"),
+            }));
+            const execution = await tool.resolveExecution(payload.arguments, { toolCalls });
             if (execution.isError === true) {
               session.completeToolCall(
                 payload.requestId,
@@ -518,22 +800,115 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               );
               return;
             }
+            // P1-8 (review): the Rust path bypasses the TS toolExecutor, so
+            // PreToolUse external hooks (veto) never fire on their own — the
+            // runner triggers them explicitly, exactly where TS does
+            // (`beforeExecuteEmitter.fireBeforeExecute` after resolve,
+            // before execute). A block vetoes the call.
+            const signal = new AbortController().signal;
+            const hooksRunner = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+            );
+            const toolInput = isPlainRecord(payload.arguments) ? payload.arguments : {};
+            const toolCallId = payload.toolCallId ?? payload.requestId;
+            if (hooksRunner !== undefined) {
+              const block = await hooksRunner.triggerBlock("PreToolUse", {
+                matcherValue: payload.name,
+                signal,
+                sessionId: this.sessionContext.sessionId,
+                inputData: {
+                  toolName: payload.name,
+                  toolInput,
+                  toolCallId,
+                },
+              });
+              if (block !== undefined) {
+                session.completeToolCall(
+                  payload.requestId,
+                  JSON.stringify({
+                    toolCallId,
+                    toolName: payload.name,
+                    output: block.reason,
+                    isError: true,
+                    stopTurn: false,
+                    updates: [],
+                  }),
+                );
+                return;
+              }
+            }
             const result = await execution.execute({
               turnId: 0,
-              toolCallId: payload.toolCallId ?? payload.requestId,
-              signal: new AbortController().signal,
+              toolCallId,
+              signal,
+              onUpdate: (update) => {
+                if (signal.aborted) return;
+                // TS `dispatchToolProgress` parity: stream live tool
+                // updates as `tool.progress` bus events.
+                this.eventBus.publish({
+                  type: "tool.progress",
+                  turnId,
+                  toolCallId,
+                  update,
+                } as never);
+              },
             });
+            // P1-7 (review): truncate oversized tool results for the model
+            // (TS toolResultTruncation parity). The engine feeds the raw
+            // output text into the next request, so a multi-MB result must
+            // be replaced by the persisted-file preview; fail soft if the
+            // truncation service is unavailable.
+            let finalResult = result;
+            const truncation = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IAgentToolResultTruncationService) as
+                  | IAgentToolResultTruncationService
+                  | undefined,
+            );
+            if (truncation !== undefined) {
+              try {
+                finalResult = await truncation.truncateForModel({
+                  toolName: payload.name,
+                  toolCallId,
+                  result,
+                });
+              } catch {
+                // Keep the full output (fail soft).
+              }
+            }
             session.completeToolCall(
               payload.requestId,
               JSON.stringify({
-                toolCallId: payload.toolCallId ?? payload.requestId,
+                toolCallId,
                 toolName: payload.name,
-                output: toText(result.output),
-                isError: result.isError === true,
-                stopTurn: result.stopTurn === true,
+                output: toText(finalResult.output),
+                isError: finalResult.isError === true,
+                stopTurn: finalResult.stopTurn === true,
                 updates: [],
               }),
             );
+            // P1-8 (review): PostToolUse fire-and-forget (TS
+            // `notifyPostToolUse` parity — informational, never blocks).
+            if (hooksRunner !== undefined) {
+              const outputText = toText(finalResult.output);
+              const isError = finalResult.isError === true;
+              void hooksRunner.fireAndForgetTrigger(
+                isError ? "PostToolUseFailure" : "PostToolUse",
+                {
+                  matcherValue: payload.name,
+                  signal,
+                  sessionId: this.sessionContext.sessionId,
+                  inputData: {
+                    toolName: payload.name,
+                    toolInput,
+                    toolCallId,
+                    error: isError ? toDimiErrorPayload(outputText) : undefined,
+                    toolOutput: isError ? undefined : outputText.slice(0, 2000),
+                  },
+                },
+              );
+            }
           } catch (error) {
             session.completeToolCall(
               payload.requestId,
@@ -549,6 +924,43 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           }
         })();
       });
+      } catch (error) {
+        if (engineNativeTools.has(info.name) && info.name !== 'Bash') {
+          // A native-def registration failure (unknown native tool name /
+          // malformed parameter JSON / registry lock busy) is a config/code
+          // error: the model would silently lose Agent/AgentOutput/WaitFor
+          // for the whole turn. Log it, surface a failed turn.ended + error
+          // on the bus (TS loopService parity — the activity view's busy
+          // flag and pending interactions reset on turn.ended), then fail
+          // the turn explicitly.
+          this.log.error('[rustEngineTurnRunner] failed to register native tool def', {
+            name: info.name,
+            error,
+          });
+          this.eventBus.publish({
+            type: 'turn.ended',
+            turnId,
+            reason: 'failed',
+            error: {
+              name: 'ToolRegistrationError',
+              message: `Failed to register native tool def "${info.name}"`,
+            },
+          } as never);
+          this.eventBus.publish({
+            type: 'error',
+            name: 'ToolRegistrationError',
+            message: `Failed to register native tool def "${info.name}"`,
+          } as never);
+          throw error;
+        }
+        // An external-tool registration failure is transient (the same list
+        // is re-registered on the next turn's fresh session): log and skip
+        // the tool so the rest of the turn can proceed.
+        this.log.error('[rustEngineTurnRunner] failed to register external tool', {
+          name: info.name,
+          error,
+        });
+      }
     }
     // 4. Engine events → bus (projection folds them into transcript ops).
     //    Context mirroring mirrors the TS loop's record stream exactly:
@@ -557,8 +969,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     //    assistant + tool messages, so the runner never appends messages by
     //    hand (that produced duplicated/placeholder history).
     let stepUuid: string | undefined;
-    let openText = "";
-    let openThinking = "";
+    // Streamed parts are recorded in arrival order (TS `appendResponseContent`
+    // iterates the provider message content in stream order): consecutive
+    // deltas of the same type merge into one part, a type change opens a new
+    // part — never reordered into a merged think-before-text pair.
+    type OpenSegment = { type: "think"; text: string } | { type: "text"; text: string };
+    const segments: OpenSegment[] = [];
+    // Whether the CURRENT step's LLM response completed (a tool call started).
+    // TS lands the step's text as soon as its response completes; a step
+    // interrupted mid-tool must flush, a step interrupted mid-stream must not.
+    let stepSawToolCall = false;
+    // Native (in-engine) tool calls seen this turn: toolCallId → {name, input}.
+    // TS fires PostToolUse for EVERY executed tool; native tools bypass the
+    // external-tool callback, so the runner fires it on the mirrored
+    // `tool.result` (fire-and-forget, informational).
+    const nativeToolCalls = new Map<string, { name: string; input: unknown }>();
     let usage = emptyUsage();
 
     const publish = (event: Record<string, unknown>): void => {
@@ -567,16 +992,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
 
     const flushParts = (turnId: number, step: number): void => {
-      const parts: ContentPart[] = [];
-      if (openThinking.length > 0) {
-        parts.push({ type: "think", think: openThinking });
-        openThinking = "";
-      }
-      if (openText.length > 0) {
-        parts.push({ type: "text", text: openText });
-        openText = "";
-      }
-      for (const part of parts) {
+      for (const segment of segments.splice(0)) {
+        const part: ContentPart =
+          segment.type === "think"
+            ? { type: "think", think: segment.text }
+            : { type: "text", text: segment.text };
         this.context.appendLoopEvent({
           type: "content.part",
           stepUuid: stepUuid!,
@@ -620,11 +1040,69 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         this.handleTaskSettled(event);
         return;
       }
-      publish(event);
+      if (event["type"] === "completion.review.injected") {
+        // Mirror the completion-review reminder into the context (TS
+        // loopContinuationService parity: origin
+        // `system_trigger`/`completion_review`); NOT published on the bus
+        // (TS emits no bus event for the reminder).
+        this.context.append({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              // P2-4 (review): TS `appendSystemReminder` wraps reminders in
+              // `<system-reminder>` markers. The engine injects (and
+              // announces) the wrapped reminder; wrap idempotently here so a
+              // bare reminder from any source still lands wrapped.
+              text: wrapSystemReminder(toText(event["reminder"])),
+            },
+          ],
+          toolCalls: [],
+          origin: { kind: "system_trigger", name: "completion_review" },
+          id: randomUUID(),
+        });
+        return;
+      }
+      // P0-1 / P1-1 / P1-5 (adversarial review): the engine's wire shapes
+      // differ from what TS bus consumers expect — normalize before
+      // publishing:
+      //  - `turn.step.completed.usage` → TS four-component TokenUsage (the
+      //    live transcript projector folds it per step; the engine's
+      //    TranscriptUsage shape made turn-header usage NaN→null and broke
+      //    the transcript zod contract).
+      //  - `turn.started.prompt` → stripped for non-displayable origins
+      //    (task/cron/hook notifications must not leak their steering XML).
+      //  - `turn.ended.error` → full DimiErrorPayload (name/retryable).
+      const busEvent = { ...event };
+      if (event["type"] === "turn.step.completed") {
+        const engineUsage = event["usage"] as
+          | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
+          | undefined;
+        if (engineUsage !== undefined) {
+          const inputCacheRead = engineUsage.cachedTokens ?? 0;
+          busEvent["usage"] = {
+            inputOther: Math.max((engineUsage.inputTokens ?? 0) - inputCacheRead, 0),
+            output: engineUsage.outputTokens ?? 0,
+            inputCacheRead,
+            inputCacheCreation: 0,
+          };
+        } else {
+          busEvent["usage"] = emptyUsage();
+        }
+      } else if (event["type"] === "turn.ended" && event["reason"] === "failed") {
+        const rawError = event["error"] as Record<string, unknown> | undefined;
+        if (rawError !== undefined) {
+          busEvent["error"] = buildErrorPayload(rawError);
+        }
+      } else if (event["type"] === "turn.started" && !isDisplayablePromptOrigin(origin)) {
+        delete busEvent["prompt"];
+      }
+      publish(busEvent);
       switch (event["type"]) {
         case "turn.step.started": {
           const stepNumber = Number(event["step"] ?? 1);
           stepUuid = randomUUID();
+          stepSawToolCall = false;
           this.context.appendLoopEvent({
             type: "step.begin",
             uuid: stepUuid,
@@ -634,11 +1112,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "thinking.delta": {
-          openThinking += toText(event["delta"]);
+          const last = segments[segments.length - 1];
+          if (last?.type === "think") {
+            last.text += toText(event["delta"]);
+          } else {
+            segments.push({ type: "think", text: toText(event["delta"]) });
+          }
           break;
         }
         case "assistant.delta": {
-          openText += toText(event["delta"]);
+          const last = segments[segments.length - 1];
+          if (last?.type === "text") {
+            last.text += toText(event["delta"]);
+          } else {
+            segments.push({ type: "text", text: toText(event["delta"]) });
+          }
           break;
         }
         case "tool.call.delta": {
@@ -649,6 +1137,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         case "tool.call.started": {
           const id = toText(event["toolCallId"]);
           const name = toText(event["name"]);
+          stepSawToolCall = true;
+          if (ENGINE_NATIVE_TOOLS.has(name)) {
+            nativeToolCalls.set(id, { name, input: event["args"] });
+          }
           this.context.appendLoopEvent({
             type: "tool.call",
             stepUuid: stepUuid!,
@@ -665,6 +1157,34 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const id = toText(event["toolCallId"]);
           const output = toText(event["output"]);
           const isError = event["isError"] === true;
+          // TS `notifyPostToolUse` parity for native tools: the engine
+          // executed the call in-process, so the runner fires the
+          // fire-and-forget hook on the mirrored result.
+          const native = nativeToolCalls.get(id);
+          if (native !== undefined) {
+            nativeToolCalls.delete(id);
+            const hooksRunner = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+            );
+            if (hooksRunner !== undefined) {
+              void hooksRunner.fireAndForgetTrigger(
+                isError ? "PostToolUseFailure" : "PostToolUse",
+                {
+                  matcherValue: native.name,
+                  signal: new AbortController().signal,
+                  sessionId: this.sessionContext.sessionId,
+                  inputData: {
+                    toolName: native.name,
+                    toolInput: isPlainRecord(native.input) ? native.input : {},
+                    toolCallId: id,
+                    error: isError ? toDimiErrorPayload(output) : undefined,
+                    toolOutput: isError ? undefined : output.slice(0, 2000),
+                  },
+                },
+              );
+            }
+          }
           this.context.appendLoopEvent({
             type: "tool.result",
             toolCallId: id,
@@ -694,12 +1214,28 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           } as never);
           break;
         }
+        case "turn.step.interrupted": {
+          // TS `appendResponseContent` lands the step's text the moment its
+          // LLM response completes (before tools run). A step interrupted
+          // mid-tool has a completed response (tool calls were seen) → flush
+          // the buffered parts so the text survives a cancel; a step
+          // interrupted mid-LLM-stream (no tool calls yet) drops the partial
+          // text — the response never completed, matching TS.
+          if (stepSawToolCall) {
+            flushParts(turnId, Number(event["step"] ?? 1));
+          }
+          break;
+        }
         case "turn.step.completed": {
           const stepFinish = toText(event["finishReason"] ?? "end_turn");
           const stepNumber = Number(event["step"] ?? 1);
           flushParts(turnId, stepNumber);
           // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
-          // four-component TokenUsage + wire usage.record.
+          // four-component TokenUsage + wire usage.record. Per-step parity:
+          // every step.end carries THIS step's LLM usage (TS
+          // llmRequesterService starts each request at emptyUsage), so a
+          // step without recorded tokens gets zeros — never the previous
+          // step's numbers carried forward.
           const engineUsage = event["usage"] as
             | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
             | undefined;
@@ -711,12 +1247,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               inputCacheRead,
               inputCacheCreation: 0,
             };
-            this.usageService.record(
-              providerModel,
-              usage,
-              { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
-            );
+          } else {
+            usage = emptyUsage();
           }
+          this.usageService.record(
+            providerModel,
+            usage,
+            { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
+          );
           this.context.appendLoopEvent({
             type: "step.end",
             uuid: stepUuid!,
@@ -725,15 +1263,26 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             finishReason: stepFinish,
             usage,
           });
+          // P1-3 (adversarial review): TS fires the Stop hook after every
+          // non-tool step (`externalHooksService` onDidFinishStep → runStop);
+          // a returned reason becomes a continuation (system_trigger /
+          // stop_hook) and the turn continues.
+          if (stepFinish !== "tool_use" && stepFinish !== "filtered") {
+            this.runStopHook(turnId);
+          }
           break;
         }
         case "turn.ended": {
           // Failed turns surface the error bus event (TS failLoopStep
-          // parity) so error handlers/subscribers see it.
+          // parity) so error handlers/subscribers see it, with the same
+          // DimiErrorPayload shape the `turn.ended` event now carries.
+          // P1-3 (focused review): TS resets `stopHookContinuationUsed` on
+          // every turn.ended — the Stop hook must fire again on the next turn.
+          this.stopHookContinuationUsed = false;
           if (event["reason"] === "failed" && event["error"] !== undefined) {
             this.eventBus.publish({
               type: "error",
-              ...(event["error"] as Record<string, unknown>),
+              ...buildErrorPayload(event["error"] as Record<string, unknown>),
             } as never);
           }
           break;
@@ -818,8 +1367,73 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             : undefined,
         result: response,
       });
+      // P1-6 (review): the engine's policy is frozen per session — push a
+      // session-scope approval into the live policy so the SAME turn's
+      // remaining batch auto-approves instead of re-asking (TS
+      // session-approval-history parity). Must happen before resume so the
+      // continued batch evaluates with the updated policy.
+      if (response.decision === "approved" && response.scope === "session") {
+        session.addSessionApproval(approvalRequest.toolName);
+      }
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
     }
+  }
+
+  /**
+   * TS `externalHooksService.runStop` parity (P1-3): after a non-tool step,
+   * fire the Stop hook; a returned reason becomes a continuation message
+   * (origin `system_trigger`/`stop_hook`) that keeps the turn alive —
+   * steered into the running turn, or launched as a fresh turn when the
+   * engine already finished (the task-notification fallback). Fires at most
+   * once after a continuation was used, mirroring `stopHookContinuationUsed`.
+   */
+  private runStopHook(turnId: number): void {
+    if (this.stopHookContinuationUsed) return;
+    // Synchronous latch (P1-3 focused review): set BEFORE any await so a
+    // concurrent `turn.ended` reset cannot clobber an in-flight delivery.
+    // TS sets it after runStop resolves, inside the step lifecycle; the
+    // runner's step handler and turn.ended handler are sequential, so the
+    // synchronous set here is equivalent (a non-tool step without a
+    // continuation ends the turn — a second non-tool step in the same turn
+    // cannot occur).
+    this.stopHookContinuationUsed = true;
+    const hooksRunner = this.instantiation.invokeFunction(
+      (accessor) =>
+        accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+    );
+    if (hooksRunner === undefined) return;
+    void (async () => {
+      try {
+        const block = await hooksRunner.triggerBlock("Stop", {
+          signal: new AbortController().signal,
+          sessionId: this.sessionContext.sessionId,
+          inputData: { stopHookActive: false },
+        });
+        const reason = block?.reason;
+        if (reason === undefined || reason.length === 0) return;
+        const origin: SystemTriggerOrigin = { kind: "system_trigger", name: "stop_hook" };
+        if (
+          this.turnRunning &&
+          this.activeSession !== undefined &&
+          this.activeSession.steer(reason)
+        ) {
+          this.context.append({
+            role: "user",
+            content: [{ type: "text", text: reason }],
+            toolCalls: [],
+            origin,
+            id: randomUUID(),
+          });
+          this.wire.dispatch(steerTurn({ input: [{ type: "text", text: reason }], origin }));
+        } else {
+          void this.runTurn({ input: [{ type: "text", text: reason }], origin }).catch(
+            () => undefined,
+          );
+        }
+      } catch {
+        // Fail-open: no hooks configured / runner unavailable.
+      }
+    })();
   }
 
   /**
@@ -1225,6 +1839,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   private maxStepsPerTurn(): number | undefined {
     return this.config.get<{ maxStepsPerTurn?: number }>("loop_control")?.maxStepsPerTurn;
+  }
+
+  /**
+   * The effective engine-side tool allowlist (TS `isToolActiveComposed`
+   * parity): the runner's `IAgentToolPolicyService.isToolActive` composes
+   * the profile allowlist/denylist, the global `[tools]` config, and the
+   * session denylist — with MCP glob semantics for `mcp__*` tools. AllDone
+   * stays active regardless (the completion-review protocol needs it).
+   * `undefined` = unconstrained (all tools).
+   */
+  private effectiveActiveTools(): string[] | undefined {
+    const all = this.toolRegistry.list().map((info) => info.name);
+    const active = all.filter((name) => {
+      if (name === ALL_DONE_TOOL_NAME) return true;
+      return this.toolPolicy.isToolActive(name);
+    });
+    return active.length === all.length ? undefined : active;
   }
 
   private maxRetriesPerStep(): number | undefined {

@@ -40,6 +40,7 @@ async function runTurn(
     input,
     JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
     JSON.stringify(segments),
+    'test-registry',
   );
   // The engine streams every event through the per-event callback as it is
   // emitted; the response carries only the progress.
@@ -197,8 +198,11 @@ describe('RustEngine minimal closed loop', () => {
 
     expect(batch.outcome.status).toBe('failed');
     expect(batch.outcome.errorCode).toBe('LOOP_MAX_STEPS_EXCEEDED');
+    // TS parity: max-steps fails before a step begins (`runtime.current` is
+    // undefined), so no `turn.step.interrupted` is emitted — the turn ends
+    // via `turn.ended` alone.
     const interrupted = batch.events.find((event) => event['type'] === 'turn.step.interrupted');
-    expect(interrupted?.['reason']).toBe('max_steps');
+    expect(interrupted).toBeUndefined();
     const ended = batch.events[batch.events.length - 1]!;
     expect(ended['type']).toBe('turn.ended');
     expect(ended['reason']).toBe('failed');
@@ -272,7 +276,8 @@ describe('RustEngine minimal closed loop', () => {
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);
@@ -338,12 +343,20 @@ describe('RustEngine minimal closed loop', () => {
           },
           { type: 'finish', finishReason: 'tool_calls' },
         ],
+        // The launching turn continues after the Agent call (same-turn
+        // continue parity): it consumes the next segment, so the SUBAGENT's
+        // result is the final segment.
+        [
+          { type: 'text', delta: 'main turn done' },
+          { type: 'finish', finishReason: 'stop' },
+        ],
         [
           { type: 'text', delta: 'subagent result text' },
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);
@@ -397,7 +410,8 @@ describe('RustEngine minimal closed loop', () => {
           { type: 'finish', finishReason: 'stop' },
         ],
       ]),
-    );
+    'test-registry',
+  );
     const events: Array<Record<string, unknown>> = [];
     session.setOnEvent((eventJson: string) => {
       events.push(JSON.parse(eventJson) as Record<string, unknown>);

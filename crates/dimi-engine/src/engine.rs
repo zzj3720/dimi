@@ -18,8 +18,11 @@
 
 use std::time::Instant;
 
-use dimi_wire::model::{TranscriptUsage, TurnOrigin};
+use dimi_wire::model::TranscriptUsage;
+#[cfg(test)]
+use dimi_wire::model::TurnOrigin;
 
+use crate::dedupe::{DedupeCheck, DedupeState};
 use crate::events::{EngineEvent, FinishReason};
 use crate::llm::{ChatRequest, LlmClient, LlmStreamEvent};
 use crate::permission::{
@@ -89,15 +92,17 @@ enum StepDisposition {
     /// No tool calls — the turn is complete; carries the provider's finish
     /// reason (truncated/filtered responses change the turn outcome).
     Complete { finish: FinishReason },
-    /// Tool calls to run through the policy gate.
-    Continue(Vec<ToolCall>),
+    /// Tool calls to run through the policy gate, plus the step's assistant
+    /// text (TS parity: an assistant message may carry BOTH text and tool
+    /// calls — the text must reach the next request's context).
+    Continue { calls: Vec<ToolCall>, text: String },
 }
 
 /// Accumulates usage across steps; per-step usage is reported in
 /// `turn.step.completed` (the projection layer folds step usages into the
 /// turn header).
 #[derive(Debug, Clone, Default)]
-struct UsageAccumulator {
+pub(crate) struct UsageAccumulator {
     prompt_tokens: u64,
     completion_tokens: u64,
     cached_tokens: u64,
@@ -139,6 +144,63 @@ impl UsageAccumulator {
     }
 }
 
+/// The tool-result text the TS projector inserts when a tool exchange is
+/// unresolved at compaction time (parity with contextProjectorService's
+/// `TOOL_INTERRUPTED_TEXT`).
+const TOOL_INTERRUPTED_TEXT: &str =
+    "Tool result is not available in the current context. Do not assume the tool completed successfully.";
+
+/// The rejection-guidance suffix TS appends to deny / approval-rejection
+/// messages for subagent/worker turns (`toolApprovalService.ts`
+/// `formatDenyMessage` / `formatApprovalRejectionMessage` when
+/// `scopeContext.agentId !== 'main'`). Byte-for-byte parity (leading space
+/// and em-dash included — the suffix is appended directly after the base
+/// message with no separator).
+const WORKER_REJECTION_GUIDANCE_SUFFIX: &str =
+    " Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
+
+/// Close unresolved tool exchanges in a message list before sending it to the
+/// summarizer: an assistant message whose tool_calls never got a result would
+/// otherwise be sent as a dangling exchange. Each missing result is filled
+/// with a synthetic tool message right after the assistant message that made
+/// the call (TS contextProjector parity).
+fn close_unresolved_tool_exchanges(messages: &mut Vec<LlmMessage>) {
+    let mut resolved: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for message in messages.iter() {
+        if message.role == "tool" {
+            if let Some(id) = &message.tool_call_id {
+                resolved.insert(id.clone());
+            }
+        }
+    }
+    let mut missing: Vec<(usize, String)> = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        if message.role != "assistant" {
+            continue;
+        }
+        for tool_call in message.tool_calls.iter().flatten() {
+            if !resolved.contains(&tool_call.id) {
+                missing.push((index, tool_call.id.clone()));
+            }
+        }
+    }
+    // Insert after the assistant message that made the call. Iterate in
+    // reverse so earlier insertions do not shift later indices.
+    for (index, id) in missing.into_iter().rev() {
+        messages.insert(
+            index + 1,
+            LlmMessage {
+                role: "tool".to_string(),
+                content: serde_json::Value::String(TOOL_INTERRUPTED_TEXT.to_string()),
+                name: None,
+                tool_call_id: Some(id),
+                tool_calls: None,
+                reasoning: None,
+            },
+        );
+    }
+}
+
 impl Engine {
     /// Run one turn to completion. Approvals are not wired in this
     /// convenience entry: if the policy asks, the tool call is denied
@@ -170,7 +232,7 @@ impl Engine {
                     TurnProgress::Completed(outcome) => outcome,
                     TurnProgress::NeedsApproval(_) => {
                         // Another approval surfaced — deny it too, then finish.
-                        session
+                        match session
                             .resume(
                                 ApprovalDecision::Rejected { feedback: None },
                                 llm,
@@ -179,7 +241,19 @@ impl Engine {
                                 on_event,
                             )
                             .await
-                            .into_completed_or_failed()
+                        {
+                            TurnProgress::Completed(outcome) => outcome,
+                            // A third approval surfaced — fail with the
+                            // session's real step count (P2-12 review: a
+                            // hardcoded 0 under-reported progress).
+                            TurnProgress::NeedsApproval(_) => TurnOutcome {
+                                status: TurnEndReason::Failed,
+                                steps: session.steps,
+                                error: Some("approval pending without a resolver".to_string()),
+                                error_code: Some("APPROVAL_PENDING".to_string()),
+                                truncated: None,
+                            },
+                        }
                     }
                 }
             }
@@ -274,6 +348,10 @@ pub struct TurnSession {
     /// compaction is skipped — prevents immediate re-compaction loops when
     /// the summary message itself approaches the window.
     last_compacted_tokens: Option<u64>,
+    /// Tool-call dedupe state (TS `AgentToolDedupeService`): same-step
+    /// suppression + cross-step repeat reminders. Per-turn by construction —
+    /// a fresh session starts with a cleared streak.
+    dedupe: DedupeState,
     /// Cooperative cancellation (RPC cancel → engine).
     cancel: std::sync::Arc<CancelSignal>,
     /// Set once the turn has ended (every finish path): a steer racing the
@@ -288,6 +366,24 @@ pub struct TurnSession {
 pub struct PendingApproval {
     pub request: ApprovalRequest,
     pub call: ToolCall,
+    /// The pending call's position inside `batch` — where the resumed batch
+    /// continues (siblings before it already ran; ones after it still must).
+    pub index: usize,
+    /// The full assistant-message batch this call came from — carried across
+    /// the approval pause so a resumed call still sees its same-round
+    /// siblings and the batch continues after the pending call (TS
+    /// `ToolResolutionContext.toolCalls` parity; AllDone's mixed-use guard
+    /// needs the whole original batch).
+    pub batch: Vec<ToolCall>,
+    /// The engine step that owns this batch (the paused step): after the
+    /// resumed batch finishes, the step must still emit its
+    /// `TurnStepCompleted` (P2-3 review — TS loop parity, the approval
+    /// round-trip lives inside the step's tool phase).
+    pub step: u32,
+    /// The step's LLM usage accumulated before the pause, carried so the
+    /// resumed step's `TurnStepCompleted` reports the same usage the normal
+    /// path would (TS `finishStep` parity).
+    pub(crate) usage: UsageAccumulator,
 }
 
 /// Where the turn stands after `run` / `resume`.
@@ -295,22 +391,6 @@ pub struct PendingApproval {
 pub enum TurnProgress {
     Completed(TurnOutcome),
     NeedsApproval(ApprovalRequest),
-}
-
-impl TurnProgress {
-    /// Non-interactive fallback: collapse any state into an outcome.
-    pub fn into_completed_or_failed(self) -> TurnOutcome {
-        match self {
-            TurnProgress::Completed(outcome) => outcome,
-            TurnProgress::NeedsApproval(_) => TurnOutcome {
-                status: TurnEndReason::Failed,
-                steps: 0,
-                error: Some("approval pending without a resolver".to_string()),
-                error_code: Some("APPROVAL_PENDING".to_string()),
-                truncated: None,
-            },
-        }
-    }
 }
 
 impl TurnSession {
@@ -345,6 +425,7 @@ impl TurnSession {
             pending: None,
             steer,
             last_compacted_tokens: None,
+            dedupe: DedupeState::default(),
             cancel,
             finished,
         }
@@ -359,6 +440,20 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
         self.messages = self.input.messages.clone();
+        // `turn.started` belongs to the run entry, not the step loop: the
+        // loop is re-entered after an approval resume, and a second
+        // `turn.started` would corrupt the transcript (P2-3 review fix).
+        let turn_id = self.input.turn_id;
+        let origin = self.input.origin.clone();
+        let prompt = last_user_text(&self.input.messages);
+        emit(
+            on_event,
+            EngineEvent::TurnStarted {
+                turn_id,
+                origin: origin.clone(),
+                prompt,
+            },
+        );
         self.run_loop(llm, tools, policy, on_event).await
     }
 
@@ -395,9 +490,31 @@ impl TurnSession {
                 truncated: None,
             });
         };
+        // P1-5 (review): the user already cancelled while the approval was
+        // pending (TaskStop / session close) — do not execute the pending
+        // call, continue the batch, or re-ask. Finish cancelled immediately
+        // (TS parity: the step signal aborts the whole step). The paused
+        // step still gets its `turn.step.interrupted` so the transcript does
+        // not leave it open (P2-6 review — TS emits interrupted for the
+        // active step on cancel).
+        if self.cancel.is_cancelled() {
+            emit(
+                on_event,
+                EngineEvent::TurnStepInterrupted {
+                    turn_id: self.input.turn_id,
+                    step: pending.step as i64,
+                    step_id: None,
+                    reason: "aborted".to_string(),
+                    message: None,
+                },
+            );
+            return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
+        }
+        let pending_step = pending.step;
+        let pending_usage = pending.usage.clone();
         let result = match decision {
             ApprovalDecision::Approved => {
-                let ctx = self.tool_ctx();
+                let ctx = self.tool_ctx(&pending.batch);
                 tokio::select! {
                     result = execute_tool(self.input.turn_id, pending.call.clone(), tools, &ctx, on_event) => result,
                     _ = self.cancel.cancelled() => {
@@ -421,10 +538,15 @@ impl TurnSession {
                     }
                 }
             }
-            ApprovalDecision::Rejected { feedback } => ToolResult {
-                tool_call_id: pending.call.id.clone(),
-                tool_name: pending.call.name.clone(),
-                output: match feedback {
+            ApprovalDecision::Rejected { feedback } => {
+                // The fold needs the started record before the result; the
+                // started event lands after the approval decision, exactly
+                // once per call (P2-2 review — TS toolExecutorService
+                // dispatch parity).
+                emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                // TS `formatApprovalRejectionMessage` parity: worker turns
+                // append the rejection-guidance suffix to the message.
+                let output = self.worker_rejection_output(match feedback {
                     Some(reason) if !reason.is_empty() => format!(
                         "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
                         pending.call.name, reason
@@ -433,39 +555,118 @@ impl TurnSession {
                         "Tool \"{}\" was not run because the user rejected the approval request.",
                         pending.call.name
                     ),
-                },
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
-            ApprovalDecision::Cancelled => ToolResult {
-                tool_call_id: pending.call.id.clone(),
-                tool_name: pending.call.name.clone(),
-                output: format!(
+                });
+                ToolResult {
+                    tool_call_id: pending.call.id.clone(),
+                    tool_name: pending.call.name.clone(),
+                    output,
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+            ApprovalDecision::Cancelled => {
+                emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                // The TS `formatApprovalRejectionMessage` prefix for a
+                // cancelled decision also carries the worker guidance suffix.
+                let output = self.worker_rejection_output(format!(
                     "Tool \"{}\" was not run because the approval request was cancelled.",
                     pending.call.name
-                ),
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
+                ));
+                ToolResult {
+                    tool_call_id: pending.call.id.clone(),
+                    tool_name: pending.call.name.clone(),
+                    output,
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
         };
+        let result = self.dedupe.finalize_result(&pending.call.id, result);
         emit_tool_result(&result, self.input.turn_id, on_event);
-        self.messages.push(LlmMessage {
-            role: "tool".to_string(),
-            content: serde_json::Value::String(result.output.clone()),
-            name: Some(result.tool_name.clone()),
-            tool_call_id: Some(result.tool_call_id.clone()),
-            tool_calls: None,
-            reasoning: None,
-        });
+        self.messages.push(tool_result_message(&result));
         if result.stop_turn {
+            // The pending call itself stopped the turn (or the dedupe
+            // force-stop fired): the remaining siblings never run and get
+            // synthetic skipped results (P2-7 parity), so no tool_call
+            // dangles in the next request.
+            self.synthesize_skipped_siblings(&pending.batch, pending.index + 1, on_event);
+            self.dedupe.end_step();
+            self.emit_step_completed(
+                pending_step,
+                &pending_usage,
+                normalize_finish_reason(FinishReason::Completed),
+                on_event,
+            );
             return self.finish_turn(TurnEndReason::Completed, on_event);
         }
-        self.run_loop(llm, tools, policy, on_event).await
+        // P1-1: an approval pauses the batch, it does not cancel the round —
+        // after the pending call the remaining siblings still run (TS
+        // parity). A sibling that needs approval pauses the turn again.
+        match self
+            .execute_batch(
+                &pending.batch,
+                pending.index + 1,
+                tools,
+                policy,
+                on_event,
+                self.input.turn_id,
+                self.steps,
+                &pending_usage,
+            )
+            .await
+        {
+            Ok(stop_turn) => {
+                if stop_turn {
+                    self.emit_step_completed(
+                        pending_step,
+                        &pending_usage,
+                        normalize_finish_reason(FinishReason::Completed),
+                        on_event,
+                    );
+                    return self.finish_turn(TurnEndReason::Completed, on_event);
+                }
+                // The paused step finishes once its batch resolved (P2-3
+                // review): without this the transcript keeps the step open
+                // and the next `turn.step.started` has no matching
+                // `turn.step.completed`.
+                self.emit_step_completed(
+                    pending_step,
+                    &pending_usage,
+                    normalize_finish_reason(FinishReason::ToolCalls),
+                    on_event,
+                );
+                self.run_loop(llm, tools, policy, on_event).await
+            }
+            Err(progress) => progress,
+        }
     }
 
-    fn tool_ctx(&self) -> ToolContext {
+    /// Emit `TurnStepCompleted` for a step whose batch was interrupted by an
+    /// approval pause (TS `finishStep` parity): the normal path emits it
+    /// right after `execute_batch` returns, and the resumed path must do the
+    /// same so the transcript never sees an open step.
+    fn emit_step_completed(
+        &self,
+        step: u32,
+        usage: &UsageAccumulator,
+        finish: &str,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        emit(
+            on_event,
+            EngineEvent::TurnStepCompleted {
+                turn_id: self.input.turn_id,
+                step: step as i64,
+                step_id: None,
+                usage: usage.transcript_usage(),
+                finish_reason: Some(finish.to_string()),
+            },
+        );
+    }
+
+    fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
         ToolContext {
             cwd: self.input.cwd.clone().unwrap_or_else(|| ".".to_string()),
             shell: self
@@ -473,6 +674,256 @@ impl TurnSession {
                 .shell
                 .clone()
                 .unwrap_or_else(dimi_exec::env::default_shell),
+            tool_calls: calls.to_vec(),
+        }
+    }
+
+    /// Append the worker rejection-guidance suffix when the input requests it
+    /// (TS `usesWorkerRejectionGuidance` parity — `scopeContext.agentId !==
+    /// 'main'`): the runner sets `uses_worker_rejection_guidance` for
+    /// subagent/worker turns, and the deny / approval-rejection tool outputs
+    /// then carry the same suffix TS appends for the model/user.
+    fn worker_rejection_output(&self, output: String) -> String {
+        if self.input.uses_worker_rejection_guidance {
+            format!("{output}{WORKER_REJECTION_GUIDANCE_SUFFIX}")
+        } else {
+            output
+        }
+    }
+
+    /// Execute the tool-call batch from `start` onward (approval-resume
+    /// parity): returns `Ok(stop_turn)` when the batch finished, or
+    /// `Err(TurnProgress)` when a sibling needs approval (the caller returns
+    /// the NeedsApproval progress) or the turn was cancelled mid-batch.
+    ///
+    /// The batch loop is shared between the initial step (start = 0) and an
+    /// approval resume (start = pending.index + 1) so an approval pauses the
+    /// round instead of cancelling it (P1-1), and a stop_turn inside the
+    /// batch synthesizes skipped results for the unrun siblings (P2-7).
+    async fn execute_batch(
+        &mut self,
+        calls: &[ToolCall],
+        start: usize,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+        turn_id: i64,
+        step_number: u32,
+        usage: &UsageAccumulator,
+    ) -> Result<bool, TurnProgress> {
+        let mut stop_turn = false;
+        for (index, call) in calls.iter().enumerate().skip(start) {
+            // P1-5 (review): a cancel arriving between siblings stops the
+            // batch instead of executing the rest or surfacing another
+            // approval request after the user already cancelled. The step is
+            // interrupted like the in-flight cancel paths (P2-6 review).
+            if self.cancel.is_cancelled() {
+                emit(
+                    on_event,
+                    EngineEvent::TurnStepInterrupted {
+                        turn_id,
+                        step: step_number as i64,
+                        step_id: None,
+                        reason: "aborted".to_string(),
+                        message: None,
+                    },
+                );
+                return Err(self.finish_turn_with_error(
+                    TurnEndReason::Cancelled,
+                    None,
+                    None,
+                    on_event,
+                ));
+            }
+            let input = PolicyInput {
+                mode: policy.mode,
+                tool_name: call.name.clone(),
+                args: call.arguments.clone(),
+                rules: policy.rules.clone(),
+                session_approved_patterns: policy.session_approved_patterns.clone(),
+                match_arg: call
+                    .arguments
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+                cwd: self.input.cwd.clone(),
+                paths: crate::permission::extract_access_paths(&call.name, &call.arguments),
+            };
+            // Same-step dedupe (TS `onBeforeExecuteTool` veto): the check runs
+            // before the policy gate — the veto fires before the allow
+            // decision, so a same-step duplicate is suppressed even when the
+            // original would be denied. The duplicate is announced but never
+            // executed and settles with the original's finalized result.
+            match self.dedupe.check(&call.id, &call.name, &call.arguments) {
+                DedupeCheck::Duplicate { key } => {
+                    let mut shared = self
+                        .dedupe
+                        .shared_result(&key)
+                        .cloned()
+                        .unwrap_or_else(|| ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: "Tool call deduplicated but original result was lost"
+                                .to_string(),
+                            is_error: true,
+                            stop_turn: false,
+                            updates: vec![],
+                        });
+                    // TS parity: the duplicate carries its own call id in the
+                    // `tool.result` (the executor settles the dispatched call)
+                    // but shares the original's output verbatim.
+                    shared.tool_call_id = call.id.clone();
+                    shared.tool_name = call.name.clone();
+                    emit_tool_call_started(call, turn_id, on_event);
+                    emit_tool_result(&shared, turn_id, on_event);
+                    self.messages.push(tool_result_message(&shared));
+                    if shared.stop_turn {
+                        self.synthesize_skipped_siblings(calls, index + 1, on_event);
+                        stop_turn = true;
+                        break;
+                    }
+                    continue;
+                }
+                DedupeCheck::Original => {}
+            }
+            match evaluate(&input) {
+                PolicyDecision::Approve => {
+                    // Carry the step's full tool-call batch in the context so
+                    // external tools can validate the round (e.g. the TS
+                    // AllDone tool rejects a mixed batch).
+                    let ctx = self.tool_ctx(calls);
+                    let result = tokio::select! {
+                        result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
+                        _ = self.cancel.cancelled() => {
+                            tools.abort(call);
+                            emit(
+                                on_event,
+                                EngineEvent::TurnStepInterrupted {
+                                    turn_id,
+                                    step: step_number as i64,
+                                    step_id: None,
+                                    reason: "aborted".to_string(),
+                                    message: None,
+                                },
+                            );
+                            return Err(self.finish_turn_with_error(
+                                TurnEndReason::Cancelled,
+                                None,
+                                None,
+                                on_event,
+                            ));
+                        }
+                    };
+                    // Cross-step repeat reminders (TS `finalizeResult`): the
+                    // reminder is appended to the result output before the
+                    // model sees it, and the result is recorded so same-step
+                    // duplicates share it.
+                    let result = self.dedupe.finalize_result(&call.id, result);
+                    emit_tool_result(&result, turn_id, on_event);
+                    self.messages.push(tool_result_message(&result));
+                    if result.stop_turn {
+                        // P2-7: the unrun siblings get synthetic error
+                        // results so every tool_call in the assistant
+                        // message has a matching tool result (TS
+                        // toolExecutorService parity).
+                        self.synthesize_skipped_siblings(calls, index + 1, on_event);
+                        stop_turn = true;
+                        break;
+                    }
+                }
+                PolicyDecision::Deny { reason } => {
+                    // The call still happened (the fold's tool.result needs
+                    // the tool.call record).
+                    emit_tool_call_started(call, turn_id, on_event);
+                    // TS `formatDenyMessage` parity: worker turns append the
+                    // rejection-guidance suffix to the deny message.
+                    let output = self.worker_rejection_output(reason);
+                    let result = ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output,
+                        is_error: true,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                    // Denied calls flow through the dedupe finalize like any
+                    // other executed call (TS `onDidExecuteTool` fires for
+                    // them too): reminders apply to the deny output.
+                    let result = self.dedupe.finalize_result(&call.id, result);
+                    emit_tool_result(&result, turn_id, on_event);
+                    self.messages.push(tool_result_message(&result));
+                }
+                PolicyDecision::Ask => {
+                    // The call is announced when it is dispatched after the
+                    // approval decision (resume emits started + result for
+                    // every decision — P2-2 parity with TS
+                    // toolExecutorService), so no event is emitted at the
+                    // pause itself.
+                    let request = ApprovalRequest {
+                        request_id: format!("approval-{turn_id}-{}", call.id),
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        action: Some("Run tool".to_string()),
+                        display: Some(serde_json::json!({
+                            "tool": call.name,
+                            "args": call.arguments
+                        })),
+                        tool_input: Some(call.arguments.clone()),
+                    };
+                    self.pending = Some(PendingApproval {
+                        request: request.clone(),
+                        call: call.clone(),
+                        batch: calls.to_vec(),
+                        index,
+                        step: step_number,
+                        usage: usage.clone(),
+                    });
+                    return Err(TurnProgress::NeedsApproval(request));
+                }
+            }
+        }
+        // TS `endStep` (onDidFinishStep): the step's batch fully resolved —
+        // fold every call of the step into the cross-step streak. Not run on
+        // the approval-pause path (this returns Err above), because the
+        // paused step continues on resume.
+        self.dedupe.end_step();
+        Ok(stop_turn)
+    }
+
+    /// P2-7: synthesize an error tool result for every unrun sibling in the
+    /// batch (a previous call stopped the turn), keeping the assistant
+    /// message's tool_calls fully resolved (TS toolExecutorService parity).
+    fn synthesize_skipped_siblings(
+        &mut self,
+        calls: &[ToolCall],
+        after: usize,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        for sibling in &calls[after..] {
+            // P2-1 (review): announce the skipped call before its synthetic
+            // result (TS `prepareSkippedToolCall` emits started first) — a
+            // bare `tool.result` would be an orphan on the wire/transcript.
+            emit_tool_call_started(sibling, self.input.turn_id, on_event);
+            let skipped = ToolResult {
+                tool_call_id: sibling.id.clone(),
+                tool_name: sibling.name.clone(),
+                // P2-5 (review): byte-for-byte TS `prepareSkippedToolCall`
+                // output — the text is fed to the LLM, so divergence would
+                // show up in model-visible behavior.
+                output: "Tool skipped because a previous tool call stopped the turn.".to_string(),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            };
+            emit_tool_result(&skipped, self.input.turn_id, on_event);
+            self.messages.push(LlmMessage {
+                role: "tool".to_string(),
+                content: serde_json::Value::String(skipped.output),
+                name: Some(skipped.tool_name.clone()),
+                tool_call_id: Some(skipped.tool_call_id.clone()),
+                tool_calls: None,
+                reasoning: None,
+            });
         }
     }
 
@@ -521,6 +972,11 @@ impl TurnSession {
         let instruction = crate::compaction::compaction_instruction_message();
 
         let mut history = self.messages.clone();
+        // Close unresolved tool exchanges before the summarizer sees the
+        // history: an assistant message whose tool_calls never got a result
+        // would otherwise be sent as a dangling exchange (TS
+        // contextProjector parity — it inserts TOOL_INTERRUPTED_TEXT).
+        close_unresolved_tool_exchanges(&mut history);
         let mut summary = String::new();
         for _ in 0..=crate::compaction::COMPACTION_MAX_SHRINK_ATTEMPTS {
             let mut messages = history.clone();
@@ -533,8 +989,20 @@ impl TurnSession {
             };
             match llm.stream_chat(&request).await {
                 Ok(turn) => {
+                    // A truncated summary (finish_reason = length) is not
+                    // trustworthy: treat it like an empty summary and retry
+                    // with a smaller prefix (TS CompactionTruncatedError
+                    // parity — exhausted retries fail soft below).
+                    let truncated = turn.events.iter().any(|event| {
+                        matches!(
+                            event,
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some(reason),
+                            } if reason == "length"
+                        )
+                    });
                     let text = turn.assistant.text.trim().to_string();
-                    if !text.is_empty() {
+                    if !text.is_empty() && !truncated {
                         summary = text;
                         break;
                     }
@@ -576,16 +1044,6 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
         let turn_id = self.input.turn_id;
-        let origin = TurnOrigin::User { payload: None };
-        let prompt = last_user_text(&self.input.messages);
-        emit(
-            on_event,
-            EngineEvent::TurnStarted {
-                turn_id,
-                origin: origin.clone(),
-                prompt,
-            },
-        );
 
         loop {
             // Cancellation (RPC cancel → engine): checked at every step
@@ -594,21 +1052,13 @@ impl TurnSession {
                 return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
             }
 
-            // max-steps guard.
+            // max-steps guard. TS parity: the guard fires before a step
+            // begins (`runtime.current` is undefined), so TS never emits
+            // `turn.step.interrupted` for it — emitting one would overwrite
+            // the already-completed step's state on the transcript. The turn
+            // ends failed via `turn.ended` alone.
             if let Some(max) = self.input.max_steps_per_turn {
                 if max > 0 && self.steps >= max {
-                    emit(
-                        on_event,
-                        EngineEvent::TurnStepInterrupted {
-                            turn_id,
-                            step: self.steps as i64,
-                            step_id: None,
-                            reason: "max_steps".to_string(),
-                            message: Some(format!(
-                                "Turn exceeded maxSteps={max}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn)"
-                            )),
-                        },
-                    );
                     return self.finish_turn_with_error(
                         TurnEndReason::Failed,
                         Some(format!("Turn exceeded maxSteps={max}")),
@@ -649,6 +1099,9 @@ impl TurnSession {
 
             self.steps += 1;
             let step_number = self.steps;
+            // TS `onWillBeginStep` (toolDedupe beginStep): reset the per-step
+            // dedupe state; the cross-step streak survives.
+            self.dedupe.begin_step();
             emit(
                 on_event,
                 EngineEvent::TurnStepStarted {
@@ -831,6 +1284,52 @@ impl TurnSession {
                             },
                         );
                     };
+                    // Completion-review injection (TS loopContinuationService
+                    // parity): a tool-free step at/after the configured
+                    // threshold must NOT end the turn with a plain text reply
+                    // — the engine injects the review reminder into its
+                    // working messages and keeps the turn alive so the model
+                    // must call AllDone (TS appends the system reminder and
+                    // enqueues a continuation step). Filtered / truncated /
+                    // length finishes keep their failure/truncation paths (TS
+                    // short-circuits `finishReason === 'filtered'` before the
+                    // continuation).
+                    if let Some(config) = &self.input.completion_review {
+                        let reviewable = !matches!(
+                            finish,
+                            FinishReason::Filtered
+                                | FinishReason::ContentFilter
+                                | FinishReason::Truncated
+                                | FinishReason::Length
+                        );
+                        if reviewable && self.steps >= config.min_steps {
+                            step_complete();
+                            // P2-4 (review): wrap the reminder in
+                            // `<system-reminder>` markers (TS
+                            // `appendSystemReminder` parity). The wrap is
+                            // idempotent: the runner passes the bare
+                            // `COMPLETION_REVIEW_REMINDER`, tests may pass an
+                            // already-wrapped one — both reach the LLM (and
+                            // the mirror event) wrapped exactly once.
+                            let reminder = wrap_system_reminder(&config.reminder);
+                            self.messages.push(LlmMessage {
+                                role: "user".to_string(),
+                                content: serde_json::Value::String(reminder.clone()),
+                                name: None,
+                                tool_call_id: None,
+                                tool_calls: None,
+                                reasoning: None,
+                            });
+                            emit(
+                                on_event,
+                                EngineEvent::CompletionReviewInjected {
+                                    turn_id,
+                                    reminder,
+                                },
+                            );
+                            continue;
+                        }
+                    }
                     if self.has_pending_steer() {
                         // A steer arrived while this step ran (async subagent
                         // finished). The step itself is complete, but the turn
@@ -866,14 +1365,17 @@ impl TurnSession {
                         }
                     }
                 }
-                StepDisposition::Continue(calls) => {
+                StepDisposition::Continue { calls, text } => {
                     // The assistant message carrying the tool calls must
                     // precede the tool results (providers reject a `tool`
                     // message without a preceding `tool_calls`; the TS loop
-                    // pushes it the same way).
+                    // pushes it the same way). P1-4 (adversarial review): the
+                    // step's assistant TEXT is preserved alongside the calls —
+                    // TS `appendResponseContent` keeps it in the context, so
+                    // the next request must see the same text.
                     self.messages.push(LlmMessage {
                         role: "assistant".to_string(),
-                        content: serde_json::Value::String(String::new()),
+                        content: serde_json::Value::String(text),
                         name: None,
                         tool_call_id: None,
                         tool_calls: Some(
@@ -892,105 +1394,28 @@ impl TurnSession {
                         ),
                         reasoning: None,
                     });
-                    let mut stop_turn = false;
-                    for call in &calls {
-                        let input = PolicyInput {
-                            mode: policy.mode,
-                            tool_name: call.name.clone(),
-                            args: call.arguments.clone(),
-                            rules: policy.rules.clone(),
-                            session_approved_patterns: policy.session_approved_patterns.clone(),
-                            match_arg: call
-                                .arguments
-                                .get("command")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_owned),
-                        };
-                        match evaluate(&input) {
-                            PolicyDecision::Approve => {
-                                let ctx = self.tool_ctx();
-                                let result = tokio::select! {
-                                    result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
-                                    _ = self.cancel.cancelled() => {
-                                        tools.abort(&call);
-                                        emit(
-                                            on_event,
-                                            EngineEvent::TurnStepInterrupted {
-                                                turn_id,
-                                                step: step_number as i64,
-                                                step_id: None,
-                                                reason: "aborted".to_string(),
-                                                message: None,
-                                            },
-                                        );
-                                        return self.finish_turn_with_error(
-                                            TurnEndReason::Cancelled,
-                                            None,
-                                            None,
-                                            on_event,
-                                        );
-                                    }
-                                };
-                                emit_tool_result(&result, turn_id, on_event);
-                                self.messages.push(LlmMessage {
-                                    role: "tool".to_string(),
-                                    content: serde_json::Value::String(result.output.clone()),
-                                    name: Some(result.tool_name.clone()),
-                                    tool_call_id: Some(result.tool_call_id.clone()),
-                                    tool_calls: None,
-                                    reasoning: None,
-                                });
-                                if result.stop_turn {
-                                    stop_turn = true;
-                                    break;
-                                }
-                            }
-                            PolicyDecision::Deny { reason } => {
-                                // The call still happened (the fold's
-                                // tool.result needs the tool.call record).
-                                emit_tool_call_started(&call, turn_id, on_event);
-                                let result = ToolResult {
-                                    tool_call_id: call.id.clone(),
-                                    tool_name: call.name.clone(),
-                                    output: reason,
-                                    is_error: true,
-                                    stop_turn: false,
-                                    updates: vec![],
-                                };
-                                emit_tool_result(&result, turn_id, on_event);
-                                self.messages.push(LlmMessage {
-                                    role: "tool".to_string(),
-                                    content: serde_json::Value::String(result.output),
-                                    name: Some(call.name.clone()),
-                                    tool_call_id: Some(call.id.clone()),
-                                    tool_calls: None,
-                                    reasoning: None,
-                                });
-                            }
-                            PolicyDecision::Ask => {
-                                // The call is announced before the pause (TS
-                                // onToolCall semantics), so a rejected resume
-                                // still folds a proper tool message.
-                                emit_tool_call_started(call, turn_id, on_event);
-                                let request = ApprovalRequest {
-                                    request_id: format!("approval-{turn_id}-{}", call.id),
-                                    tool_call_id: call.id.clone(),
-                                    tool_name: call.name.clone(),
-                                    action: Some("Run tool".to_string()),
-                                    display: Some(serde_json::json!({
-                                        "tool": call.name,
-                                        "args": call.arguments
-                                    })),
-                                    tool_input: Some(call.arguments.clone()),
-                                };
-                                self.pending = Some(PendingApproval {
-                                    request: request.clone(),
-                                    call: call.clone(),
-                                });
-                                return TurnProgress::NeedsApproval(request);
-                            }
-                        }
-                    }
+                    let stop_turn = match self
+                        .execute_batch(
+                            &calls,
+                            0,
+                            tools,
+                            policy,
+                            on_event,
+                            turn_id,
+                            step_number,
+                            &usage,
+                        )
+                        .await
+                    {
+                        Ok(stop_turn) => stop_turn,
+                        // A sibling needs approval (or the turn was cancelled
+                        // mid-batch): surface that progress to the caller.
+                        Err(progress) => return progress,
+                    };
+                    // P2-4 (review): a successful tool-call step also resets
+                    // the transient-failure retry budget (TS stepRetry resets
+                    // on every successful step via `onDidFinishStep`).
+                    self.retry_attempts = 0;
                     if stop_turn {
                         self.mark_finished();
                         emit(
@@ -1143,6 +1568,20 @@ fn emit_tool_result(
     });
 }
 
+/// The `tool` message the engine appends to its working messages after a
+/// tool result (providers reject a `tool` message without a preceding
+/// `tool_calls`; the TS loop pushes the same shape).
+fn tool_result_message(result: &ToolResult) -> LlmMessage {
+    LlmMessage {
+        role: "tool".to_string(),
+        content: serde_json::Value::String(result.output.clone()),
+        name: Some(result.tool_name.clone()),
+        tool_call_id: Some(result.tool_call_id.clone()),
+        tool_calls: None,
+        reasoning: None,
+    }
+}
+
 /// Execute one step's LLM phase: stream → parse → tool call list. The tool
 /// phase is driven by the session loop (policy + approvals).
 async fn execute_step(
@@ -1217,11 +1656,28 @@ async fn execute_step(
     if tool_calls.is_empty() {
         return Ok(StepDisposition::Complete { finish });
     }
-    Ok(StepDisposition::Continue(tool_calls))
+    Ok(StepDisposition::Continue {
+        calls: tool_calls,
+        text: assistant.text.clone(),
+    })
 }
 
 fn emit(on_event: &mut dyn FnMut(EngineEvent), event: EngineEvent) {
     on_event(event);
+}
+
+/// TS `AgentSystemReminderService.appendSystemReminder` parity: reminders are
+/// wrapped in `<system-reminder>` markers before they reach the LLM. The wrap
+/// is idempotent — the reminder may already be wrapped (the engine tests
+/// supply one; the runner's `COMPLETION_REVIEW_REMINDER` is bare text, which
+/// gets wrapped here) — so an already-wrapped reminder is left untouched.
+fn wrap_system_reminder(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.starts_with("<system-reminder>") && trimmed.ends_with("</system-reminder>") {
+        trimmed.to_string()
+    } else {
+        format!("<system-reminder>\n{trimmed}\n</system-reminder>")
+    }
 }
 
 /// Last user message text — the `prompt` field of `turn.started`
@@ -1270,6 +1726,7 @@ mod tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://example.test/v1".to_string(),
                 api_key: "test-key".to_string(),
@@ -1283,7 +1740,14 @@ mod tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         }
     }
 
@@ -1367,6 +1831,194 @@ mod tests {
         // turn.ended reason completed.
         let ended = serde_json::to_value(&events[5]).unwrap();
         assert_eq!(ended["reason"], "completed");
+    }
+
+    #[tokio::test]
+    async fn turn_started_carries_the_input_origin() {
+        // TS parity: `turn.started` carries the input's `origin`
+        // (PromptOrigin); the default is a user-origin turn.
+        let engine = Engine::default();
+        let llm = ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "hi".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        let __bash = crate::tool::BashTool::default();
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+
+        // Custom origin: the event carries it verbatim.
+        let mut custom_input = input(vec![user_message("hi")]);
+        custom_input.origin = TurnOrigin::Task {
+            task_id: dimi_wire::id::TaskId::new_unchecked("task-1".to_string()),
+            payload: None,
+        };
+        let mut events = Vec::new();
+        engine
+            .run_turn(
+                &custom_input,
+                &llm,
+                &__bash,
+                &policy,
+                &mut |event| events.push(event),
+            )
+            .await;
+        let started = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(started["type"], "turn.started");
+        assert_eq!(started["origin"]["kind"], "task");
+        assert_eq!(started["origin"]["taskId"], "task-1");
+
+        // Default input: a user-origin turn.
+        let mut events = Vec::new();
+        engine
+            .run_turn(
+                &input(vec![user_message("hi")]),
+                &llm,
+                &__bash,
+                &policy,
+                &mut |event| events.push(event),
+            )
+            .await;
+        let started = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(started["origin"]["kind"], "user");
+        assert!(started["origin"].get("payload").is_none());
+    }
+
+    #[tokio::test]
+    async fn tool_call_step_preserves_assistant_text_in_next_request() {
+        // P1-4 (adversarial review): TS keeps the step's assistant TEXT
+        // alongside its tool calls in the context; the next request must see
+        // the same assistant message (text + tool_calls), not an
+        // empty-content stub.
+        struct TextAndCallClient(std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TextAndCallClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<crate::llm::StreamedTurn, crate::llm::LlmError> {
+                let mut recorded = self.0.lock().unwrap();
+                recorded.push(request.messages.clone());
+                let is_first = recorded.len() == 1;
+                drop(recorded);
+                if is_first {
+                    let args = "{\"command\":\"echo hi\"}".to_string();
+                    return Ok(crate::llm::StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "I will check".to_string(),
+                            },
+                            LlmStreamEvent::ToolCall {
+                                tool_call_id: "call_1".to_string(),
+                                name: Some("Bash".to_string()),
+                                arguments_part: Some(args.clone()),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("tool_calls".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![crate::types::LlmToolCall {
+                                id: "call_1".to_string(),
+                                call_type: Some("function".to_string()),
+                                function: crate::types::LlmToolCallFunction {
+                                    name: "Bash".to_string(),
+                                    arguments: args,
+                                },
+                            }],
+                            text: "I will check".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                Ok(crate::llm::StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "done".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "done".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = TextAndCallClient(std::sync::Arc::clone(&recorded));
+        let __bash = crate::tool::BashTool::default();
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input(vec![user_message("go")]));
+        let TurnProgress::Completed(outcome) = session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await
+        else {
+            panic!("turn must complete");
+        };
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        let requests = recorded.lock().unwrap();
+        assert!(requests.len() >= 2, "two LLM requests");
+        // The second request's assistant message carries the text AND the call.
+        let second = &requests[1];
+        let assistant = second
+            .iter()
+            .find(|m| m.role == "assistant")
+            .expect("assistant message in the second request");
+        assert_eq!(
+            assistant.content,
+            serde_json::Value::String("I will check".to_string())
+        );
+        assert_eq!(
+            assistant
+                .tool_calls
+                .as_ref()
+                .map(|calls| calls.len())
+                .unwrap_or(0),
+            1
+        );
+    }
+
+    #[test]
+    fn input_json_parses_optional_origin_and_worker_guidance() {
+        // The bridge deserializes `EngineTurnInput` straight from the
+        // runner's JSON: absent fields fall back to a user origin + no worker
+        // guidance, and the `{kind: 'task', taskId}` shape (TS PromptOrigin,
+        // `TurnOrigin`'s serde in dimi-wire) is accepted — this pins the
+        // contract the runner will send through `RustTurnSession`.
+        let base = r#"{
+            "turnId": 1,
+            "messages": [],
+            "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" }
+        }"#;
+        let input: EngineTurnInput = serde_json::from_str(base).unwrap();
+        assert_eq!(input.origin, TurnOrigin::User { payload: None });
+        assert!(!input.uses_worker_rejection_guidance);
+
+        let custom: EngineTurnInput = serde_json::from_str(r#"{
+            "turnId": 2,
+            "messages": [],
+            "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" },
+            "origin": { "kind": "task", "taskId": "agent-1" },
+            "usesWorkerRejectionGuidance": true
+        }"#)
+        .unwrap();
+        assert!(matches!(custom.origin, TurnOrigin::Task { .. }));
+        assert!(custom.uses_worker_rejection_guidance);
     }
 
     #[tokio::test]
@@ -1479,14 +2131,17 @@ mod tests {
             outcome.error_code.as_deref(),
             Some("LOOP_MAX_STEPS_EXCEEDED")
         );
+        // TS parity: the max-steps failure happens before a step begins
+        // (`runtime.current` is undefined in beginLoopStep), so TS never
+        // emits `turn.step.interrupted` for it — emitting one here would
+        // overwrite the already-completed step's state on the transcript.
         let names = event_names(&events);
-        assert!(names.contains(&"turn.step.interrupted".to_string()));
-        let interrupted_idx = names
-            .iter()
-            .position(|name| name == "turn.step.interrupted")
-            .unwrap();
-        let interrupted = serde_json::to_value(&events[interrupted_idx]).unwrap();
-        assert_eq!(interrupted["reason"], "max_steps");
+        assert!(
+            !names.contains(&"turn.step.interrupted".to_string()),
+            "max_steps must not emit turn.step.interrupted: {names:?}"
+        );
+        // The turn still ends failed via turn.ended.
+        assert!(names.contains(&"turn.ended".to_string()));
     }
 
     #[tokio::test]
@@ -1597,6 +2252,7 @@ mod window_tests {
                 msg("user", "u3"),
             ],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -1610,7 +2266,14 @@ mod window_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1694,6 +2357,7 @@ mod steer_tests {
                 reasoning: None,
             }],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -1707,7 +2371,14 @@ mod steer_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1729,6 +2400,433 @@ mod steer_tests {
             .filter_map(|m| m.content.as_str())
             .collect();
         assert!(texts.contains(&"steer: change direction"), "second request: {texts:?}");
+    }
+}
+
+#[cfg(test)]
+mod completion_review_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::tool::BashTool;
+    use crate::types::{CompletionReviewConfig, ProviderConfig};
+
+    /// Records every request's messages and returns per-call scripted
+    /// responses: the first `tool_steps` calls return a Bash tool call, the
+    /// rest return a plain text reply (`filtered` turns the reply into a
+    /// provider `content_filter` finish instead).
+    struct RecordingClient {
+        recorded: std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>,
+        calls: std::sync::atomic::AtomicUsize,
+        tool_steps: usize,
+        filtered: bool,
+    }
+
+    impl RecordingClient {
+        fn new(recorded: std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>, tool_steps: usize) -> Self {
+            Self {
+                recorded,
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                tool_steps,
+                filtered: false,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingClient {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, crate::llm::LlmError> {
+            self.recorded.lock().unwrap().push(request.messages.clone());
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < self.tool_steps {
+                let id = format!("call_{n}");
+                let args = "{\"command\":\"echo hi\"}".to_string();
+                return Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::ToolCall {
+                            tool_call_id: id.clone(),
+                            name: Some("Bash".to_string()),
+                            arguments_part: Some(args.clone()),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("tool_calls".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![crate::types::LlmToolCall {
+                            id,
+                            call_type: Some("function".to_string()),
+                            function: crate::types::LlmToolCallFunction {
+                                name: "Bash".to_string(),
+                                arguments: args,
+                            },
+                        }],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                });
+            }
+            if self.filtered {
+                return Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("content_filter".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                });
+            }
+            Ok(StreamedTurn {
+                events: vec![LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                }],
+                assistant: crate::llm::AssistantTurn {
+                    tool_calls: vec![],
+                    text: "done".to_string(),
+                    thinking: String::new(),
+                },
+            })
+        }
+    }
+
+    fn review_input_with_reminder(
+        messages: Vec<LlmMessage>,
+        min_steps: u32,
+        max_steps: Option<u32>,
+        reminder: String,
+    ) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: max_steps,
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            max_retries_per_step: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            completion_review: Some(CompletionReviewConfig {
+                min_steps,
+                reminder,
+            }),
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        }
+    }
+
+    fn review_input(
+        messages: Vec<LlmMessage>,
+        min_steps: u32,
+        max_steps: Option<u32>,
+    ) -> EngineTurnInput {
+        review_input_with_reminder(
+            messages,
+            min_steps,
+            max_steps,
+            "<system-reminder>\nreview now\n</system-reminder>".to_string(),
+        )
+    }
+
+    fn policy_auto() -> crate::permission::PolicyConfig {
+        crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    fn user_message(text: &str) -> LlmMessage {
+        LlmMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_free_step_at_threshold_injects_reminder_and_keeps_the_turn_alive() {
+        // 9 tool-call steps (1..9) + a text reply at step 10: the step count
+        // crosses the threshold, so the engine must inject the reminder and
+        // keep the turn alive for one more request (max_steps bounds the
+        // scripted model that never calls AllDone).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 9);
+        let input = review_input(vec![user_message("complete the task")], 10, Some(11));
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        // Without the injection the turn would end after the step-10 text
+        // reply (10 requests); the review holds it one request longer.
+        assert_eq!(requests.len(), 11, "requests: {requests:?}");
+        // The step-10 request must NOT carry the reminder; the step-11
+        // request (the one assembled after the injection) must.
+        let request_10 = &requests[9];
+        let texts_10: Vec<&str> = request_10
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            !texts_10.iter().any(|t| t.contains("review now")),
+            "step-10 request must not contain the reminder: {texts_10:?}"
+        );
+        let request_11 = &requests[10];
+        let texts_11: Vec<&str> = request_11
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts_11.contains(&"<system-reminder>\nreview now\n</system-reminder>"),
+            "step-11 request must contain the reminder: {texts_11:?}"
+        );
+        // The injection is announced on the event stream (the runner mirrors
+        // it into the TS context from this event).
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. })),
+            "completion.review.injected event missing: {events:?}"
+        );
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn bare_completion_review_reminder_is_wrapped_before_injection() {
+        // P2-4 (review): the runner's `COMPLETION_REVIEW_REMINDER` is bare
+        // text, but the TS `AgentSystemReminderService.appendSystemReminder`
+        // wraps reminders in `<system-reminder>` markers before they reach
+        // the LLM. The engine must wrap a bare configured reminder (and
+        // leave an already-wrapped one untouched — see
+        // `tool_free_step_at_threshold_injects_reminder_and_keeps_the_turn_alive`).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 9);
+        let input = review_input_with_reminder(
+            vec![user_message("complete the task")],
+            10,
+            Some(11),
+            "review now".to_string(),
+        );
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 11, "requests: {requests:?}");
+        let request_11 = &requests[10];
+        let texts_11: Vec<&str> = request_11
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts_11.contains(&"<system-reminder>\nreview now\n</system-reminder>"),
+            "step-11 request must carry the WRAPPED reminder: {texts_11:?}"
+        );
+        // The bare text must never be injected as a message on its own.
+        assert!(
+            !texts_11.iter().any(|t| *t == "review now"),
+            "bare reminder must not be injected unwrapped: {texts_11:?}"
+        );
+        // The injected (wrapped) reminder is announced on the event stream.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::CompletionReviewInjected { reminder, .. }
+                    if reminder.contains("<system-reminder>")
+            )),
+            "injection event must carry the wrapped reminder: {events:?}"
+        );
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn tool_free_step_below_threshold_ends_naturally_without_reminder() {
+        // 8 tool-call steps + a text reply at step 9: 9 < 10, so the turn
+        // ends at the text reply and no reminder is ever injected.
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 8);
+        let input = review_input(vec![user_message("complete the task")], 10, None);
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let _progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 9);
+        for request in requests.iter() {
+            let texts: Vec<&str> = request
+                .iter()
+                .filter_map(|m| m.content.as_str())
+                .collect();
+            assert!(
+                !texts.iter().any(|t| t.contains("review now")),
+                "no request may contain the reminder: {texts:?}"
+            );
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. })),
+            "no injection event for a short turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn filtered_step_at_threshold_is_not_reviewed() {
+        // A provider safety block must keep its failure path even past the
+        // threshold (TS short-circuits `finishReason === 'filtered'`).
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut llm = RecordingClient::new(std::sync::Arc::clone(&recorded), 0);
+        llm.filtered = true;
+        let input = review_input(vec![user_message("go")], 1, None);
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let progress = session
+            .run(&llm, &BashTool::default(), &policy_auto(), &mut |event| {
+                events.push(event);
+            })
+            .await;
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Failed);
+                assert_eq!(outcome.error_code.as_deref(), Some("PROVIDER_FILTERED"));
+            }
+            other => panic!("expected failed outcome, got {other:?}"),
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::CompletionReviewInjected { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_context_carries_the_full_step_batch() {
+        // The engine forwards the step's tool-call batch so external tools
+        // can validate the round (AllDone mixed-call rejection).
+        struct CaptureExecutor(std::sync::Arc<std::sync::Mutex<Vec<Vec<ToolCall>>>>);
+        #[async_trait::async_trait]
+        impl ToolExecutor for CaptureExecutor {
+            async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
+                self.0.lock().unwrap().push(ctx.tool_calls.clone());
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "ok".to_string(),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+        }
+
+        // One step with TWO tool calls: each execution must see the batch.
+        struct TwoCallsClient(std::sync::Arc<std::sync::Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TwoCallsClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.messages.clone());
+                let mut events = Vec::new();
+                let mut tool_calls = Vec::new();
+                for i in 0..2 {
+                    let id = format!("call_{i}");
+                    // Distinct args per call so the batch-context assertion is
+                    // not confounded by toolDedupe (two identical calls in
+                    // one step would suppress the second).
+                    let args = format!(r#"{{"probe":{i}}}"#);
+                    events.push(LlmStreamEvent::ToolCall {
+                        tool_call_id: id.clone(),
+                        name: Some("Probe".to_string()),
+                        arguments_part: Some(args.clone()),
+                    });
+                    tool_calls.push(crate::types::LlmToolCall {
+                        id,
+                        call_type: Some("function".to_string()),
+                        function: crate::types::LlmToolCallFunction {
+                            name: "Probe".to_string(),
+                            arguments: args,
+                        },
+                    });
+                }
+                events.push(LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                });
+                if tool_calls.is_empty() {
+                    // never reached — two-call step always continues
+                    return Ok(StreamedTurn {
+                        events: vec![LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        }],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "done".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                Ok(StreamedTurn {
+                    events,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls,
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let llm = TwoCallsClient(std::sync::Arc::clone(&recorded));
+        let tools = CaptureExecutor(std::sync::Arc::clone(&captured));
+        // max_steps=1: the step with two calls runs; the turn then stops at
+        // the max-steps guard (the second call never happens — the client
+        // would otherwise return text for call 2 and end normally).
+        let input = review_input(vec![user_message("go")], 10, Some(1));
+        let mut session = TurnSession::new(input);
+        let _progress = session
+            .run(&llm, &tools, &policy_auto(), &mut |_| {})
+            .await;
+        let batches = captured.lock().unwrap();
+        assert_eq!(batches.len(), 2, "both calls of the step executed");
+        for batch in batches.iter() {
+            assert_eq!(batch.len(), 2, "each execution sees the full batch");
+            assert_eq!(batch[0].id, "call_0");
+            assert_eq!(batch[1].id, "call_1");
+        }
     }
 }
 
@@ -1801,6 +2899,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -1814,7 +2913,14 @@ mod compaction_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1873,6 +2979,203 @@ mod compaction_tests {
     }
 
     #[tokio::test]
+    async fn compact_retries_with_dropped_prefix_when_summary_is_empty() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1 = compaction round returns an EMPTY summary → the
+                // engine must drop the oldest message and retry.
+                // Call 2 = compaction retry returns the real summary.
+                // Call 3+ = the actual step.
+                let (delta, is_retry) = match calls.len() {
+                    1 => (String::new(), false),
+                    2 => ("retried summary".to_string(), true),
+                    _ => (String::new(), false),
+                };
+                let segment = if !delta.is_empty() || !is_retry {
+                    vec![LlmStreamEvent::Text {
+                        delta: delta.clone(),
+                    }]
+                } else {
+                    vec![]
+                };
+                let text = delta;
+                Ok(StreamedTurn {
+                    events: segment,
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // ~1830 tokens against a 2000-token window (trigger 1700).
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+
+        // Compaction succeeded with the retried summary.
+        let summary = events.iter().find_map(|event| match event {
+            EngineEvent::ContextCompacted { summary, .. } => Some(summary.clone()),
+            _ => None,
+        });
+        assert_eq!(summary.as_deref(), Some("retried summary"));
+        // Three LLM calls: empty compaction round, retried compaction round,
+        // then the real step.
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        // The retry dropped the oldest message: the second compaction request
+        // has one fewer message than the first.
+        assert!(
+            requests[1].len() < requests[0].len(),
+            "retry must drop the oldest message: {} -> {}",
+            requests[0].len(),
+            requests[1].len()
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_fails_soft_when_every_summary_is_empty() {
+        use std::sync::{Arc, Mutex};
+        struct EmptySummaryClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for EmptySummaryClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                // Every compaction round returns an empty summary; the final
+                // call is the actual step.
+                Ok(StreamedTurn {
+                    events: vec![],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = EmptySummaryClient(Arc::clone(&calls));
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        // No compaction happened (fail soft): the turn still completes.
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::ContextCompacted { .. })),
+            "empty summaries must not emit context.compacted"
+        );
+        // COMPACTION_MAX_SHRINK_ATTEMPTS + 1 compaction rounds (0..=3 = 4),
+        // then the real step.
+        assert_eq!(*calls.lock().unwrap(), 5);
+    }
+
+    #[tokio::test]
     async fn no_compaction_within_the_window() {
         use std::sync::{Arc, Mutex};
         struct RecordingClient(Arc<Mutex<usize>>);
@@ -1902,6 +3205,7 @@ mod compaction_tests {
             turn_id: 1,
             messages: vec![msg("user", "small")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -1915,7 +3219,14 @@ mod compaction_tests {
             max_context_tokens: Some(1000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -1934,6 +3245,273 @@ mod compaction_tests {
         assert!(
             !events.iter().any(|e| matches!(e, EngineEvent::ContextCompacted { .. }))
         );
+    }
+
+    #[tokio::test]
+    async fn compact_closes_unresolved_tool_exchanges_in_the_summary_request() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                calls.push(request.messages.clone());
+                // Call 1 = compaction round (summary); call 2 = the step.
+                let (delta, is_step) = if calls.len() == 1 {
+                    ("closed-exchange summary".to_string(), false)
+                } else {
+                    (String::new(), true)
+                };
+                Ok(StreamedTurn {
+                    events: if is_step {
+                        vec![]
+                    } else {
+                        vec![LlmStreamEvent::Text {
+                            delta: delta.clone(),
+                        }]
+                    },
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: delta,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // History with an UNRESOLVED exchange: the assistant requested a tool
+        // (`call_pending`) but no tool result ever arrived. Also a resolved
+        // exchange so we assert only the missing one is synthesized.
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        messages.push(LlmMessage {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("pending".to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(vec![crate::types::LlmToolCall {
+                id: "call_pending".to_string(),
+                call_type: Some("function".to_string()),
+                function: crate::types::LlmToolCallFunction {
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({ "command": "sleep 1" }).to_string(),
+                },
+            }]),
+            reasoning: None,
+        });
+        messages.push(LlmMessage {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String("resolved".to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(vec![crate::types::LlmToolCall {
+                id: "call_resolved".to_string(),
+                call_type: Some("function".to_string()),
+                function: crate::types::LlmToolCallFunction {
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({ "command": "echo hi" }).to_string(),
+                },
+            }]),
+            reasoning: None,
+        });
+        messages.push(LlmMessage {
+            role: "tool".to_string(),
+            content: serde_json::Value::String("hi".to_string()),
+            name: None,
+            tool_call_id: Some("call_resolved".to_string()),
+            tool_calls: None,
+            reasoning: None,
+        });
+        // Push the history over the 2000-token compaction trigger.
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &"z".repeat(300)));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, EngineEvent::ContextCompacted { .. })),
+            "compaction must run"
+        );
+
+        // The summary request (first LLM call) carries a synthetic tool result
+        // for the unresolved exchange, with the TS-parity text.
+        let requests = recorded.lock().unwrap();
+        assert!(requests.len() >= 2);
+        let summary_request = &requests[0];
+        let synthesized = summary_request
+            .iter()
+            .filter(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_pending"))
+            .collect::<Vec<_>>();
+        assert_eq!(synthesized.len(), 1, "missing exchange must be synthesized");
+        assert_eq!(
+            synthesized[0].content.as_str(),
+            Some(TOOL_INTERRUPTED_TEXT),
+            "synthetic result must carry the TS-parity interrupted text"
+        );
+        // The resolved exchange is untouched (no extra synthetic entry).
+        let resolved_count = summary_request
+            .iter()
+            .filter(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_resolved"))
+            .count();
+        assert_eq!(resolved_count, 1);
+    }
+
+    #[tokio::test]
+    async fn compact_treats_truncated_summary_as_empty_and_retries() {
+        use std::sync::{Arc, Mutex};
+        struct TruncatedThenOkClient(Arc<Mutex<usize>>);
+        #[async_trait::async_trait]
+        impl LlmClient for TruncatedThenOkClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                // Call 1 = compaction round returns a TRUNCATED summary
+                // (finish_reason length) — must be treated as empty and
+                // retried with a smaller prefix.
+                // Call 2 = compaction retry returns the real summary.
+                // Call 3+ = the actual step.
+                if *calls == 1 {
+                    return Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "truncated-".to_string(),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("length".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "truncated-".to_string(),
+                            thinking: String::new(),
+                        },
+                    });
+                }
+                let delta = if *calls == 2 {
+                    "full summary after truncation".to_string()
+                } else {
+                    String::new()
+                };
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: delta,
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0usize));
+        let llm = TruncatedThenOkClient(Arc::clone(&calls));
+        let tool_blob = "z".repeat(300);
+        let mut messages = vec![msg("system", "sys"), msg("user", "u2")];
+        for i in 0..20 {
+            messages.push(msg("assistant", &format!("a{i}{}", "y".repeat(60))));
+            messages.push(msg("tool", &tool_blob));
+        }
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(2000),
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let progress = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)));
+        // The truncated summary was discarded; the retried summary landed.
+        let summary = events.iter().find_map(|event| match event {
+            EngineEvent::ContextCompacted { summary, .. } => Some(summary.clone()),
+            _ => None,
+        });
+        assert_eq!(summary.as_deref(), Some("full summary after truncation"));
+        // Three LLM calls: truncated compaction round, retried compaction
+        // round, then the real step.
+        assert_eq!(*calls.lock().unwrap(), 3);
     }
 }
 
@@ -1987,6 +3565,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2000,7 +3579,14 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2025,6 +3611,90 @@ mod cancel_tests {
             tools.iter().any(|t| t["function"]["name"] == "Lookup"),
             "request tools must include the registered def: {tools:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn active_tools_whitelist_reaches_request_tools_verbatim() {
+        // The bridge pre-filters `input.tools` by `EngineTurnInput.active_tools`
+        // (see `engine_tools` in dimi-bridge); the engine must advertise
+        // exactly that list to the LLM — a whitelist-filtered tool (Bash here)
+        // must never reappear in `request.tools`.
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.tools.clone());
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hi")],
+            // The bridge's filtered def list (Bash excluded by
+            // `active_tools`); the engine passes it to the request untouched.
+            tools: vec![crate::types::EngineTool {
+                name: "Read".to_string(),
+                description: "Read files".to_string(),
+                args_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            }],
+            active_tools: Some(vec!["Read".to_string()]),
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let __bash = crate::tool::BashTool::default();
+        session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await;
+        let requests = recorded.lock().unwrap();
+        let tools = requests[0].as_ref().expect("tools present");
+        assert_eq!(
+            tools.len(),
+            1,
+            "only the whitelisted def is advertised: {tools:?}"
+        );
+        assert_eq!(tools[0]["function"]["name"], "Read");
     }
 
 
@@ -2080,6 +3750,7 @@ mod cancel_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2093,7 +3764,14 @@ mod cancel_tests {
             max_context_tokens: Some(2000),
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2178,6 +3856,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2191,7 +3870,14 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: Some(3),
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2272,6 +3958,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2285,7 +3972,14 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2380,6 +4074,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "run it")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2393,7 +4088,14 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2459,6 +4161,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hello")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2472,7 +4175,14 @@ mod cancel_tests {
             max_context_tokens: None,
             next_agent_id: None,
             kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
             max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2536,5 +4246,1303 @@ mod cancel_tests {
         assert_eq!(empty.reason(), None);
         empty.cancel_with_reason(Some("user abort".to_string()));
         assert_eq!(empty.reason().as_deref(), Some("user abort"));
+    }
+}
+
+#[cfg(test)]
+mod approval_batch_tests {
+    use super::*;
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
+    use crate::permission::PermissionMode;
+    use crate::types::ProviderConfig;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn msg(role: &str, text: &str) -> LlmMessage {
+        LlmMessage {
+            role: role.to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    fn result(call_id: &str, name: &str, output: &str, stop_turn: bool) -> ToolResult {
+        ToolResult {
+            tool_call_id: call_id.to_string(),
+            tool_name: name.to_string(),
+            output: output.to_string(),
+            is_error: false,
+            stop_turn,
+            updates: vec![],
+        }
+    }
+
+    /// Records which tool calls were executed and returns scripted results
+    /// (calls without a scripted result get a plain success result).
+    struct RecordingToolExecutor {
+        executed: Arc<Mutex<Vec<String>>>,
+        results: HashMap<String, ToolResult>,
+    }
+
+    impl RecordingToolExecutor {
+        fn new(results: Vec<ToolResult>) -> Self {
+            Self {
+                executed: Arc::new(Mutex::new(Vec::new())),
+                results: results
+                    .into_iter()
+                    .map(|r| (r.tool_call_id.clone(), r))
+                    .collect(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for RecordingToolExecutor {
+        async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+            self.executed.lock().unwrap().push(call.id.clone());
+            self.results.get(&call.id).cloned().unwrap_or_else(|| {
+                result(&call.id, &call.name, &format!("ran {}", call.name), false)
+            })
+        }
+    }
+
+    /// Every assistant `tool_calls` entry must have a matching `tool` result
+    /// (providers reject a dangling tool_call on the next request).
+    fn assert_no_dangling_tool_calls(messages: &[LlmMessage]) {
+        for message in messages {
+            let Some(calls) = &message.tool_calls else { continue };
+            for call in calls {
+                let has_result = messages.iter().any(|m| {
+                    m.role == "tool" && m.tool_call_id.as_deref() == Some(call.id.as_str())
+                });
+                assert!(
+                    has_result,
+                    "dangling tool_call {} (no tool result) in: {:?}",
+                    call.id, messages
+                );
+            }
+        }
+    }
+
+    fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://example.test/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(5),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        }
+    }
+
+    fn policy(mode: PermissionMode) -> PolicyConfig {
+        PolicyConfig {
+            mode,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    /// One assistant message with two tool calls: Bash (manual mode asks) +
+    /// Read (default-approve sibling).
+    fn batch_segment() -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_bash".to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+            },
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_read".to_string(),
+                name: Some("Read".to_string()),
+                arguments_part: Some("{\"path\":\"hello.txt\"}".to_string()),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("tool_calls".to_string()),
+            },
+        ]
+    }
+
+    /// One final text step ("done") — the deny / rejection flows need a
+    /// second LLM step after the tool result to end the turn.
+    fn done_segment() -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::Text {
+                delta: "done".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]
+    }
+
+    /// One Bash tool-call step followed by a done step — used twice (two
+    /// sessions, with and without the worker-guidance flag).
+    fn bash_then_done_segments() -> Vec<Vec<LlmStreamEvent>> {
+        vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            done_segment(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn approval_resume_continues_the_tool_batch() {
+        // P1-1: an approval pauses the batch — the remaining siblings must
+        // still run after the Approved resume (TS parity: approval pauses,
+        // it does not cancel the round). Bash asks in manual mode; Read is a
+        // default-approve tool.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        let TurnProgress::NeedsApproval(request) = progress else {
+            panic!("expected NeedsApproval, got {progress:?}");
+        };
+        assert_eq!(request.tool_call_id, "call_bash");
+        // The batch call itself has not run before the pause.
+        assert_eq!(*executor.executed.lock().unwrap(), Vec::<String>::new());
+
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // BOTH batch calls ran — the sibling is no longer dropped.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string(), "call_read".to_string()]
+        );
+        // The next request has no dangling tool_call: every assistant
+        // tool_calls entry has a matching tool result.
+        assert_no_dangling_tool_calls(session.messages());
+        let tool_results: Vec<_> = session
+            .messages()
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_results.len(), 2, "both batch calls have results");
+        assert_eq!(tool_results[0].tool_call_id.as_deref(), Some("call_bash"));
+        assert_eq!(tool_results[1].tool_call_id.as_deref(), Some("call_read"));
+    }
+
+    #[tokio::test]
+    async fn stop_turn_in_batch_synthesizes_skipped_sibling_results() {
+        // P2-7: when a batch call stops the turn, the unrun siblings still
+        // get a synthetic error result so no tool_call dangles (TS
+        // toolExecutorService parity).
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping now", true),
+            // call_read must NOT run.
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Auto),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Only the stopping call ran.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string()]
+        );
+        // The sibling has a synthetic tool result — nothing dangles.
+        assert_no_dangling_tool_calls(session.messages());
+        let sibling = session
+            .messages()
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_read"))
+            .expect("sibling tool result");
+        assert!(
+            sibling
+                .content
+                .as_str()
+                .unwrap()
+                .contains("Tool skipped because a previous tool call stopped the turn."),
+            "sibling result: {:?}",
+            sibling.content
+        );
+    }
+
+    /// Counts `ToolCallStarted` events for a call id.
+    fn started_count(events: &[EngineEvent], call_id: &str) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == call_id
+                )
+            })
+            .count()
+    }
+
+    /// Counts `ToolResult` events for a call id.
+    fn result_count(events: &[EngineEvent], call_id: &str) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == call_id
+                )
+            })
+            .count()
+    }
+
+    /// The `ToolResult` event's output for a call id (panics when missing).
+    fn result_output(events: &[EngineEvent], call_id: &str) -> String {
+        events
+            .iter()
+            .find_map(|e| match e {
+                EngineEvent::ToolResult { tool_call_id, output, .. } if tool_call_id == call_id => {
+                    Some(output.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no tool.result for {call_id} in {events:?}"))
+    }
+
+    /// A manual-mode policy that denies `Bash` outright (user-configured
+    /// deny rule with a reason — the `PolicyDecision::Deny` path).
+    fn deny_policy() -> PolicyConfig {
+        PolicyConfig {
+            mode: PermissionMode::Manual,
+            rules: vec![crate::permission::PermissionRule {
+                decision: crate::permission::RuleDecision::Deny,
+                scope: "user".to_string(),
+                pattern: "Bash".to_string(),
+                reason: Some("no bash".to_string()),
+            }],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_resume_emits_tool_started_exactly_once() {
+        // P2-2 (final review): an Approved resume must not emit a second
+        // `ToolCallStarted` for the pending call — the started event lands
+        // exactly once per call, at the dispatch point after the approval
+        // decision (TS toolExecutorService parity).
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Each call got exactly one started + one result — no duplicate
+        // started from pause + resume.
+        assert_eq!(started_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(started_count(&events, "call_read"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_read"), 1, "events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn skipped_sibling_emits_started_and_result() {
+        // P2-1 (final review): a synthetic skipped sibling must be announced
+        // (`tool.call.started`) before its result, exactly like TS
+        // `prepareSkippedToolCall` — no orphan `tool.result` on the wire.
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping now", true),
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Auto),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(started_count(&events, "call_read"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_read"), 1, "events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn paused_step_emits_step_completed_after_resume() {
+        // P2-3 (final review): the step that paused for approval must still
+        // emit `TurnStepCompleted` once the resumed batch finishes (TS loop
+        // parity: the approval round-trip happens inside the step's tool
+        // phase, and `step.end` is emitted after the batch resolves), so the
+        // next LLM step starts cleanly.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        let completed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::TurnStepCompleted { step, finish_reason, .. } => {
+                    Some((*step, finish_reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(
+            completed.iter().any(|(step, _)| *step == 1),
+            "paused step 1 never completed; completed: {completed:?}, events: {events:?}"
+        );
+        // The step that carried the paused batch finishes as tool_calls
+        // (normalized to `tool_use` like the non-paused path).
+        assert_eq!(
+            completed
+                .iter()
+                .find(|(step, _)| *step == 1)
+                .map(|(_, reason)| reason.clone()),
+            Some(Some("tool_use".to_string())),
+            "step 1 finish_reason: {completed:?}"
+        );
+        // Ordering: the paused step's completion lands strictly before the
+        // next step starts, so the transcript never sees a step open across
+        // the approval boundary.
+        let step1_completed = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::TurnStepCompleted { step: 1, .. }
+                )
+            })
+            .expect("step 1 completed");
+        let step2_started = events
+            .iter()
+            .position(|e| matches!(e, EngineEvent::TurnStepStarted { step: 2, .. }))
+            .expect("step 2 started");
+        assert!(
+            step1_completed < step2_started,
+            "step 1 completed at {step1_completed} must precede step 2 started at {step2_started}: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_honors_session_pattern_added_before_resume() {
+        // P1-6 (review): the bridge records a session-scope approval into
+        // the live policy BEFORE resume — the resumed batch must auto-approve
+        // the same tool instead of surfacing a second approval request.
+        // Both batch calls are Ask tools in manual mode.
+        let llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 1\"}".to_string()),
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_2".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 2\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash_1", "Bash", "out1", false),
+            result("call_bash_2", "Bash", "out2", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |_| {},
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::NeedsApproval(ref r) if r.tool_call_id == "call_bash_1"),
+            "{progress:?}"
+        );
+        // The bridge appended the session pattern to the live policy before
+        // resuming (add_session_approval + the engine re-reads the policy).
+        let mut live = policy(PermissionMode::Manual);
+        live.session_approved_patterns = vec!["Bash".to_string()];
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &live,
+                &mut |_| {},
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::Completed(_)),
+            "second Bash must auto-approve via the session pattern, got {progress:?}"
+        );
+        // Both calls ran; no dangling tool_call.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash_1".to_string(), "call_bash_2".to_string()]
+        );
+        assert_no_dangling_tool_calls(session.messages());
+    }
+
+    #[tokio::test]
+    async fn rejected_resume_emits_started_once_before_result() {
+        // P2-2 (final review, rejected path): a rejected resume announces the
+        // call exactly once and only after the decision, before the result
+        // (TS toolExecutorService dispatch parity) — the fold still gets a
+        // complete started + result pair.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(started_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_bash"), 1, "events: {events:?}");
+        let started_idx = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == "call_bash"
+                )
+            })
+            .expect("call_bash started");
+        let result_idx = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == "call_bash"
+                )
+            })
+            .expect("call_bash result");
+        assert!(
+            started_idx < result_idx,
+            "started at {started_idx} must precede result at {result_idx}: {events:?}"
+        );
+        // The sibling still ran after the rejected pending call.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_read".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn deny_output_appends_worker_guidance_when_requested() {
+        // TS `formatDenyMessage` parity: with `uses_worker_rejection_guidance`
+        // (subagent/worker turns) the permission-deny tool output carries the
+        // guidance suffix; without it the deny message is unchanged.
+        // Two sessions, each consuming a Bash-call step + a done step.
+        let llm = ScriptedLlmClient::new([
+            bash_then_done_segments(),
+            bash_then_done_segments(),
+        ].concat());
+        let executor = RecordingToolExecutor::new(vec![]);
+        let base = "Tool \"Bash\" was denied by permission rule. Reason: no bash";
+
+        // Worker guidance on: the suffix is appended (leading space, exact TS
+        // text).
+        let mut session = TurnSession::new(input(vec![msg("user", "run")]));
+        session.input.uses_worker_rejection_guidance = true;
+        let mut events = Vec::new();
+        let progress = session
+            .run(&llm, &executor, &deny_policy(), &mut |event| events.push(event))
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(
+            result_output(&events, "call_bash"),
+            format!("{base}{WORKER_REJECTION_GUIDANCE_SUFFIX}"),
+            "events: {events:?}"
+        );
+
+        // Guidance off: the deny message is unchanged.
+        let mut session = TurnSession::new(input(vec![msg("user", "run")]));
+        session.input.uses_worker_rejection_guidance = false;
+        let mut events = Vec::new();
+        let progress = session
+            .run(&llm, &executor, &deny_policy(), &mut |event| events.push(event))
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(result_output(&events, "call_bash"), base);
+    }
+
+    #[tokio::test]
+    async fn rejected_resume_appends_worker_guidance_when_requested() {
+        // TS `formatApprovalRejectionMessage` parity: a rejected approval
+        // carries the guidance suffix for worker turns (with feedback, the
+        // suffix lands after ` Reason: …`, exactly like TS) and stays
+        // unchanged otherwise.
+        // Two sessions, each consuming the approval batch + a done step.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            done_segment(),
+            batch_segment(),
+            done_segment(),
+        ]);
+        let executor = RecordingToolExecutor::new(vec![result(
+            "call_read",
+            "Read",
+            "read output",
+            false,
+        )]);
+        let base =
+            "Tool \"Bash\" was not run because the user rejected the approval request. Reason: no thanks";
+
+        // Worker guidance on: suffix appended after ` Reason: no thanks`.
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        session.input.uses_worker_rejection_guidance = true;
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(
+            result_output(&events, "call_bash"),
+            format!("{base}{WORKER_REJECTION_GUIDANCE_SUFFIX}"),
+            "events: {events:?}"
+        );
+
+        // Guidance off: the rejection message is unchanged.
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        session.input.uses_worker_rejection_guidance = false;
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(result_output(&events, "call_bash"), base);
+    }
+
+    #[tokio::test]
+    async fn approved_stop_turn_resume_synthesizes_skipped_and_completes_step() {
+        // P2-1/P2-3 (final review, Path A): when the approved pending call
+        // itself stops the turn, the unrun siblings still get announced
+        // (started) + synthetic result, and the paused step completes with
+        // `end_turn` before the turn ends.
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping after approval", true),
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Only the approved pending call ran.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string()]
+        );
+        // The skipped sibling is announced before its synthetic result.
+        let sibling_started = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == "call_read"
+                )
+            })
+            .expect("sibling started");
+        let sibling_result = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == "call_read"
+                )
+            })
+            .expect("sibling result");
+        assert!(
+            sibling_started < sibling_result,
+            "sibling started at {sibling_started} must precede result at {sibling_result}: {events:?}"
+        );
+        // The paused step completes with end_turn, and no next step starts.
+        let completed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::TurnStepCompleted { step, finish_reason, .. } => {
+                    Some((*step, finish_reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            completed,
+            vec![(1, Some("end_turn".to_string()))],
+            "events: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| matches!(e, EngineEvent::TurnStepStarted { step: 2, .. })),
+            "turn must end after step 1: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_during_pending_approval_stops_the_turn() {
+        // P1-5 (review): once the user cancelled (TaskStop / session close),
+        // a resume must not keep executing the batch or re-ask — the engine
+        // checks the cancel signal and finishes cancelled. Both batch calls
+        // are Ask tools: without the cancel check the resumed batch would
+        // surface a SECOND NeedsApproval (the user already cancelled), and
+        // with the in-flight select race a sibling could still run.
+        let llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 1\"}".to_string()),
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_2".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 2\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash_1", "Bash", "out1", false),
+            result("call_bash_2", "Bash", "out2", false),
+        ]);
+        let cancel = std::sync::Arc::new(CancelSignal::new());
+        let mut session = TurnSession::with_steer_and_cancel(
+            input(vec![msg("user", "run both")]),
+            None,
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::NeedsApproval(ref r) if r.tool_call_id == "call_bash_1"),
+            "{progress:?}"
+        );
+        // The user cancelled while the approval was pending.
+        cancel.cancel();
+        let progress = session
+            .resume(
+                ApprovalDecision::Cancelled,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Cancelled, "{outcome:?}");
+            }
+            other => panic!("expected Completed(Cancelled), got {other:?}"),
+        }
+        // No sibling ran after the cancellation.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            Vec::<String>::new(),
+            "no sibling may run after the user cancelled"
+        );
+        // P2-6 (review): the paused step is interrupted on cancel (like the
+        // in-flight cancel paths), so the transcript does not leave it open.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::TurnStepInterrupted { reason, .. } if reason == "aborted"
+            )),
+            "cancel must interrupt the paused step: {events:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::*;
+    use crate::dedupe::{REMINDER_TEXT_1, REMINDER_TEXT_3, make_reminder_text_2};
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient, StreamedTurn};
+    use crate::permission::{PermissionMode, PolicyConfig};
+    use crate::types::ProviderConfig;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Mutex};
+
+    fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://example.test/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: None,
+            cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        }
+    }
+
+    fn user_message(text: &str) -> LlmMessage {
+        LlmMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(text.to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            reasoning: None,
+        }
+    }
+
+    fn policy_auto() -> PolicyConfig {
+        PolicyConfig {
+            mode: PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        }
+    }
+
+    /// One step's LLM segment: `(id, command)` tool calls, then the
+    /// `tool_calls` finish.
+    fn tool_call_segment(calls: &[(&str, &str)]) -> Vec<LlmStreamEvent> {
+        let mut events = Vec::new();
+        for (id, command) in calls {
+            events.push(LlmStreamEvent::ToolCall {
+                tool_call_id: id.to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: Some(format!(r#"{{"command":"{command}"}}"#)),
+            });
+        }
+        events.push(LlmStreamEvent::Finish {
+            finish_reason: Some("tool_calls".to_string()),
+        });
+        events
+    }
+
+    fn text_segment(text: &str) -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::Text {
+                delta: text.to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]
+    }
+
+    /// Scripted client that also records every request's messages (so the
+    /// tests can assert what the LLM actually saw).
+    struct RecordingScripted {
+        recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>>,
+        inner: ScriptedLlmClient,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingScripted {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, crate::llm::LlmError> {
+            self.recorded.lock().unwrap().push(request.messages.clone());
+            self.inner.stream_chat(request).await
+        }
+    }
+
+    /// Counts executions and returns a per-call-id output (so shared vs
+    /// executed results are distinguishable).
+    struct CountingExecutor {
+        executed: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for CountingExecutor {
+        async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+            self.executed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("executed-{}", call.id),
+                is_error: false,
+                stop_turn: false,
+                updates: vec![],
+            }
+        }
+    }
+
+    fn tool_results(events: &[EngineEvent]) -> Vec<&EngineEvent> {
+        events
+            .iter()
+            .filter(|event| matches!(event, EngineEvent::ToolResult { .. }))
+            .collect()
+    }
+
+    fn tool_call_started(events: &[EngineEvent]) -> Vec<&EngineEvent> {
+        events
+            .iter()
+            .filter(|event| matches!(event, EngineEvent::ToolCallStarted { .. }))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn same_step_duplicate_is_suppressed_and_shares_the_result() {
+        // Step 1: the model emits TWO identical Bash calls in one step. The
+        // second must not execute; both `tool.call.started` + `tool.result`
+        // pairs must exist and the second result shares the first's output.
+        let llm = RecordingScripted {
+            recorded: Arc::new(Mutex::new(Vec::new())),
+            inner: ScriptedLlmClient::new(vec![
+                tool_call_segment(&[("call_1", "echo hi"), ("call_2", "echo hi")]),
+                text_segment("done"),
+            ]),
+        };
+        let executed = Arc::new(AtomicUsize::new(0));
+        let tools = CountingExecutor {
+            executed: Arc::clone(&executed),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 2);
+        assert_eq!(
+            executed.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "the duplicate must not execute the tool again"
+        );
+
+        let started = tool_call_started(&events);
+        assert_eq!(started.len(), 2, "both calls are announced");
+        let started_values: Vec<serde_json::Value> =
+            started.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(started_values[0]["toolCallId"], "call_1");
+        assert_eq!(started_values[1]["toolCallId"], "call_2");
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 2, "both calls have a result");
+        let result_values: Vec<serde_json::Value> =
+            results.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(result_values[0]["toolCallId"], "call_1");
+        assert_eq!(result_values[1]["toolCallId"], "call_2");
+        assert_eq!(result_values[0]["output"], "executed-call_1");
+        assert_eq!(
+            result_values[1]["output"], "executed-call_1",
+            "the duplicate shares the original's output"
+        );
+
+        // The model's next request carries BOTH tool messages with the same
+        // content (TS pushes a tool message per dispatched call).
+        let recorded = llm.recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 2, "one request per step");
+        let tool_messages: Vec<&LlmMessage> = recorded[1]
+            .iter()
+            .filter(|m| m.role == "tool")
+            .collect();
+        assert_eq!(tool_messages.len(), 2);
+        assert_eq!(tool_messages[0].content, tool_messages[1].content);
+        assert_eq!(
+            tool_messages[0].tool_call_id.as_deref(),
+            Some("call_1")
+        );
+        assert_eq!(
+            tool_messages[1].tool_call_id.as_deref(),
+            Some("call_2")
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_step_repeats_append_reminders_at_3_5_and_8() {
+        // One identical call per step: the 3rd result gets REMINDER_TEXT_1,
+        // the 5th makeReminderText2(5), the 8th REMINDER_TEXT_3.
+        let mut segments = Vec::new();
+        for step in 1..=8u32 {
+            segments.push(tool_call_segment(&[(&format!("call_{step}"), "echo x")]));
+        }
+        segments.push(text_segment("done"));
+        let llm = ScriptedLlmClient::new(segments);
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 9);
+        assert_eq!(
+            tools.executed.load(std::sync::atomic::Ordering::Relaxed),
+            8,
+            "every repeat still executes (cross-step repeats are reminders, not suppression)"
+        );
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 8);
+        let outputs: Vec<String> = results
+            .iter()
+            .map(|e| {
+                serde_json::to_value(e).unwrap()["output"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        // 1st and 2nd: no reminder.
+        assert_eq!(outputs[0], "executed-call_1");
+        assert_eq!(outputs[1], "executed-call_2");
+        // 3rd and 4th: REMINDER_TEXT_1.
+        assert_eq!(outputs[2], format!("executed-call_3{REMINDER_TEXT_1}"));
+        assert_eq!(outputs[3], format!("executed-call_4{REMINDER_TEXT_1}"));
+        // 5th-7th: makeReminderText2 with the streak.
+        assert_eq!(outputs[4], format!("executed-call_5{}", make_reminder_text_2(5)));
+        assert_eq!(outputs[5], format!("executed-call_6{}", make_reminder_text_2(6)));
+        assert_eq!(outputs[6], format!("executed-call_7{}", make_reminder_text_2(7)));
+        // 8th: REMINDER_TEXT_3.
+        assert_eq!(outputs[7], format!("executed-call_8{REMINDER_TEXT_3}"));
+    }
+
+    #[tokio::test]
+    async fn twelve_consecutive_repeats_force_stop_the_turn() {
+        // The 12th identical call force-stops the turn (REPEAT_FORCE_STOP_STREAK):
+        // the turn completes right after step 12 with no further LLM request.
+        let mut segments = Vec::new();
+        for step in 1..=12u32 {
+            segments.push(tool_call_segment(&[(&format!("call_{step}"), "echo x")]));
+        }
+        let llm = RecordingScripted {
+            recorded: Arc::new(Mutex::new(Vec::new())),
+            inner: ScriptedLlmClient::new(segments),
+        };
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(outcome.steps, 12, "the turn stops after the 12th step");
+        let recorded = llm.recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 12, "no step-13 LLM request after the stop");
+        drop(recorded);
+
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 12);
+        let last = serde_json::to_value(results.last().unwrap()).unwrap();
+        assert_eq!(last["toolCallId"], "call_12");
+        assert_eq!(
+            last["output"],
+            format!("executed-call_12{REMINDER_TEXT_3}"),
+            "the force-stop result carries REMINDER_TEXT_3"
+        );
+        // The earlier results are unaffected.
+        let third = serde_json::to_value(&results[2]).unwrap();
+        assert_eq!(
+            third["output"],
+            format!("executed-call_3{REMINDER_TEXT_1}")
+        );
+    }
+
+    #[tokio::test]
+    async fn different_args_are_not_deduplicated() {
+        // Two calls with different args in the same step both execute and
+        // produce their own results.
+        let llm = ScriptedLlmClient::new(vec![
+            tool_call_segment(&[("call_a", "echo a"), ("call_b", "echo b")]),
+            text_segment("done"),
+        ]);
+        let tools = CountingExecutor {
+            executed: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut events = Vec::new();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_turn(
+                &input(vec![user_message("go")]),
+                &llm,
+                &tools,
+                &policy_auto(),
+                &mut |event| events.push(event),
+            )
+            .await;
+
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        assert_eq!(
+            tools.executed.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "different args are distinct calls"
+        );
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 2);
+        let values: Vec<serde_json::Value> =
+            results.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+        assert_eq!(values[0]["output"], "executed-call_a");
+        assert_eq!(values[1]["output"], "executed-call_b");
+        assert_ne!(values[0]["output"], values[1]["output"]);
     }
 }

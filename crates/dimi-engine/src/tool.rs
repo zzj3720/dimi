@@ -46,10 +46,17 @@ pub struct ToolCall {
 }
 
 /// Tool execution context.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolContext {
     pub cwd: String,
     pub shell: String,
+    /// The full assistant-message batch of tool calls this call is part of
+    /// (the TS `ToolResolutionContext.toolCalls` equivalent): external
+    /// (TS-side) tools need the sibling calls to enforce same-round
+    /// validations (AllDone's "must be the only tool call in its round").
+    /// `ToolCall` here is the crate's own model — `name` + parsed `arguments`
+    /// are what the bridge serializes into the external callback payload.
+    pub tool_calls: Vec<ToolCall>,
 }
 
 /// Tool result fed back to the LLM (and emitted as `tool.result`).
@@ -539,6 +546,10 @@ fn backgrounded_result(
             messages: vec![],
             started_at: now_nanos(),
             cancel: Some(std::sync::Arc::clone(&cancel)),
+            // Bash tasks enforce their own background deadline; the
+            // TaskState deadline defaults to the subagent timeout (unused on
+            // this path).
+            deadline: std::time::Instant::now() + DEFAULT_SUBAGENT_TIMEOUT,
         },
     );
     events.emit(EngineEvent::TaskStarted {
@@ -912,6 +923,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -936,6 +948,7 @@ mod tests {
                 &ToolContext {
                     cwd: dir.to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -990,6 +1003,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1018,6 +1032,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1047,6 +1062,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1107,6 +1123,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1132,6 +1149,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1162,6 +1180,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1191,6 +1210,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1235,6 +1255,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1259,6 +1280,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1314,6 +1336,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1342,6 +1365,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1381,6 +1405,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1409,6 +1434,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1445,6 +1471,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1476,6 +1503,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1526,6 +1554,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1550,6 +1579,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1633,6 +1663,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1657,6 +1688,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1780,6 +1812,7 @@ mod tests {
                 &ToolContext {
                     cwd: std::env::temp_dir().to_string_lossy().to_string(),
                     shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
                 },
             )
             .await;
@@ -1808,6 +1841,7 @@ mod tests {
             &ToolContext {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 shell: "/bin/sh".to_string(),
+                tool_calls: vec![],
             },
         )
         .await;
@@ -1837,247 +1871,6 @@ mod tests {
             "SIGTERM trap cleanup must run within the configured grace"
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-/// `AgentTool` — the Agent tool: runs a nested turn (subagent) and returns
-/// its final text as the tool result. Slice 4a: synchronous nested turn;
-/// the async task semantics (agent_id + AgentOutput/WaitFor) land in 4c.
-pub struct AgentTool {
-    pub llm: Box<dyn crate::llm::LlmClient>,
-    pub policy: crate::permission::PolicyConfig,
-    pub max_steps: Option<u32>,
-    pub shell: String,
-}
-
-impl std::fmt::Debug for AgentTool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AgentTool")
-            .field("max_steps", &self.max_steps)
-            .field("shell", &self.shell)
-            .finish()
-    }
-}
-
-#[async_trait::async_trait]
-impl ToolExecutor for AgentTool {
-    async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult {
-        // args: { prompt: string, ... }
-        let prompt = call
-            .arguments
-            .get("prompt")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if prompt.trim().is_empty() {
-            return ToolResult {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                output: "Invalid args for tool \"Agent\": prompt is required".to_string(),
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            };
-        }
-        let input = crate::types::EngineTurnInput {
-            turn_id: 0,
-            messages: vec![crate::types::LlmMessage {
-                role: "user".to_string(),
-                content: serde_json::Value::String(prompt),
-                name: None,
-                tool_call_id: None,
-                tool_calls: None,
-                reasoning: None,
-            }],
-            tools: vec![],
-            provider: crate::types::ProviderConfig {
-                base_url: "http://nested".to_string(),
-                api_key: "nested".to_string(),
-                model: "nested".to_string(),
-                thinking_effort: None,
-            },
-            max_steps_per_turn: self.max_steps,
-            max_retries_per_step: None,
-            cwd: Some(ctx.cwd.clone()),
-            shell: Some(ctx.shell.clone()),
-            context_window: None,
-            max_context_tokens: None,
-            next_agent_id: None,
-            kill_grace_ms: None,
-        };
-        let mut session = crate::engine::TurnSession::new(input);
-        let mut events: Vec<crate::events::EngineEvent> = Vec::new();
-        let progress = session
-            .run(self.llm.as_ref(), self, &self.policy, &mut |event| {
-                events.push(event);
-            })
-            .await;
-        // The subagent's final assistant text is the tool result.
-        let text: Vec<String> = events
-            .iter()
-            .filter_map(|event| match event {
-                crate::events::EngineEvent::AssistantDelta { delta, .. } => Some(delta.clone()),
-                _ => None,
-            })
-            .collect();
-        let output = text.join("");
-        match progress {
-            crate::engine::TurnProgress::Completed(outcome)
-                if outcome.status == crate::types::TurnEndReason::Completed =>
-            {
-                ToolResult {
-                    tool_call_id: call.id.clone(),
-                    tool_name: call.name.clone(),
-                    output: if output.is_empty() {
-                        "Subagent completed with no text output.".to_string()
-                    } else {
-                        output
-                    },
-                    is_error: false,
-                    stop_turn: false,
-                    updates: vec![],
-                }
-            }
-            crate::engine::TurnProgress::Completed(outcome) => ToolResult {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                output: outcome
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "Subagent failed.".to_string()),
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
-            crate::engine::TurnProgress::NeedsApproval(_) => ToolResult {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                output: "Subagent paused for approval (not supported in nested turns yet)."
-                    .to_string(),
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
-        }
-    }
-}
-
-#[cfg(test)]
-mod agent_tool_tests {
-    use super::*;
-    use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
-
-    fn policy_auto() -> crate::permission::PolicyConfig {
-        crate::permission::PolicyConfig {
-            mode: crate::permission::PermissionMode::Auto,
-            rules: vec![],
-            session_approved_patterns: vec![],
-        }
-    }
-
-    #[tokio::test]
-    async fn agent_runs_a_nested_turn_and_returns_its_text() {
-        // The subagent's LLM answers directly (no tools).
-        let sub_llm = ScriptedLlmClient::once(vec![
-            LlmStreamEvent::Text {
-                delta: "subagent answer".to_string(),
-            },
-            LlmStreamEvent::Finish {
-                finish_reason: Some("stop".to_string()),
-            },
-        ]);
-        let agent = AgentTool {
-            llm: Box::new(sub_llm),
-            policy: policy_auto(),
-            max_steps: Some(3),
-            shell: "/bin/sh".to_string(),
-        };
-        let result = agent
-            .execute(
-                &ToolCall {
-                    id: "call_agent".to_string(),
-                    name: "Agent".to_string(),
-                    arguments: serde_json::json!({ "prompt": "do a thing" }),
-                },
-                &ToolContext {
-                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                    shell: "/bin/sh".to_string(),
-                },
-            )
-            .await;
-        assert!(!result.is_error, "output: {}", result.output);
-        assert_eq!(result.output, "subagent answer");
-    }
-
-    #[tokio::test]
-    async fn agent_nested_turn_can_use_bash() {
-        // The subagent asks for a Bash call, then answers.
-        let sub_llm = ScriptedLlmClient::new(vec![
-            vec![
-                LlmStreamEvent::ToolCall {
-                    tool_call_id: "nested_call".to_string(),
-                    name: Some("Bash".to_string()),
-                    arguments_part: Some("{\"command\":\"echo nested-ok\"}".to_string()),
-                },
-                LlmStreamEvent::Finish {
-                    finish_reason: Some("tool_calls".to_string()),
-                },
-            ],
-            vec![
-                LlmStreamEvent::Text {
-                    delta: "ran it: nested-ok".to_string(),
-                },
-                LlmStreamEvent::Finish {
-                    finish_reason: Some("stop".to_string()),
-                },
-            ],
-        ]);
-        let agent = AgentTool {
-            llm: Box::new(sub_llm),
-            policy: policy_auto(),
-            max_steps: Some(3),
-            shell: "/bin/sh".to_string(),
-        };
-        let result = agent
-            .execute(
-                &ToolCall {
-                    id: "call_agent".to_string(),
-                    name: "Agent".to_string(),
-                    arguments: serde_json::json!({ "prompt": "run bash" }),
-                },
-                &ToolContext {
-                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                    shell: "/bin/sh".to_string(),
-                },
-            )
-            .await;
-        assert!(!result.is_error, "output: {}", result.output);
-        assert!(result.output.contains("ran it"));
-    }
-
-    #[tokio::test]
-    async fn agent_requires_prompt() {
-        let agent = AgentTool {
-            llm: Box::new(ScriptedLlmClient::once(vec![])),
-            policy: policy_auto(),
-            max_steps: Some(3),
-            shell: "/bin/sh".to_string(),
-        };
-        let result = agent
-            .execute(
-                &ToolCall {
-                    id: "call_agent".to_string(),
-                    name: "Agent".to_string(),
-                    arguments: serde_json::json!({}),
-                },
-                &ToolContext {
-                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
-                    shell: "/bin/sh".to_string(),
-                },
-            )
-            .await;
-        assert!(result.is_error);
-        assert!(result.output.contains("prompt is required"));
     }
 }
 
@@ -2145,6 +1938,25 @@ impl ToolRegistry {
         names.sort();
         names
     }
+
+    /// Update the LLM-facing definition of an already-registered tool without
+    /// replacing its executor (the Rust-native tools register executor-first
+    /// and the bridge advertises their defs afterwards). Returns `false` when
+    /// no tool with that name is registered.
+    pub fn set_def(&mut self, name: &str, def: Option<serde_json::Value>) -> bool {
+        if !self.tools.contains_key(name) {
+            return false;
+        }
+        match def {
+            Some(def) => {
+                self.defs.insert(name.to_string(), def);
+            }
+            None => {
+                self.defs.remove(name);
+            }
+        }
+        true
+    }
 }
 
 #[async_trait::async_trait]
@@ -2161,6 +1973,98 @@ impl ToolExecutor for ToolRegistry {
                 updates: vec![],
             },
         }
+    }
+
+    /// Forward cancellation to the registered executor (P1-2 review): the
+    /// engine cancels through the registry (bridge path), so a no-op here
+    /// would orphan a running Bash command when the turn is cancelled.
+    fn abort(&self, call: &ToolCall) {
+        if let Some(tool) = self.tools.get(&call.name) {
+            tool.abort(call);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tool_registry_tests {
+    use super::*;
+
+    #[test]
+    fn set_def_advertises_a_def_for_an_executor_registered_without_one() {
+        let mut registry = ToolRegistry::new();
+        registry.register("Native", Box::new(BashTool::default()));
+        assert!(
+            registry.tool_defs().is_empty(),
+            "executor-only registration advertises nothing"
+        );
+
+        assert!(registry.set_def(
+            "Native",
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "Native",
+                    "description": "A native tool",
+                    "parameters": { "type": "object", "properties": {} },
+                }
+            })),
+        ));
+        let defs = registry.tool_defs();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0]["function"]["name"], "Native");
+        assert_eq!(defs[0]["function"]["description"], "A native tool");
+        assert_eq!(defs[0]["function"]["parameters"]["type"], "object");
+
+        // Removing the def hides the tool again; unknown names are rejected.
+        assert!(registry.set_def("Native", None));
+        assert!(registry.tool_defs().is_empty());
+        assert!(!registry.set_def("Missing", Some(serde_json::json!({}))));
+    }
+
+    #[tokio::test]
+    async fn registry_abort_forwards_to_the_registered_tool() {
+        // P1-2 (review): turn cancellation calls `tools.abort(call)` — the
+        // registry must forward it to the inner executor (e.g. BashTool's
+        // process-tree kill) instead of the trait's no-op default, or a
+        // cancelled Bash command keeps running as an orphan.
+        #[async_trait::async_trait]
+        impl ToolExecutor for AbortRecordingTool {
+            async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "ran".to_string(),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+            fn abort(&self, call: &ToolCall) {
+                self.aborted.lock().unwrap().push(call.id.clone());
+            }
+        }
+        struct AbortRecordingTool {
+            aborted: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        }
+
+        let aborted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut registry = ToolRegistry::new();
+        registry.register(
+            "Bash",
+            Box::new(AbortRecordingTool {
+                aborted: std::sync::Arc::clone(&aborted),
+            }),
+        );
+        registry.abort(&ToolCall {
+            id: "call_1".to_string(),
+            name: "Bash".to_string(),
+            arguments: serde_json::json!({}),
+        });
+        assert_eq!(
+            *aborted.lock().unwrap(),
+            vec!["call_1".to_string()],
+            "registry.abort must reach the registered tool"
+        );
     }
 }
 
@@ -2187,11 +2091,23 @@ pub struct TaskState {
     /// it; the bash poller / subagent worker observes it, stops the work and
     /// settles the task with status "killed".
     pub cancel: Option<std::sync::Arc<crate::engine::CancelSignal>>,
+    /// Wall-clock deadline for the nested subagent turn (TS
+    /// `resolveSubagentTimeoutMs` parity, default 2h): when the worker's
+    /// `tokio::time::timeout_at` fires, the task settles `timed_out`.
+    pub deadline: std::time::Instant,
 }
 
 impl AgentTasks {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of tasks still in `running` status (the engine's view of the
+    /// TS task service's active detached-task count — `max_running_tasks`
+    /// is enforced against it before a subagent launch).
+    pub fn running_count(&self) -> usize {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        inner.values().filter(|state| state.status == "running").count()
     }
 
     pub fn insert(&self, task_id: String, state: TaskState) {
@@ -2216,7 +2132,7 @@ impl AgentTasks {
 
     /// Look up by agent id (the wire key the tools receive). When multiple
     /// tasks share an agent id (resume spawns a new task), the running one
-    /// wins; otherwise the first match is returned.
+    /// wins; otherwise the newest (largest `started_at`) is returned.
     pub fn find_by_agent_id(&self, agent_id: &str) -> Option<TaskState> {
         self.find_by_agent_id_with_key(agent_id).map(|(_, state)| state)
     }
@@ -2265,7 +2181,31 @@ pub struct AsyncAgentTool {
     /// monotonic across turns within a session and never collide with
     /// TS-assigned ids after a server restart.
     pub agent_id_counter: std::sync::atomic::AtomicU64,
+    /// Dedicated LLM client for nested subagent turns, built from the turn
+    /// input's `subagent_model` when it differs from the parent's provider
+    /// (TS `resolveSubagentBinding` parity — a subagent bound to the
+    /// secondary model runs on its own client). `None` = subagents reuse the
+    /// parent's client.
+    pub subagent_llm: Option<Arc<dyn LlmClient>>,
+    /// The resolved subagent provider config (same Some/None condition as
+    /// `subagent_llm`): the nested turn's input provider, so its
+    /// `ChatRequest.model` / thinking effort carry the subagent binding.
+    pub subagent_provider: Option<crate::types::ProviderConfig>,
+    /// Allowed `subagent_type` values (TS `subagentAllowlistFor` parity);
+    /// `None` = unrestricted.
+    pub subagent_allowlist: Option<Vec<String>>,
+    /// Per-subagent timeout in milliseconds (TS `resolveSubagentTimeoutMs`);
+    /// `None` = `DEFAULT_SUBAGENT_TIMEOUT_MS` (2h).
+    pub subagent_timeout_ms: Option<u64>,
+    /// Max concurrently running background tasks (TS `task.maxRunningTasks`);
+    /// `None` = unlimited.
+    pub max_running_tasks: Option<u32>,
 }
+
+/// Default per-subagent timeout: 2 hours, same as v1 / TS
+/// `DEFAULT_SUBAGENT_TIMEOUT_MS`.
+pub const DEFAULT_SUBAGENT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60 * 60);
 
 impl std::fmt::Debug for AsyncAgentTool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2284,6 +2224,7 @@ async fn run_nested_turn(
     tools: Arc<dyn ToolExecutor>,
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
+    provider: crate::types::ProviderConfig,
     steer: Option<Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>>>,
     cancel: std::sync::Arc<crate::engine::CancelSignal>,
     // Forward the nested turn's assistant text as it streams (the subagent
@@ -2303,12 +2244,8 @@ async fn run_nested_turn(
         turn_id: 0,
         messages,
         tools: vec![],
-        provider: crate::types::ProviderConfig {
-            base_url: "http://nested".to_string(),
-            api_key: "nested".to_string(),
-            model: "nested".to_string(),
-            thinking_effort: None,
-        },
+        active_tools: None,
+        provider,
         max_steps_per_turn: max_steps,
         max_retries_per_step: None,
         cwd: Some(cwd),
@@ -2317,6 +2254,13 @@ async fn run_nested_turn(
         max_context_tokens: None,
         next_agent_id: None,
         kill_grace_ms: None,
+        subagent_model: None,
+        subagent_allowlist: None,
+        subagent_timeout_ms: None,
+        max_running_tasks: None,
+        completion_review: None,
+        origin: dimi_wire::model::TurnOrigin::User { payload: None },
+        uses_worker_rejection_guidance: false,
     };
     // The nested turn's own cancellation: the parent session's `cancel_task`
     // (TaskStop parity) flips the signal, so a TaskStop mid-subagent reaches
@@ -2344,15 +2288,24 @@ async fn run_nested_turn(
     let messages = session.messages().to_vec();
     match progress {
         crate::engine::TurnProgress::Completed(outcome)
-            if outcome.status == crate::types::TurnEndReason::Completed =>
+            if outcome.status == crate::types::TurnEndReason::Completed
+                && outcome.truncated != Some(true) =>
         {
             (text, String::new(), messages)
         }
-        crate::engine::TurnProgress::Completed(outcome) => (
-            String::new(),
-            outcome.error.unwrap_or_else(|| "failed".to_string()),
-            messages,
-        ),
+        crate::engine::TurnProgress::Completed(outcome) => {
+            // A provider-truncated nested turn (finish reason length /
+            // max_tokens) is a FAILED subagent — TS parity
+            // (`runAgentTurn.classifyTurnResult` throws
+            // `SUBAGENT_MAX_TOKENS_ERROR` on `result.truncated`).
+            let error = if outcome.truncated == Some(true) {
+                "Subagent turn failed before completing its final summary: reason=max_tokens"
+                    .to_string()
+            } else {
+                outcome.error.unwrap_or_else(|| "failed".to_string())
+            };
+            (String::new(), error, messages)
+        }
         crate::engine::TurnProgress::NeedsApproval(_) => (
             String::new(),
             "approval pending in nested turn".to_string(),
@@ -2452,7 +2405,10 @@ impl ToolExecutor for AsyncAgentTool {
                     }))
                     .unwrap_or_default(),
                     is_error: false,
-                    stop_turn: true,
+                    // TS parity: an Agent call never ends the caller's turn —
+                    // the subagent runs in the background and the caller
+                    // continues with other work.
+                    stop_turn: false,
                     updates: vec![],
                 };
             }
@@ -2467,6 +2423,37 @@ impl ToolExecutor for AsyncAgentTool {
                 history,
             )
             .await;
+        }
+
+        // TS `subagentAllowlistFor` parity: an explicitly requested
+        // `subagent_type` outside the caller's allowlist is rejected before
+        // launch (TS `subagentTypeNotAllowedMessage`).
+        let subagent_type = call
+            .arguments
+            .get("subagent_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !subagent_type.is_empty() {
+            if let Some(allowlist) = &self.subagent_allowlist {
+                if !allowlist.iter().any(|allowed| allowed == &subagent_type) {
+                    let allowed = if allowlist.is_empty() {
+                        "none".to_string()
+                    } else {
+                        allowlist.join(", ")
+                    };
+                    return ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        output: format!(
+                            "Subagent type \"{subagent_type}\" is not allowed for this agent. Allowed subagent types: {allowed}."
+                        ),
+                        is_error: true,
+                        stop_turn: false,
+                        updates: vec![],
+                    };
+                }
+            }
         }
 
         let agent_id = self.next_agent_id();
@@ -2487,6 +2474,19 @@ impl AsyncAgentTool {
         format!("agent-{}", self.agent_id_counter.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// The nested turn's input provider: the resolved subagent model when the
+    /// tool has a dedicated subagent client, else the placeholder provider
+    /// (the nested turn reuses the parent's client, whose real model config
+    /// lives on the parent session; the client ignores the placeholder).
+    fn subagent_model_provider(&self) -> crate::types::ProviderConfig {
+        self.subagent_provider.clone().unwrap_or(crate::types::ProviderConfig {
+            base_url: "http://nested".to_string(),
+            api_key: "nested".to_string(),
+            model: "nested".to_string(),
+            thinking_effort: None,
+        })
+    }
+
     /// Spawn the background nested turn and return the launch result.
     async fn launch_subagent(
         &self,
@@ -2497,10 +2497,32 @@ impl AsyncAgentTool {
         agent_id: String,
         history: Vec<crate::types::LlmMessage>,
     ) -> ToolResult {
+        // TS `task.maxRunningTasks` parity: a launch beyond the running-task
+        // cap fails immediately and occupies no slot (the check happens
+        // BEFORE the insert).
+        if let Some(max_running) = self.max_running_tasks {
+            if self.tasks.running_count() >= max_running as usize {
+                return ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "Too many background tasks are already running.".to_string(),
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                };
+            }
+        }
         // TS `SubagentTask.idPrefix = "agent"` parity: the wire task id for a
         // subagent is `agent-<8>` (bash background tasks keep `bash-<8>`).
         let task_id = format!("agent-{}", uuid_v4_short());
         let cancel = std::sync::Arc::new(crate::engine::CancelSignal::new());
+        // TS `resolveSubagentTimeoutMs` parity: the nested turn must settle
+        // within this deadline or the worker settles the task `timed_out`.
+        let timeout = self
+            .subagent_timeout_ms
+            .map(std::time::Duration::from_millis)
+            .unwrap_or(DEFAULT_SUBAGENT_TIMEOUT);
+        let deadline = std::time::Instant::now() + timeout;
         self.tasks.insert(
             task_id.clone(),
             TaskState {
@@ -2511,6 +2533,7 @@ impl AsyncAgentTool {
                 messages: history.clone(),
                 started_at: now_nanos(),
                 cancel: Some(std::sync::Arc::clone(&cancel)),
+                deadline,
             },
         );
         self.events.emit(EngineEvent::TaskStarted {
@@ -2527,7 +2550,16 @@ impl AsyncAgentTool {
         let task_id_for_worker = task_id.clone();
         let cwd = ctx.cwd.clone();
         let shell = self.shell.clone();
-        let llm = Arc::clone(&self.llm);
+        // Subagent model parity: when the turn input resolved a dedicated
+        // subagent model (secondary-model binding), the nested turn runs on
+        // its own client and its input provider carries the resolved config;
+        // otherwise it reuses the parent's client and the placeholder
+        // provider (the client ignores the placeholder's model).
+        let llm = match &self.subagent_llm {
+            Some(subagent_llm) => Arc::clone(subagent_llm),
+            None => Arc::clone(&self.llm),
+        };
+        let nested_provider = self.subagent_model_provider();
         let tools = Arc::clone(&self.tools);
         let policy = self.policy.clone();
         let max_steps = self.max_steps;
@@ -2591,26 +2623,70 @@ impl AsyncAgentTool {
                     },
                 ) as std::sync::Arc<dyn Fn(&str) + Send + Sync>)
             };
-            let (_output, error, messages) = run_nested_turn(
-                history,
-                prompt,
-                cwd,
-                shell,
-                llm,
-                tools,
-                policy,
-                max_steps,
-                Some(steer_queue),
-                std::sync::Arc::clone(&cancel),
-                on_delta,
+            let nested = tokio::time::timeout_at(
+                tokio::time::Instant::from_std(deadline),
+                run_nested_turn(
+                    history,
+                    prompt,
+                    cwd,
+                    shell,
+                    llm,
+                    tools,
+                    policy,
+                    max_steps,
+                    nested_provider,
+                    Some(steer_queue),
+                    std::sync::Arc::clone(&cancel),
+                    on_delta,
+                ),
             )
             .await;
             // Session torn down while the nested turn ran (TS
             // `taskService.dispose` parity): skip the settle + notification —
             // the sink is closed, so nothing would reach the runner anyway.
+            // Mark the task non-running and drop its full message history so
+            // the shared registry cannot hold a permanently-"running" entry
+            // (review P1-2: boundedness + privacy).
             if events.is_closed() {
+                tasks.update(&task_id_for_worker, |state| {
+                    state.status = "killed".to_string();
+                    state.error = Some("Agent disposed before the subagent settled".to_string());
+                    state.messages = Vec::new();
+                });
                 return;
             }
+            let (_output, error, messages) = match nested {
+                Ok(nested) => nested,
+                Err(_elapsed) => {
+                    // TS `resolveSubagentTimeoutMs` parity: the nested turn
+                    // exceeded its deadline. Flip the per-task cancel so the
+                    // dropped nested session's own bash pollers observe the
+                    // cancellation and kill their processes, then settle the
+                    // task `timed_out` (the wire status the TS runner's
+                    // notification builder renders as "<task> timed out.").
+                    cancel.cancel_with_reason(Some("Subagent timed out".to_string()));
+                    tasks.update(&task_id_for_worker, |state| {
+                        state.status = "timed_out".to_string();
+                        state.error = Some(format!(
+                            "Subagent timed out after {} seconds",
+                            timeout.as_secs().max(1)
+                        ));
+                    });
+                    let settled = tasks
+                        .get(&task_id_for_worker)
+                        .expect("launched subagent task must be registered");
+                    events.emit(EngineEvent::TaskSettled {
+                        task_id: task_id_for_worker,
+                        agent_id: settled.agent_id,
+                        kind: "agent".to_string(),
+                        status: settled.status,
+                        output: settled.output,
+                        error: settled.error,
+                        exit_code: None,
+                    });
+                    return;
+                }
+            };
             let output = accumulated_output
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
@@ -2663,7 +2739,10 @@ impl AsyncAgentTool {
             }))
             .unwrap_or_default(),
             is_error: false,
-            stop_turn: true, // the turn yields while the subagent runs
+            // TS parity: an Agent call never ends the caller's turn — the
+            // subagent runs in the background and the caller continues with
+            // other work (the old `stop_turn: true` yielded the turn).
+            stop_turn: false,
             updates: vec![],
         }
     }
@@ -2741,7 +2820,13 @@ impl ToolExecutor for AgentOutputTool {
     }
 }
 
-/// `WaitForTool` — wait for a background subagent to finish (or timeout).
+/// `WaitForTool` — wait for a background subagent task to finish (or
+/// timeout). Always ends the turn after executing (`stop_turn: true`),
+/// mirroring the TS `waitForTool.ts` `stopTurn: true`: WaitFor is a
+/// deliberate turn stop, and the next turn resumes. NOTE (P1-2): this engine
+/// tool waits on a SUBAGENT task by `agent_id` only — the TS user-wait /
+/// notification-wake parking semantics are NOT implemented here, and the def
+/// the runner advertises says so explicitly.
 pub struct WaitForTool {
     pub tasks: AgentTasks,
 }
@@ -2766,6 +2851,7 @@ impl ToolExecutor for WaitForTool {
             .get("agent_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
+            .trim()
             .to_string();
         let timeout = normalize_wait_timeout(
             call.arguments
@@ -2773,12 +2859,37 @@ impl ToolExecutor for WaitForTool {
                 .and_then(|v| v.as_u64()),
         );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
+        // P1-2 (review): the advertised def REQUIRES `agent_id`, so a call
+        // with a missing/unknown id is a model error — fail fast instead of
+        // parking for the full timeout. The old behavior turned the schema
+        // gap into a guaranteed ~60s blind wait: the def had no agent_id, the
+        // model called without one, the lookup always missed, and WaitFor
+        // blocked the whole turn before returning "Wait expired". A task that
+        // EXISTS but is still running keeps the wait loop below (the
+        // legitimate timeout path).
+        if agent_id.is_empty() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: "WaitFor requires a non-empty `agent_id` of a subagent task launched by the Agent tool."
+                    .to_string(),
+                is_error: true,
+                stop_turn: true,
+                updates: vec![],
+            };
+        }
+        if self.tasks.find_by_agent_id(&agent_id).is_none() {
+            return ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("No subagent task found for agent_id: {agent_id}"),
+                is_error: true,
+                stop_turn: true,
+                updates: vec![],
+            };
+        }
         loop {
-            if let Some(state) = self
-                .tasks
-                .get(&agent_id)
-                .or_else(|| self.tasks.find_by_agent_id(&agent_id))
-            {
+            if let Some(state) = self.tasks.find_by_agent_id(&agent_id) {
                 if state.status != "running" {
                     return ToolResult {
                         tool_call_id: call.id.clone(),
@@ -2791,7 +2902,7 @@ impl ToolExecutor for WaitForTool {
                         }))
                         .unwrap_or_default(),
                         is_error: false,
-                        stop_turn: false,
+                        stop_turn: true,
                         updates: vec![],
                     };
                 }
@@ -2802,7 +2913,7 @@ impl ToolExecutor for WaitForTool {
                     tool_name: call.name.clone(),
                     output: format!("Wait expired for agent_id: {agent_id}"),
                     is_error: false,
-                    stop_turn: false,
+                    stop_turn: true,
                     updates: vec![],
                 };
             }
@@ -2828,6 +2939,7 @@ mod async_agent_tests {
         ToolContext {
             cwd: std::env::temp_dir().to_string_lossy().to_string(),
             shell: "/bin/sh".to_string(),
+            tool_calls: vec![],
         }
     }
 
@@ -2852,6 +2964,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -2867,7 +2984,9 @@ mod async_agent_tests {
         let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
         let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
         assert_eq!(launch_json["status"], "running");
-        assert!(launch.stop_turn);
+        // Agent launches are non-blocking (same-turn continue parity): the
+        // launching turn keeps going instead of stopping.
+        assert!(!launch.stop_turn);
 
         // WaitFor polls until the background turn completes.
         let wait = WaitForTool {
@@ -2910,6 +3029,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -2943,9 +3067,16 @@ mod async_agent_tests {
     }
 
     #[tokio::test]
-    async fn waitfor_times_out_for_missing_task() {
+    async fn waitfor_missing_agent_fails_fast() {
+        // P1-2 (review): the WaitFor def the runner advertises REQUIRES
+        // `agent_id`, so a call with an unknown agent id (or none at all) is
+        // a model error — it must fail immediately instead of parking for
+        // the full timeout. The old behavior returned "Wait expired" after a
+        // guaranteed ~60s blind wait: the def had no agent_id, the model
+        // called without one, and the registry lookup always missed.
         let tasks = AgentTasks::new();
         let wait = WaitForTool { tasks };
+        let started = std::time::Instant::now();
         let waited = wait
             .execute(
                 &ToolCall {
@@ -2956,8 +3087,139 @@ mod async_agent_tests {
                 &ctx(),
             )
             .await;
+        let elapsed = started.elapsed();
+        assert!(waited.is_error, "output: {}", waited.output);
+        assert!(
+            waited.output.contains("agent-missing"),
+            "output: {}",
+            waited.output
+        );
+        // Fail fast — well under even the 1s timeout the old code would
+        // have slept through.
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "missing agent must fail fast, took {elapsed:?}"
+        );
+        // An error is still a turn stop (TS `stopTurn: true` parity).
+        assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_running_task_still_times_out() {
+        // The legitimate timeout path survives the P1-2 fast-fail: a task
+        // that EXISTS but never leaves `running` still waits out its
+        // `timeout_seconds` and reports "Wait expired" (is_error: false).
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-slow".to_string(),
+            TaskState {
+                agent_id: "agent-slow".to_string(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                deadline: std::time::Instant::now(),
+                cancel: None,
+            },
+        );
+        let wait = WaitForTool { tasks };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-slow", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
         assert!(!waited.is_error);
         assert!(waited.output.contains("Wait expired"));
+        // Timeout is also a turn stop (TS `stopTurn: true` parity).
+        assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_stops_the_turn_when_task_completes() {
+        // TS parity: waitForTool.ts builds the result with `stopTurn: true` —
+        // WaitFor is a deliberate turn stop (wait for the user/task, resume
+        // on the next turn), so the engine must end the turn after executing.
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-done".to_string(),
+            TaskState {
+                agent_id: "agent-done".to_string(),
+                status: "completed".to_string(),
+                output: "done".to_string(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                deadline: std::time::Instant::now(),
+                cancel: None,},
+        );
+        let wait = WaitForTool { tasks };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "agent-done", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+        let waited_json: serde_json::Value = serde_json::from_str(&waited.output).unwrap();
+        assert_eq!(waited_json["status"], "completed");
+        assert_eq!(waited_json["output"], "done");
+        assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_rejects_a_task_id_instead_of_agent_id() {
+        // P2-4 (final review): the task registry is keyed by task id, but
+        // the WaitFor def REQUIRES `agent_id` — passing a task id must fail
+        // fast ("No subagent task found for agent_id: ...") instead of
+        // accidentally matching the task via the raw key and parking for
+        // the full timeout.
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-xyz".to_string(),
+            TaskState {
+                agent_id: "agent-xyz".to_string(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                deadline: std::time::Instant::now(),
+                cancel: None,
+            },
+        );
+        let wait = WaitForTool { tasks };
+        let started = std::time::Instant::now();
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "task-xyz", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        let elapsed = started.elapsed();
+        assert!(waited.is_error, "output: {}", waited.output);
+        assert!(
+            waited.output.contains("task-xyz"),
+            "output: {}",
+            waited.output
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "task id must fail fast, took {elapsed:?}"
+        );
     }
 
     #[test]
@@ -2982,6 +3244,76 @@ mod async_agent_tests {
         // ever diverge, this pin (plus the TS-side pin in
         // taskService.test.ts) fails and the mismatch is caught.
         assert_eq!(DEFAULT_KILL_GRACE_MS, 5_000);
+    }
+
+    #[tokio::test]
+    async fn cross_session_agent_output_resolves_task_launched_by_another_session() {
+        // P1-1 (review): the bridge gives every turn session a clone of ONE
+        // process-level `AgentTasks`, so a subagent launched by turn N
+        // (stop_turn ends that turn immediately) must be resolvable via
+        // AgentOutput in turn N+1 — a DIFFERENT session holding a different
+        // clone of the SAME registry. Two independent handles over one shared
+        // instance: the second session's AgentOutput sees the first session's
+        // launched task.
+        let shared = AgentTasks::new(); // one shared instance (bridge: shared_agent_tasks)
+        let session_a_tasks = shared.clone();
+        let session_b_tasks = shared.clone();
+
+        let agent = AsyncAgentTool {
+            llm: Arc::new(ScriptedLlmClient::once(vec![
+                LlmStreamEvent::Text {
+                    delta: "cross-session output".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ])),
+            tools: Arc::new(BashTool::default()),
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: session_a_tasks,
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({ "prompt": "bg" }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        // The "next turn": a separate session's AgentOutput tool reads the
+        // SAME shared registry and resolves the earlier session's task.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let read = AgentOutputTool { tasks: session_b_tasks }
+            .execute(
+                &ToolCall {
+                    id: "call_o".to_string(),
+                    name: "AgentOutput".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!read.is_error, "output: {}", read.output);
+        let read_json: serde_json::Value = serde_json::from_str(&read.output).unwrap();
+        assert_eq!(read_json["agent_id"], agent_id);
+        assert_eq!(read_json["status"], "completed");
+        assert_eq!(read_json["output"], "cross-session output");
     }
 
 
@@ -3012,6 +3344,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3112,6 +3449,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3289,6 +3631,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3435,6 +3782,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3565,6 +3917,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: sink,
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let launch = agent
             .execute(
@@ -3681,6 +4038,7 @@ mod async_agent_tests {
                 messages: vec![],
                 started_at: 1,
                 cancel: None,
+                deadline: std::time::Instant::now(),
             },
         );
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -3701,6 +4059,11 @@ mod async_agent_tests {
             steer_map,
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(
@@ -3746,6 +4109,7 @@ mod async_agent_tests {
                 }],
                 started_at: 1,
                 cancel: None,
+                deadline: std::time::Instant::now(),
             },
         );
         let agent = AsyncAgentTool {
@@ -3765,6 +4129,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(
@@ -3829,6 +4198,11 @@ mod async_agent_tests {
             steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             events: EventSink::new(),
             agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
         };
         let result = agent
             .execute(

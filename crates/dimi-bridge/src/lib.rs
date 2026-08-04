@@ -70,6 +70,35 @@ pub fn is_plain_agent_id(id: String) -> bool {
     dimi_wire::is_plain_agent_id(&id)
 }
 
+// ---------------------------------------------------------------- dimi-engine (M2+)
+
+/// `evaluatePolicy` — evaluate one tool call against the permission chain
+/// (A1 architecture review: the cross-language differential test exit point).
+/// The TS side feeds the same `PolicyInput` corpus to
+/// `AgentPermissionPolicyService` and to this export and asserts decision +
+/// reason parity, so any TS permission-policy change that is not mirrored in
+/// `dimi_engine::permission` turns the differential suite red instead of
+/// waiting for the next human review round.
+#[napi]
+pub fn evaluate_policy(input_json: String) -> napi::Result<String> {
+    let input: dimi_engine::permission::PolicyInput =
+        serde_json::from_str(&input_json).map_err(wire_error)?;
+    let decision = dimi_engine::permission::evaluate(&input);
+    // Normalize to the TS `PermissionPolicyResult` shape
+    // (`{kind, message?}` → `{decision, reason?}`) so the differential test
+    // compares apples to apples.
+    let json = match decision {
+        dimi_engine::permission::PolicyDecision::Approve => {
+            serde_json::json!({ "decision": "approve" })
+        }
+        dimi_engine::permission::PolicyDecision::Deny { reason } => {
+            serde_json::json!({ "decision": "deny", "reason": reason })
+        }
+        dimi_engine::permission::PolicyDecision::Ask => serde_json::json!({ "decision": "ask" }),
+    };
+    serde_json::to_string(&json).map_err(wire_error)
+}
+
 // ---------------------------------------------------------------- dimi-store (M1)
 
 /// Full cold rebuild: wire records → reduced messages → turn tree → folded

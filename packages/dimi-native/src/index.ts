@@ -31,6 +31,12 @@ export interface NativeBinding {
   paginateTurns: typeof paginateTurns;
   /** Parse a `wire.jsonl` file into records JSON. */
   readWireRecords: typeof readWireRecords;
+  /** Evaluate one tool call against the Rust permission chain (A1 review —
+   *  the differential exit point: the TS permission-policy test feeds the
+   *  same corpus here and to `AgentPermissionPolicyService` and asserts
+   *  decision + reason parity). Input: `PolicyInput` JSON; output:
+   *  `PolicyDecision` JSON. */
+  evaluatePolicy: typeof evaluatePolicy;
   /** One agent's transcript store, held on the Rust side. */
   RustAgentTranscript: RustAgentTranscriptConstructor;
   /** Rust exec layer: process spawn (M2) — the IHostProcessService socket. */
@@ -51,6 +57,8 @@ export interface NativeBinding {
   RustEngine: RustEngineConstructor;
   /** Rust engine: an in-flight turn with approval pause/resume (M3 slice 2). */
   RustTurnSession: RustTurnSessionConstructor;
+  /** Release an agent's scoped subagent registry (tasks + steering queues). */
+  dropTaskRegistry: RustDropTaskRegistry;
 }
 
 export interface RustAgentTranscriptConstructor {
@@ -184,6 +192,20 @@ export function paginateTurns(itemsJson: string, queryJson: string): string {
 /** Parse a `wire.jsonl` file into records JSON. */
 export function readWireRecords(path: string): string {
   return loadNative().readWireRecords(path);
+}
+
+/** Evaluate one tool call against the Rust permission chain (A1 review — the
+ *  differential exit point: the TS permission-policy test feeds the same
+ *  corpus here and to `AgentPermissionPolicyService` and asserts parity).
+ *  Input: `PolicyInput` JSON; output: `PolicyDecision` JSON. */
+export function evaluatePolicy(inputJson: string): string {
+  return loadNative().evaluatePolicy(inputJson);
+}
+
+/** Release an agent's scoped subagent registry (tasks + steering queues).
+ *  Call when the owning agent scope is disposed. */
+export function dropTaskRegistry(registryId: string): void {
+  loadNative().dropTaskRegistry(registryId);
 }
 
 /**
@@ -608,9 +630,20 @@ export interface RustEngineHandle {
 export class RustTurnSession {
   readonly #inner: RustTurnSessionHandle;
 
-  constructor(inputJson: string, policyJson: string, scriptedSegmentsJson?: string) {
+  constructor(
+    inputJson: string,
+    policyJson: string,
+    scriptedSegmentsJson: string | undefined,
+    registryId: string,
+  ) {
     const NativeClass = loadNative().RustTurnSession;
-    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null);
+    this.#inner = new NativeClass(inputJson, policyJson, scriptedSegmentsJson ?? null, registryId);
+  }
+
+  /** Release the agent-scoped subagent registry (tasks + steering queues).
+   *  Call when the owning agent scope is disposed. */
+  static dropTaskRegistry(registryId: string): void {
+    dropTaskRegistry(registryId);
   }
 
   /** Register the per-event callback: every engine event emitted by `run()` /
@@ -628,6 +661,26 @@ export class RustTurnSession {
     return this.#inner.resume(decisionJson);
   }
 
+  /** Record a session-scope approval (P1-6): the engine's policy is re-read
+   *  on every run/resume, so a pattern approved for the session mid-turn is
+   *  honored by the SAME turn's remaining batch. */
+  addSessionApproval(pattern: string): void {
+    this.#inner.addSessionApproval(pattern);
+  }
+
+  /** Register the native-tool PreToolUse gate (A2 review): every registry
+   *  tool call is announced through `callback` (`{requestId, toolName,
+   *  arguments}` JSON); answer with `completeToolGate(requestId,
+   *  {decision:'allow'|'block', reason?})`. A block short-circuits the call. */
+  setToolGate(callback: (payloadJson: string) => void): void {
+    this.#inner.setToolGate(callback);
+  }
+
+  /** Answer a pending gate request (see `setToolGate`). */
+  completeToolGate(requestId: string, verdictJson: string): void {
+    this.#inner.completeToolGate(requestId, verdictJson);
+  }
+
   /** Register a TS-side tool; `completeToolCall` finishes each call. The
    *  definition (description + JSON parameters schema) is advertised to the
    *  model from the next request on. */
@@ -638,6 +691,15 @@ export class RustTurnSession {
     callback: (payloadJson: string) => void,
   ): void {
     this.#inner.registerExternalTool(name, description, parametersJson, callback);
+  }
+
+  /** Advertise the LLM-facing definition (description + JSON parameters
+   *  schema) of a Rust-native tool (Agent / AgentOutput / WaitFor) registered
+   *  executor-first at construction. The executor stays the same; only the
+   *  def is updated, so the engine's request `tools` field carries it from
+   *  the next request on. */
+  registerNativeToolDef(name: string, description: string, parametersJson: string): void {
+    this.#inner.registerNativeToolDef(name, description, parametersJson);
   }
 
   /** Steer the running turn (drained into its next LLM request). Returns
@@ -677,19 +739,33 @@ export class RustTurnSession {
 
 /** The napi `RustTurnSession` class. */
 export interface RustTurnSessionConstructor {
-  new (inputJson: string, policyJson: string, scriptedSegmentsJson: string | null): RustTurnSessionHandle;
+  new (
+    inputJson: string,
+    policyJson: string,
+    scriptedSegmentsJson: string | null,
+    registryId: string,
+  ): RustTurnSessionHandle;
+}
+
+/** Release an agent's scoped subagent registry. */
+export interface RustDropTaskRegistry {
+  (registryId: string): void;
 }
 
 export interface RustTurnSessionHandle {
   setOnEvent(callback: (eventJson: string) => void): void;
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
+  addSessionApproval(pattern: string): void;
+  setToolGate(callback: (payloadJson: string) => void): void;
+  completeToolGate(requestId: string, verdictJson: string): void;
   registerExternalTool(
     name: string,
     description: string,
     parametersJson: string,
     callback: (payloadJson: string) => void,
   ): void;
+  registerNativeToolDef(name: string, description: string, parametersJson: string): void;
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
