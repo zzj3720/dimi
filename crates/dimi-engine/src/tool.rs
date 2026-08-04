@@ -2326,7 +2326,7 @@ impl AgentTasks {
 
     /// Look up by agent id (the wire key the tools receive). When multiple
     /// tasks share an agent id (resume spawns a new task), the running one
-    /// wins; otherwise the first match is returned.
+    /// wins; otherwise the newest (largest `started_at`) is returned.
     pub fn find_by_agent_id(&self, agent_id: &str) -> Option<TaskState> {
         self.find_by_agent_id_with_key(agent_id).map(|(_, state)| state)
     }

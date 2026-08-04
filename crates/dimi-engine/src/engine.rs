@@ -4200,5 +4200,181 @@ mod approval_batch_tests {
             Some(Some("tool_use".to_string())),
             "step 1 finish_reason: {completed:?}"
         );
+        // Ordering: the paused step's completion lands strictly before the
+        // next step starts, so the transcript never sees a step open across
+        // the approval boundary.
+        let step1_completed = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::TurnStepCompleted { step: 1, .. }
+                )
+            })
+            .expect("step 1 completed");
+        let step2_started = events
+            .iter()
+            .position(|e| matches!(e, EngineEvent::TurnStepStarted { step: 2, .. }))
+            .expect("step 2 started");
+        assert!(
+            step1_completed < step2_started,
+            "step 1 completed at {step1_completed} must precede step 2 started at {step2_started}: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_resume_emits_started_once_before_result() {
+        // P2-2 (final review, rejected path): a rejected resume announces the
+        // call exactly once and only after the decision, before the result
+        // (TS toolExecutorService dispatch parity) — the fold still gets a
+        // complete started + result pair.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(started_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_bash"), 1, "events: {events:?}");
+        let started_idx = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == "call_bash"
+                )
+            })
+            .expect("call_bash started");
+        let result_idx = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == "call_bash"
+                )
+            })
+            .expect("call_bash result");
+        assert!(
+            started_idx < result_idx,
+            "started at {started_idx} must precede result at {result_idx}: {events:?}"
+        );
+        // The sibling still ran after the rejected pending call.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_read".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn approved_stop_turn_resume_synthesizes_skipped_and_completes_step() {
+        // P2-1/P2-3 (final review, Path A): when the approved pending call
+        // itself stops the turn, the unrun siblings still get announced
+        // (started) + synthetic result, and the paused step completes with
+        // `end_turn` before the turn ends.
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping after approval", true),
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Only the approved pending call ran.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash".to_string()]
+        );
+        // The skipped sibling is announced before its synthetic result.
+        let sibling_started = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == "call_read"
+                )
+            })
+            .expect("sibling started");
+        let sibling_result = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == "call_read"
+                )
+            })
+            .expect("sibling result");
+        assert!(
+            sibling_started < sibling_result,
+            "sibling started at {sibling_started} must precede result at {sibling_result}: {events:?}"
+        );
+        // The paused step completes with end_turn, and no next step starts.
+        let completed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::TurnStepCompleted { step, finish_reason, .. } => {
+                    Some((*step, finish_reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            completed,
+            vec![(1, Some("end_turn".to_string()))],
+            "events: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| matches!(e, EngineEvent::TurnStepStarted { step: 2, .. })),
+            "turn must end after step 1: {events:?}"
+        );
     }
 }
