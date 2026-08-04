@@ -7,7 +7,7 @@ import { dispatch, maybeUpdateAtMention } from '../api';
 import { icons } from '../icons';
 import {
   composer, capsule, footer, inputRow, inputWrap, composerLeft, composerRight,
-  composerBtn, modelPill, input, sendBtn, composerToolbar, hint, queuedCount,
+  composerBtn, modelPill, modelPillName, modelPillMode, input, sendBtn, composerToolbar, hint, queuedCount,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
   btn, btnGhost,
 } from './Composer.styles';
@@ -20,6 +20,21 @@ const shortModelName = computed(() => {
   const last = m.split('/').pop() ?? m;
   return last.length > 24 ? last.slice(0, 22) + '…' : last;
 });
+
+// Icon paths measured from codex (design/04-composer.md §8). Inlined here
+// until icons.ts grows `chevron` / `mic` entries — swap to icons.* when added.
+const chevronIcon = {
+  vb: '0 0 16 16',
+  paths: [
+    'M12.1338 5.94433C12.3919 5.77382 12.7434 5.80202 12.9707 6.02929C13.1979 6.25656 13.2261 6.60807 13.0556 6.8662L12.9707 6.9707L8.47067 11.4707C8.21097 11.7304 7.78896 11.7304 7.52926 11.4707L3.02926 6.9707L2.9443 6.8662C2.77379 6.60807 2.80199 6.25656 3.02926 6.02929C3.25653 5.80202 3.60804 5.77382 3.86617 5.94433L3.97067 6.02929L7.99996 10.0586L12.0293 6.02929L12.1338 5.94433Z',
+  ],
+};
+const micIcon = {
+  vb: '0 0 20 20',
+  paths: [
+    'M15.7806 10.1963C16.1326 10.3011 16.3336 10.6714 16.2288 11.0234L16.1487 11.2725C15.3429 13.6262 13.2236 15.3697 10.6644 15.6299L10.6653 16.835H12.0833L12.2171 16.8486C12.5202 16.9106 12.7484 17.1786 12.7484 17.5C12.7484 17.8214 12.5202 18.0894 12.2171 18.1514L12.0833 18.165H7.91632C7.5492 18.1649 7.25128 17.8672 7.25128 17.5C7.25128 17.1328 7.5492 16.8351 7.91632 16.835H9.33527L9.33429 15.6299C6.775 15.3697 4.6558 13.6262 3.84992 11.2725L3.76984 11.0234L3.74445 10.8906C3.71751 10.5825 3.91011 10.2879 4.21808 10.1963C4.52615 10.1047 4.84769 10.2466 4.99347 10.5195L5.04523 10.6436L5.10871 10.8418C5.8047 12.8745 7.73211 14.335 9.99933 14.335C12.3396 14.3349 14.3179 12.7789 14.9534 10.6436L15.0052 10.5195C15.151 10.2466 15.4725 10.1046 15.7806 10.1963ZM12.2513 5.41699C12.2513 4.17354 11.2437 3.16521 10.0003 3.16504C8.75675 3.16504 7.74835 4.17343 7.74835 5.41699V9.16699C7.74853 10.4104 8.75685 11.418 10.0003 11.418C11.2436 11.4178 12.2511 10.4103 12.2513 9.16699V5.41699ZM13.5814 9.16699C13.5812 11.1448 11.9781 12.7479 10.0003 12.748C8.02232 12.748 6.41845 11.1449 6.41828 9.16699V5.41699C6.41828 3.43889 8.02221 1.83496 10.0003 1.83496C11.9783 1.83514 13.5814 3.439 13.5814 5.41699V9.16699Z',
+  ],
+};
 
 const inputEl = ref<HTMLElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
@@ -297,23 +312,27 @@ function steerMode(mode: 'steer' | 'queue'): void {
           </div>
         </div>
         <div :class="composerLeft">
-          <button :class="composerBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">
-            <svg :viewBox="icons.gear.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.gear.paths" :key="i" :d="p" /></svg>
+          <!-- Codex left button: 添加文件等内容 (plus). dimi has no attach UI,
+               so it reports the same "not implemented" status as before. -->
+          <button :class="composerBtn" aria-label="添加文件等内容" @click="state.statusMsg = '附件（暂未实现）'">
+            <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
           </button>
         </div>
         <div :class="composerRight">
-          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}<span :class="modelPillMode">轻度</span></span>
-          <button
-            :class="composerBtn"
-            title="Attach"
-            @click="state.statusMsg = '附件（暂未实现）'"
-          >
-            <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
+          <!-- Codex model pill: short model name (#fff) + mode (tertiary) + chevron 14×14.
+               dimi has no model picker — clicking still opens settings. -->
+          <button :class="modelPill" @click="dispatch(Msg.SettingsOpen())">
+            <span :class="modelPillName">{{ shortModelName }}</span>
+            <span :class="modelPillMode">轻度</span>
+            <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+          </button>
+          <button :class="composerBtn" aria-label="听写" @click="state.statusMsg = '听写（暂未实现）'">
+            <svg :viewBox="micIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in micIcon.paths" :key="i" :d="p" /></svg>
           </button>
           <button
             :class="sendBtn"
             :disabled="!state.draft.trim() || !state.currentSessionId"
-            title="Send"
+            aria-label="发送"
             data-testid="send-btn"
             @click="onSend"
           >

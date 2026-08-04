@@ -1,11 +1,35 @@
 // Markdown rendering for assistant messages — marked + DOMPurify + KaTeX.
-import { marked } from 'marked';
+import { marked, Renderer, Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 
 marked.setOptions({
   gfm: true,
   breaks: false,
+});
+
+// Codex-aligned renderer tweaks:
+// - links carry target="_blank" (the Electron main process routes
+//   window.open / navigation to shell.openExternal, so they open in the
+//   system browser);
+// - tables are wrapped in `.md-table-container` (styled in styles/global.ts),
+//   which bleeds 24px into the column padding while the table stays
+//   fit-content (codex `._tableContainer` / `._table`).
+marked.use({
+  renderer: {
+    link(this: Renderer, { href, title, tokens }: Tokens.Link) {
+      const text = this.parser.parseInline(tokens);
+      const t = title ? ` title="${title}"` : '';
+      return `<a href="${href}"${t} target="_blank">${text}</a>`;
+    },
+    table(this: Renderer, token: Tokens.Table) {
+      const header = token.header.map((cell) => this.tablecell(cell)).join('');
+      const rows = token.rows
+        .map((row) => `<tr>${row.map((cell) => this.tablecell(cell)).join('')}</tr>`)
+        .join('');
+      return `<div class="md-table-container"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    },
+  },
 });
 
 // Render inline `$...$` and block `$$...$$` LaTeX before markdown parsing so

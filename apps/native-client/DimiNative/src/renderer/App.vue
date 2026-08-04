@@ -10,7 +10,7 @@ import Dialogs from './components/Dialogs.vue';
 import { state, Msg } from './store';
 import { dispatch, createSession, detachCurrentTask, recallLastQueued } from './api';
 import { app } from './styles/global';
-import { shell, mainCol } from './App.styles';
+import { shell, mainCol, rootScroll } from './App.styles';
 
 const isMac = navigator.platform.startsWith('Mac');
 function ctrlKey(evt: KeyboardEvent): boolean {
@@ -197,7 +197,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div :class="app">
+  <div :class="[app, rootScroll]">
     <HeaderBar />
     <div :class="shell">
       <Sidebar v-if="state.sidebarVisible" />

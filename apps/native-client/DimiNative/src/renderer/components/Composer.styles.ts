@@ -10,21 +10,21 @@ export const composer = css({
 
 export const capsule = css({
   maxWidth: size.threadMaxW,
-  minHeight: 96, // border-box: 14+76+6 content + 2px border = 98 outer
+  minHeight: 98, // border-box: 14 (attachment slot) + 76 (footer) + 8 (mb-2) = 98 outer
   margin: '0 auto',
   background: colors.composerBg,
   backdropFilter: 'blur(16px)',
   WebkitBackdropFilter: 'blur(16px)',
-  border: '1px solid transparent',
   borderRadius: size.composerRadius,
   padding: '14px 0 0', // Codex: inner grid starts 14px below the capsule top
   display: 'flex',
   flexDirection: 'column',
-  boxSizing: 'border-box', // total outer height stays 98px with the 1px border
+  boxSizing: 'border-box',
+  // Codex has NO border on the capsule: the hairline ring is the 0.5px
+  // box-shadow spread, and focus does NOT change the capsule (no
+  // focus-within rule; the only focus feedback is the white caret).
   boxShadow:
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
-  transition: 'border-color 0.12s ease',
-  '&:focus-within': { borderColor: colors.borderFocus },
 });
 
 export const footer = css({
@@ -33,7 +33,7 @@ export const footer = css({
   alignItems: 'center',
   columnGap: 5, // Codex template "28px 0px 682px" leaves 5px gaps each side
   padding: '0 8px',
-  marginBottom: 6, // capsule: 14 + 76 + 6 + 2 border = 98 outer
+  marginBottom: 8, // Codex mb-2; capsule: 14 + 76 + 8 = 98 outer
   minHeight: 76,
 });
 
@@ -47,10 +47,12 @@ export const inputRow = css({
 export const inputWrap = css({
   flexGrow: 1,
   overflowY: 'auto',
-  padding: '0 12px',
-  minHeight: 44,
+  padding: '0 12px', // Codex px-3: text column starts 12px from the capsule edge
+  minHeight: 44, // Codex ProseMirror min-height 44
+  marginBottom: 4, // Codex mb-1: input row 48 = 44 content + 4 below
+  // Top-aligned (Codex): no align-items, so the editable stretches to the
+  // 44px min-height and the text starts at the top of the row.
   display: 'flex',
-  alignItems: 'center',
 });
 
 export const composerLeft = css({ gridColumn: 1, gridRow: 2, minWidth: 0 });
@@ -61,7 +63,7 @@ export const composerRight = css({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'flex-end',
-  gap: 2,
+  // Codex gaps: pill ↔ 听写 0px; 听写 ↔ 发送 8px (margin-left on sendBtn).
 });
 
 export const composerBtn = css({
@@ -78,9 +80,12 @@ export const composerBtn = css({
   color: colors.textTertiary,
   fontSize: font.sm,
   lineHeight: '18px',
-  cursor: 'pointer',
+  cursor: 'default', // Codex cursor-interaction resolves to `default` on macOS
   flexShrink: 0,
-  '&:hover': { background: colors.hover, color: colors.text },
+  // Codex: hover only changes bg (--vscode-list-hoverBackground), color stays.
+  '&:hover': { background: 'rgba(255, 255, 255, 0.078)' },
+  '&:active': { background: 'rgba(255, 255, 255, 0.15)' }, // token-foreground @ 15%
+  '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
   '& svg': { width: 16, height: 16 },
 });
 
@@ -95,13 +100,21 @@ export const modelPill = css({
   color: colors.textTertiary,
   fontSize: font.sm,
   lineHeight: '18px',
-  cursor: 'pointer',
+  fontWeight: 445, // Codex text-sm weight 445
+  cursor: 'default',
   whiteSpace: 'nowrap',
   height: size.composerBtn,
-  '&:hover': { background: colors.hover, color: colors.text },
+  minWidth: 0,
+  // Codex: hover/active only change bg, color stays tertiary.
+  '&:hover': { background: 'rgba(255, 255, 255, 0.078)' },
+  '&:active': { background: 'rgba(255, 255, 255, 0.15)' },
+  '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
+  '& svg': { width: 14, height: 14, flexShrink: 0 }, // chevron 14×14
 });
 
-export const modelPillMode = css({ color: colors.textTertiary, opacity: 0.85 });
+export const modelPillName = css({ color: colors.text }); // model name is token-text (#fff)
+
+export const modelPillMode = css({ color: colors.textTertiary });
 
 export const input = css({
   flex: 1,
@@ -111,19 +124,20 @@ export const input = css({
   font: 'inherit',
   fontSize: 14,
   lineHeight: '20px',
+  fontWeight: 445, // Codex input weight 445
   padding: 0,
-  maxHeight: 160,
+  maxHeight: '25dvh', // Codex max-h-[25dvh] (240px @ 960 viewport), then scrolls
   outline: 'none',
   overflowY: 'auto',
   display: 'block',
   width: '100%',
-  whiteSpace: 'pre-wrap',
+  whiteSpace: 'break-spaces',
   wordBreak: 'break-word',
   userSelect: 'text',
   caretColor: colors.text,
   '&:empty::before': {
     content: 'attr(data-placeholder)',
-    color: colors.textMuted,
+    color: colors.textTertiary, // Codex placeholder = text-tertiary rgba(255,255,255,0.498)
     pointerEvents: 'none',
   },
 });
@@ -134,16 +148,19 @@ export const sendBtn = css({
   height: size.sendBtn,
   borderRadius: radius.pill,
   border: 'none',
-  background: '#fff',
-  color: '#181818',
+  background: '#fff', // Codex bg-token-foreground
+  color: colors.composerBg, // Codex arrow fill = token-dropdown-background rgb(45,45,45)
   fontSize: 15,
   lineHeight: 1,
-  cursor: 'pointer',
+  cursor: 'default',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   padding: 2,
-  '&:hover:not(:disabled)': { background: '#f0f0f0' },
+  marginLeft: 8, // Codex: 听写 ↔ 发送 gap 8px (pill ↔ 听写 gap 0)
+  transition: 'opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+  // Codex has NO hover background (class carries only transition-opacity).
+  '&:focus-visible': { outline: '2px solid rgb(13, 13, 13)' }, // Codex outline-2 token-button-background
   '&:disabled': { opacity: 0.5, cursor: 'default' },
   '& svg': { width: 16, height: 16 },
 });
