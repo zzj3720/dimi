@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { colors, font, size, radius } from '../styles/theme';
+import { colors, font, size, radius, elevation } from '../styles/theme';
 
 // ---- composer shell ----
 // Codex root: form.relative.flex.flex-col (data-thread-find-composer) — layout
@@ -379,13 +379,12 @@ export const completion = css({
   transform: 'translateX(-50%)',
   bottom: 128,
   width: 'min(640px, calc(100vw - 48px))',
-  background: colors.surface2,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 12,
+  background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface
+  borderRadius: 15,
   maxHeight: 260,
   overflowY: 'auto',
   zIndex: 50,
-  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+  boxShadow: elevation.dropdown,
   padding: 4,
 });
 
@@ -395,7 +394,7 @@ export const completionItem = css({
   alignItems: 'center',
   padding: '6px 10px',
   cursor: 'pointer',
-  borderRadius: 8,
+  borderRadius: 12.5, // Radix menu item radius
   '&:hover': { background: colors.hover },
 });
 
@@ -425,10 +424,9 @@ export const modelPicker = css({
   minWidth: 260,
   maxHeight: '40vh',
   overflowY: 'auto',
-  background: colors.surface2,
-  borderRadius: 14,
-  border: `1px solid ${colors.border}`,
-  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+  background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface (CDP-measured)
+  borderRadius: 15,
+  boxShadow: elevation.dropdown,
   padding: 4,
   zIndex: 60,
 });
@@ -445,7 +443,7 @@ export const modelPickerItem = css({
   justifyContent: 'space-between',
   gap: 12,
   padding: '6px 10px',
-  borderRadius: 8,
+  borderRadius: 12.5, // Radix menu item radius
   border: 'none',
   background: 'transparent',
   color: colors.text,

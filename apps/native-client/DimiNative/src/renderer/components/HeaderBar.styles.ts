@@ -96,15 +96,16 @@ export const projectBtn = css({
 // Project picker popover (below the header, left-aligned to the main zone).
 // absolute — the header is position:fixed, so this anchors to the header's
 // padding box; `top: calc(100% + 4px)` then means just below the 46px bar.
+// Surface follows the Radix dropdown tokens (CDP-measured 2026-08-05).
 export const projectPicker = css({
   position: 'absolute',
   zIndex: 80,
   minWidth: 240,
   maxWidth: 420,
-  padding: 6,
-  background: colors.surface2,
-  borderRadius: 12,
-  boxShadow: elevation.prominent,
+  padding: 4,
+  background: 'rgba(45, 45, 45, 0.9)',
+  borderRadius: 15,
+  boxShadow: elevation.dropdown,
   display: 'flex',
   flexDirection: 'column',
   gap: 1,
@@ -114,9 +115,9 @@ export const projectPickerItem = css({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  height: 32,
-  padding: '0 8px',
-  borderRadius: 8,
+  height: 29,
+  padding: '5px 8px',
+  borderRadius: 12.5,
   border: 'none',
   background: 'transparent',
   color: colors.text,
@@ -316,10 +317,10 @@ export const headerCtxMenu = css({
   position: 'fixed',
   zIndex: 80,
   minWidth: 180,
-  padding: 6,
-  background: colors.surface2,
-  borderRadius: 12,
-  boxShadow: elevation.prominent,
+  padding: 4,
+  background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown surface (CDP-measured)
+  borderRadius: 15,
+  boxShadow: elevation.dropdown,
   display: 'flex',
   flexDirection: 'column',
 });
@@ -328,9 +329,9 @@ export const ctxMenuItem = css({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  height: 32,
-  padding: '0 8px',
-  borderRadius: 8,
+  height: 29, // Radix menu item (CDP-measured 29px / pad 5px 8px / radius 12.5)
+  padding: '5px 8px',
+  borderRadius: 12.5,
   border: 'none',
   background: 'transparent',
   fontSize: 13,

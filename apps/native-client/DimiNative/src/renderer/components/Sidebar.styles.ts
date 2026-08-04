@@ -350,6 +350,7 @@ export const folderRow = css({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
+  gap: 4, // Codex gap-1 between chevron and name (name lands at x=40)
   height: 30,
   padding: '0 8px',
   borderRadius: size.sidebarItemRadius,
@@ -367,7 +368,10 @@ export const folderRow = css({
 export const folderRowIcon = css({
   width: 30,
   height: 30,
-  margin: '0 -3px', // Codex -mx-[3px]
+  // Codex chevron sits at outer-8px + ps-1(4px) − mx(3px) = x9; dimi's row
+  // padding-left is 8px so the chevron needs an extra −4px to match (CDP: svg
+  // center codex 24px vs dimi 28px). Keep name at x=40 via the row gap-1.
+  margin: '0 -3px 0 -7px',
   flexShrink: 0,
   display: 'flex',
   alignItems: 'center',
@@ -439,7 +443,8 @@ export const sessionItem = css({
   fontWeight: 445,
   color: cText,
   cursor: 'default',
-  overflow: 'hidden',
+  userSelect: 'none', // Codex select-none
+  overflow: 'visible',
   flexShrink: 0,
   '&:hover': { background: cHover },
   // 16px reserved (empty) icon slot → title starts at x=40 (8 + 16 + 8)
@@ -610,9 +615,10 @@ export const sidebarBottomBtn = css({
 export const sidebarBottomBtnOpen = css({ background: cHover });
 
 // ---- dropdown menus (mode switch / profile / help) ----
-// Codex renders these as Radix DropdownMenus (p-1.5, menuWide). Item
-// geometry (height/padding/radius) is not extractable from the bundle —
-// 无法确定 — so the rows follow the sidebar's own scale (13px text).
+// Codex renders these as Radix DropdownMenus. CDP-measured 2026-08-05:
+// content bg oklab(0.297/0.9) = rgba(45,45,45,0.9), radius 15px, padding 4px,
+// shadow = 0.5px white 8.2% ring + 0 8px 16px -4px black 12%; menu items are
+// 29px (5px 8px padding), radius 12.5px, 13px text.
 export const menuAnchor = css({
   position: 'relative',
   display: 'flex',
@@ -628,10 +634,10 @@ export const menu = css({
   position: 'absolute',
   zIndex: 40,
   minWidth: 160,
-  padding: 6, // p-1.5
-  background: colors.surface2, // --color-token-dropdown-background
-  borderRadius: 12,
-  boxShadow: elevation.prominent,
+  padding: 4, // Radix p-1
+  background: 'rgba(45, 45, 45, 0.9)', // --color-token-dropdown-background @ 90%
+  borderRadius: 15,
+  boxShadow: elevation.dropdown,
   display: 'flex',
   flexDirection: 'column',
 });
@@ -659,9 +665,9 @@ export const menuItem = css({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  height: 32,
-  padding: '0 8px',
-  borderRadius: 8,
+  height: 29, // Codex CDP-measured 29px (pad 5px 8px + 19px content)
+  padding: '5px 8px',
+  borderRadius: 12.5,
   border: 'none',
   background: 'transparent',
   fontSize: 13,
@@ -739,10 +745,10 @@ export const ctxMenuStyle = css({
   position: 'fixed',
   zIndex: 80,
   minWidth: 180,
-  padding: 6,
-  background: colors.surface2,
-  borderRadius: 12,
-  boxShadow: elevation.prominent,
+  padding: 4,
+  background: 'rgba(45, 45, 45, 0.9)', // Radix dropdown (CDP-measured)
+  borderRadius: 15,
+  boxShadow: elevation.dropdown,
   display: 'flex',
   flexDirection: 'column',
 });

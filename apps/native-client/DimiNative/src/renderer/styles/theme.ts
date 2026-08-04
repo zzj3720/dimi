@@ -135,6 +135,10 @@ export const elevation = {
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
   sidebar:
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.03) 0 3px 7.5px 0, rgba(0, 0, 0, 0.02) 0 0 20px 0',
+  // Radix dropdown (CDP-measured 2026-08-05): 8.2% white 0.5px ring +
+  // 12% black 8px 16px -4px
+  dropdown:
+    'rgba(255, 255, 255, 0.082) 0 0 0 0.5px, rgba(0, 0, 0, 0.12) 0 8px 16px -4px',
 };
 
 // Runtime theme CSS variables — names must match the ones api.ts
