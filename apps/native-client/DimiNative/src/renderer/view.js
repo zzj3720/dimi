@@ -66,30 +66,26 @@ function renderTranscript() {
     const row = document.createElement('div');
     row.className = 'entry';
     if (e.kind === 'user') {
-      // User message: right-aligned accent bubble (chat-style).
-      row.style.flexDirection = 'row-reverse';
-      const bubble = document.createElement('div');
-      bubble.className = 'body';
-      bubble.style.maxWidth = '78%';
-      bubble.style.background = 'var(--accent-dim)';
-      bubble.style.border = '1px solid rgba(79, 193, 255, 0.35)';
-      bubble.style.borderRadius = '12px';
-      bubble.style.padding = '8px 12px';
-      bubble.textContent = e.text;
-      row.innerHTML = `<span class="role role-user">you</span>`;
-      row.appendChild(bubble);
+      // TUI user message: ✨ bullet + accent-colored text, no bubble.
+      const role = document.createElement('span');
+      role.className = 'role role-user';
+      role.textContent = '✨';
+      const body = document.createElement('div');
+      body.className = 'body';
+      body.style.color = 'var(--accent)';
+      body.textContent = e.text;
+      row.appendChild(role);
+      row.appendChild(body);
     } else if (e.kind === 'assistant') {
-      // Assistant message: left-aligned surface bubble.
-      const bubble = document.createElement('div');
-      bubble.className = 'body';
-      bubble.style.maxWidth = '85%';
-      bubble.style.background = 'var(--surface)';
-      bubble.style.border = '1px solid var(--border)';
-      bubble.style.borderRadius = '12px';
-      bubble.style.padding = '8px 12px';
-      bubble.textContent = e.text;
-      row.innerHTML = `<span class="role role-dimi">dimi</span>`;
-      row.appendChild(bubble);
+      // TUI assistant message: plain label + text, no bubble.
+      const role = document.createElement('span');
+      role.className = 'role role-dimi';
+      role.textContent = 'dimi';
+      const body = document.createElement('div');
+      body.className = 'body';
+      body.textContent = e.text;
+      row.appendChild(role);
+      row.appendChild(body);
     } else if (e.kind === 'tool') {
       row.className = 'entry clickable';
       row.innerHTML = `<span class="role role-tool">tool</span><div class="body tool"><span class="tool-name"></span><div class="tool-output"></div></div>`;
@@ -181,7 +177,9 @@ function renderCompletion() {
   model.completionItems.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'completion-item' + (i === model.completionSelected ? ' selected' : '');
-    div.innerHTML = `<span class="value"></span><span class="desc"></span>`;
+    div.innerHTML = `<span class="pointer"></span><span class="value"></span><span class="desc"></span>`;
+    // TUI SELECT_POINTER: the highlighted row gets a ❯ prefix.
+    div.querySelector('.pointer').textContent = i === model.completionSelected ? '❯ ' : '  ';
     div.querySelector('.value').textContent = item.label;
     if (item.description) div.querySelector('.desc').textContent = item.description;
     div.addEventListener('mousedown', (evt) => {

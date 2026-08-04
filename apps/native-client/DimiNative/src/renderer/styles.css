@@ -21,7 +21,7 @@
 html, body, .app { height: 100%; }
 
 body {
-  font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Cascadia Code", "JetBrains Mono", monospace;
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
@@ -57,7 +57,7 @@ body {
 .badge {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 2px;
   white-space: nowrap;
   font-weight: 500;
 }
@@ -72,13 +72,13 @@ body {
   white-space: nowrap;
   padding: 2px 8px;
   background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
+  border-radius: 2px;
 }
 
 .btn {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 2px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text);
@@ -95,32 +95,29 @@ body {
 .transcript {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 4px 0;
   outline: none;
 }
 .entry {
   display: flex;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 2px 8px;
   align-items: flex-start;
-  border-radius: 10px;
-  margin-bottom: 4px;
+  border-left: 2px solid transparent;
 }
 .entry:hover { background: rgba(255, 255, 255, 0.03); }
 .entry .role {
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 56px;
   margin-top: 1px;
-  letter-spacing: 0.02em;
 }
-.entry .role-user { background: var(--accent-dim); color: var(--accent); }
-.entry .role-dimi { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
-.entry .role-tool { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
-.entry .role-thinking { background: transparent; color: var(--text-muted); border: 1px dashed var(--border); }
-.entry .role-status { background: transparent; color: var(--text-muted); }
+.entry .role-user { color: var(--accent); }
+.entry .role-dimi { color: var(--text); }
+.entry .role-tool { color: var(--text-muted); }
+.entry .role-thinking { color: var(--text-muted); }
+.entry .role-status { color: var(--text-muted); }
 .entry .body { flex: 1; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
 .entry .body.muted { color: var(--text-muted); font-size: 12px; }
 .entry .body.tool { color: var(--text-muted); font-size: 12px; cursor: pointer; }
@@ -155,7 +152,7 @@ body {
   flex: 1;
   resize: none;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -187,7 +184,7 @@ body {
   bottom: 56px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   max-height: 220px;
   overflow-y: auto;
   z-index: 50;
@@ -218,7 +215,7 @@ body {
 .dialog {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
   min-width: 480px;
   max-width: 90%;
   max-height: 80%;
@@ -233,7 +230,7 @@ body {
 .search-input {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -248,7 +245,7 @@ body {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
 }
 .list-item:hover { background: var(--surface-2); }

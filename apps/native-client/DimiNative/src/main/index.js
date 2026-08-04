@@ -97,7 +97,6 @@ ipcMain.handle('sse-start', async (evt, { channel, url }) => {
         headers: { Authorization: serverToken ? `Bearer ${serverToken}` : undefined },
         signal: controller.signal,
       });
-      console.log(`[sse-start] ${channel} -> ${resp.status}`);
       if (!resp.ok || !resp.body) {
         wc.send(channel, { type: 'sse-error', status: resp.status });
         return;
@@ -117,10 +116,7 @@ ipcMain.handle('sse-start', async (evt, { channel, url }) => {
           const payload = line.slice(5).trim();
           if (!payload) continue;
           try {
-            const parsed = JSON.parse(payload);
-            const evtType = parsed?.payload?.type ?? parsed?.type ?? '?';
-            console.log(`[sse-event] ${evtType}`);
-            wc.send(channel, parsed);
+            wc.send(channel, JSON.parse(payload));
           } catch { wc.send(channel, { type: 'raw', data: payload }); }
         }
       }
