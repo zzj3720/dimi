@@ -5,12 +5,13 @@
 // Codex keeps the header clean; status lives in the composer area.
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { state } from '../store';
-import { api, dispatch } from '../api';
+import { api, dispatch, createSession } from '../api';
 import { icons } from '../icons';
 import {
   header, headerSide, headerSideOpen, headerSideClosed, headerSideGroup,
   headerMain, headerTitle, headerTitleInput, iconBtn, moreBtn, headerRight,
   shareBtn, pinnedBtn, pinnedBtnOn, headerCtxMenu, ctxMenuItem,
+  projectBtn, projectPicker, projectPickerItem, projectPickerItemActive, projectPickerEmpty,
 } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
@@ -160,6 +161,7 @@ function headerExport(): void {
 
 function onHeaderMenuDown(): void {
   if (headerMenu.value) headerMenu.value = null;
+  if (projectPickerOpen.value) projectPickerOpen.value = false;
 }
 
 function onHeaderMenuEsc(e: KeyboardEvent): void {
@@ -167,6 +169,39 @@ function onHeaderMenuEsc(e: KeyboardEvent): void {
     headerMenu.value = null;
     e.stopPropagation();
   }
+  if (e.key === 'Escape' && projectPickerOpen.value) {
+    projectPickerOpen.value = false;
+    e.stopPropagation();
+  }
+}
+
+// ---- project button (codex col1 env icon: `项目：{cwd}` popover trigger) ----
+// Clicking the 28px folder button opens a project list; selecting one starts
+// a new session in that cwd (createSession supports a cwd override).
+const projectPickerOpen = ref(false);
+const projects = computed(() => {
+  const seen = new Map<string, string>();
+  for (const s of state.sessions) {
+    const cwd = s.metadata?.cwd ?? s.cwd ?? '';
+    if (cwd && !seen.has(cwd)) seen.set(cwd, cwd);
+  }
+  return [...seen.values()];
+});
+
+const currentProject = computed(() => {
+  const cwd = state.currentCwd || current.value?.metadata?.cwd || '';
+  return cwd.split('/').filter(Boolean).pop() || cwd || '';
+});
+
+function toggleProjectPicker(): void {
+  projectPickerOpen.value = !projectPickerOpen.value;
+}
+
+function pickProject(cwd: string): void {
+  projectPickerOpen.value = false;
+  void createSession(cwd).then((id) => {
+    if (id) dispatch({ type: 'session_selected', id });
+  });
 }
 
 onMounted(() => {
@@ -219,8 +254,11 @@ function openHelp(): void {
         </button>
       </div>
     </div>
-    <!-- Main zone: session title (inline rename) + More -->
+    <!-- Main zone: project button + session title (inline rename) + More -->
     <div :class="headerMain">
+      <button :class="projectBtn" type="button" :aria-label="`项目：${currentProject}`" :aria-expanded="projectPickerOpen" data-tooltip="切换项目" @click="toggleProjectPicker">
+        <svg :viewBox="icons.folder.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.folder.paths" :key="i" :d="p" /></svg>
+      </button>
       <input v-if="editing" ref="titleInput" v-model="draftTitle" :class="headerTitleInput"
              :style="{ width: `${editWidth}px` }" aria-label="会话标题"
              @keydown.enter.prevent="commitRename"
@@ -250,6 +288,21 @@ function openHelp(): void {
       <button :class="iconBtn" type="button" aria-label="切换侧边栏" data-tooltip="切换侧边栏" :aria-pressed="state.sidebarVisible" @click="toggleSidebar">
         <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true" style="transform: rotate(180deg)"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
       </button>
+    </div>
+
+    <!-- Project picker (codex col1 env popover) -->
+    <div
+      v-if="projectPickerOpen"
+      :class="projectPicker"
+      :style="{ left: (state.sidebarWidth + 8) + 'px', top: 'calc(100% + 4px)' }"
+      role="menu"
+      @mousedown.stop
+    >
+      <button v-for="p in projects" :key="p" :class="[projectPickerItem, { [projectPickerItemActive]: p === (current?.metadata?.cwd ?? state.currentCwd) }]" type="button" role="menuitem" @click="pickProject(p)">
+        <svg :viewBox="icons.folder.vb" fill="currentColor" aria-hidden="true" style="width: 14px; height: 14px; flex-shrink: 0"><path v-for="(pi, i) in icons.folder.paths" :key="i" :d="pi" /></svg>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p }}</span>
+      </button>
+      <div v-if="projects.length === 0" :class="projectPickerEmpty">无项目</div>
     </div>
 
     <!-- Session context menu (codex HeaderContextMenuItem subset) -->

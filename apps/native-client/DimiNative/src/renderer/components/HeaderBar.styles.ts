@@ -67,10 +67,76 @@ export const headerMain = css({
   minWidth: 0,
   display: 'flex',
   alignItems: 'center',
-  gap: 4, // L7: Codex col1 actions gap-1 (no env icon in dimi)
+  gap: 4, // L7: Codex col1 actions gap-1
   marginLeft: 8, // Codex ms-2
-  paddingLeft: 8, // Codex titleRow ps-2 (no project pill)
   paddingRight: 6, // Codex pe-1.5
+});
+
+// Codex col1 env icon: 28×28 ghost button (project popover trigger), folder
+// glyph 16px — `aria-label="项目：{cwd}"` (CDP-measured 2026-08-05). This is
+// the element that pushes the session title to x≈311 in codex.
+export const projectBtn = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 28,
+  height: 28,
+  flexShrink: 0,
+  padding: 0,
+  border: '1px solid transparent',
+  borderRadius: 12.5,
+  background: 'transparent',
+  color: colors.textTertiary,
+  cursor: 'default',
+  '& svg': { width: 16, height: 16, color: colors.text },
+  '&:hover': { background: colors.hover },
+  '&:active': { background: colors.hoverStrong },
+});
+
+// Project picker popover (below the header, left-aligned to the main zone).
+// absolute — the header is position:fixed, so this anchors to the header's
+// padding box; `top: calc(100% + 4px)` then means just below the 46px bar.
+export const projectPicker = css({
+  position: 'absolute',
+  zIndex: 80,
+  minWidth: 240,
+  maxWidth: 420,
+  padding: 6,
+  background: colors.surface2,
+  borderRadius: 12,
+  boxShadow: elevation.prominent,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+});
+
+export const projectPickerItem = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 32,
+  padding: '0 8px',
+  borderRadius: 8,
+  border: 'none',
+  background: 'transparent',
+  color: colors.text,
+  fontSize: 13,
+  lineHeight: '18.5714px',
+  fontWeight: 445,
+  textAlign: 'left',
+  cursor: 'default',
+  '&:hover': { background: colors.hover },
+});
+
+export const projectPickerItemActive = css({
+  background: colors.hover,
+  '&:hover': { background: colors.hoverStrong },
+});
+
+export const projectPickerEmpty = css({
+  padding: '8px 12px',
+  color: colors.textMuted,
+  fontSize: font.sm,
 });
 
 // Session title is a BUTTON in Codex (S12): hover white-8% bg, radius 10px,

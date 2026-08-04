@@ -977,10 +977,10 @@ function stripInternalBlocks(text: string): string {
     .trim();
 }
 
-export async function createSession(): Promise<string | null> {
+export async function createSession(cwdOverride?: string): Promise<string | null> {
   try {
     const cur = state.sessions.find((s) => s.id === state.currentSessionId);
-    const cwd = cur?.metadata?.cwd ?? state.currentCwd;
+    const cwd = cwdOverride ?? cur?.metadata?.cwd ?? state.currentCwd;
     const data = await api('POST', '/api/v1/sessions', { metadata: { cwd } });
     const id = (data?.data?.id as string) ?? (data?.id as string) ?? null;
     if (id && !state.sessions.some((s) => s.id === id)) {
