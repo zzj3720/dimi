@@ -61,7 +61,7 @@ const titleInput = ref<HTMLInputElement | null>(null);
 function startRename(): void {
   if (!state.currentSessionId) return;
   editing.value = true;
-  draftTitle.value = current.value?.title ?? '';
+  draftTitle.value = current.value?.title || '(untitled)';
   // Size the input to the rendered title (codex's input falls back to its
   // ~20ch ≈ 189px default width); the 189px floor keeps short titles at the
   // codex default instead of shrinking to the text.
