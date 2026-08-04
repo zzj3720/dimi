@@ -5,8 +5,13 @@
 pub mod assistant_message;
 pub mod compaction;
 pub mod golden_tests;
+pub mod plan_box;
+pub mod shell_execution;
 pub mod status_message;
 pub mod thinking;
+pub mod tool_call;
+pub mod tool_golden_tests;
+pub mod tool_renderers;
 pub mod user_message;
 
 /// `● ` — the shared transcript status bullet (`STATUS_BULLET`).
