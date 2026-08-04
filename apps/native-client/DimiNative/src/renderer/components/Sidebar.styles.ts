@@ -257,6 +257,7 @@ export const sessionsScrolled = css({
 // ---- sections (项目 / 最近) ----
 export const section = css({
   position: 'relative',
+  padding: '0 8px', // Codex px-row-x (rows sit 8px off both sidebar edges)
 });
 
 export const sectionTitleRow = css({
@@ -343,7 +344,7 @@ export const folderGroup = css({
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  paddingLeft: 8, // rows sit at x=8 like the fixed nav rows
+  // rows sit at x=8 (section px-row-x provides both 8px gutters)
 });
 
 export const folderRow = css({
@@ -655,12 +656,12 @@ export const menuTop = css({
 });
 
 export const menuBottomLeft = css({
-  bottom: 'calc(100% + 4px)',
+  bottom: 'calc(100% + 7px)', // Codex profile menu gap 8px incl. 1px m-px margin
   left: 0,
 });
 
 export const menuBottomRight = css({
-  bottom: 'calc(100% + 4px)',
+  bottom: 'calc(100% + 7px)',
   right: 0,
 });
 
@@ -702,6 +703,7 @@ export const searchView = css({
   flexDirection: 'column',
   gap: 4,
   flexShrink: 0,
+  padding: '0 8px', // Codex px-row-x (8px gutters like the sections)
 });
 
 export const searchInputRow = css({

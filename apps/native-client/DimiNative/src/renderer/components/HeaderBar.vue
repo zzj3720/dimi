@@ -294,7 +294,7 @@ function openHelp(): void {
     <div
       v-if="projectPickerOpen"
       :class="projectPicker"
-      :style="{ left: (state.sidebarWidth + 8) + 'px', top: 'calc(100% + 4px)' }"
+      :style="{ left: (state.sidebarWidth + 8) + 'px', top: 'calc(100% - 4px)' }"
       role="menu"
       @mousedown.stop
     >
