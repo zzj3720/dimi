@@ -84,6 +84,7 @@ export interface State {
   sessionsLoading: boolean;
   sessionsError: string;
   sessionsHasMore: boolean;
+  sidebarVisible: boolean;
   pickerOpen: boolean;
   pickerQuery: string;
   pickerScope: 'all' | 'cwd';
@@ -186,6 +187,7 @@ export function createInitialState(): State {
     sessionsLoading: false,
     sessionsError: '',
     sessionsHasMore: false,
+    sidebarVisible: true,
     pickerOpen: false,
     pickerQuery: '',
     pickerScope: 'all',
@@ -356,6 +358,10 @@ export function update(s: State, msg: Msg): void {
     case 'sessions_loaded':
       s.sessions = (msg.sessions as SessionSummary[]) ?? [];
       s.sessionsLoading = false;
+      return;
+
+    case 'sidebar_toggle':
+      s.sidebarVisible = !s.sidebarVisible;
       return;
 
     case 'session_selected':

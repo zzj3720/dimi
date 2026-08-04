@@ -4,6 +4,7 @@ import { ref, watch, nextTick, onMounted } from 'vue';
 import { state, Msg } from '../store';
 import type { Entry } from '../store';
 import { dispatch } from '../api';
+import { icons } from '../icons';
 import { renderMarkdown } from '../markdown';
 import {
   transcript, thread, entry, entrySameTurn, entryNewTurn, entryHasActions, entryActions, entryActionBtn,
@@ -93,6 +94,7 @@ function cleanText(s: string): string {
   return (s ?? '')
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<system>[\s\S]*?<\/system>/g, '')
+    .replace(/<notification[^>]*>[\s\S]*?<\/notification>/g, '')
     .replace(/\n{3,}/g, '\n\n');
 }
 
@@ -134,7 +136,7 @@ function copyEntry(e: Entry): void {
         <!-- hover actions: copy -->
         <div v-if="e.kind === 'user' || e.kind === 'assistant'" :class="entryActions">
           <button :class="entryActionBtn" title="Copy" @click.stop="copyEntry(e)">
-            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 4.5V3.5a1 1 0 0 0-1-1h-5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" stroke="currentColor" stroke-width="1.2"/></svg>
+            <svg :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.copy.paths" :key="i" :d="p" /></svg>
           </button>
         </div>
 
@@ -149,7 +151,7 @@ function copyEntry(e: Entry): void {
         <div v-else-if="e.kind === 'thinking'" :class="clickable" @click="toggleThinking(e)">
           <div :class="reasoningTitle">
             <span>{{ e.durationMs ? '思考了 ' + fmtDuration(e.durationMs) : '思考' }}</span>
-            <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.chevronDown.paths" :key="i" :d="p" /></svg>
           </div>
           <div v-if="expandedThinking.has(e)" :class="bodyThinking">{{ cleanText(e.text) }}</div>
           <!-- Tool calls live inside the reasoning disclosure (Codex) -->
@@ -161,7 +163,7 @@ function copyEntry(e: Entry): void {
               @click.stop="toggleTool(t.id)"
             >
               <div :class="toolCardHeader">
-                <svg :class="toolCardIcon" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5 5 7 2 10.5M7 11h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg :class="toolCardIcon" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.chevronDown.paths" :key="i" :d="p" /></svg>
                 <span :class="toolCardName">{{ t.name }}</span>
                 <span :class="toolCardStatus">{{ t.text && t.text.length > 0 ? '已完成' : '进行中' }}</span>
               </div>
@@ -180,7 +182,7 @@ function copyEntry(e: Entry): void {
         <!-- tool: Codex-style card -->
         <div v-else-if="e.kind === 'tool'" :class="[toolCard, clickable]" @click="toggleTool(e.toolCallId)">
           <div :class="toolCardHeader">
-            <svg :class="toolCardIcon" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5 5 7 2 10.5M7 11h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg :class="toolCardIcon" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.chevronDown.paths" :key="i" :d="p" /></svg>
             <span :class="toolCardName">{{ e.toolName }}</span>
             <span :class="toolCardStatus">{{ e.text && e.text.length > 0 ? '已完成' : '进行中' }}</span>
           </div>

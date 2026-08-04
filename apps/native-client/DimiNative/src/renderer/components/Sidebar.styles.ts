@@ -67,8 +67,6 @@ export const brand = css({
   borderRadius: 15,
   border: '1px solid transparent',
   whiteSpace: 'nowrap',
-  cursor: 'pointer',
-  '&:hover': { background: colors.hover },
   '& svg': { width: 14, height: 14, flexShrink: 0, color: colors.textTertiary },
 });
 
@@ -177,15 +175,12 @@ export const sessionItem = css({
   overflow: 'hidden',
   flexShrink: 0,
   '&:hover': { background: colors.hover8 },
-  '& svg': { width: 16, height: 16, flexShrink: 0 },
-  '& .s-icon': { color: 'rgba(255, 255, 255, 0.85)' },
   '& .s-title': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 });
 
 export const sessionItemActive = css({
   background: colors.hover5,
   color: colors.text,
-  '& .s-icon': { color: colors.text },
 });
 
 // ---- sidebar bottom (Codex user/account row: clickable, avatar + name) ----
@@ -239,7 +234,7 @@ export const sidebarBottomBtn = css({
   justifyContent: 'center',
   width: 32,
   height: 32,
-  padding: 7,
+  padding: 6, // 32 - 2 (border) - 12 = 18 content → 18px icon like Codex icon-sm
   border: '1px solid transparent',
   borderRadius: size.sidebarIconBtnRadius,
   background: 'transparent',

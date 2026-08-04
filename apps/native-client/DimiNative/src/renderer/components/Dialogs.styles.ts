@@ -30,6 +30,34 @@ export const dialog = css({
   boxShadow: '0 16px 48px rgba(0, 0, 0, 0.6)',
 });
 
+// Session picker is a compact command menu (Codex style), not a modal.
+export const dialogPicker = css({
+  background: colors.surface2,
+  border: `1px solid ${colors.borderHeavy}`,
+  borderRadius: radius.lg,
+  width: 440,
+  maxWidth: '90%',
+  maxHeight: '70%',
+  display: 'flex',
+  flexDirection: 'column',
+  boxShadow: '0 16px 48px rgba(0, 0, 0, 0.6)',
+  overflow: 'hidden',
+});
+
+// Approval is a permission prompt: accent border + compact body.
+export const dialogApproval = css({
+  background: colors.surface2,
+  border: `1px solid ${colors.borderHeavy}`,
+  borderTop: `2px solid ${colors.primary}`,
+  borderRadius: radius.lg,
+  width: 520,
+  maxWidth: '90%',
+  maxHeight: '80%',
+  display: 'flex',
+  flexDirection: 'column',
+  boxShadow: '0 16px 48px rgba(0, 0, 0, 0.6)',
+});
+
 export const dialogTitle = css({
   fontWeight: 600,
   padding: '14px 16px',

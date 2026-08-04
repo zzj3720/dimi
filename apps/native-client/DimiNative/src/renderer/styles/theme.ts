@@ -37,7 +37,7 @@ export const font = {
 export const size = {
   headerH: '46px',
   sidebarW: '275px',
-  threadMaxW: '768px',
+  threadMaxW: '736px', // Codex message column width (form aligns 1:1 with it)
   iconBtn: '28px',
   iconBtnRadius: '12.5px',
   sidebarIconBtn: '26px',

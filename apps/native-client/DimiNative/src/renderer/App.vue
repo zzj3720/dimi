@@ -200,7 +200,7 @@ onUnmounted(() => {
   <div :class="app">
     <HeaderBar />
     <div :class="shell">
-      <Sidebar />
+      <Sidebar v-if="state.sidebarVisible" />
       <div :class="mainCol">
         <Transcript />
         <Composer />

@@ -880,15 +880,28 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
       }
       const text = texts.join('\n').trim();
       const think = thinks.join('\n').trim();
-      // Codex renders tool calls INSIDE the reasoning disclosure: merge
-      // thinking + tools into one entry when either is present.
-      if (think || tools.length > 0) {
+      // Codex renders tool calls INSIDE the reasoning disclosure — but only
+      // when there is actual thinking content. An empty thinking (server sends
+      // `"thinking":""`) must NOT produce an empty "思考" button: the tools
+      // render as standalone rows instead.
+      if (think) {
         entries.push({
           kind: 'thinking',
           text: think,
           tools: tools.map((t) => ({ id: t.id, name: t.name, args: t.input, text: '' })),
           streaming: false,
         });
+      } else if (tools.length > 0) {
+        for (const t of tools) {
+          entries.push({
+            kind: 'tool',
+            toolName: t.name,
+            toolCallId: t.id,
+            args: t.input,
+            text: '',
+            streaming: false,
+          });
+        }
       }
       if (text) entries.push({ kind: 'assistant', text, streaming: false });
       continue;
@@ -921,6 +934,7 @@ function stripInternalBlocks(text: string): string {
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<system>[\s\S]*?<\/system>/g, '')
+    .replace(/<notification[^>]*>[\s\S]*?<\/notification>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

@@ -5,11 +5,11 @@ import { colors, font, size, radius } from '../styles/theme';
 export const composer = css({
   position: 'relative',
   flexShrink: 0,
-  padding: '0 16px 16px',
+  padding: '0 0 16px',
 });
 
 export const capsule = css({
-  maxWidth: `calc(${size.threadMaxW} - 32px)`,
+  maxWidth: size.threadMaxW,
   minHeight: 96, // border-box: 14+76+6 content + 2px border = 98 outer
   margin: '0 auto',
   background: colors.composerBg,

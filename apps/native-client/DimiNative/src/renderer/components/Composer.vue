@@ -4,6 +4,7 @@
 import { ref, watch, nextTick, computed, onMounted } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention } from '../api';
+import { icons } from '../icons';
 import {
   composer, capsule, footer, inputRow, inputWrap, composerLeft, composerRight,
   composerBtn, modelPill, input, sendBtn, composerToolbar, hint, queuedCount,
@@ -296,7 +297,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
           </div>
         </div>
         <div :class="composerLeft">
-          <button :class="composerBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">⚙</button>
+          <button :class="composerBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">
+            <svg :viewBox="icons.gear.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.gear.paths" :key="i" :d="p" /></svg>
+          </button>
         </div>
         <div :class="composerRight">
           <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}<span :class="modelPillMode">轻度</span></span>
@@ -305,7 +308,7 @@ function steerMode(mode: 'steer' | 'queue'): void {
             title="Attach"
             @click="state.statusMsg = '附件（暂未实现）'"
           >
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8.5 3.5a3 3 0 0 1 3 3v4.5a2 2 0 0 1-4 0V5.5a1 1 0 0 1 2 0v5.5M8.5 3.5l-4 4M8.5 3.5l4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
           </button>
           <button
             :class="sendBtn"
@@ -314,7 +317,7 @@ function steerMode(mode: 'steer' | 'queue'): void {
             data-testid="send-btn"
             @click="onSend"
           >
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg :viewBox="icons.send.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.send.paths" :key="i" :d="p" /></svg>
           </button>
         </div>
       </div>

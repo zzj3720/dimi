@@ -53,11 +53,7 @@ export const headerTitle = css({
   lineHeight: '24px',
   fontWeight: 500,
   color: colors.text,
-  background: 'transparent',
-  border: 'none',
   padding: '0 6px', // Codex px-1.5
-  borderRadius: 10, // Codex rounded-md
-  cursor: 'pointer',
   maxWidth: 320, // Codex max-w-[320px]
   overflow: 'hidden',
   flexShrink: 1,
@@ -69,7 +65,6 @@ export const headerTitle = css({
     minWidth: 0,
     flexShrink: 1,
   },
-  '&:hover': { opacity: 0.85, background: colors.hover },
 });
 
 export const iconBtn = css({
@@ -90,31 +85,12 @@ export const iconBtn = css({
   flexShrink: 0,
   '&:hover': { background: colors.hover, color: colors.text },
   '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-  '& svg': { width: 18, height: 18 },
+  '& svg': { width: 16, height: 16 },
 });
 
 // The "…" more button carries a visible border in Codex.
 export const iconBtnBordered = css({
   borderColor: colors.border,
-});
-
-// Codex: the title chevron is a separate clickable element right after the
-// title button (glyph ~12×9 inside a 14×14 viewBox).
-export const headerChevron = css({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 14,
-  height: 14,
-  padding: 0,
-  border: 'none',
-  background: 'transparent',
-  color: colors.textTertiary,
-  cursor: 'pointer',
-  flexShrink: 0,
-  borderRadius: 4,
-  '&:hover': { color: colors.textDim, background: colors.hover },
-  '& svg': { width: 14, height: 14 },
 });
 
 export const headerRight = css({
@@ -140,5 +116,5 @@ export const shareBtn = css({
   lineHeight: '18px',
   cursor: 'pointer',
   '&:hover': { background: colors.hover },
-  '& svg': { width: 14, height: 14 },
+  '& svg': { width: 16, height: 16 },
 });

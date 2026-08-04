@@ -14,8 +14,8 @@ export const transcript = css({
 export const thread = css({
   maxWidth: size.threadMaxW,
   margin: '0 auto',
-  // Codex: 32px bottom padding (no extra msgList gap)
-  padding: '20px 16px 32px',
+  // Codex: 32px bottom padding; message content sits at the column edge
+  padding: '20px 0 32px',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
@@ -145,7 +145,7 @@ export const entryActionBtn = css({
   color: colors.textDim,
   cursor: 'pointer',
   '&:hover': { color: colors.text, background: colors.hoverStrong },
-  '& svg': { width: 14, height: 14 },
+  '& svg': { width: 16, height: 16 },
 });
 
 // User messages render as right-aligned bubbles (Codex: bg 5% white,

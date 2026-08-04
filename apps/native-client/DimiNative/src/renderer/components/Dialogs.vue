@@ -5,7 +5,7 @@ import { state, Msg, filteredSessions, slashCommands, APPROVAL_CHOICES } from '.
 import type { PermissionMode, Question } from '../store';
 import { api, dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
 import {
-  dialogRoot, dialogBackdrop, dialog, dialogTitle, dialogBody, dialogFooter,
+  dialogRoot, dialogBackdrop, dialog, dialogPicker, dialogApproval, dialogTitle, dialogBody, dialogFooter,
   searchInput, listItem, listItemSelected, listItemTitle, listItemSub, toolName,
   btn, btnGhost, btnPrimary, badge, badgePrimary, badgeOutline, bodyText,
 } from './Dialogs.styles';
@@ -123,13 +123,12 @@ function btwSend(): void {
 
 <template>
   <div :class="dialogRoot">
-    <!-- Session picker -->
+    <!-- Session picker: compact command menu -->
     <div v-if="state.pickerOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.PickerClose())">
-      <div :class="dialog">
-        <div :class="dialogTitle">Sessions</div>
-        <div :class="dialogBody">
+      <div :class="dialogPicker">
+        <div :class="dialogBody" style="padding: 10px">
           <input :class="searchInput" placeholder="Search sessions…" :value="state.pickerQuery" @input="dispatch(Msg.PickerSearch(($event.target as HTMLInputElement).value))" @keydown="pickerKeydown" />
-          <div style="overflow-y: auto; max-height: 320px" @scroll="onPickerScroll">
+          <div style="overflow-y: auto; max-height: 300px; margin-top: 6px">
             <div
               v-for="(s, i) in pickerList"
               :key="s.id"
@@ -141,10 +140,7 @@ function btwSend(): void {
             </div>
             <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
           </div>
-          <div :class="listItemSub" style="margin-top: 8px">↑↓ navigate · Enter select · Esc cancel</div>
-        </div>
-        <div :class="dialogFooter">
-          <button :class="[btn, btnGhost]" @click="dispatch(Msg.PickerClose())">Close</button>
+          <div :class="listItemSub" style="margin-top: 6px">↑↓ navigate · Enter select · Esc cancel</div>
         </div>
       </div>
     </div>
@@ -213,9 +209,9 @@ function btwSend(): void {
       </div>
     </div>
 
-    <!-- Approval -->
+    <!-- Approval: permission prompt card -->
     <div v-if="state.currentApproval" :class="dialogBackdrop">
-      <div :class="dialog">
+      <div :class="dialogApproval">
         <div :class="dialogTitle">{{ state.currentApproval.toolName || 'Approval required' }}</div>
         <div :class="dialogBody">
           <div :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ state.currentApproval.action }}</div>

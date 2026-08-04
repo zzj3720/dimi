@@ -5,16 +5,12 @@
 import { computed } from 'vue';
 import { state, Msg } from '../store';
 import { dispatch, loadSessions } from '../api';
-import { header, headerSide, headerSideGroup, headerMain, headerTitle, headerChevron, iconBtn, iconBtnBordered, headerRight, shareBtn } from './HeaderBar.styles';
+import { icons } from '../icons';
+import { header, headerSide, headerSideGroup, headerMain, headerTitle, iconBtn, iconBtnBordered, headerRight, shareBtn } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
 
 function refresh(): void {
-  void loadSessions();
-}
-
-function openSessions(): void {
-  dispatch(Msg.PickerOpen());
   void loadSessions();
 }
 
@@ -39,40 +35,35 @@ function navSession(delta: number): void {
   <header :class="header">
     <!-- Sidebar zone: Codex layout — menu (x=0), then collapse/back/forward group -->
     <div :class="headerSide">
-      <button :class="iconBtn" title="Menu" @click="openSessions">
-        <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <button :class="iconBtn" title="Menu" @click="toggleSidebar">
+        <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
       </button>
       <div :class="headerSideGroup">
         <button :class="iconBtn" title="隐藏边栏" @click="toggleSidebar">
-          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 3h12v12H3z" stroke="currentColor" stroke-width="1.3"/><path d="M12 3v12" stroke="currentColor" stroke-width="1.3"/><rect x="13" y="6" width="1" height="6" fill="currentColor"/></svg>
+          <svg :viewBox="icons.hideSidebar.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.hideSidebar.paths" :key="i" :d="p" /></svg>
         </button>
         <button :class="iconBtn" title="Back" @click="navSession(-1)">
-          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M11 4 6 9l5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg :viewBox="icons.back.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.back.paths" :key="i" :d="p" /></svg>
         </button>
         <button :class="iconBtn" title="Forward" @click="navSession(1)">
-          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg :viewBox="icons.forward.vb" fill="currentColor" aria-hidden="true" style="transform: scaleX(-1)"><path v-for="(p, i) in icons.forward.paths" :key="i" :d="p" /></svg>
         </button>
       </div>
     </div>
-    <!-- Main zone: session title (Codex: clickable, chevron OUTSIDE the button) -->
+    <!-- Main zone: session title (Codex: plain static text, no popup) -->
     <div :class="headerMain">
-      <button :class="headerTitle" title="Sessions" @click="openSessions">
-        <span>{{ current?.title || '' }}</span>
-      </button>
-      <button :class="headerChevron" title="Sessions" @click="openSessions">
-        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.5 4.5 7 9.5l4.5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      <span :class="headerTitle" title="Sessions">{{ current?.title || '' }}</span>
       <button :class="[iconBtn, iconBtnBordered]" title="More" @click="dispatch(Msg.HelpOpen())">
-        <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="2" cy="9" r="1.4" fill="currentColor"/><circle cx="7.5" cy="9" r="1.4" fill="currentColor"/><circle cx="13" cy="9" r="1.4" fill="currentColor"/></svg>
+        <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true" style="width: 18px; height: 18px"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
       </button>
     </div>
     <div :class="headerRight">
       <button :class="shareBtn" title="Share" @click="dispatch(Msg.HelpOpen())">
-        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M8.5 3.5 10.5 5.5M10.5 5.5 8.5 7.5M10.5 5.5H6a2.5 2.5 0 0 0-2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <svg :viewBox="icons.share.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.share.paths" :key="i" :d="p" /></svg>
         <span>分享</span>
       </button>
       <button :class="iconBtn" title="Refresh" @click="refresh">
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M15.33 2.67v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.66 10a6 6 0 1 1-1.41-6.24L15.33 6.67" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg :viewBox="icons.dots.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.dots.paths" :key="i" :d="p" /></svg>
       </button>
     </div>
   </header>
