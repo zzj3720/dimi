@@ -121,8 +121,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'turn.started origin (task-origin turns)',
-    migrated: false,
-    gap: 'engine hardcodes TurnOrigin::User',
+    migrated: true,
+    coveredBy:
+      'engine turn_started_carries_the_input_origin + rustEngineTurnRunner.test.ts (task origin on the bus)',
   },
   {
     domain: 'interrupted-step streamed text (completed-response flush, mid-stream drop)',
@@ -137,8 +138,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'worker rejection/cancel message suffix (TS guidance)',
-    migrated: false,
-    gap: 'engine reject text lacks the TS "Try a different approach…" suffix',
+    migrated: true,
+    coveredBy:
+      'engine deny/rejected-suffix tests + runner passes usesWorkerRejectionGuidance from agentId',
   },
   {
     domain: 'usage: cache-read double counting (aimux semantics)',
