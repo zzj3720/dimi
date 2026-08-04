@@ -62,6 +62,15 @@ impl Component for Container {
         lines
     }
 
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn crate::component::Focusable> {
+        for child in &mut self.children {
+            if let Some(f) = child.as_focusable_mut() {
+                return Some(f);
+            }
+        }
+        None
+    }
+
     fn handle_input(&mut self, data: &str) {
         for child in &mut self.children {
             child.handle_input(data);

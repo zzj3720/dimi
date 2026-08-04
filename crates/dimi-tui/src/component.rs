@@ -33,6 +33,11 @@ pub trait Component {
     /// Invalidate any cached rendering state. Called when the theme changes
     /// or the component needs to re-render from scratch.
     fn invalidate(&mut self) {}
+
+    /// Downcast to a focusable component (default: not focusable).
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        None
+    }
 }
 
 /// Interface for components that can receive focus and display a hardware
@@ -45,6 +50,13 @@ pub trait Focusable {
 
     /// Called by the TUI on focus changes.
     fn set_focused(&mut self, focused: bool);
+}
+
+/// Downcast helper for `Box<dyn Component>` → `&mut dyn Focusable`.
+/// Components that implement both traits can opt in via
+/// [`Component::as_focusable_mut`].
+pub fn component_as_focusable_mut(c: &mut dyn Component) -> Option<&mut dyn Focusable> {
+    c.as_focusable_mut()
 }
 
 /// Type-level helper mirroring pi-tui's `isFocusable`: runtime detection is

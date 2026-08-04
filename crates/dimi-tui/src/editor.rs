@@ -886,6 +886,10 @@ impl Component for Editor {
     }
 
     fn invalidate(&mut self) {}
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn crate::component::Focusable> {
+        Some(self)
+    }
 }
 
 impl crate::component::Focusable for Editor {
@@ -894,6 +898,12 @@ impl crate::component::Focusable for Editor {
     }
     fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
+    }
+}
+
+impl Editor {
+    pub fn as_focusable(&mut self) -> &mut dyn crate::component::Focusable {
+        self
     }
 }
 

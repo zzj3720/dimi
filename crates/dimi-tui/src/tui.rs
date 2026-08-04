@@ -28,6 +28,7 @@ pub struct CursorPosition {
 /// state; writes output through a [`Terminal`].
 pub struct Tui {
     children: Vec<Box<dyn Component>>,
+    focused: Option<usize>,
     terminal: Box<dyn Terminal>,
 
     previous_lines: Vec<String>,
@@ -48,6 +49,7 @@ impl Tui {
     pub fn new(terminal: Box<dyn Terminal>) -> Self {
         Tui {
             children: Vec::new(),
+            focused: None,
             terminal,
             previous_lines: Vec::new(),
             previous_raw_lines: Vec::new(),
@@ -66,6 +68,41 @@ impl Tui {
 
     pub fn add_child(&mut self, component: Box<dyn Component>) {
         self.children.push(component);
+    }
+
+    /// Set the focused child (by index). Focus drives hardware-cursor marker
+    /// emission and input routing.
+    pub fn set_focus(&mut self, index: Option<usize>) {
+        // Unfocus the previous child.
+        if let Some(prev) = self.focused {
+            if let Some(child) = self.children.get_mut(prev) {
+                if let Some(f) = child.as_focusable_mut() {
+                    f.set_focused(false);
+                }
+            }
+        }
+        self.focused = index;
+        if let Some(idx) = index {
+            if let Some(child) = self.children.get_mut(idx) {
+                if let Some(f) = child.as_focusable_mut() {
+                    f.set_focused(true);
+                }
+            }
+        }
+        self.request_render();
+    }
+
+    pub fn focused(&self) -> Option<usize> {
+        self.focused
+    }
+
+    /// Route raw input to the focused child's `handle_input`.
+    pub fn handle_input(&mut self, data: &str) {
+        if let Some(idx) = self.focused {
+            if let Some(child) = self.children.get_mut(idx) {
+                child.handle_input(data);
+            }
+        }
     }
 
     pub fn clear(&mut self) {
@@ -666,5 +703,48 @@ mod tests {
         assert!(!out.contains(CURSOR_MARKER));
         // Hardware cursor positioned at column 2 (1-indexed 3).
         assert!(out.contains("\x1b[3G"));
+    }
+    #[test]
+    fn focus_routes_input_to_child() {
+        let term = Rc::new(RefCell::new(RecordingTerminal::new(80, 24)));
+        let mut tui = Tui::new(Box::new(RecordingShared(term.clone())));
+        // Editor child at index 0.
+        tui.add_child(Box::new(crate::editor::Editor::new(
+            crate::editor::EditorOptions { padding_x: 0 },
+        )));
+        tui.set_focus(Some(0));
+        tui.handle_input("h");
+        tui.handle_input("i");
+        // The focused editor received the input; render shows it.
+        let out = tui.render_children(80);
+        let joined = out.join("\n");
+        assert!(
+            joined.contains("hi"),
+            "editor should contain typed text: {joined}"
+        );
+        // Unfocus → input no longer routed (no crash).
+        tui.set_focus(None);
+        tui.handle_input("x");
+    }
+
+    #[test]
+    fn focus_sets_marker_emission() {
+        let term = Rc::new(RefCell::new(RecordingTerminal::new(80, 24)));
+        let mut tui = Tui::new(Box::new(RecordingShared(term.clone())));
+        tui.add_child(Box::new(crate::editor::Editor::new(
+            crate::editor::EditorOptions { padding_x: 0 },
+        )));
+        tui.set_focus(Some(0));
+        let out = tui.render_children(80);
+        assert!(
+            out.iter()
+                .any(|l| l.contains(crate::component::CURSOR_MARKER))
+        );
+        tui.set_focus(None);
+        let out = tui.render_children(80);
+        assert!(
+            !out.iter()
+                .any(|l| l.contains(crate::component::CURSOR_MARKER))
+        );
     }
 }
