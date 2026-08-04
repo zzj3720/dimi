@@ -46,9 +46,12 @@ interface ReplayDriver {
   readonly state: TUIState;
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
+  readonly session: Session | undefined;
   init(): Promise<boolean>;
   switchToSession(session: Session, statusMessage: string): Promise<void>;
   toggleToolOutputExpansion(): void;
+  handleUserInput(text: string): void;
+  flushQueuedMessages(): void;
 }
 
 function makeStartupInput(): DimiTUIStartupInput {
@@ -172,6 +175,7 @@ function makeSession(
     setPermission: vi.fn(async () => {}),
     setPlanMode: vi.fn(async () => {}),
     onEvent: vi.fn(() => vi.fn()),
+    prompt: vi.fn(async () => {}),
     listMcpServers: vi.fn(async () => []),
     listSkills: vi.fn(async () => []),
     getResumeState: vi.fn(() => ({
@@ -271,6 +275,24 @@ function backgroundTask(
 }
 
 describe("DimiTUI resume message replay", () => {
+  it("queues user input sent while history is replaying instead of dropping it", async () => {
+    const driver = await replayIntoDriver([]);
+    // Simulate the replay window: `hydrateFromReplay` sets isReplaying before
+    // rendering the history and clears it in `finally`. A user message typed
+    // in that window must not be dropped — it is queued and sent once the
+    // replay finishes.
+    driver.state.appState.isReplaying = true;
+    driver.handleUserInput("typed during replay");
+    expect(driver.state.queuedMessages.map((q) => q.text)).toContain(
+      "typed during replay",
+    );
+    // Replay finished: the queued message is flushed to the session.
+    driver.state.appState.isReplaying = false;
+    driver.flushQueuedMessages();
+    const session = driver.session;
+    expect(session?.prompt).toHaveBeenCalledWith("typed during replay");
+  });
+
   it("unescapes bash tag delimiters when replaying shell output", async () => {
     const driver = await replayIntoDriver([
       message(

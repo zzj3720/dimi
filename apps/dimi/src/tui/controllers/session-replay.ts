@@ -51,6 +51,8 @@ export interface SessionReplayHost {
   showError(msg: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   mergeAllTurnSteps(): void;
+  /** Dispatch queued user input (messages typed while replay was rendering). */
+  flushQueuedMessages(): void;
 }
 
 function extractBashTag(
@@ -92,6 +94,9 @@ export class SessionReplayRenderer {
       return false;
     } finally {
       this.host.setAppState({ isReplaying: false });
+      // Input typed while the history was rendering was queued, not dropped —
+      // flush it now that the session is interactive again.
+      this.host.flushQueuedMessages();
     }
   }
 
