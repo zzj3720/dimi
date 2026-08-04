@@ -208,10 +208,22 @@ function isDisplayablePromptOrigin(origin: PromptOrigin): boolean {
 }
 
 /**
+ * TS `errorInfo(code).retryable` parity for the engine's provider codes
+ * (`app/providerRuntime/errors.ts` retryable list). The engine's wire error
+ * carries only `{ message, code }`; the runner maps the retryable verdict.
+ */
+const RETRYABLE_ERROR_CODES = new Set([
+  "provider.rate_limit",
+  "provider.connection_error",
+  "provider.overloaded",
+  "context.overflow",
+]);
+
+/**
  * Build a DimiErrorPayload-shaped error from the engine's `{ message, code }`
  * payload (TS `toDimiErrorPayload` parity): always carries `name` (the error
  * class name, mapped from the code when the engine omitted it), `retryable`
- * and `message`.
+ * (mapped from the code per the TS registry) and `message`.
  */
 function buildErrorPayload(rawError: Record<string, unknown>): Record<string, unknown> {
   const error = { ...rawError };
@@ -219,7 +231,8 @@ function buildErrorPayload(rawError: Record<string, unknown>): Record<string, un
     error["name"] = error["code"] === "PROVIDER_FILTERED" ? "ProviderFilteredError" : "Error";
   }
   if (error["retryable"] === undefined) {
-    error["retryable"] = false;
+    error["retryable"] =
+      typeof error["code"] === "string" && RETRYABLE_ERROR_CODES.has(error["code"] as string);
   }
   return error;
 }

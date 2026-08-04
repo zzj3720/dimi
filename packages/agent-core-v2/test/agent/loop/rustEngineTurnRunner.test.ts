@@ -2042,6 +2042,36 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(endedError['retryable']).toBe(false);
   });
 
+  it('maps PROVIDER_FILTERED to ProviderFilteredError with retryable false (P1-5)', async () => {
+    // A content-filter finish fails the turn with code PROVIDER_FILTERED;
+    // the runner maps it to the TS class name and the registry's
+    // retryable: false verdict (provider.filtered is not retryable).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'filtered' },
+        { type: 'finish', finishReason: 'content_filter' },
+      ],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const turnEnded: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'turn.ended') {
+        turnEnded.push(event as Record<string, unknown>);
+      }
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'filter me' }] });
+    for (let i = 0; i < 600 && turnEnded.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const ended = turnEnded.find((e) => e['reason'] === 'failed');
+    expect(ended).toBeDefined();
+    const endedError = ended!['error'] as Record<string, unknown>;
+    expect(endedError['name']).toBe('ProviderFilteredError');
+    expect(endedError['code']).toBe('PROVIDER_FILTERED');
+    expect(endedError['retryable']).toBe(false);
+  });
+
   it('streams external-tool updates as tool.progress (TS dispatchToolProgress parity)', async () => {
     const stubTool: ExecutableTool = {
       name: 'StubProgress',
