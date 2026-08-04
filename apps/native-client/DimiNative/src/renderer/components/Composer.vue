@@ -17,7 +17,7 @@ import {
   composerBtn, modelPill, modelPillName, modelPillMode, input, inputSingle, sendBtn,
   composerToolbar, hint, queuedCount, attachmentChip, attachmentChipName, attachmentChipRemove,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
-  modelPicker, modelPickerList, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
+  modelPicker, modelPickerList, modelPickerGroup, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
   btn, btnGhost,
 } from './Composer.styles';
 
@@ -41,7 +41,7 @@ const EFFORT_ORDER: { value: string; label: string }[] = [
   { value: 'off', label: '无思考' },
 ];
 const modelPickerOpen = ref(false);
-const models = ref<{ value: string; label: string }[]>([]);
+const models = ref<{ value: string; label: string; provider: string }[]>([]);
 let modelsLoaded = false;
 
 async function loadModels(): Promise<void> {
@@ -53,11 +53,23 @@ async function loadModels(): Promise<void> {
     models.value = items.map((m) => ({
       value: `${m.provider}/${m.model}`,
       label: m.display_name ?? m.model,
+      provider: m.provider,
     }));
   } catch {
     models.value = [];
   }
 }
+
+// Group the model list by provider (codex shows a small curated set; the
+// dimi server exposes a full catalog, so grouping keeps it navigable).
+const modelGroups = computed(() => {
+  const map = new Map<string, typeof models.value>();
+  for (const m of models.value) {
+    if (!map.has(m.provider)) map.set(m.provider, []);
+    map.get(m.provider)!.push(m);
+  }
+  return [...map.entries()];
+});
 
 function toggleModelPicker(): void {
   modelPickerOpen.value = !modelPickerOpen.value;
@@ -517,20 +529,24 @@ function steerMode(mode: 'steer' | 'queue'): void {
 
       <!-- Codex Work model picker panel: opens above the capsule (bottom
            anchored), listing model × strength options like the codex
-           _ModelPickerTriggerLabel_ rows (04-composer §5). -->
+           _ModelPickerTriggerLabel_ rows (04-composer §5). The dimi server
+           exposes a full catalog, so the list is grouped by provider. -->
       <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
         <div :class="modelPickerList">
-          <template v-for="m in models" :key="m.value">
-            <button
-              v-for="ef in EFFORT_ORDER"
-              :key="m.value + ef.value"
-              type="button"
-              :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
-              @click="onModelPickerSelect(m.value, ef.value)"
-            >
-              <span :class="modelPickerItemName">{{ m.label }}</span>
-              <span :class="modelPickerItemEffort">{{ ef.label }}</span>
-            </button>
+          <template v-for="[provider, list] in modelGroups" :key="provider">
+            <div :class="modelPickerGroup">{{ provider }}</div>
+            <template v-for="m in list" :key="m.value">
+              <button
+                v-for="ef in EFFORT_ORDER"
+                :key="m.value + ef.value"
+                type="button"
+                :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+                @click="onModelPickerSelect(m.value, ef.value)"
+              >
+                <span :class="modelPickerItemName">{{ m.label }}</span>
+                <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+              </button>
+            </template>
           </template>
           <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
         </div>

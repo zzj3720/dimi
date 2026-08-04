@@ -511,3 +511,12 @@ export const attachmentChipRemove = css({
   '&:hover': { background: colors.hoverStrong, color: colors.text },
   '& svg': { width: 10, height: 10, color: 'inherit' },
 });
+
+export const modelPickerGroup = css({
+  padding: '6px 10px 2px',
+  fontSize: font.xs,
+  lineHeight: '16px',
+  color: colors.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+});
