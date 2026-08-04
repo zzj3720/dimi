@@ -352,7 +352,7 @@ export const footerRight = css({ color: colors.textMuted, fontSize: 12, whiteSpa
 export const btn = css({
   fontSize: font.sm,
   padding: '5px 12px',
-  borderRadius: radius.pill,
+  borderRadius: radius.lg, // 12.5px — codex button radius (was pill/9999px)
   border: '1px solid transparent',
   background: colors.hover,
   color: colors.text,
