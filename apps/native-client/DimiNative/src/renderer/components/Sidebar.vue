@@ -512,7 +512,6 @@ function marqueeLeave(id: string): void {
                     </template>
                     <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
                   </span>
-                  <span class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
                   <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
                   <span class="sb-hover-actions">
                     <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">
@@ -552,7 +551,6 @@ function marqueeLeave(id: string): void {
               <span class="s-title" @mouseenter="marqueeEnter($event, s.id)" @mouseleave="marqueeLeave(s.id)">
                 <span class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
               </span>
-              <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
               <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
               <span class="sb-hover-actions">
                 <button class="sb-hover-btn" type="button" aria-label="取消置顶" data-tooltip="取消置顶" @click.stop="togglePin(s)">
@@ -613,7 +611,6 @@ function marqueeLeave(id: string): void {
                 </template>
                 <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
               </span>
-              <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
               <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
               <span class="sb-hover-actions">
                 <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">
@@ -672,7 +669,6 @@ function marqueeLeave(id: string): void {
               </template>
               <span v-else class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
             </span>
-            <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
             <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
             <span class="sb-hover-actions">
               <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">

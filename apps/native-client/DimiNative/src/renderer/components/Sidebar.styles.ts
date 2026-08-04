@@ -460,9 +460,6 @@ export const sessionItem = css({
   '& .sb-title-inner.sb-marquee': {
     animation: `${marqueeKeyframes} 0.9s ease-in-out forwards`,
   },
-  // hover suffix label (Codex hidden → group-hover:inline, color 0.498)
-  '& .sb-suffix': { display: 'none', flexShrink: 0, color: cTertiary },
-  '&:hover .sb-suffix': { display: 'inline' },
   // default right badge: 20×20 box with 14×14 icon, hidden on hover
   '& .sb-badge': {
     position: 'absolute',
