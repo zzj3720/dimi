@@ -880,28 +880,16 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
       }
       const text = texts.join('\n').trim();
       const think = thinks.join('\n').trim();
-      // Codex renders tool calls INSIDE the reasoning disclosure — but only
-      // when there is actual thinking content. An empty thinking (server sends
-      // `"thinking":""`) must NOT produce an empty "思考" button: the tools
-      // render as standalone rows instead.
-      if (think) {
+      // Codex renders tool calls INSIDE the reasoning disclosure. A turn with
+      // tools but no thinking text still gets a disclosure (labeled by tool
+      // names), so no bare "思考" buttons and no standalone tool rows.
+      if (think || tools.length > 0) {
         entries.push({
           kind: 'thinking',
           text: think,
           tools: tools.map((t) => ({ id: t.id, name: t.name, args: t.input, text: '' })),
           streaming: false,
         });
-      } else if (tools.length > 0) {
-        for (const t of tools) {
-          entries.push({
-            kind: 'tool',
-            toolName: t.name,
-            toolCallId: t.id,
-            args: t.input,
-            text: '',
-            streaming: false,
-          });
-        }
       }
       if (text) entries.push({ kind: 'assistant', text, streaming: false });
       continue;

@@ -7,7 +7,7 @@ import { dispatch } from '../api';
 import { icons } from '../icons';
 import { renderMarkdown } from '../markdown';
 import {
-  transcript, thread, entry, entrySameTurn, entryNewTurn, entryHasActions, entryActions, entryActionBtn,
+  transcript, thread, entry, entrySameTurn, entryNewTurn, entryHasActions, entryActions, entryActionsLeft, entryActionBtn,
   bodyMuted, bodyTool, bodyThinking, bodyCompaction,
   toolName, toolCard, toolCardHeader, toolCardIcon, toolCardName, toolCardStatus, toolCardBody,
   clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
@@ -88,6 +88,18 @@ function fmtDuration(ms: number): string {
   return r > 0 ? `${m}m ${r}s` : `${m}m`;
 }
 
+// Codex-style disclosure label: duration when the model reasoned, otherwise
+// the tool names (never a bare "思考" for a tools-only turn).
+function thinkingLabel(e: Entry): string {
+  if (e.durationMs) return '思考了 ' + fmtDuration(e.durationMs);
+  if (e.text) return '思考';
+  const names = (e.tools ?? []).map((t) => t.name).filter(Boolean);
+  if (names.length > 0) {
+    return names.slice(0, 3).join(' · ') + (names.length > 3 ? ` 等 ${names.length} 个工具` : '');
+  }
+  return '思考';
+}
+
 // Agent-internal blocks must never surface in the UI regardless of source
 // (history load, SSE stream, prompt echoes).
 function cleanText(s: string): string {
@@ -134,7 +146,7 @@ function copyEntry(e: Entry): void {
         ]"
       >
         <!-- hover actions: copy -->
-        <div v-if="e.kind === 'user' || e.kind === 'assistant'" :class="entryActions">
+        <div v-if="e.kind === 'user' || e.kind === 'assistant'" :class="[entryActions, e.kind === 'assistant' ? entryActionsLeft : null]">
           <button :class="entryActionBtn" title="Copy" @click.stop="copyEntry(e)">
             <svg :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.copy.paths" :key="i" :d="p" /></svg>
           </button>
@@ -150,7 +162,7 @@ function copyEntry(e: Entry): void {
              button (Codex behavior); content appears on expand -->
         <div v-else-if="e.kind === 'thinking'" :class="clickable" @click="toggleThinking(e)">
           <div :class="reasoningTitle">
-            <span>{{ e.durationMs ? '思考了 ' + fmtDuration(e.durationMs) : '思考' }}</span>
+            <span>{{ thinkingLabel(e) }}</span>
             <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.chevronDown.paths" :key="i" :d="p" /></svg>
           </div>
           <div v-if="expandedThinking.has(e)" :class="bodyThinking">{{ cleanText(e.text) }}</div>

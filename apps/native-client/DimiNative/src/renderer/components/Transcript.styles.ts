@@ -117,15 +117,20 @@ export const toolCardBody = css({
 export const clickable = css({ cursor: 'pointer' });
 
 // Hover action buttons on messages (Codex: 26×26 row BELOW the message, flow
-// layout with gap 4 — never overlaps the message itself).
+// layout with gap 2 — never overlaps the message itself). Assistant messages
+// get left-aligned actions, user messages right-aligned.
 export const entryActions = css({
   display: 'flex',
   justifyContent: 'flex-end',
-  gap: 4,
-  marginTop: 4,
+  gap: 2,
+  marginTop: 6,
   opacity: 0,
   transition: 'opacity 0.12s ease',
   zIndex: 5,
+});
+
+export const entryActionsLeft = css({
+  justifyContent: 'flex-start',
 });
 
 export const entryHasActions = css({
@@ -139,9 +144,9 @@ export const entryActionBtn = css({
   width: 26,
   height: 26,
   padding: 4,
-  border: `1px solid ${colors.border}`,
+  border: '1px solid transparent', // Codex: transparent border on the icon
   borderRadius: 10,
-  background: colors.surface2,
+  background: 'transparent',
   color: colors.textDim,
   cursor: 'pointer',
   '&:hover': { color: colors.text, background: colors.hoverStrong },
