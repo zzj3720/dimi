@@ -137,7 +137,7 @@ function btwSend(): void {
               @mousedown.prevent="dispatch(Msg.PickerSelect())"
             >
               <div :class="listItemTitle">{{ s.title || '(untitled)' }}</div>
-              <div :class="listItemSub">{{ s.id }}</div>
+              <div :class="listItemSub">{{ s.last_prompt || s.cwd || '' }}</div>
             </div>
             <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
           </div>

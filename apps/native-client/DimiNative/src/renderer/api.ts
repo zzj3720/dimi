@@ -174,23 +174,10 @@ export async function fetchStatus(sessionId: string): Promise<void> {
       if (st.model) state.modelName = String(st.model);
       if (st.permission) state.permissionMode = st.permission as State['permissionMode'];
       if (typeof st.plan_mode === 'boolean') state.planMode = st.plan_mode;
-      if (typeof st.context_tokens === 'number' && typeof st.max_context_tokens === 'number') {
-        const max = st.max_context_tokens;
-        const pct = max > 0 ? Math.round((st.context_tokens / max) * 100) : 0;
-        state.footerContext = `context: ${pct}% (${fmtK(st.context_tokens)}/${fmtK(max)})`;
-      }
     }
   } catch {
     /* non-fatal */
   }
-}
-
-function fmtK(n: number): string {
-  if (n >= 1024) {
-    const v = n / 1024;
-    return (v >= 10 ? String(Math.round(v)) : v.toFixed(1)) + 'k';
-  }
-  return String(n);
 }
 
 export function subscribeSse(sessionId: string): void {

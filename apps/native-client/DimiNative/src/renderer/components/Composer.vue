@@ -6,11 +6,10 @@ import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention } from '../api';
 import {
   composer, capsule, footer, inputRow, inputWrap, composerLeft, composerRight,
-  composerBtn, modelPill, input, sendBtn, composerToolbar, hint, footerRight, queuedCount,
+  composerBtn, modelPill, input, sendBtn, composerToolbar, hint, queuedCount,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
   btn, btnGhost,
 } from './Composer.styles';
-import { spacer } from '../styles/global';
 
 // Codex shows a short model name in the composer pill (e.g. "5.6 Terra"),
 // not the full provider/model ref.
@@ -306,7 +305,7 @@ function steerMode(mode: 'steer' | 'queue'): void {
       </div>
     </div>
 
-    <div v-if="state.busy || state.statusMsg || state.queued.length > 0 || state.footerContext" :class="composerToolbar">
+    <div v-if="state.busy || state.statusMsg || state.queued.length > 0" :class="composerToolbar">
       <span v-if="state.queued.length > 0" :class="queuedCount">{{ state.queued.length }} queued</span>
       <template v-if="state.busy">
         <button :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'steer' }]" @click="steerMode('steer')">steer</button>
@@ -314,8 +313,6 @@ function steerMode(mode: 'steer' | 'queue'): void {
         <button :class="[btn, btnGhost]" @click="dispatch(Msg.Cancel())">Cancel</button>
       </template>
       <span :class="hint" data-testid="status-msg">{{ state.statusMsg }}</span>
-      <span :class="spacer"></span>
-      <span :class="footerRight">{{ state.footerContext }}</span>
     </div>
   </footer>
 </template>

@@ -86,7 +86,6 @@ export interface State {
   modelName: string;
   currentCwd: string;
   footerTips: string;
-  footerContext: string;
   queued: { text: string; mode: string; promptId?: string }[];
   busyInputMode: BusyInputMode;
   draft: string;
@@ -187,7 +186,6 @@ export function createInitialState(): State {
     modelName: '',
     currentCwd: '',
     footerTips: '/init: generate AGENTS.md | @: mention files',
-    footerContext: '',
     queued: [],
     busyInputMode: 'steer',
     draft: '',
@@ -349,7 +347,7 @@ export function update(s: State, msg: Msg): void {
       s.entries = [];
       s.busy = false;
       s.phase = 'idle';
-      s.statusMsg = `session ${s.currentSessionId}`;
+      s.statusMsg = '';
       // A freshly created session may not be in the sidebar list yet (e.g.
       // /new or the new-chat button) — surface it so the sidebar reflects it.
       if (!s.sessions.some((x) => x.id === s.currentSessionId)) {
