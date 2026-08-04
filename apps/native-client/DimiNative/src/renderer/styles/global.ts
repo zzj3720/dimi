@@ -58,8 +58,10 @@ export const md = css({
   '& em': { fontStyle: 'italic' },
   '& s': { textDecoration: 'line-through' },
   '& u': { textDecoration: 'underline' },
-  // Codex: links are plain white, no underline, default cursor (no pointer).
+  // Codex: links are plain white, no underline, default cursor (no pointer);
+  // the Tailwind `hover:underline` class adds the underline on hover.
   '& a': { color: '#ffffff', textDecoration: 'none', cursor: 'default' },
+  '& a:hover': { textDecoration: 'underline' },
   '& code': {
     color: colors.text,
     background: 'rgba(255, 255, 255, 0.16)',
@@ -88,8 +90,9 @@ export const md = css({
   },
   '& h1': { color: colors.text, fontWeight: 600, fontSize: '24px', lineHeight: '30px', margin: '20px 0 10px' },
   '& h2': { color: colors.text, fontWeight: 600, fontSize: '20px', lineHeight: '25px', margin: '20px 0 10px' },
-  '& h3': { color: colors.text, fontWeight: 600, fontSize: '17px', lineHeight: '22px', margin: '20px 0 10px' },
-  '& h4, & h5, & h6': { color: colors.text, fontWeight: 600, fontSize: '15px', lineHeight: '20px', margin: '20px 0 10px' },
+  '& h3': { color: colors.text, fontWeight: 600, fontSize: '17px', lineHeight: '22px', margin: '20px 0 10px' }, // h3 = 17px (design doc §10 gradient, already aligned)
+  '& h4, & h6': { color: colors.text, fontWeight: 600, fontSize: '15px', lineHeight: '20px', margin: '20px 0 10px' },
+  '& h5': { color: colors.text, fontWeight: 600, fontSize: '16px', lineHeight: '21px', margin: '20px 0 10px' }, // h5 = 16px (design doc §10 gradient; was 15px)
   // Codex blockquote: white text, 4px rounded vertical bar (::after) inset 8px,
   // padding-block 8 + padding-left 24, margin-bottom 8.
   '& blockquote': {

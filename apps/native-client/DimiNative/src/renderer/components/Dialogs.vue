@@ -15,29 +15,31 @@ import {
 const pickerList = computed(() => filteredSessions(state));
 
 // Codex menu keyboard (05-design §5.2): ↓ from the search box focuses the
-// first item, ↑ focuses the last, then arrows step through items (the store
-// wraps around). dimi keeps focus in the input (rows aren't focusable), so a
-// local "arrow chain" flag emulates codex: the first arrow after opening or
-// typing jumps to the edge, subsequent arrows move relatively.
+// first item, ↑ focuses the last, then arrows step through items and wrap at
+// the edges (first ↑ → last, last ↓ → first). dimi keeps focus in the input
+// (rows aren't focusable), so a local "arrow chain" flag emulates codex: the
+// first arrow after opening / typing / refocusing jumps to the edge, later
+// arrows move relatively — the store's picker_move wraps via modulo, which
+// provides the first→last / last→first wrap-around.
 let pickerArrowChain = false;
 function pickerKeydown(e: KeyboardEvent): void {
   const n = pickerList.value.length;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     if (n === 0) return;
-    if (!pickerArrowChain && state.pickerSelectedIndex !== 0) {
-      dispatch(Msg.PickerMove(-state.pickerSelectedIndex));
+    if (pickerArrowChain) {
+      dispatch(Msg.PickerMove(1)); // relative step; store wraps last → first
     } else {
-      dispatch(Msg.PickerMove(1));
+      dispatch(Msg.PickerMove(-state.pickerSelectedIndex)); // → first item (0)
     }
     pickerArrowChain = true;
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
     if (n === 0) return;
-    if (!pickerArrowChain && state.pickerSelectedIndex !== n - 1) {
-      dispatch(Msg.PickerMove(n - 1 - state.pickerSelectedIndex));
+    if (pickerArrowChain) {
+      dispatch(Msg.PickerMove(-1)); // relative step; store wraps first → last
     } else {
-      dispatch(Msg.PickerMove(-1));
+      dispatch(Msg.PickerMove(n - 1 - state.pickerSelectedIndex)); // → last item
     }
     pickerArrowChain = true;
   } else if (e.key === 'Enter') {

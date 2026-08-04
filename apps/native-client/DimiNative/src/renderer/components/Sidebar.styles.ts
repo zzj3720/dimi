@@ -74,6 +74,25 @@ export const sidebarTopSearch = css({
   padding: '0 8px 8px', // search mode: --sidebar-scroll-header-spacing 8px
 });
 
+// Scrolled state (02-sidebar-code §2.5, C = scrolledContentUnderHeader): the
+// header block's pb grows 1px → 4px (--sidebar-scroll-header-spacing) and a
+// 0.5px hairline appears under it — codex
+// `after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0
+// after:h-[0.5px] after:bg-token-foreground/10` (rgba(255,255,255,0.1)).
+export const sidebarTopScrolled = css({
+  padding: '0 8px 4px',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '0.5px',
+    background: 'rgba(255, 255, 255, 0.1)', // bg-token-foreground/10
+    pointerEvents: 'none',
+  },
+});
+
 // ---- brand row (32px): mode-switch button + search + priority ----
 export const brandRow = css({
   display: 'flex',
@@ -199,6 +218,9 @@ const scrollMask =
 // search mode (--sidebar-scroll-header-fade-start 8px / -distance 16px):
 const scrollMaskSearch =
   'linear-gradient(to bottom, transparent 0, transparent 8px, #000 24px, #000 calc(100% - 40px), transparent 100%)';
+// scrolled state (--sidebar-scroll-header-fade-start 4px / -distance 16px):
+const scrollMaskScrolled =
+  'linear-gradient(to bottom, transparent 0, transparent 4px, #000 16px, #000 calc(100% - 40px), transparent 100%)';
 
 export const sessions = css({
   flex: '1 1 0%',
@@ -221,6 +243,16 @@ export const sessionsSearch = css({
   marginTop: -8,
   maskImage: scrollMaskSearch,
   WebkitMaskImage: scrollMaskSearch,
+});
+
+// Scrolled state (C = scrolledContentUnderHeader, 02-sidebar-code §2.5): the
+// scroll area pulls up to -mt 4px (--sidebar-scroll-header-spacing 4px) and
+// the top mask fade widens to 4px→16px (--sidebar-scroll-header-fade-start
+// 4px / -distance 16px). pt stays 1px (--sidebar-scroll-content-top-padding).
+export const sessionsScrolled = css({
+  marginTop: -4,
+  maskImage: scrollMaskScrolled,
+  WebkitMaskImage: scrollMaskScrolled,
 });
 
 // ---- sections (项目 / 最近) ----

@@ -10,6 +10,7 @@ import { srOnly } from '../styles/global';
 import {
   transcript, threadWrap, thread, turn, turnContent, itemDivider, turnActions, entryActionBtn, entryActionBtnReplyBad,
   userMsgGroup, userBubble, userCopyRow,
+  userEdit, userEditInput, userEditRow, userEditBtn, userEditBtnPrimary,
   bodyMuted, toolCard, toolCardHeader, toolCardIcon, toolCardIconOpen, toolCardName, toolCardStatus,
   toolShell, toolShellCollapsed, toolCardBody,
   clickable, entryUser, thinkingBlock,
@@ -179,6 +180,74 @@ function turnCopyKey(ti: number): string {
 
 function copyUser(e: Entry, ti: number, i: number): void {
   copyText(cleanText(e.text), userCopyKey(ti, i));
+}
+
+// ---- user message editing (codex §5.2) ----
+// Codex replaces the bubble with a composer-like editor (draft + cancel/
+// submit) and commits via onEditMessage. The dimi server exposes NO message
+// edit endpoint (messages are append-only: prompts POST /prompts, and only
+// undo/compact/fork exist) and the resend mechanism is unconfirmed, so the
+// commit here is deliberately UI-only — the local bubble text is replaced and
+// the API gap is reported. No invented endpoint, and no undo+resend heuristic
+// (that would only work for the last turn and would destroy the assistant's
+// answer on save).
+const editingEntry = ref<Entry | null>(null);
+const editDraft = ref('');
+const editTextarea = ref<HTMLTextAreaElement | null>(null);
+
+function autosizeEdit(el: HTMLTextAreaElement): void {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+function startEdit(e: Entry): void {
+  if (editingEntry.value === e) return;
+  editingEntry.value = e;
+  editDraft.value = e.text ?? '';
+  void nextTick(() => {
+    const el = editTextarea.value;
+    if (!el) return;
+    el.focus();
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+    autosizeEdit(el);
+  });
+}
+
+function onEditInput(evt: Event): void {
+  const el = evt.target as HTMLTextAreaElement;
+  editDraft.value = el.value;
+  autosizeEdit(el);
+}
+
+function onEditKeydown(evt: KeyboardEvent): void {
+  if (evt.isComposing) return; // IME owns Enter during composition
+  if (evt.key === 'Enter' && !evt.shiftKey) {
+    // stopPropagation keeps the window-level handler (App.vue) from also
+    // seeing the key; Shift+Enter falls through to insert a newline.
+    evt.preventDefault();
+    evt.stopPropagation();
+    commitEdit();
+    return;
+  }
+  if (evt.key === 'Escape') {
+    evt.preventDefault();
+    evt.stopPropagation();
+    cancelEdit();
+  }
+}
+
+function commitEdit(): void {
+  const e = editingEntry.value;
+  if (!e) return;
+  const text = editDraft.value.trim();
+  if (text.length > 0) e.text = text; // local bubble replacement (UI-only)
+  cancelEdit();
+}
+
+function cancelEdit(): void {
+  editingEntry.value = null;
+  editDraft.value = '';
 }
 
 function copyTurn(t: Turn, ti: number): void {
@@ -381,18 +450,40 @@ function cleanText(s: string): string {
 
               <template v-for="(e, i) in t.entries" :key="i">
                 <div :class="e.kind === 'user' ? entryUser : null">
-                  <!-- user: right-aligned bubble + single copy button -->
+                  <!-- user: right-aligned bubble + single copy button; dblclick
+                       the bubble to edit (codex §5.2) — the bubble is replaced
+                       by a composer-like editor, Enter saves (UI-only local
+                       replacement), Esc cancels -->
                   <template v-if="e.kind === 'user'">
                     <div :class="userMsgGroup">
-                      <div :class="userBubble">
-                        <div :class="md" v-html="renderMarkdown(cleanText(e.text))"></div>
+                      <div v-if="editingEntry === e" :class="userEdit">
+                        <textarea
+                          ref="editTextarea"
+                          :class="userEditInput"
+                          :value="editDraft"
+                          rows="1"
+                          spellcheck="false"
+                          aria-label="编辑消息"
+                          placeholder="编辑消息…"
+                          @input="onEditInput"
+                          @keydown="onEditKeydown"
+                        ></textarea>
+                        <div :class="userEditRow">
+                          <button :class="userEditBtn" type="button" @click="cancelEdit">取消</button>
+                          <button :class="[userEditBtn, userEditBtnPrimary]" type="button" @click="commitEdit">保存</button>
+                        </div>
                       </div>
-                      <div :class="userCopyRow">
-                        <button :class="entryActionBtn" aria-label="复制消息" title="复制消息" @click="copyUser(e, ti, i)">
-                          <svg v-if="copyFeedback !== userCopyKey(ti, i)" :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.copy.paths" :key="pi" :d="p" /></svg>
-                          <svg v-else :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.check.paths" :key="pi" :d="p" /></svg>
-                        </button>
-                      </div>
+                      <template v-else>
+                        <div :class="userBubble" @dblclick="startEdit(e)">
+                          <div :class="md" v-html="renderMarkdown(cleanText(e.text))"></div>
+                        </div>
+                        <div :class="userCopyRow">
+                          <button :class="entryActionBtn" aria-label="复制消息" title="复制消息" @click="copyUser(e, ti, i)">
+                            <svg v-if="copyFeedback !== userCopyKey(ti, i)" :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.copy.paths" :key="pi" :d="p" /></svg>
+                            <svg v-else :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.check.paths" :key="pi" :d="p" /></svg>
+                          </button>
+                        </div>
+                      </template>
                     </div>
                   </template>
 

@@ -16,10 +16,10 @@ import { state, Msg, type SessionSummary } from '../store';
 import { dispatch } from '../api';
 import { icons, type IconDef } from '../icons';
 import {
-  sidebar, sidebarTop, sidebarTopSearch,
+  sidebar, sidebarTop, sidebarTopSearch, sidebarTopScrolled,
   brandRow, brand, brandOpen, brandActions, brandIconBtn, brandIconBtnSearch,
   navItemHeader, navItemScroll, navBlockScroll, navBlockItems,
-  sessions, sessionsSearch, section, sectionTitleRow, sectionToggle, sectionTitleActions, sectionTitleBtn, emptyRow,
+  sessions, sessionsSearch, sessionsScrolled, section, sectionTitleRow, sectionToggle, sectionTitleActions, sectionTitleBtn, emptyRow,
   folderGroup, folderRow, folderRowIcon, folderRowName, folderRowActions, folderRowBtn, sessionList,
   sessionItem, sessionItemActive,
   resizeHandle, resizeHandleLine, sidebarBottom, userRow, userRowOpen, sidebarBottomBtn, sidebarBottomBtnOpen,
@@ -119,6 +119,17 @@ function comingSoon(name: string): void {
   state.statusMsg = `${name}（暂未实现）`;
 }
 
+// ---- scroll-linked header state (02-sidebar-code §2.5, C state) ----
+// scrolledContentUnderHeader: once the session list actually scrolls
+// (scrollTop > 0), the header block's pb grows 1px → 4px with a 0.5px divider
+// (--sidebar-scroll-header-spacing) and the scroll area's top fade widens to
+// 4px→16px. Search mode keeps its own spacing approximation (see styles).
+const scrolled = ref(false);
+const sessionsEl = ref<HTMLElement | null>(null);
+function onSessionsScroll(e: Event): void {
+  scrolled.value = (e.target as HTMLElement).scrollTop > 0;
+}
+
 // ---- search mode (02-sidebar-code C4 / A1) ----
 // Codex swaps the scroll content for a search view (idu) and switches the
 // header/scroll spacing vars; idu's internals are 无法确定, so the view is a
@@ -189,6 +200,8 @@ function onDocKeydown(e: KeyboardEvent): void {
 onMounted(() => {
   document.addEventListener('mousedown', onDocMousedown);
   document.addEventListener('keydown', onDocKeydown);
+  // Restore the scroll-linked header state if the list starts scrolled.
+  scrolled.value = (sessionsEl.value?.scrollTop ?? 0) > 0;
 });
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDocMousedown);
@@ -231,7 +244,7 @@ function marqueeLeave(id: string): void {
 <template>
   <aside :class="sidebar" :style="{ width: sidebarWidth + 'px' }">
     <!-- header block: brand row + 新对话 (70px) -->
-    <div :class="[sidebarTop, { [sidebarTopSearch]: searchOpen }]">
+    <div :class="[sidebarTop, { [sidebarTopSearch]: searchOpen, [sidebarTopScrolled]: scrolled && !searchOpen }]">
       <div :class="brandRow">
         <div :class="menuAnchor" ref="modeAnchor">
           <button
@@ -270,7 +283,11 @@ function marqueeLeave(id: string): void {
     </div>
 
     <!-- scroll area (masked top/bottom) -->
-    <div :class="[sessions, { [sessionsSearch]: searchOpen }]">
+    <div
+      ref="sessionsEl"
+      :class="[sessions, { [sessionsSearch]: searchOpen, [sessionsScrolled]: scrolled && !searchOpen }]"
+      @scroll="onSessionsScroll"
+    >
       <!-- fixed nav block: 站点 / 已安排 / 插件 (92px) -->
       <div :class="navBlockScroll">
         <div :class="navBlockItems">

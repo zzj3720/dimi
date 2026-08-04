@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { colors, font, size } from '../styles/theme';
+import { colors, font, size, radius, elevation } from '../styles/theme';
 import { md } from '../styles/global';
 
 // Codex markdown line-height: font-size + 8px = 22px at the 14px chat font
@@ -7,16 +7,19 @@ import { md } from '../styles/global';
 const MD_LH = '22px';
 
 // ---- transcript scroll ----
-// The 46px header is position:fixed (transparent) and overlays the window top,
-// so the scroll container keeps a 47px top padding: the first message then
-// sits at 47 (container padding) + 20 (thread py-5) = 67px, matching codex's
-// measured scroll-container y=47 + thread py-5.
+// The 46px header is position:fixed (transparent) and overlays the window top;
+// mainCol (App.styles.ts) yields it with padding-top: var(--height-toolbar),
+// so the scroll container starts at y=46. This 1px completes the measured
+// codex offset (scroll container y=47): the first message then sits at
+// 46 (mainCol) + 1 (container padding) + 20 (thread py-5) = 67px, matching
+// codex's measured first-message y=67. The 1px also gives the scroll container
+// a small clip buffer above its content area.
 export const transcript = css({
   flex: 1,
   display: 'flex',
   flexDirection: 'column',
   overflowY: 'auto',
-  padding: '47px 0 0',
+  padding: '1px 0 0',
   outline: 'none',
 });
 
@@ -34,7 +37,7 @@ export const threadWrap = css({
 
 // Message column: 736px (768 − 16×2), gap-1.5 (6px), py-5 (20px top/bottom).
 // The wrapper's 32px bottom padding + this 20px = the measured 52px bottom
-// whitespace; this 20px + the transcript's 47px = the measured 67px top.
+// whitespace; this 20px + mainCol 46px + transcript 1px = the measured 67px top.
 export const thread = css({
   display: 'flex',
   flexDirection: 'column',
@@ -88,6 +91,75 @@ export const userBubble = css({
   [`& .${md} li + li`]: { marginTop: 0 },
   [`& .${md} li > ul, & .${md} li > ol`]: { marginTop: 0 },
   [`& .${md} li > p + p`]: { marginTop: 0 },
+});
+
+// ---- user message editing (codex §5.2: dblclick the bubble → a composer-like
+// editor replaces it, with cancel/submit) ----
+// The edit surface mirrors the composer capsule tokens (Composer.styles.ts
+// capsule + input) but stays local to the thread. The commit is UI-only: the
+// dimi server has no message-edit endpoint, so save replaces the local bubble
+// text without a network call (see Transcript.vue commitEdit).
+export const userEdit = css({
+  width: '100%',
+  background: colors.composerBg,
+  backdropFilter: 'blur(16px)',
+  WebkitBackdropFilter: 'blur(16px)',
+  borderRadius: size.composerRadius, // rounded-3xl (25px)
+  boxShadow: elevation.prominent,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  padding: '12px 12px 8px',
+  boxSizing: 'border-box',
+});
+
+export const userEditInput = css({
+  width: '100%',
+  border: 'none',
+  background: 'transparent',
+  color: colors.text,
+  font: 'inherit',
+  fontSize: 14,
+  lineHeight: '20px',
+  fontWeight: 445,
+  padding: 0,
+  outline: 'none',
+  resize: 'none',
+  overflowY: 'auto',
+  maxHeight: '25dvh', // composer max-h-[25dvh]
+  whiteSpace: 'break-spaces',
+  wordBreak: 'break-word',
+  caretColor: colors.text,
+  userSelect: 'text',
+});
+
+export const userEditRow = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  gap: 8,
+});
+
+export const userEditBtn = css({
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '4px 12px',
+  border: '1px solid transparent',
+  borderRadius: radius.pill,
+  background: 'transparent',
+  color: colors.text,
+  fontSize: font.sm,
+  lineHeight: font.smLh,
+  cursor: 'pointer',
+  '&:hover': { background: colors.hoverStrong },
+  '&:active': { background: 'rgba(255, 255, 255, 0.15)' },
+  '&:focus-visible': { outline: 'none', boxShadow: '0 0 0 2px rgba(131, 195, 255, 0.76)' },
+});
+
+export const userEditBtnPrimary = css({
+  background: '#fff', // codex send button: bg-token-foreground
+  color: colors.composerBg,
+  '&:hover': { background: '#fff', opacity: 0.9 },
 });
 
 // Single "复制消息" button below the bubble; hidden until the turn is hovered

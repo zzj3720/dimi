@@ -36,6 +36,13 @@ const modalShell = {
   flexDirection: 'column',
   boxShadow: `0 0 0 0.5px ${colors.border}, 0 4px 8px -2px rgba(0, 0, 0, 0.1)`,
   overflow: 'hidden',
+  // Codex drives dialog content height with a ResizeObserver + height
+  // transition (05-design §2.4); dimi does the simple version: a 0.15s ease
+  // height transition on the shell. The shell height is content-driven
+  // (`auto`), so `interpolate-size: allow-keywords` (Chromium 129+, Electron
+  // 33 = Chromium 130) is added to make auto-value height changes animate.
+  transition: 'height 0.15s ease',
+  interpolateSize: 'allow-keywords',
 } as const;
 
 // Codex dialog width ladder (05-design §2.3). dimi dialogs currently use

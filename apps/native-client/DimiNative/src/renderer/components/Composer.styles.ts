@@ -41,8 +41,16 @@ export const capsule = css({
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
 });
 
-// Codex single-line surface: overflow-visible (no scroll container).
-export const surfaceSingle = css({ overflow: 'visible', overflowY: 'visible' });
+// Codex single-line surface: overflow-visible (no scroll container) + codex
+// single-line capsule radius 22px (`--radius-token-composer-single-line` =
+// .25rem × 5.5; design 04 §7.2). Overrides the multiline capsule's 25px
+// (radius-3xl): this class's rule is inserted after `capsule` in the emotion
+// stylesheet, so it wins at equal specificity when both classes are applied.
+export const surfaceSingle = css({
+  overflow: 'visible',
+  overflowY: 'visible',
+  borderRadius: 22,
+});
 
 // Codex Pds Body: div.relative.z-10.flex.min-h-0.flex-1.flex-col.
 export const surfaceBody = css({
