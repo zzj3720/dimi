@@ -1880,18 +1880,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const modelAlias = this.profile.data().modelAlias ?? this.profile.getModel();
     let baseUrl = "";
     let apiKey = "";
+    // The provider API wants the bare model id, not the qualified
+    // "provider/model" alias: the TS loop streams with `model.id`, and
+    // strict providers (e.g. OpenCode) reject the prefixed form with 401.
+    let modelId = modelAlias || "gpt-4o";
     try {
       const model = this.modelCatalog.get(modelAlias);
       baseUrl = model.baseUrl;
       const auth = await this.providerRuntime.getAuth(model);
       apiKey = auth?.auth.apiKey ?? "";
+      modelId = model.id;
     } catch {
       // Unknown model: fall back to the profile defaults below.
     }
     return {
       baseUrl: baseUrl || "https://api.openai.com/v1",
       apiKey,
-      model: modelAlias || "gpt-4o",
+      model: modelId,
       thinkingEffort: this.profile.getEffectiveThinkingLevel(),
     };
   }
