@@ -10,7 +10,7 @@ import {
   bodyMuted, bodyTool, bodyThinking, bodyCompaction,
   toolName, toolCard, toolCardHeader, toolCardIcon, toolCardName, toolCardStatus, toolCardBody,
   clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
-  reasoningTitle, welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
+  reasoningTitle, reasoningChevron, reasoningChevronOpen, welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
   welcomeModelsTitle, modelRow, modelName, modelLevel, md,
 } from './Transcript.styles';
 
@@ -75,15 +75,6 @@ function suggest(text: string): void {
   window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'suggestion_send', text } }));
 }
 
-function thinkingPreview(e: Entry): { text: string; hint: string | null } {
-  const lines = String(e.text ?? '').split('\n');
-  if (expandedThinking.value.has(e) || lines.length <= 2) return { text: e.text, hint: null };
-  return {
-    text: lines.slice(0, 2).join('\n'),
-    hint: `... (${lines.length - 2} more lines, click to expand)`,
-  };
-}
-
 function shellCmd(args: string): string {
   return '$ ' + args;
 }
@@ -145,11 +136,14 @@ function copyEntry(e: Entry): void {
         <!-- assistant: markdown -->
         <div v-else-if="e.kind === 'assistant'" class="body md" :class="md" v-html="renderMarkdown(cleanText(e.text))"></div>
 
-        <!-- thinking: reasoning disclosure, collapsible -->
+        <!-- thinking: reasoning disclosure — collapsed shows only the "思考"
+             button (Codex behavior); content appears on expand -->
         <div v-else-if="e.kind === 'thinking'" :class="clickable" @click="toggleThinking(e)">
-          <div :class="reasoningTitle">思考</div>
-          <div :class="bodyThinking">{{ cleanText(thinkingPreview(e).text) }}</div>
-          <div v-if="thinkingPreview(e).hint" :class="bodyMuted">{{ thinkingPreview(e).hint }}</div>
+          <div :class="reasoningTitle">
+            <span>思考</span>
+            <svg :class="[reasoningChevron, expandedThinking.has(e) ? reasoningChevronOpen : null]" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div v-if="expandedThinking.has(e)" :class="bodyThinking">{{ cleanText(e.text) }}</div>
         </div>
 
         <!-- tool: Codex-style card -->

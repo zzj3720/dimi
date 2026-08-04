@@ -17,14 +17,22 @@ export const header = css({
   userSelect: 'none',
 });
 
-// Left zone above the sidebar (0..275px): icon buttons like Codex.
+// Left zone above the sidebar (0..275px): Codex button layout — menu at x=0,
+// then a 92px-wide group (3×28 + 2×4 gap) at x=88 (collapse/back/forward).
 export const headerSide = css({
   width: size.sidebarW,
   flexShrink: 0,
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
-  paddingLeft: 16,
+  gap: 4,
+  paddingLeft: 0,
+});
+
+export const headerSideGroup = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  marginLeft: 56, // x=88 minus (28px menu + 4px gap)
 });
 
 // Main zone above the content area: session title at content left edge.
@@ -66,7 +74,7 @@ export const iconBtn = css({
   height: size.iconBtn,
   padding: 0,
   border: '1px solid transparent',
-  borderRadius: size.iconBtnRadius,
+  borderRadius: 10, // Codex header icon buttons use 10px
   background: 'transparent',
   color: colors.textTertiary,
   fontSize: 14,
@@ -75,7 +83,7 @@ export const iconBtn = css({
   flexShrink: 0,
   '&:hover': { background: colors.hover, color: colors.text },
   '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-  '& svg': { width: 16, height: 16 },
+  '& svg': { width: 18, height: 18 },
 });
 
 export const headerRight = css({

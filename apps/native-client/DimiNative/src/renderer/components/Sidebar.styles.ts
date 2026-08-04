@@ -40,7 +40,7 @@ export const resizeHandle = css({
 
 // ---- sidebar header block ----
 export const sidebarTop = css({
-  padding: '0 8px 4px',
+  padding: '0 0 4px',
   display: 'flex',
   flexDirection: 'column',
   gap: 8,
@@ -52,7 +52,7 @@ export const brandRow = css({
   display: 'flex',
   alignItems: 'center',
   gap: 4,
-  padding: '0 4px 0 0',
+  padding: '0 8px 0',
 });
 
 export const brand = css({
@@ -64,10 +64,10 @@ export const brand = css({
   fontWeight: 600,
   color: 'rgba(255, 255, 255, 0.85)',
   padding: '2px 8px',
-  marginLeft: -8,
   borderRadius: 15,
   border: '1px solid transparent',
   whiteSpace: 'nowrap',
+  cursor: 'pointer',
   '&:hover': { background: colors.hover },
   '& svg': { width: 14, height: 14, flexShrink: 0 },
 });
@@ -93,9 +93,9 @@ export const navItem = css({
   gap: 8,
   padding: '5px 8px',
   borderRadius: size.sidebarItemRadius,
-  fontSize: font.sm,
-  lineHeight: font.smLh,
-  color: colors.text,
+  fontSize: font.xs,
+  lineHeight: font.xsLh,
+  color: 'rgba(255, 255, 255, 0.85)',
   cursor: 'pointer',
   border: 'none',
   background: 'transparent',
@@ -104,7 +104,7 @@ export const navItem = css({
   overflow: 'hidden',
   flexShrink: 0,
   '&:hover': { background: colors.hover8 },
-  '& svg': { width: 16, height: 16, flexShrink: 0, color: colors.textDim },
+  '& svg': { width: 16, height: 16, flexShrink: 0, color: 'rgba(255, 255, 255, 0.85)' },
   '& span': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 });
 
@@ -166,9 +166,9 @@ export const sessionItem = css({
   gap: 8,
   padding: '5px 8px',
   borderRadius: size.sidebarItemRadius,
-  fontSize: font.sm,
-  lineHeight: font.smLh,
-  color: colors.text,
+  fontSize: font.xs,
+  lineHeight: font.xsLh,
+  color: 'rgba(255, 255, 255, 0.85)',
   cursor: 'pointer',
   border: 'none',
   background: 'transparent',
@@ -178,7 +178,7 @@ export const sessionItem = css({
   flexShrink: 0,
   '&:hover': { background: colors.hover8 },
   '& svg': { width: 16, height: 16, flexShrink: 0 },
-  '& .s-icon': { color: colors.textDim },
+  '& .s-icon': { color: 'rgba(255, 255, 255, 0.85)' },
   '& .s-title': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 });
 
@@ -188,15 +188,63 @@ export const sessionItemActive = css({
   '& .s-icon': { color: colors.text },
 });
 
-// ---- sidebar bottom (Codex user/account row) ----
+// ---- sidebar bottom (Codex user/account row: clickable, avatar + name) ----
 export const sidebarBottom = css({
-  padding: '8px 12px',
-  borderTop: `1px solid ${colors.border}`,
+  padding: '8px 8px 8px',
+  borderTop: '0.5px solid rgba(255, 255, 255, 0.1)',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  fontSize: font.sm,
-  color: colors.textDim,
+  fontSize: font.xs,
+  lineHeight: font.xsLh,
+  color: 'rgba(255, 255, 255, 0.85)',
   flexShrink: 0,
-  '& .sb-user': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+});
+
+export const userRow = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '5px 8px',
+  borderRadius: size.sidebarItemRadius,
+  flex: 1,
+  minWidth: 0,
+  cursor: 'pointer',
+  border: 'none',
+  background: 'transparent',
+  textAlign: 'left',
+  '&:hover': { background: colors.hover8 },
+  '& .sb-avatar': {
+    width: 18,
+    height: 18,
+    borderRadius: 9999,
+    background: 'rgba(255, 255, 255, 0.85)',
+    color: colors.bgUnder,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 11,
+    fontWeight: 600,
+    flexShrink: 0,
+  },
+  '& .sb-user': { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: colors.text },
+});
+
+export const sidebarBottomBtn = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 32,
+  height: 32,
+  padding: 7,
+  border: '1px solid transparent',
+  borderRadius: size.sidebarIconBtnRadius,
+  background: 'transparent',
+  color: colors.textTertiary,
+  fontSize: 16,
+  lineHeight: '24px',
+  cursor: 'pointer',
+  flexShrink: 0,
+  '&:hover': { background: colors.hover, color: colors.text },
+  '& svg': { width: 18, height: 18 },
 });

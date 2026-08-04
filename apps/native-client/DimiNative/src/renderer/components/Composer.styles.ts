@@ -5,7 +5,7 @@ import { colors, font, size, radius } from '../styles/theme';
 export const composer = css({
   position: 'relative',
   flexShrink: 0,
-  padding: '0 16px 10px',
+  padding: '0 16px 16px',
 });
 
 export const capsule = css({
@@ -17,20 +17,22 @@ export const capsule = css({
   WebkitBackdropFilter: 'blur(16px)',
   border: '1px solid transparent',
   borderRadius: size.composerRadius,
-  padding: 0,
+  padding: '14px 0 0', // Codex: inner grid starts 14px below the capsule top
   display: 'flex',
   flexDirection: 'column',
   boxShadow:
     'rgba(255, 255, 255, 0.157) 0 0 0 0.5px, rgba(0, 0, 0, 0.04) 0 3px 7.5px 0, rgba(0, 0, 0, 0.05) 0 0 20px 0',
+  transition: 'border-color 0.12s ease',
+  '&:focus-within': { borderColor: colors.borderFocus },
 });
 
 export const footer = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, auto) auto minmax(0, 1fr)',
   alignItems: 'center',
-  columnGap: 5,
+  columnGap: 0, // Codex uses an explicit 0px middle column, no gap
   padding: '0 8px',
-  marginBottom: 8,
+  marginBottom: 8, // capsule top 14 + 76 + 8 = 98
   minHeight: 76,
 });
 
@@ -70,7 +72,7 @@ export const composerBtn = css({
   width: size.composerBtn,
   height: size.composerBtn,
   padding: 0,
-  border: '1px solid transparent',
+  border: '1px solid rgba(255, 255, 255, 0.15)', // Codex left button has a visible 1px border
   borderRadius: radius.pill,
   background: 'transparent',
   color: colors.textTertiary,
@@ -138,14 +140,26 @@ export const sendBtn = css({
 
 export const queuedCount = css({ color: colors.textMuted, fontSize: 12 });
 
+// Busy-state controls float ABOVE the capsule (TUI functionality preserved
+// without pushing the capsule off Codex's 98px composer geometry).
 export const composerToolbar = css({
-  maxWidth: size.threadMaxW,
-  margin: '6px auto 0',
+  position: 'absolute',
+  bottom: 'calc(100% + 8px)',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  width: 'min(768px, calc(100vw - 32px))',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  padding: '0 8px',
-  minHeight: 20,
+  padding: '6px 10px',
+  minHeight: 26,
+  background: 'rgba(24, 24, 24, 0.92)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
+  borderRadius: 12,
+  border: `1px solid ${colors.border}`,
+  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+  zIndex: 15,
 });
 
 export const hint = css({ color: colors.textMuted, fontSize: 12 });

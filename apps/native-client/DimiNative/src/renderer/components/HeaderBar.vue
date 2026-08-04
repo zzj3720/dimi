@@ -5,7 +5,7 @@
 import { computed } from 'vue';
 import { state, Msg } from '../store';
 import { dispatch, loadSessions } from '../api';
-import { header, headerSide, headerMain, headerTitle, iconBtn, headerRight, shareBtn } from './HeaderBar.styles';
+import { header, headerSide, headerSideGroup, headerMain, headerTitle, iconBtn, headerRight, shareBtn } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
 
@@ -21,21 +21,47 @@ function openSessions(): void {
 function toggleSidebar(): void {
   dispatch({ type: 'sidebar_toggle' });
 }
+
+// Codex back/forward: navigate to the previous/next session in the sidebar list.
+function navSession(delta: number): void {
+  const list = state.sessions;
+  if (list.length === 0) return;
+  const idx = list.findIndex((s) => s.id === state.currentSessionId);
+  const base = idx === -1 ? 0 : idx;
+  const next = list[Math.min(list.length - 1, Math.max(0, base + delta))];
+  if (next && next.id !== state.currentSessionId) {
+    dispatch({ type: 'session_selected', id: next.id });
+  }
+}
 </script>
 
 <template>
   <header :class="header">
-    <!-- Sidebar zone: collapse + sessions -->
+    <!-- Sidebar zone: Codex layout — menu (x=0), then collapse/back/forward group -->
     <div :class="headerSide">
-      <button :class="iconBtn" title="隐藏边栏" @click="toggleSidebar">
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <button :class="iconBtn" title="Menu" @click="openSessions">
+        <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       </button>
+      <div :class="headerSideGroup">
+        <button :class="iconBtn" title="隐藏边栏" @click="toggleSidebar">
+          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 3h12v12H3z" stroke="currentColor" stroke-width="1.3"/><path d="M12 3v12" stroke="currentColor" stroke-width="1.3"/><rect x="13" y="6" width="1" height="6" fill="currentColor"/></svg>
+        </button>
+        <button :class="iconBtn" title="Back" @click="navSession(-1)">
+          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M11 4 6 9l5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button :class="iconBtn" title="Forward" @click="navSession(1)">
+          <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
     <!-- Main zone: session title (Codex: clickable, at content left) -->
     <div :class="headerMain">
       <button :class="headerTitle" title="Sessions" @click="openSessions">
         <span>{{ current?.title || '' }}</span>
         <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.5 5.5 7 9l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button :class="iconBtn" title="More" @click="dispatch(Msg.HelpOpen())">
+        <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="3" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="9" r="1.4" fill="currentColor"/></svg>
       </button>
     </div>
     <div :class="headerRight">

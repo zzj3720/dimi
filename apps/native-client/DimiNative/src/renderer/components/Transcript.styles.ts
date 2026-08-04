@@ -32,6 +32,10 @@ export const entry = css({
   padding: '8px 0',
   lineHeight: 1.5,
   '& .body': bodyBase,
+  // `.entry .body` (pre-wrap) must not override `.md`'s white-space: normal:
+  // v-html block elements separated by newline text nodes otherwise render as
+  // extra 22px line boxes between paragraphs. Higher specificity wins here.
+  '& .body.md': { whiteSpace: 'normal' },
 });
 
 export const bodyMuted = css({ color: colors.textMuted, fontSize: font.chat });
@@ -140,7 +144,22 @@ export const entryActionBtn = css({
   '& svg': { width: 14, height: 14 },
 });
 
-export const entryUser = css({ '& .body': { color: colors.text, lineHeight: '21px' } });
+// User messages render as right-aligned bubbles (Codex: bg 5% white,
+// radius 20px, pad 8px 12px, max-width 77%, 14/21px).
+export const entryUser = css({
+  display: 'flex',
+  justifyContent: 'flex-end',
+  '& .body': {
+    color: colors.text,
+    lineHeight: '21px',
+    background: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 20,
+    padding: '8px 12px',
+    maxWidth: '77%',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+});
 export const entryAssistant = css({ '& .body': { color: colors.text } });
 export const entryThinking = css({ '& .body': { color: colors.textDim, fontSize: font.chat } });
 export const entryTool = css({ '& .body': { color: colors.textDim, fontSize: font.chat } });
@@ -151,19 +170,33 @@ export const entryStatus = css({ '& .body': { color: colors.textMuted, fontSize:
 // blocks of a turn. Turn boundaries (a new user entry) keep the plain 6px gap.
 export const entrySameTurn = css({ marginTop: 6 });
 
-// ---- reasoning disclosure ----
+// ---- reasoning disclosure (Codex: collapsed = a "思考" button only) ----
 export const reasoningTitle = css({
-  display: 'flex',
+  display: 'inline-flex',
   alignItems: 'center',
-  gap: 2,
-  fontSize: font.xs,
-  lineHeight: font.xsLh,
+  gap: 4,
+  fontSize: font.chat,
+  lineHeight: font.chatLh,
   fontWeight: 445,
   color: colors.textTertiary,
-  marginBottom: 2,
   cursor: 'pointer',
   userSelect: 'none',
-  '&:hover': { color: colors.textDim },
+  borderRadius: 8,
+  padding: '1px 4px 1px 2px',
+  marginLeft: -2,
+  '&:hover': { color: colors.textDim, background: colors.hover },
+});
+
+export const reasoningChevron = css({
+  width: 16,
+  height: 16,
+  flexShrink: 0,
+  color: colors.textTertiary,
+  transition: 'transform 0.12s ease',
+});
+
+export const reasoningChevronOpen = css({
+  transform: 'rotate(90deg)',
 });
 
 // ---- welcome page ----

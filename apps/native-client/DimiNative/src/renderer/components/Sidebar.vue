@@ -7,7 +7,7 @@ import { dispatch, loadSessions } from '../api';
 import {
   sidebar, sidebarTop, brandRow, brand, brandActions, iconBtn,
   navBlock, navItem, sessions, sessionGroup, sessionGroupTitle, sessionItem, sessionItemActive,
-  resizeHandle, resizeHandleLine, sidebarBottom,
+  resizeHandle, resizeHandleLine, sidebarBottom, userRow, sidebarBottomBtn,
 } from './Sidebar.styles';
 
 const RESIZE_KEY = 'dimi.sidebarWidth';
@@ -64,30 +64,33 @@ function openSessions(): void {
   dispatch(Msg.PickerOpen());
   void loadSessions();
 }
+
+function navComingSoon(name: string): void {
+  state.statusMsg = `${name}（暂未实现）`;
+}
 </script>
 
 <template>
   <aside :class="sidebar" :style="{ width: sidebarWidth + 'px' }">
     <div :class="sidebarTop">
       <div :class="brandRow">
-        <div :class="brand">
-          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="3.5" stroke="currentColor" stroke-width="1.6" fill="none" opacity="0.85"/></svg>
+        <div :class="brand" @click="openSessions">
           <span>Dimi</span>
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.5 5.5 7 9l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div :class="brandActions">
           <button :class="iconBtn" title="New chat" @click="newChat">＋</button>
-          <button :class="iconBtn" title="History" @click="openSessions">☰</button>
         </div>
       </div>
-      <!-- Codex sidebar nav: 新对话 / 站点 / 已安排 / 插件 -->
+      <!-- Codex sidebar nav: 新对话 / 站点 / 已安排 / 插件 (all clickable) -->
       <div :class="navBlock">
         <button :class="navItem" @click="newChat">
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           <span>新对话</span>
         </button>
-        <div :class="navItem"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg><span>站点</span></div>
-        <div :class="navItem"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="5" width="11" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 5V4a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.3"/></svg><span>已安排</span></div>
-        <div :class="navItem"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 8h8M8 4v8" stroke="currentColor" stroke-width="1.3"/></svg><span>插件</span></div>
+        <button :class="navItem" @click="navComingSoon('站点')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg><span>站点</span></button>
+        <button :class="navItem" @click="navComingSoon('已安排')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="5" width="11" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 5V4a3 3 0 0 1 6 0v1" stroke="currentColor" stroke-width="1.3"/></svg><span>已安排</span></button>
+        <button :class="navItem" @click="navComingSoon('插件')"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 8h8M8 4v8" stroke="currentColor" stroke-width="1.3"/></svg><span>插件</span></button>
       </div>
     </div>
     <div :class="sessions">
@@ -112,8 +115,11 @@ function openSessions(): void {
     </div>
     <!-- Codex sidebar footer: user/account row -->
     <div :class="sidebarBottom">
-      <span class="sb-user">user</span>
-      <button :class="iconBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">⚙</button>
+      <button :class="userRow" @click="dispatch(Msg.SettingsOpen())">
+        <span class="sb-avatar">u</span>
+        <span class="sb-user">user</span>
+      </button>
+      <button :class="sidebarBottomBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">⚙</button>
     </div>
 
     <!-- Codex-style resize handle on the right edge -->

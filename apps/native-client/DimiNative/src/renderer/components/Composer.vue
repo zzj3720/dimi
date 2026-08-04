@@ -295,6 +295,13 @@ function steerMode(mode: 'steer' | 'queue'): void {
         <div :class="composerRight">
           <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}</span>
           <button
+            :class="composerBtn"
+            title="Attach"
+            @click="state.statusMsg = '附件（暂未实现）'"
+          >
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8.5 3.5a3 3 0 0 1 3 3v4.5a2 2 0 0 1-4 0V5.5a1 1 0 0 1 2 0v5.5M8.5 3.5l-4 4M8.5 3.5l4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+          <button
             :class="sendBtn"
             :disabled="!state.draft.trim() || !state.currentSessionId"
             title="Send"
