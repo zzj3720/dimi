@@ -168,7 +168,7 @@ function btwSend(): void {
     <div v-if="state.pickerOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.PickerClose())">
       <div :class="dialogPicker">
         <input :class="menuSearchInput" placeholder="Search sessions…" :value="state.pickerQuery" @focus="pickerArrowChain = false" @input="onPickerInput" @keydown="pickerKeydown" />
-        <div style="overflow-y: auto; max-height: 300px; margin-top: 6px">
+        <div style="overflow-y: auto; max-height: 250px; margin-top: 6px">
           <div
             v-for="(s, i) in pickerList"
             :key="s.id"
