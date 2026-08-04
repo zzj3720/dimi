@@ -1089,7 +1089,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const info = this.toInfo(entry);
     entry.persistWriteQueue = entry.persistWriteQueue
       .then(() => persistence.writeTask(info))
-      .catch(() => {});
+      .catch((error: unknown) => {
+        this.log.error("task persist write failed", {
+          taskId: info.taskId,
+          status: info.status,
+          error,
+        });
+      });
     return entry.persistWriteQueue;
   }
 
@@ -1098,7 +1104,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const write = entry.persistWriteQueue
       .catch(() => {})
       .then(() => this.persistence.writeTask(info));
-    entry.persistWriteQueue = write.catch(() => {});
+    entry.persistWriteQueue = write.catch((error: unknown) => {
+      this.log.error("task persist strict write failed", {
+        taskId: info.taskId,
+        status: info.status,
+        error,
+      });
+    });
     return write;
   }
 
