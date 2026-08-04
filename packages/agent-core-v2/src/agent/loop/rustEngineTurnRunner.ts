@@ -33,7 +33,6 @@ import type {
   SystemTriggerOrigin,
   TaskOrigin,
 } from "#/agent/contextMemory/types";
-import { IAgentLLMRequesterService } from "#/agent/llmRequester/llmRequester";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
@@ -394,7 +393,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IEventBus private readonly eventBus: IEventBus,
     @IWireService private readonly wire: IWireService,
     @IConfigService private readonly config: IConfigService,
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
