@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.11
+
+### Patch Changes
+
+- [`128a849`](https://github.com/zzj3720/dimi/commit/128a849c939f40d0dabdb5fafac3ce6c7cfc0117) - Fix every Bash tool call failing with "No such file or directory" when the session working directory resolved to an empty string; the shell now falls back to the process working directory.
+
 ## 0.6.10
 
 ### Patch Changes
