@@ -1120,22 +1120,7 @@ impl TurnSession {
             };
             let request = ChatRequest {
                 messages: request_messages,
-                tools: Some(
-                    self.input
-                        .tools
-                        .iter()
-                        .map(|tool| {
-                            serde_json::json!({
-                                "type": "function",
-                                "function": {
-                                    "name": tool.name,
-                                    "description": tool.description,
-                                    "parameters": tool.args_schema,
-                                }
-                            })
-                        })
-                        .collect(),
-                ),
+                tools: Some(aimux_tools_json(&self.input.tools)),
                 model: Some(self.input.provider.model.clone()),
                 thinking_effort: self.input.provider.thinking_effort.clone(),
             };
@@ -1582,6 +1567,26 @@ fn tool_result_message(result: &ToolResult) -> LlmMessage {
     }
 }
 
+/// Convert engine tool definitions into the JSON shape aimux's `Tool` enum
+/// parses (`{type:"function", name, description, input_schema}`). The
+/// OpenAI-nested shape (`{type:"function", function:{...}}`) fails aimux's
+/// `#[serde(tag = "type")]` enum, so every tool was silently dropped
+/// (`filter_map(...ok())`) and the request went out without tools — the
+/// model then wrote tool calls as literal XML text.
+fn aimux_tools_json(tools: &[crate::types::EngineTool]) -> Vec<serde_json::Value> {
+    tools
+        .iter()
+        .map(|tool| {
+            serde_json::json!({
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.args_schema,
+            })
+        })
+        .collect()
+}
+
 /// Execute one step's LLM phase: stream → parse → tool call list. The tool
 /// phase is driven by the session loop (policy + approvals).
 async fn execute_step(
@@ -1775,6 +1780,32 @@ mod tests {
                     .to_string()
             })
             .collect()
+    }
+
+    #[test]
+    fn engine_tools_parse_as_aimux_function_tools() {
+        // Regression: the engine used to build the OpenAI-nested shape
+        // (`{type:"function", function:{name, description, parameters}}`),
+        // which aimux's `#[serde(tag = "type")]` Tool enum cannot parse —
+        // every tool was silently dropped, the request went out without
+        // tools, and the model wrote tool calls as literal XML text. The
+        // construction must yield values that parse as `Tool::Function`.
+        let tools = vec![crate::types::EngineTool {
+            name: "bash".to_string(),
+            description: "Run a bash command".to_string(),
+            args_schema: serde_json::json!({"type": "object", "properties": {}}),
+        }];
+        let values = aimux_tools_json(&tools);
+        assert_eq!(values.len(), 1);
+        for value in values {
+            let parsed: Result<aimux_core::tool::Tool, _> = serde_json::from_value(value);
+            assert!(
+                parsed.is_ok(),
+                "engine tool JSON must parse as aimux Tool: {:?}",
+                parsed.err()
+            );
+            assert!(matches!(parsed.unwrap(), aimux_core::tool::Tool::Function(_)));
+        }
     }
 
     #[tokio::test]
@@ -3608,7 +3639,7 @@ mod cancel_tests {
         let requests = recorded.lock().unwrap();
         let tools = requests[0].as_ref().expect("tools present");
         assert!(
-            tools.iter().any(|t| t["function"]["name"] == "Lookup"),
+            tools.iter().any(|t| t["name"] == "Lookup"),
             "request tools must include the registered def: {tools:?}"
         );
     }
@@ -3694,7 +3725,7 @@ mod cancel_tests {
             1,
             "only the whitelisted def is advertised: {tools:?}"
         );
-        assert_eq!(tools[0]["function"]["name"], "Read");
+        assert_eq!(tools[0]["name"], "Read");
     }
 
 
