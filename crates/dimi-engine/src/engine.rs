@@ -474,8 +474,21 @@ impl TurnSession {
         // P1-5 (review): the user already cancelled while the approval was
         // pending (TaskStop / session close) — do not execute the pending
         // call, continue the batch, or re-ask. Finish cancelled immediately
-        // (TS parity: the step signal aborts the whole step).
+        // (TS parity: the step signal aborts the whole step). The paused
+        // step still gets its `turn.step.interrupted` so the transcript does
+        // not leave it open (P2-6 review — TS emits interrupted for the
+        // active step on cancel).
         if self.cancel.is_cancelled() {
+            emit(
+                on_event,
+                EngineEvent::TurnStepInterrupted {
+                    turn_id: self.input.turn_id,
+                    step: pending.step as i64,
+                    step_id: None,
+                    reason: "aborted".to_string(),
+                    message: None,
+                },
+            );
             return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
         }
         let pending_step = pending.step;
@@ -668,8 +681,19 @@ impl TurnSession {
         for (index, call) in calls.iter().enumerate().skip(start) {
             // P1-5 (review): a cancel arriving between siblings stops the
             // batch instead of executing the rest or surfacing another
-            // approval request after the user already cancelled.
+            // approval request after the user already cancelled. The step is
+            // interrupted like the in-flight cancel paths (P2-6 review).
             if self.cancel.is_cancelled() {
+                emit(
+                    on_event,
+                    EngineEvent::TurnStepInterrupted {
+                        turn_id,
+                        step: step_number as i64,
+                        step_id: None,
+                        reason: "aborted".to_string(),
+                        message: None,
+                    },
+                );
                 return Err(self.finish_turn_with_error(
                     TurnEndReason::Cancelled,
                     None,
@@ -4511,12 +4535,13 @@ mod approval_batch_tests {
             std::sync::Arc::clone(&cancel),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         );
+        let mut events = Vec::new();
         let progress = session
             .run(
                 &llm,
                 &executor,
                 &policy(PermissionMode::Manual),
-                &mut |_| {},
+                &mut |event| events.push(event),
             )
             .await;
         assert!(
@@ -4531,7 +4556,7 @@ mod approval_batch_tests {
                 &llm,
                 &executor,
                 &policy(PermissionMode::Manual),
-                &mut |_| {},
+                &mut |event| events.push(event),
             )
             .await;
         match progress {
@@ -4545,6 +4570,15 @@ mod approval_batch_tests {
             *executor.executed.lock().unwrap(),
             Vec::<String>::new(),
             "no sibling may run after the user cancelled"
+        );
+        // P2-6 (review): the paused step is interrupted on cancel (like the
+        // in-flight cancel paths), so the transcript does not leave it open.
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                EngineEvent::TurnStepInterrupted { reason, .. } if reason == "aborted"
+            )),
+            "cancel must interrupt the paused step: {events:?}"
         );
     }
 }

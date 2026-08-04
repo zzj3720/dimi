@@ -512,6 +512,14 @@ impl ToolExecutor for LockedRegistry {
     /// cancel path calls `abort` on the executor it was given — the bridge
     /// gives it a `LockedRegistry`, so without forwarding, a cancelled Bash
     /// command would keep running as an orphan.
+    ///
+    /// Locking note (P2-9 review): `abort` runs inside the engine's
+    /// `tokio::select!` cancel branch, AFTER the in-flight `execute` future
+    /// (which holds the registry lock for the whole tool call) has been
+    /// dropped by the select — that drop is what releases the lock, so
+    /// `try_lock` succeeds here for the direct-Bash cancel case. Do not
+    /// switch the tool execution to `tokio::spawn` (a spawned future is not
+    /// dropped by the select) without revisiting this.
     fn abort(&self, call: &dimi_engine::tool::ToolCall) {
         let registry = self.0.try_lock();
         if let Ok(registry) = registry {

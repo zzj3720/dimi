@@ -108,10 +108,10 @@ pub const DEFAULT_APPROVE_TOOLS: &[&str] = &[
 /// git-control-path-ask → yolo-approve → default-tool-approve →
 /// git-cwd-write-approve → fallback-ask.
 pub fn evaluate(input: &PolicyInput) -> PolicyDecision {
-    // 1. auto-mode-ask-user-question-deny (TS chain order #1).
-    if (input.mode == PermissionMode::Auto || input.mode == PermissionMode::Yolo)
-        && input.tool_name == "AskUserQuestion"
-    {
+    // 1. auto-mode-ask-user-question-deny (TS chain order #1). TS only
+    //    blocks in AUTO mode (`mode !== 'auto'` returns undefined) — in yolo
+    //    mode AskUserQuestion flows to yolo-mode-approve and is allowed.
+    if input.mode == PermissionMode::Auto && input.tool_name == "AskUserQuestion" {
         return PolicyDecision::Deny {
             reason: "AskUserQuestion is disabled while auto permission mode is active. \
                      Make a reasonable decision and continue without asking the user."
@@ -123,18 +123,18 @@ pub fn evaluate(input: &PolicyInput) -> PolicyDecision {
     //    allow/ask rule — a user deny overrides the whitelist, auto mode and
     //    session history (TS parity).
     for rule in &input.rules {
-        if rule.decision != RuleDecision::Deny {
+        if rule.decision != RuleDecision::Deny || !user_configured_scope(&rule.scope) {
             continue;
         }
         if rule_matches(rule, input) {
-            return PolicyDecision::Deny {
-                reason: rule.reason.clone().unwrap_or_else(|| {
-                    format!(
-                        "Tool \"{}\" was denied by permission rule.",
-                        input.tool_name
-                    )
-                }),
+            let reason = match rule.reason.as_deref() {
+                Some(reason) if !reason.is_empty() => format!(
+                    "Tool \"{}\" was denied by permission rule. Reason: {}",
+                    input.tool_name, reason
+                ),
+                _ => format!("Tool \"{}\" was denied by permission rule.", input.tool_name),
             };
+            return PolicyDecision::Deny { reason };
         }
     }
 
@@ -153,7 +153,7 @@ pub fn evaluate(input: &PolicyInput) -> PolicyDecision {
 
     // 5. user-configured-ask (#5).
     for rule in &input.rules {
-        if rule.decision != RuleDecision::Ask {
+        if rule.decision != RuleDecision::Ask || !user_configured_scope(&rule.scope) {
             continue;
         }
         if rule_matches(rule, input) {
@@ -163,7 +163,7 @@ pub fn evaluate(input: &PolicyInput) -> PolicyDecision {
 
     // 6. user-configured-allow (#6).
     for rule in &input.rules {
-        if rule.decision != RuleDecision::Allow {
+        if rule.decision != RuleDecision::Allow || !user_configured_scope(&rule.scope) {
             continue;
         }
         if rule_matches(rule, input) {
@@ -385,8 +385,20 @@ fn pattern_matches_tool(pattern: &str, tool_name: &str) -> bool {
     }
 }
 
+/// TS `USER_CONFIGURED_SCOPES` (user-configured-rule.ts): only
+/// turn-override / project / user scopes are user-configured rules —
+/// session-runtime entries (recorded approvals) are handled by the
+/// session-history node, not the user rule scans (P2-2 review).
+const USER_CONFIGURED_SCOPES: &[&str] = &["turn-override", "project", "user"];
+
+fn user_configured_scope(scope: &str) -> bool {
+    USER_CONFIGURED_SCOPES.contains(&scope)
+}
+
 /// Split `ToolName(argGlob)` into (toolPattern, Option<argGlob>). A bare
-/// tool name (no parens) matches by tool name only.
+/// tool name (no parens) matches by tool name only; an EMPTY argGlob
+/// (`Bash()`) also degrades to tool-name-only matching (TS parsePattern
+/// parity — P2-4 review).
 fn parse_pattern(pattern: &str) -> Option<(String, Option<String>)> {
     let trimmed = pattern.trim();
     if trimmed.is_empty() {
@@ -403,6 +415,9 @@ fn parse_pattern(pattern: &str) -> Option<(String, Option<String>)> {
     let arg = trimmed[open + 1..trimmed.len() - 1].trim().to_string();
     if tool.is_empty() {
         return None;
+    }
+    if arg.is_empty() {
+        return Some((tool, None));
     }
     Some((tool, Some(arg)))
 }
@@ -518,7 +533,7 @@ mod tests {
         assert_eq!(
             evaluate(&i),
             PolicyDecision::Deny {
-                reason: "no bash".to_string()
+                reason: "Tool \"Bash\" was denied by permission rule. Reason: no bash".to_string()
             }
         );
     }
@@ -569,7 +584,7 @@ mod tests {
         assert_eq!(
             evaluate(&i),
             PolicyDecision::Deny {
-                reason: "no reads".to_string()
+                reason: "Tool \"Read\" was denied by permission rule. Reason: no reads".to_string()
             }
         );
         // Auto mode still honors the user deny (TS chain order #2 before #3).
@@ -577,7 +592,7 @@ mod tests {
         assert_eq!(
             evaluate(&i),
             PolicyDecision::Deny {
-                reason: "no reads".to_string()
+                reason: "Tool \"Read\" was denied by permission rule. Reason: no reads".to_string()
             }
         );
         // Deny rules are scanned before allow rules, regardless of order.
@@ -600,7 +615,7 @@ mod tests {
         assert_eq!(
             evaluate(&j),
             PolicyDecision::Deny {
-                reason: "no rm".to_string()
+                reason: "Tool \"Bash\" was denied by permission rule. Reason: no rm".to_string()
             }
         );
     }
@@ -625,7 +640,8 @@ mod tests {
     #[test]
     fn auto_mode_denies_ask_user_question() {
         // P1-4 (review): auto-mode-ask-user-question-deny is the chain's
-        // first node.
+        // first node — but ONLY in auto mode (TS parity): yolo mode flows
+        // through to yolo-mode-approve and allows AskUserQuestion.
         assert_eq!(
             evaluate(&input("AskUserQuestion", PermissionMode::Auto)),
             PolicyDecision::Deny {
@@ -634,13 +650,11 @@ mod tests {
                     .to_string()
             }
         );
+        // YOLO does NOT deny AskUserQuestion (adversarial review P1 — the
+        // TS auto-mode-ask-user-question-deny only matches `mode === 'auto'`).
         assert_eq!(
             evaluate(&input("AskUserQuestion", PermissionMode::Yolo)),
-            PolicyDecision::Deny {
-                reason: "AskUserQuestion is disabled while auto permission mode is active. \
-                         Make a reasonable decision and continue without asking the user."
-                    .to_string()
-            }
+            PolicyDecision::Approve
         );
         // Manual mode still falls back to ask for AskUserQuestion (it is
         // whitelisted → default-tool-approve).

@@ -684,8 +684,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                   JSON.stringify({
                     toolCallId,
                     toolName: payload.name,
-                    output:
-                      block.reason ?? `Tool "${payload.name}" was blocked by a PreToolUse hook.`,
+                    output: block.reason,
                     isError: true,
                     stopTurn: false,
                     updates: [],
