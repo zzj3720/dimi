@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.9
+
+### Patch Changes
+
+- [`6f335e1`](https://github.com/zzj3720/dimi/commit/6f335e14e63f5412989950929cc844d7fb88d74c) - Fix the Rust engine sending the qualified "provider/model" alias as the request model id; strict providers (e.g. OpenCode) rejected it with HTTP 401, so the bare catalog model id is sent instead.
+
 ## 0.6.8
 
 ### Patch Changes
