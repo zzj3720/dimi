@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.13
+
+### Patch Changes
+
+- [`7411454`](https://github.com/zzj3720/dimi/commit/7411454cfe94c9bee64d580b6ff521427ff6aadf) - Fix HTTP 400 "insufficient tool messages following tool_calls message" from strict providers (DeepSeek/OpenAI): an async notification that landed between an assistant `tool_calls` and its tool result was sent in that order, and the engine's exchange-closing pass only checked global result existence. Tool results are now reordered back right after their assistant (TS contextProjector slot semantics), unresolved results keep the synthesized interrupted message, and orphan/duplicate results are dropped. Partial assistant messages left by an interrupted step are also filtered out on the TS→engine boundary (strict providers reject an empty assistant message).
+
 ## 0.6.12
 
 ### Patch Changes
