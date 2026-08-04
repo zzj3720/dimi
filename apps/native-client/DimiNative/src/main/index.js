@@ -97,6 +97,7 @@ ipcMain.handle('sse-start', async (evt, { channel, url }) => {
         headers: { Authorization: serverToken ? `Bearer ${serverToken}` : undefined },
         signal: controller.signal,
       });
+      console.log(`[sse-start] ${channel} -> ${resp.status}`);
       if (!resp.ok || !resp.body) {
         wc.send(channel, { type: 'sse-error', status: resp.status });
         return;

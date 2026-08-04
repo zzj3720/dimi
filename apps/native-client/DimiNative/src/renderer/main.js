@@ -37,11 +37,15 @@ function dispatch(msg) {
 function afterDispatch(msg) {
   switch (msg.type) {
     case 'session_selected':
+      rememberSession(msg.id);
       connectSession(msg.id);
       break;
     case 'picker_select': {
       // Handled in update; connect to the newly selected session.
-      if (model.currentSessionId) connectSession(model.currentSessionId);
+      if (model.currentSessionId) {
+        rememberSession(model.currentSessionId);
+        connectSession(model.currentSessionId);
+      }
       break;
     }
     case 'submit':
@@ -404,6 +408,18 @@ export async function loadSessions() {
     model.sessions = items;
     model.sessionsHasMore = !!data?.data?.has_more;
     dispatch(Msg.SessionsLoaded(items));
+    // Open-to-chat: auto-enter the last used session (or the most recent
+    // one) so the user can type immediately — TUI restores the last session.
+    if (!model.currentSessionId && items.length > 0) {
+      const last = readLastSessionId();
+      const target = items.find((s) => s.id === last) ?? items[0];
+      dispatch(Msg.SessionSelected(target.id));
+    } else if (!model.currentSessionId && items.length === 0) {
+      // No sessions at all — create one so the composer works.
+      createSession().then((id) => {
+        if (id) dispatch(Msg.SessionSelected(id));
+      });
+    }
   } catch (e) {
     model.sessionsLoading = false;
     model.sessionsError = String(e);
@@ -1056,7 +1072,10 @@ function contentToText(content) {
 
 async function createSession() {
   try {
-    const data = await api('POST', '/api/v1/sessions', {});
+    // Session creation requires workspace_id or metadata.cwd (v1 contract).
+    const cur = model.sessions.find((s) => s.id === model.currentSessionId);
+    const cwd = cur?.metadata?.cwd ?? window.dimiCwd;
+    const data = await api('POST', '/api/v1/sessions', { metadata: { cwd } });
     return data?.data?.id ?? data?.id ?? null;
   } catch (e) {
     model.statusMsg = `create failed: ${e.message}`;
@@ -1068,6 +1087,16 @@ async function createSession() {
 function openExternalEditor() {
   model.statusMsg = 'external editor (coming)';
   render();
+}
+
+// ------------------------------------------------------------- last session
+
+const LAST_SESSION_KEY = 'dimi.lastSessionId';
+function readLastSessionId() {
+  try { return localStorage.getItem(LAST_SESSION_KEY) ?? ''; } catch { return ''; }
+}
+function rememberSession(id) {
+  try { localStorage.setItem(LAST_SESSION_KEY, id); } catch { /* non-fatal */ }
 }
 
 // @mention completion (TUI file-mention-provider): extract the `@<prefix>`

@@ -606,6 +606,16 @@ export const APPROVAL_CHOICES = [
   { label: 'Reject with feedback…' },
 ];
 
+// Extract plain text from a prompt content parts array.
+export function promptContentToText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => (part?.type === 'text' ? part.text ?? '' : ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
 // SSE event → model. Mirrors the TUI's routeEvent (streaming-ui.ts): the
 // envelope carries `type` on the payload (envelope.type is the SSE event
 // name, payload.type is the event kind).
@@ -703,6 +713,14 @@ export function handleSseEvent(state, evt) {
     case 'prompt.submitted':
       state.currentPromptId = p.promptId ?? state.currentPromptId;
       state.statusMsg = '';
+      // TUI: the user's own message appears immediately on submit.
+      {
+        const text = promptContentToText(p.content);
+        if (text) {
+          state.entries.push({ kind: 'user', text, streaming: false });
+          state.entryCount = state.entries.length;
+        }
+      }
       return;
 
     case 'prompt.completed':
