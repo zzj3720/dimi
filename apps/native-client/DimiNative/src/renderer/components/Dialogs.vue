@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Modal dialogs: session picker, settings, help, BTW, approval, question.
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, onMounted, onUnmounted } from 'vue';
 import { state, Msg, filteredSessions, slashCommands, APPROVAL_CHOICES } from '../store';
 import type { PermissionMode, Question } from '../store';
 import { api, dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
@@ -10,6 +10,17 @@ import {
   searchInput, menuSearchInput, iconXs, listItem, listItemIcon, listItemTitle, listItemHint, listItemSub, listItemSelected, toolName,
   btn, btnGhost, btnPrimary, btnBlock, badge, badgePrimary, badgeOutline, bodyText,
 } from './Dialogs.styles';
+
+// Codex closes modal menus when the window loses focus (05-design §5.1 Coa).
+function onWindowBlur(): void {
+  if (state.pickerOpen) dispatch(Msg.PickerClose());
+  if (state.settingsDialogOpen) dispatch(Msg.SettingsClose());
+  // Help has no dedicated close msg (api.ts opens it by direct state write).
+  state.helpDialogOpen = false;
+}
+
+onMounted(() => window.addEventListener('blur', onWindowBlur));
+onUnmounted(() => window.removeEventListener('blur', onWindowBlur));
 
 // ---- session picker
 const pickerList = computed(() => filteredSessions(state));
@@ -172,7 +183,6 @@ function btwSend(): void {
           </div>
           <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
         </div>
-        <div :class="listItemSub" style="margin-top: 6px; padding: 4px 8px">↑↓ navigate · Enter select · Esc cancel</div>
       </div>
     </div>
 
