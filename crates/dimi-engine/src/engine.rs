@@ -160,45 +160,91 @@ const WORKER_REJECTION_GUIDANCE_SUFFIX: &str =
     " Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
 
 /// Close unresolved tool exchanges in a message list before sending it to the
-/// summarizer: an assistant message whose tool_calls never got a result would
+/// provider: an assistant message whose tool_calls never got a result would
 /// otherwise be sent as a dangling exchange. Each missing result is filled
 /// with a synthetic tool message right after the assistant message that made
 /// the call (TS contextProjector parity).
+///
+/// Beyond plain missing results this also repairs *interleaving*: a user
+/// message (async notification / steer) that landed between an assistant
+/// `tool_calls` and its tool result breaks the strict adjacency DeepSeek /
+/// OpenAI enforce ("assistant tool_calls must be followed by tool messages").
+/// Mirroring TS `AgentContextProjectorService.project` slot semantics, every
+/// assistant tool_call opens a slot right after the assistant and the real
+/// tool result is written back into that slot, so a foreign message is
+/// reordered *after* the result instead of splitting the exchange.
 fn close_unresolved_tool_exchanges(messages: &mut Vec<LlmMessage>) {
-    let mut resolved: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for message in messages.iter() {
-        if message.role == "tool" {
-            if let Some(id) = &message.tool_call_id {
-                resolved.insert(id.clone());
-            }
-        }
+    struct Slot {
+        index: usize,
+        foreign_between: bool,
     }
-    let mut missing: Vec<(usize, String)> = Vec::new();
-    for (index, message) in messages.iter().enumerate() {
-        if message.role != "assistant" {
+    let mut slots: std::collections::HashMap<String, Slot> = std::collections::HashMap::new();
+    let mut out: Vec<LlmMessage> = Vec::with_capacity(messages.len());
+    for message in messages.drain(..) {
+        if message.role == "tool" {
+            let written_back = message
+                .tool_call_id
+                .as_ref()
+                .and_then(|id| slots.remove(id));
+            match written_back {
+                Some(slot) => {
+                    // Real result lands in the slot right after the assistant
+                    // that made the call; any foreign message that arrived in
+                    // between is naturally reordered after the result.
+                    out[slot.index] = message;
+                }
+                None => {
+                    // No open slot: orphan / duplicate result — drop it (TS
+                    // `orphan_tool_result_dropped` / dedupe parity). A tool
+                    // message with no preceding assistant call is invalid for
+                    // strict providers.
+                }
+            }
             continue;
         }
-        for tool_call in message.tool_calls.iter().flatten() {
-            if !resolved.contains(&tool_call.id) {
-                missing.push((index, tool_call.id.clone()));
+        // Foreign message (user / assistant): every open exchange was
+        // interrupted by it; results written back later reorder past it.
+        for slot in slots.values_mut() {
+            slot.foreign_between = true;
+        }
+        let is_assistant = message.role == "assistant";
+        let call_ids: Vec<String> = message
+            .tool_calls
+            .iter()
+            .flatten()
+            .map(|call| call.id.clone())
+            .collect();
+        out.push(message);
+        if is_assistant {
+            for id in call_ids {
+                if slots.contains_key(&id) {
+                    // Re-declared call id: the earlier slot keeps its
+                    // placeholder (TS `tool_result_synthesized` on reopen).
+                    continue;
+                }
+                let slot_index = out.len();
+                slots.insert(
+                    id.clone(),
+                    Slot {
+                        index: slot_index,
+                        foreign_between: false,
+                    },
+                );
+                out.push(LlmMessage {
+                    role: "tool".to_string(),
+                    content: serde_json::Value::String(TOOL_INTERRUPTED_TEXT.to_string()),
+                    name: None,
+                    tool_call_id: Some(id),
+                    tool_calls: None,
+                    reasoning: None,
+                });
             }
         }
     }
-    // Insert after the assistant message that made the call. Iterate in
-    // reverse so earlier insertions do not shift later indices.
-    for (index, id) in missing.into_iter().rev() {
-        messages.insert(
-            index + 1,
-            LlmMessage {
-                role: "tool".to_string(),
-                content: serde_json::Value::String(TOOL_INTERRUPTED_TEXT.to_string()),
-                name: None,
-                tool_call_id: Some(id),
-                tool_calls: None,
-                reasoning: None,
-            },
-        );
-    }
+    // Every still-open slot keeps its placeholder: the synthetic interrupted
+    // tool message already sits right after the assistant that made the call
+    // (TS `tool_result_synthesized` at end of projection).
+    *messages = out;
 }
 
 impl Engine {
@@ -3574,6 +3620,119 @@ mod compaction_tests {
         // round, then the real step.
         assert_eq!(*calls.lock().unwrap(), 3);
     }
+
+    /// End-to-end regression for the DeepSeek 400 "insufficient tool messages
+    /// following tool_calls message": a foreign user message (async
+    /// notification) interleaved between an assistant `tool_calls` and its
+    /// tool result must be reordered after the result in the request the
+    /// engine actually sends.
+    #[tokio::test]
+    async fn step_request_reorders_tool_result_past_foreign_message() {
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Vec<LlmMessage>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.messages.clone());
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Vec<LlmMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        // History shaped exactly like the failing wire replay: assistant made
+        // a call, an async notification landed before the result arrived.
+        let mut messages = vec![msg("user", "u1")];
+        messages.push(LlmMessage {
+            role: "assistant".to_string(),
+            content: serde_json::Value::String(String::new()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: Some(vec![crate::types::LlmToolCall {
+                id: "call_interleaved".to_string(),
+                call_type: Some("function".to_string()),
+                function: crate::types::LlmToolCallFunction {
+                    name: "Bash".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            reasoning: None,
+        });
+        messages.push(msg("user", "<notification task completed>"));
+        messages.push(LlmMessage {
+            role: "tool".to_string(),
+            content: serde_json::Value::String("result".to_string()),
+            name: None,
+            tool_call_id: Some("call_interleaved".to_string()),
+            tool_calls: None,
+            reasoning: None,
+        });
+        messages.push(msg("user", "continue"));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let mut events: Vec<EngineEvent> = Vec::new();
+        let __bash = crate::tool::BashTool::default();
+        let _ = session
+            .run(&llm, &__bash, &policy, &mut |event| {
+                events.push(event);
+            })
+            .await;
+
+        let requests = recorded.lock().unwrap();
+        assert_eq!(requests.len(), 1, "single step request expected");
+        let sent = &requests[0];
+        let roles: Vec<&str> = sent.iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(
+            roles,
+            vec!["user", "assistant", "tool", "user", "user"],
+            "tool result must sit directly after its assistant, before the notification: {roles:?}"
+        );
+        assert_eq!(sent[2].tool_call_id.as_deref(), Some("call_interleaved"));
+        assert_eq!(sent[2].content.as_str(), Some("result"));
+    }
 }
 
 #[cfg(test)]
@@ -3590,6 +3749,177 @@ mod cancel_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+        }
+    }
+
+    mod close_unresolved_tool_exchanges_tests {
+        use super::super::close_unresolved_tool_exchanges;
+        use crate::types::{LlmMessage, LlmToolCall, LlmToolCallFunction};
+
+        fn tool(id: &str, text: &str) -> LlmMessage {
+            LlmMessage {
+                role: "tool".to_string(),
+                content: serde_json::Value::String(text.to_string()),
+                name: None,
+                tool_call_id: Some(id.to_string()),
+                tool_calls: None,
+                reasoning: None,
+            }
+        }
+
+        fn assistant_with_calls(ids: &[&str]) -> LlmMessage {
+            LlmMessage {
+                role: "assistant".to_string(),
+                content: serde_json::Value::String(String::new()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Some(
+                    ids.iter()
+                        .map(|id| LlmToolCall {
+                            id: id.to_string(),
+                            call_type: Some("function".to_string()),
+                            function: LlmToolCallFunction {
+                                name: "Bash".to_string(),
+                                arguments: "{}".to_string(),
+                            },
+                        })
+                        .collect(),
+                ),
+                reasoning: None,
+            }
+        }
+
+        fn user(text: &str) -> LlmMessage {
+            LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(text.to_string()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            }
+        }
+
+        fn roles(messages: &[LlmMessage]) -> Vec<String> {
+            messages.iter().map(|m| m.role.clone()).collect()
+        }
+
+        fn tool_ids(messages: &[LlmMessage]) -> Vec<Option<&str>> {
+            messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .map(|m| m.tool_call_id.as_deref())
+                .collect()
+        }
+
+        /// Regression for the 400 "insufficient tool messages following
+        /// tool_calls message": an async notification (user) landed between an
+        /// assistant `tool_calls` and its tool result. The result must be
+        /// reordered back right after the assistant.
+        #[test]
+        fn reorders_tool_result_after_foreign_message() {
+            let mut messages = vec![
+                user("u1"),
+                assistant_with_calls(&["call_1"]),
+                user("<notification task completed>"),
+                tool("call_1", "ok"),
+            ];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(
+                roles(&messages),
+                vec!["user", "assistant", "tool", "user"],
+                "tool result must be reordered before the foreign user message"
+            );
+            assert_eq!(tool_ids(&messages), vec![Some("call_1")]);
+            assert_eq!(messages[3].role, "user");
+            assert_eq!(messages[2].role, "tool");
+        }
+
+        /// Parallel calls interrupted by one notification: all results are
+        /// reordered back after the assistant, preserving call order.
+        #[test]
+        fn reorders_parallel_results_after_foreign_message() {
+            let mut messages = vec![
+                user("u1"),
+                assistant_with_calls(&["call_1", "call_2"]),
+                user("<notification>"),
+                tool("call_1", "r1"),
+                tool("call_2", "r2"),
+            ];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(
+                roles(&messages),
+                vec!["user", "assistant", "tool", "tool", "user"]
+            );
+            assert_eq!(tool_ids(&messages), vec![Some("call_1"), Some("call_2")]);
+        }
+
+        /// A result that never arrived keeps its synthesized interrupted
+        /// message right after the assistant.
+        #[test]
+        fn synthesizes_missing_result() {
+            let mut messages = vec![user("u1"), assistant_with_calls(&["call_1"])];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(roles(&messages), vec!["user", "assistant", "tool"]);
+            assert_eq!(tool_ids(&messages), vec![Some("call_1")]);
+            let content = messages[2].content.as_str().unwrap();
+            assert!(
+                content.contains("not available"),
+                "unresolved result must carry the interrupted text, got: {content}"
+            );
+        }
+
+        /// Mixed: one resolved result, one missing, with a foreign message.
+        #[test]
+        fn mixed_resolved_and_missing() {
+            let mut messages = vec![
+                user("u1"),
+                assistant_with_calls(&["call_1", "call_2"]),
+                user("<notification>"),
+                tool("call_2", "r2"),
+            ];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(
+                roles(&messages),
+                vec!["user", "assistant", "tool", "tool", "user"]
+            );
+            // Slots follow the assistant's declared call order: call_1's
+            // missing result keeps the synthesized interrupted placeholder,
+            // call_2's real result lands right after it.
+            assert_eq!(tool_ids(&messages), vec![Some("call_1"), Some("call_2")]);
+            let interrupted = messages[2].content.as_str().unwrap();
+            assert!(interrupted.contains("not available"));
+            assert_eq!(messages[3].content.as_str().unwrap(), "r2");
+        }
+
+        /// A tool message with no preceding assistant call is dropped (TS
+        /// `orphan_tool_result_dropped` parity) instead of being sent as an
+        /// invalid standalone tool message.
+        #[test]
+        fn drops_orphan_tool_result() {
+            let mut messages = vec![
+                tool("call_orphan", "stray"),
+                user("u1"),
+                assistant_with_calls(&["call_2"]),
+                tool("call_2", "r2"),
+            ];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(roles(&messages), vec!["user", "assistant", "tool"]);
+            assert_eq!(tool_ids(&messages), vec![Some("call_2")]);
+        }
+
+        /// Already-correct adjacency is untouched.
+        #[test]
+        fn leaves_correct_adjacency_untouched() {
+            let mut messages = vec![
+                user("u1"),
+                assistant_with_calls(&["call_1"]),
+                tool("call_1", "r1"),
+                user("u2"),
+            ];
+            close_unresolved_tool_exchanges(&mut messages);
+            assert_eq!(roles(&messages), vec!["user", "assistant", "tool", "user"]);
+            assert_eq!(tool_ids(&messages), vec![Some("call_1")]);
         }
     }
 

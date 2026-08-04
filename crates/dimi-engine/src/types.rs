@@ -231,3 +231,52 @@ pub struct TurnOutcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncated: Option<bool>,
 }
+
+#[cfg(test)]
+mod ts_boundary_tests {
+    use super::*;
+
+    /// TS side (`rustEngineTurnRunner.toLlmMessage`) emits camelCase
+    /// `toolCallId` / `toolCalls`. Regression guard for the 400
+    /// "insufficient tool messages" bug: if the boundary drops the ids,
+    /// aimux's openai converter drops the tool messages entirely.
+    #[test]
+    fn deserialize_ts_camelcase_messages_keeps_tool_ids() {
+        let input: EngineTurnInput = serde_json::from_str(
+            r#"{
+                "turnId": 1,
+                "origin": { "kind": "user" },
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "toolCalls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": { "name": "Bash", "arguments": "{\"command\":\"echo hi\"}" }
+                            }
+                        ]
+                    },
+                    { "role": "tool", "content": "hi", "toolCallId": "call_1" }
+                ],
+                "tools": [],
+                "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" }
+            }"#,
+        )
+        .unwrap();
+        let assistant = &input.messages[0];
+        let tool = &input.messages[1];
+        assert_eq!(
+            assistant.tool_calls.as_ref().map(|c| c.len()),
+            Some(1),
+            "assistant tool_calls must survive the TS boundary"
+        );
+        assert_eq!(assistant.tool_calls.as_ref().unwrap()[0].id, "call_1");
+        assert_eq!(
+            tool.tool_call_id.as_deref(),
+            Some("call_1"),
+            "tool message tool_call_id must survive the TS boundary"
+        );
+    }
+}

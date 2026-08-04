@@ -573,10 +573,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     if (this.disposed) return { turnId };
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
-    //    the context) plus the context history.
+    //    the context) plus the context history. Partial assistant messages
+    //    (a `step.begin` whose request never completed — e.g. a provider
+    //    failure at restart) are dropped: they carry no content and no tool
+    //    calls, and strict providers reject an empty assistant message
+    //    (TS `contextProjector` parity — it skips `partial === true`).
     const messages = [
       { role: "system", content: this.profile.getSystemPrompt() },
-      ...this.context.get().map((message) => this.toLlmMessage(message)),
+      ...this.context
+        .get()
+        .filter((message) => message.partial !== true)
+        .map((message) => this.toLlmMessage(message)),
     ];
 
     // 3. Run the Rust engine (session API: approvals pause and resume).
