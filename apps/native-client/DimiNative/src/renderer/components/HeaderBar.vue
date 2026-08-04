@@ -227,7 +227,7 @@ function openHelp(): void {
              @keydown.esc.prevent="cancelRename"
              @blur="commitRename" />
       <button v-else :class="headerTitle" type="button" @click="startRename" @contextmenu.prevent="openHeaderMenu($event)">
-        <span ref="titleSpan">{{ current?.title || '' }}</span>
+        <span ref="titleSpan">{{ current?.title || '(untitled)' }}</span>
       </button>
       <button :class="[iconBtn, moreBtn]" type="button" aria-label="ChatGPT 对话操作" @click="openHelp">
         <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true" style="width: 18px; height: 18px"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
