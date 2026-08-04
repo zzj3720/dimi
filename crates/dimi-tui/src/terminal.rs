@@ -25,6 +25,32 @@ pub trait Terminal {
     /// Cursor visibility.
     fn hide_cursor(&mut self);
     fn show_cursor(&mut self);
+
+    /// Whether the Kitty keyboard protocol is active (after negotiation).
+    fn kitty_protocol_active(&self) -> bool {
+        false
+    }
+
+    /// Move the cursor by `lines` (positive down, negative up).
+    fn move_by(&mut self, _lines: isize) {}
+
+    /// Clear the current line.
+    fn clear_line(&mut self) {}
+
+    /// Clear from cursor to end of screen.
+    fn clear_from_cursor(&mut self) {}
+
+    /// Clear the entire screen and move cursor to home.
+    fn clear_screen(&mut self) {}
+
+    /// Set the terminal window title (OSC 0).
+    fn set_title(&mut self, _title: &str) {}
+
+    /// Toggle the OSC 9;4 progress indicator.
+    fn set_progress(&mut self, _active: bool) {}
+
+    /// Drain stdin before exiting (Kitty key releases, slow SSH).
+    fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 }
 
 /// Terminal that records every write for assertions. Mirrors pi-tui's
