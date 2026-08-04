@@ -156,6 +156,7 @@ export const headerTitle = css({
   color: colors.text,
   borderRadius: 10, // Codex rounded-md
   background: 'transparent',
+  border: '1px solid transparent', // Codex border-transparent — kills the UA button border
   maxWidth: 320, // Codex max-w-[320px]
   minWidth: 0,
   flexShrink: 1,
