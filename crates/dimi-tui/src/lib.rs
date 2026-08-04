@@ -21,6 +21,7 @@ pub mod ansi;
 pub mod component;
 pub mod components;
 pub mod container;
+pub mod editor;
 pub mod keys;
 pub mod markdown;
 pub mod markdown_theme;
