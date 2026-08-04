@@ -27,8 +27,10 @@ const els = {
   dialogRoot: $('#dialog-root'),
 };
 
-// Entry kinds that render as muted, small text.
-const MUTED_KINDS = new Set(['thinking', 'status', 'compaction', 'step_summary', 'skill_activation', 'plugin_command', 'cron']);
+// Local UI state mirroring the TUI's expand/collapse interactions
+// (Ctrl+O toggles in TUI; click toggles here).
+const expandedTools = new Set();      // toolCallId → tool output expanded
+const expandedThinking = new Set();   // entry object → thinking expanded
 
 export function render() {
   renderHeader();
@@ -64,55 +66,96 @@ function renderTranscript() {
   for (const e of model.entries) {
     if (e.folded) continue;
     const row = document.createElement('div');
-    row.className = 'entry';
     if (e.kind === 'user') {
-      // TUI user message: ✨ bullet + accent-colored text, no bubble.
+      // TUI UserMessageComponent: `✨ ` bullet + full text, bold roleUser. No leading blank.
+      row.className = 'entry entry-user';
       const role = document.createElement('span');
-      role.className = 'role role-user';
-      role.textContent = '✨';
+      role.className = 'role';
+      role.textContent = '✨ ';
       const body = document.createElement('div');
       body.className = 'body';
-      body.style.color = 'var(--accent)';
       body.textContent = e.text;
       row.appendChild(role);
       row.appendChild(body);
     } else if (e.kind === 'assistant') {
-      // TUI assistant message: plain label + text, no bubble.
+      // TUI AssistantMessageComponent: leading blank line, `● ` bullet + markdown.
+      row.className = 'entry entry-assistant';
       const role = document.createElement('span');
-      role.className = 'role role-dimi';
-      role.textContent = 'dimi';
+      role.className = 'role';
+      role.textContent = '● ';
+      const body = document.createElement('div');
+      body.className = 'body md';
+      renderMarkdownInto(body, e.text);
+      row.appendChild(role);
+      row.appendChild(body);
+    } else if (e.kind === 'thinking') {
+      // TUI ThinkingComponent: `● ` bullet (textDim) + italic textDim, 2-line preview.
+      const expanded = expandedThinking.has(e);
+      row.className = 'entry entry-thinking clickable';
+      const role = document.createElement('span');
+      role.className = 'role';
+      role.textContent = '● ';
+      const body = document.createElement('div');
+      body.className = 'body thinking';
+      const lines = String(e.text ?? '').split('\n');
+      const showAll = expanded || lines.length <= 2;
+      body.textContent = showAll ? e.text : lines.slice(0, 2).join('\n');
+      row.appendChild(role);
+      row.appendChild(body);
+      if (!showAll) {
+        const hint = document.createElement('div');
+        hint.className = 'body muted';
+        hint.textContent = `  ... (${lines.length - 2} more lines, click to expand)`;
+        row.appendChild(hint);
+      }
+      row.addEventListener('click', () => {
+        if (expandedThinking.has(e)) expandedThinking.delete(e);
+        else expandedThinking.add(e);
+        render();
+      });
+    } else if (e.kind === 'tool') {
+      // TUI ToolCallComponent header: bullet (state colour) + verb + bold primary name.
+      const done = !!e.text && e.text.length > 0;
+      const expanded = expandedTools.has(e.toolCallId);
+      row.className = 'entry entry-tool clickable';
+      const role = document.createElement('span');
+      role.className = 'role';
+      role.textContent = '● ';
+      role.style.color = done ? 'var(--success)' : 'var(--text)';
+      const body = document.createElement('div');
+      body.className = 'body tool';
+      const name = document.createElement('span');
+      name.className = 'tool-name';
+      name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
+      body.appendChild(name);
+      row.appendChild(role);
+      row.appendChild(body);
+      if (done && e.text) {
+        // Output preview (TUI RESULT_PREVIEW_LINES = 3), click to expand.
+        const out = document.createElement('div');
+        out.className = 'body tool';
+        out.style.display = 'block';
+        out.style.marginTop = '2px';
+        out.style.whiteSpace = 'pre-wrap';
+        out.style.wordBreak = 'break-word';
+        out.style.maxHeight = expanded ? 'none' : '4.2em';
+        out.style.overflow = 'hidden';
+        out.textContent = e.text;
+        row.appendChild(out);
+      }
+      row.addEventListener('click', () => {
+        if (expandedTools.has(e.toolCallId)) expandedTools.delete(e.toolCallId);
+        else expandedTools.add(e.toolCallId);
+        render();
+      });
+    } else {
+      // Status / compaction / notices: indented 2 cells, textDim
+      // (TUI StatusMessageComponent).
+      row.className = 'entry entry-status';
       const body = document.createElement('div');
       body.className = 'body';
       body.textContent = e.text;
-      row.appendChild(role);
       row.appendChild(body);
-    } else if (e.kind === 'tool') {
-      row.className = 'entry clickable';
-      row.innerHTML = `<span class="role role-tool">tool</span><div class="body tool"><span class="tool-name"></span><div class="tool-output"></div></div>`;
-      row.querySelector('.tool-name').textContent = `${e.toolName ?? ''}${e.expanded ? ' ▾' : ' ▸'}`;
-      const out = row.querySelector('.tool-output');
-      if (e.expanded && e.text) {
-        out.style.display = 'block';
-        out.style.marginTop = '4px';
-        out.style.fontFamily = 'monospace';
-        out.style.whiteSpace = 'pre-wrap';
-        out.style.wordBreak = 'break-word';
-        out.style.maxHeight = '200px';
-        out.style.overflow = 'auto';
-        out.style.color = 'var(--text-muted)';
-        out.textContent = e.text;
-      } else {
-        out.style.display = 'none';
-      }
-      row.addEventListener('click', () => {
-        window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'tools_expand_toggle', toolCallId: e.toolCallId } }));
-      });
-    } else if (e.kind === 'thinking') {
-      row.innerHTML = `<span class="role role-thinking">thinking</span><div class="body thinking"></div>`;
-      row.querySelector('.body').textContent = e.text;
-    } else {
-      row.innerHTML = `<span class="role role-status"></span><div class="body muted"></div>`;
-      row.querySelector('.body').textContent = e.text;
     }
     root.appendChild(row);
   }
@@ -122,7 +165,7 @@ function renderTranscript() {
 function renderComposer() {
   const bash = isBashDraft(model.draft);
   els.promptToken.textContent = bash ? '!' : '>';
-  els.promptToken.style.color = bash ? 'var(--info)' : 'var(--accent)';
+  els.promptToken.style.color = bash ? 'var(--shell-mode)' : 'var(--primary)';
 
   // Only touch the textarea value when it differs (keeps the native IME
   // composition and caret undisturbed).
@@ -273,10 +316,18 @@ function renderSessionPicker(root) {
   } else {
     list.forEach((s, i) => {
       const item = document.createElement('div');
-      item.className = 'list-item' + (i === model.pickerSelectedIndex ? ' selected' : '');
+      const selected = i === model.pickerSelectedIndex;
+      item.className = 'list-item' + (selected ? ' selected' : '');
       const title = document.createElement('div');
       title.className = 'title';
-      title.textContent = s.title || '(untitled)';
+      if (selected) {
+        // TUI SELECT_POINTER: highlighted row gets a `❯ ` primary prefix.
+        const ptr = document.createElement('span');
+        ptr.className = 'pointer';
+        ptr.textContent = '❯ ';
+        title.appendChild(ptr);
+      }
+      title.appendChild(document.createTextNode(s.title || '(untitled)'));
       const sub = document.createElement('div');
       sub.className = 'sub';
       const rel = relativeTime(s.updated_at);
@@ -745,6 +796,158 @@ function relativeTime(iso) {
 function truncate(text, n) {
   if (!text) return '';
   return text.length > n ? text.slice(0, n) + '…' : text;
+}
+
+// ── Lightweight markdown renderer ──────────────────────────────────────────
+// Matches the TUI MarkdownTheme (apps/dimi/src/tui/theme/pi-tui-theme.ts):
+// headings bold text, links primary (+ muted URL), inline code primary,
+// code blocks with a muted border, blockquotes textDim, list bullets text,
+// horizontal rules in border colour. Everything is built with DOM APIs so
+// model/assistant text is never injected through innerHTML.
+function renderMarkdownInto(container, text) {
+  const lines = String(text ?? '').split('\n');
+  let para = null;
+  const flushPara = () => {
+    if (para) {
+      const p = document.createElement('p');
+      renderInline(p, para);
+      container.appendChild(p);
+      para = null;
+    }
+  };
+  const appendPara = (line) => {
+    const t = line.trim();
+    para = para ? para + ' ' + t : t;
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Fenced code block.
+    if (/^```/.test(trimmed)) {
+      flushPara();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i].trim())) {
+        buf.push(lines[i]);
+        i++;
+      }
+      i++; // closing fence
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.textContent = buf.join('\n');
+      pre.appendChild(code);
+      container.appendChild(pre);
+      continue;
+    }
+
+    // ATX heading (h1–h6). TUI renders headings bold in text colour and
+    // strips the `#` prefix (h1/h2 already arrive bare; h3+ get stripped).
+    const hm = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (hm) {
+      flushPara();
+      const h = document.createElement('h' + String(Math.min(hm[1].length, 6)));
+      renderInline(h, hm[2]);
+      container.appendChild(h);
+      i++;
+      continue;
+    }
+
+    // Horizontal rule.
+    if (/^([-*_])\1{2,}\s*$/.test(trimmed)) {
+      flushPara();
+      container.appendChild(document.createElement('hr'));
+      i++;
+      continue;
+    }
+
+    // Blockquote (consecutive lines merge).
+    if (/^>\s?/.test(line)) {
+      flushPara();
+      const buf = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        buf.push(lines[i].replace(/^>\s?/, ''));
+        i++;
+      }
+      const bq = document.createElement('blockquote');
+      const p = document.createElement('p');
+      renderInline(p, buf.join(' '));
+      bq.appendChild(p);
+      container.appendChild(bq);
+      continue;
+    }
+
+    // Unordered / ordered list items.
+    const ulm = trimmed.match(/^[-*+]\s+(.*)$/);
+    const olm = !ulm && trimmed.match(/^\d+[.)]\s+(.*)$/);
+    if (ulm || olm) {
+      flushPara();
+      const tag = ulm ? 'UL' : 'OL';
+      const last = container.lastElementChild;
+      let list = last && last.tagName === tag ? last : null;
+      if (!list) {
+        list = document.createElement(tag);
+        container.appendChild(list);
+      }
+      const li = document.createElement('li');
+      renderInline(li, (ulm ?? olm)[1]);
+      list.appendChild(li);
+      i++;
+      continue;
+    }
+
+    if (trimmed.length === 0) {
+      flushPara();
+      i++;
+      continue;
+    }
+    appendPara(line);
+    i++;
+  }
+  flushPara();
+}
+
+// Inline styles: **bold**, *italic*, ~~strikethrough~~, `code`, [text](url).
+// split() with a capturing group keeps the delimiters in the result, so each
+// matched token is styled and the plain runs fall through as text nodes.
+function renderInline(el, text) {
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
+  for (const part of String(text).split(re)) {
+    if (!part) continue;
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      const s = document.createElement('strong');
+      renderInline(s, part.slice(2, -2));
+      el.appendChild(s);
+    } else if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      const s = document.createElement('em');
+      renderInline(s, part.slice(1, -1));
+      el.appendChild(s);
+    } else if (part.startsWith('~~') && part.endsWith('~~') && part.length > 4) {
+      const s = document.createElement('s');
+      renderInline(s, part.slice(2, -2));
+      el.appendChild(s);
+    } else if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      const code = document.createElement('code');
+      code.textContent = part.slice(1, -1);
+      el.appendChild(code);
+    } else if (part.startsWith('[') && part.includes('](')) {
+      const m = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (m) {
+        const a = document.createElement('a');
+        a.textContent = m[1];
+        const url = document.createElement('span');
+        url.className = 'md-url';
+        url.textContent = ` (${m[2]})`;
+        a.appendChild(url);
+        el.appendChild(a);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    } else {
+      el.appendChild(document.createTextNode(part));
+    }
+  }
 }
 
 export { els };
