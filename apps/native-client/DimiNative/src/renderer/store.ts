@@ -31,6 +31,10 @@ export interface Entry {
   tools?: ToolRef[];
   /** Live-streamed thinking duration in ms (Codex: "思考了 2m 0s"). */
   durationMs?: number;
+  /** Message sent time (ms epoch). History load takes it from the wire
+   * `created_at`; live-stream entries stamp Date.now() at creation. Rendered
+   * as the hover-revealed codex sent time (design doc §1.7). */
+  ts?: number;
   streaming?: boolean;
   folded?: boolean;
   expanded?: boolean;
@@ -85,6 +89,8 @@ export interface State {
   sessionsError: string;
   sessionsHasMore: boolean;
   sidebarVisible: boolean;
+  /** Live sidebar width (px), dragged in Sidebar.vue; HeaderBar's left slot mirrors it. */
+  sidebarWidth: number;
   pickerOpen: boolean;
   pickerQuery: string;
   pickerScope: 'all' | 'cwd';
@@ -156,6 +162,27 @@ export interface State {
 
 const HISTORY_KEY = 'dimi.inputHistory';
 
+// Sidebar width (px): shared between Sidebar.vue (drag resize, persisted) and
+// HeaderBar.vue (left-slot width). Codex clamps 240–520 with a 275 default.
+export const SIDEBAR_WIDTH_KEY = 'dimi.sidebarWidth';
+export const SIDEBAR_MIN_WIDTH = 240;
+export const SIDEBAR_MAX_WIDTH = 520;
+export const SIDEBAR_DEFAULT_WIDTH = 275;
+
+export function clampSidebarWidth(w: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, w));
+}
+
+function loadSidebarWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    const w = Number.isFinite(raw) && raw > 0 ? raw : SIDEBAR_DEFAULT_WIDTH;
+    return clampSidebarWidth(w);
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
 function loadHistory(): string[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
@@ -188,6 +215,7 @@ export function createInitialState(): State {
     sessionsError: '',
     sessionsHasMore: false,
     sidebarVisible: true,
+    sidebarWidth: loadSidebarWidth(),
     pickerOpen: false,
     pickerQuery: '',
     pickerScope: 'all',
@@ -283,6 +311,7 @@ export const Msg = {
   CompletionClose: (): Msg => ({ type: 'completion_close' }),
   Steer: (): Msg => ({ type: 'steer' }),
   Cancel: (): Msg => ({ type: 'cancel' }),
+  Stop: (): Msg => ({ type: 'stop' }),
   SetBusyInputMode: (mode: BusyInputMode): Msg => ({ type: 'set_busy_input_mode', mode }),
   HistoryPrev: (): Msg => ({ type: 'history_prev' }),
   HistoryNext: (): Msg => ({ type: 'history_next' }),
@@ -305,6 +334,7 @@ export const Msg = {
   TasksClose: (): Msg => ({ type: 'tasks_close' }),
   SettingsOpen: (): Msg => ({ type: 'settings_open' }),
   SettingsClose: (): Msg => ({ type: 'settings_close' }),
+  SidebarResize: (width: number): Msg => ({ type: 'sidebar_resize', width }),
 };
 
 // ------------------------------------------------------------------ helpers
@@ -363,6 +393,13 @@ export function update(s: State, msg: Msg): void {
     case 'sidebar_toggle':
       s.sidebarVisible = !s.sidebarVisible;
       return;
+
+    case 'sidebar_resize': {
+      const w = Number(msg.width);
+      if (!Number.isFinite(w)) return;
+      s.sidebarWidth = clampSidebarWidth(w);
+      return;
+    }
 
     case 'session_selected':
       s.currentSessionId = String(msg.id ?? '');
@@ -486,6 +523,15 @@ export function update(s: State, msg: Msg): void {
       }
       s.exitConfirmTicks = s.tipTicks;
       s.statusMsg = 'Press Ctrl+C again to exit';
+      return;
+
+    case 'stop':
+      // Composer stop button: unlike `cancel` (keyboard Ctrl+C, which clears
+      // the draft first), stop always aborts the running turn immediately.
+      if (s.busy) {
+        s.cancelStreamRequested = true;
+        s.statusMsg = 'cancelling…';
+      }
       return;
 
     case 'set_busy_input_mode':
@@ -802,7 +848,7 @@ export function handleSseEvent(s: State, evt: unknown): void {
           const t = s.entries[s.entries.length - 1];
           if (t && t.kind === 'thinking') t.durationMs = dur;
         }
-        s.entries.push({ kind: 'assistant', text, streaming: true });
+        s.entries.push({ kind: 'assistant', text, streaming: true, ts: Date.now() });
       }
       s.entryCount = s.entries.length;
       return;
@@ -817,7 +863,7 @@ export function handleSseEvent(s: State, evt: unknown): void {
       } else {
         // First thinking chunk of this turn: start the duration clock.
         if (s.thinkingStartTs === 0) s.thinkingStartTs = Date.now();
-        s.entries.push({ kind: 'thinking', text, streaming: true });
+        s.entries.push({ kind: 'thinking', text, streaming: true, ts: Date.now() });
       }
       return;
     }
@@ -865,6 +911,7 @@ export function handleSseEvent(s: State, evt: unknown): void {
         args,
         text: '',
         streaming: false,
+        ts: Date.now(),
       });
       s.entryCount = s.entries.length;
       return;

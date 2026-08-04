@@ -90,12 +90,12 @@ export const dialogPicker = css({
   '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
 });
 
-// Approval is a permission prompt (05-design §4.3): same modal shell, but
-// keeps dimi's accent top border (deliberate difference from codex).
+// Approval is a permission prompt (05-design §4.3): same modal shell as the
+// other dialogs — no accent border (codex parity), so the close button sits
+// at the shell's true top edge (16px, per the dialogClose token).
 export const dialogApproval = css({
   ...modalShell,
   width: dialogSizes.default,
-  borderTop: `2px solid ${colors.primary}`,
 });
 
 // Title lives in the content flow (no title bar / bottom border): 20px/28px
@@ -263,7 +263,7 @@ export const bodyText = css({
 export const btn = css({
   fontSize: font.sm,
   padding: '5px 12px',
-  borderRadius: radius.pill,
+  borderRadius: radius.lg, // 12.5px — codex button radius (was pill/9999px)
   border: '1px solid transparent',
   background: colors.hover,
   color: colors.text,

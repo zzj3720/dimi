@@ -24,8 +24,11 @@ const canForward = computed(() => navIndex.value >= 0 && navIndex.value < state.
 
 // Codex left slot width = spring(sidebar width, default 275); dimi's sidebar
 // is v-if so the zone snaps between the open width and the natural 180px
-// when it is hidden (§1.2 / §2).
-const sideWidthClass = computed(() => (state.sidebarVisible ? headerSideOpen : headerSideClosed));
+// when it is hidden (§1.2 / §2). The open width is live — it tracks
+// state.sidebarWidth, which Sidebar.vue's drag updates (store sidebar_resize).
+const sideWidthClass = computed(() =>
+  state.sidebarVisible ? headerSideOpen(state.sidebarWidth) : headerSideClosed,
+);
 
 function toggleSidebar(): void {
   dispatch({ type: 'sidebar_toggle' });
@@ -50,7 +53,7 @@ function navSession(delta: number): void {
 // `/title` slash command makes — so the full interaction is doable in-place.
 const editing = ref(false);
 const draftTitle = ref('');
-const editWidth = ref(160);
+const editWidth = ref(189);
 const titleSpan = ref<HTMLSpanElement | null>(null);
 const titleInput = ref<HTMLInputElement | null>(null);
 
@@ -59,8 +62,9 @@ function startRename(): void {
   editing.value = true;
   draftTitle.value = current.value?.title ?? '';
   // Size the input to the rendered title (codex's input falls back to its
-  // ~20ch default width); a 160px floor keeps very short titles editable.
-  editWidth.value = Math.min(320, Math.max(160, titleSpan.value?.offsetWidth ?? 160));
+  // ~20ch ≈ 189px default width); the 189px floor keeps short titles at the
+  // codex default instead of shrinking to the text.
+  editWidth.value = Math.min(320, Math.max(189, titleSpan.value?.offsetWidth ?? 189));
   void nextTick(() => titleInput.value?.select());
 }
 
@@ -158,7 +162,7 @@ function openHelp(): void {
       <!-- dimi maps codex's right-panel toggle (HeaderButton pressed=isOpen)
            onto the left sidebar until a right panel exists; the pressed
            secondary state is left off to match codex's default ghost look. -->
-      <button :class="iconBtn" type="button" aria-label="切换侧边栏" @click="toggleSidebar">
+      <button :class="iconBtn" type="button" aria-label="切换侧边栏" :aria-pressed="state.sidebarVisible" @click="toggleSidebar">
         <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true" style="transform: rotate(180deg)"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
       </button>
     </div>

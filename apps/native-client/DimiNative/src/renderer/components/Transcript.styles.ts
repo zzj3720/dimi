@@ -1,5 +1,5 @@
 import { css } from '@emotion/css';
-import { colors, font, size, radius, elevation } from '../styles/theme';
+import { colors, font, size, radius, elevation, spacing } from '../styles/theme';
 import { md } from '../styles/global';
 
 // Codex markdown line-height: font-size + 8px = 22px at the 14px chat font
@@ -9,17 +9,17 @@ const MD_LH = '22px';
 // ---- transcript scroll ----
 // The 46px header is position:fixed (transparent) and overlays the window top;
 // mainCol (App.styles.ts) yields it with padding-top: var(--height-toolbar),
-// so the scroll container starts at y=46. This 1px completes the measured
-// codex offset (scroll container y=47): the first message then sits at
-// 46 (mainCol) + 1 (container padding) + 20 (thread py-5) = 67px, matching
-// codex's measured first-message y=67. The 1px also gives the scroll container
-// a small clip buffer above its content area.
+// so the scroll container starts at y=46. Codex's thread scroll container
+// carries `pt-(--thread-content-top-inset)` = 32px (CDP-measured 2026-08-04,
+// design doc §2: `padding: 32px 0 0`); dimi's container sits 1px higher than
+// codex's (y=46 vs y=47), so 32 + 1 = 33px puts the first turn at the same
+// absolute y as codex: 46/47 + 32 + 20 (thread py-5) = 99px turn top.
 export const transcript = css({
   flex: 1,
   display: 'flex',
   flexDirection: 'column',
   overflowY: 'auto',
-  padding: '1px 0 0',
+  padding: `${spacing.threadTopInset + 1}px 0 0`,
   outline: 'none',
 });
 
@@ -37,7 +37,8 @@ export const threadWrap = css({
 
 // Message column: 736px (768 − 16×2), gap-1.5 (6px), py-5 (20px top/bottom).
 // The wrapper's 32px bottom padding + this 20px = the measured 52px bottom
-// whitespace; this 20px + mainCol 46px + transcript 1px = the measured 67px top.
+// whitespace; this 20px + mainCol 46px + transcript 33px = the codex-aligned
+// 99px first-turn top (codex: container 47 + 32 + 20).
 export const thread = css({
   display: 'flex',
   flexDirection: 'column',
@@ -191,6 +192,30 @@ export const turnActions = css({
   transition: 'opacity 0.12s ease',
 });
 
+// Codex sent-time (design doc §1.7 R): `span.ms-1.5.flex.h-full.items-center`
+// `[data-assistant-message-sent-time]`, `text-xs text-token-text-tertiary` —
+// sits at the right end of the action row and is revealed with it on hover.
+export const turnActionsTime = css({
+  display: 'flex',
+  alignItems: 'center',
+  height: '100%',
+  marginLeft: 6, // ms-1.5
+  fontSize: 12, // text-xs
+  lineHeight: '16px',
+  color: colors.textTertiary,
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums',
+});
+
+// User-message send time (design doc §1.3: `span` in the hover-revealed row).
+export const userCopyTime = css({
+  fontSize: 12, // text-xs
+  lineHeight: '16px',
+  color: colors.textTertiary,
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums',
+});
+
 // ---- turn ----
 // Codex: one turn = user + thinking + assistant until the next user message,
 // wrapped in a single `group flex flex-col py-2` container. The thread parent
@@ -253,6 +278,13 @@ export const entryActionBtnReplyBad = css({
   transform: 'rotate(180deg)',
 });
 
+// Codex thumbs (Svl): ghost icon 24×24px (CDP-measured, design doc §1.7/§9) —
+// one step smaller than the 26×26 copy/fork buttons.
+export const entryActionBtnRating = css({
+  width: 24,
+  height: 24,
+});
+
 // ---- reasoning disclosure (codex mAl: collapsed = one "思考了 …" button) ----
 export const thinkingBlock = css({
   minWidth: 0,
@@ -286,10 +318,11 @@ export const reasoningTitle = css({
   '&:hover': { color: colors.text }, // hover:text-token-text-primary
 });
 
-// Codex: 20×20 chevron (`icon-xs`), transition-transform, rotate-180 expanded.
+// Codex: 16×16 chevron (`icon-xs`, CDP-measured 2026-08-04 — the design doc's
+// 20×20 was wrong), transition-transform, rotate-180 expanded.
 export const reasoningChevron = css({
-  width: 20,
-  height: 20,
+  width: 16,
+  height: 16,
   flexShrink: 0,
   // Inherits the button's currentColor; transition 0.3s cubic-bezier(0.4,0,0.2,1).
   transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -346,17 +379,8 @@ export const toolsCol = css({
   gap: 16,
 });
 
-export const toolCard = css({
-  background: 'transparent',
-  border: 'none',
-  borderRadius: 0,
-  padding: 0,
-  margin: '2px 0',
-  cursor: 'pointer',
-  userSelect: 'none',
-  '&:hover': { opacity: 0.85 },
-});
-
+// (toolCard is declared after toolCardName/Status/Icon/Time — its hover rules
+// reference those consts, and emotion's css() evaluates the object eagerly.)
 export const toolCardHeader = css({
   display: 'flex',
   alignItems: 'center',
@@ -375,7 +399,9 @@ export const toolCardIcon = css({
   background: 'rgba(255, 255, 255, 0.1)',
   padding: 3,
   boxSizing: 'border-box',
-  transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  opacity: 0, // codex: chevron hidden until the card is hovered (§1.6)
+  transition:
+    'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.12s ease',
 });
 
 export const toolCardIconOpen = css({
@@ -396,16 +422,50 @@ export const toolCardStatus = css({
   whiteSpace: 'nowrap',
 });
 
+// Tool-frame sent time (same text-xs tertiary style as the message rows);
+// hidden until the card is hovered, alongside the chevron (codex §1.6).
+export const toolCardTime = css({
+  fontSize: 12, // text-xs
+  lineHeight: '16px',
+  color: colors.textTertiary,
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums',
+  opacity: 0,
+  transition: 'opacity 0.12s ease',
+});
+
+export const toolCard = css({
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 0,
+  padding: 0,
+  margin: '2px 0',
+  cursor: 'pointer',
+  userSelect: 'none',
+  // Codex activity header hover (design doc §4.4): summary/name text moves
+  // from text-tertiary to text-primary — no whole-card dimming.
+  [`&:hover .${toolCardName}, &:hover .${toolCardStatus}`]: { color: colors.text },
+  // The expand chevron and the sent time are hover-only in codex (design
+  // doc §1.6: `opacity-0 group-hover:opacity-100`).
+  [`&:hover .${toolCardIcon}, &:hover .${toolCardTime}`]: { opacity: 1 },
+});
+
 // Shell card (codex Pbl): command + output on the code-block background,
-// radius 12.5px (`--radius-lg`), 8px padding, 12px/20px mono; the same
-// height+opacity animation as the reasoning body.
+// radius 12.5px (`--radius-lg`), 12px/20px mono; the same height+opacity
+// animation as the reasoning body. The 8px padding lives on the INNER wrapper
+// (toolShellInner): the animated shell itself must stay padding-free, because
+// with box-sizing:border-box a `height: 0` shell that kept its padding would
+// still render 8+8=16px tall in the collapsed state (measured leak).
 export const toolShell = css({
   overflow: 'hidden',
   background: 'rgba(255, 255, 255, 0.052)', // text-code-block-background
   borderRadius: 12.5,
-  padding: 8,
   transition:
     'height 0.3s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.3s cubic-bezier(0.19, 1, 0.22, 1)',
+});
+
+export const toolShellInner = css({
+  padding: 8,
 });
 
 export const toolShellCollapsed = css({

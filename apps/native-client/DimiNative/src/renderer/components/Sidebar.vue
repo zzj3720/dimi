@@ -12,7 +12,7 @@ import {
   ref,
   watch,
 } from 'vue';
-import { state, Msg, type SessionSummary } from '../store';
+import { state, Msg, SIDEBAR_WIDTH_KEY, type SessionSummary } from '../store';
 import { dispatch } from '../api';
 import { icons, type IconDef } from '../icons';
 import {
@@ -27,28 +27,21 @@ import {
   searchView, searchInputRow, searchInput, searchClear,
 } from './Sidebar.styles';
 
-const RESIZE_KEY = 'dimi.sidebarWidth';
-// Codex resize floor: widths below 240px are not applied (02-sidebar-code §9,
-// gap C7). MAX is dimi's own cap (codex max not observable).
-const MIN_W = 240;
-const MAX_W = 480;
-
-const sidebarWidth = ref(Number(localStorage.getItem(RESIZE_KEY)) || 275);
-
-const clamp = (w: number): number => Math.min(MAX_W, Math.max(MIN_W, w));
-
+// Sidebar width is SHARED state (store.ts): the drag writes state.sidebarWidth
+// via Msg.SidebarResize (clamped by the reducer, 240–520), HeaderBar reads the
+// same value for its left slot, and mouseup persists it under SIDEBAR_WIDTH_KEY.
 function startResize(e: MouseEvent): void {
   e.preventDefault();
   const startX = e.clientX;
-  const startW = sidebarWidth.value;
+  const startW = state.sidebarWidth;
   const move = (ev: MouseEvent): void => {
-    sidebarWidth.value = clamp(startW + (ev.clientX - startX));
+    dispatch(Msg.SidebarResize(startW + (ev.clientX - startX)));
   };
   const up = (): void => {
     document.removeEventListener('mousemove', move);
     document.removeEventListener('mouseup', up);
     try {
-      localStorage.setItem(RESIZE_KEY, String(sidebarWidth.value));
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(state.sidebarWidth));
     } catch {
       /* non-fatal */
     }
@@ -242,7 +235,7 @@ function marqueeLeave(id: string): void {
 </script>
 
 <template>
-  <aside :class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+  <aside :class="sidebar" :style="{ width: state.sidebarWidth + 'px' }">
     <!-- header block: brand row + 新对话 (70px) -->
     <div :class="[sidebarTop, { [sidebarTopSearch]: searchOpen, [sidebarTopScrolled]: scrolled && !searchOpen }]">
       <div :class="brandRow">
@@ -312,7 +305,7 @@ function marqueeLeave(id: string): void {
               <svg class="sb-chevron" :class="{ collapsed: projectsCollapsed }" :viewBox="icons.sectionChevron.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sectionChevron.paths" :key="i" :d="p" /></svg>
               <span>项目</span>
             </button>
-            <div :class="sectionTitleActions">
+            <div class="sb-title-actions" :class="sectionTitleActions">
               <button :class="sectionTitleBtn" type="button" aria-label="项目侧边栏选项" title="项目侧边栏选项" @click="comingSoon('项目侧边栏选项')">
                 <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
               </button>
@@ -340,7 +333,7 @@ function marqueeLeave(id: string): void {
                   <svg :viewBox="ic('folder').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('folder').paths" :key="i" :d="p" /></svg>
                 </span>
                 <span :class="folderRowName">{{ groupLabel(cwd) }}</span>
-                <span :class="folderRowActions">
+                <span class="sb-folder-actions" :class="folderRowActions">
                   <button :class="folderRowBtn" type="button" :aria-label="`${groupLabel(cwd)} 的项目操作`" :title="`${groupLabel(cwd)} 的项目操作`" @click.stop="comingSoon('项目操作')">
                     <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
                   </button>
@@ -387,7 +380,7 @@ function marqueeLeave(id: string): void {
               <svg class="sb-chevron" :class="{ collapsed: recentCollapsed }" :viewBox="icons.sectionChevron.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sectionChevron.paths" :key="i" :d="p" /></svg>
               <span>最近</span>
             </button>
-            <div :class="sectionTitleActions">
+            <div class="sb-title-actions" :class="sectionTitleActions">
               <button :class="sectionTitleBtn" type="button" aria-label="聊天侧边栏选项" title="聊天侧边栏选项" @click="comingSoon('聊天侧边栏选项')">
                 <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
               </button>

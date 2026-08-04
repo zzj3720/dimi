@@ -59,6 +59,12 @@ function afterDispatch(msg: MsgType): void {
         doCancel();
       }
       break;
+    case 'stop':
+      if (state.cancelStreamRequested) {
+        state.cancelStreamRequested = false;
+        doCancel();
+      }
+      break;
     case 'approval_confirm':
       submitApproval();
       break;
@@ -558,7 +564,7 @@ export async function sendPrompt(text: string): Promise<void> {
     const data = await api('POST', `/api/v1/sessions/${state.currentSessionId}/prompts`, {
       content: [{ type: 'text', text }],
     });
-    state.entries.push({ kind: 'user', text, streaming: false });
+    state.entries.push({ kind: 'user', text, streaming: false, ts: Date.now() });
     state.entryCount = state.entries.length;
     const promptId = (data?.data?.prompt_id as string) ?? '';
     const steering = state.busy && state.busyInputMode === 'steer' && state.phase !== 'compacting' && promptId;
@@ -824,10 +830,16 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
   for (const m of ordered) {
     const role = m.role as string;
     const content = m.content;
+    // Wire `created_at` (ISO) → ms; fall back to undefined (no timestamp row).
+    const rawTs = m.created_at;
+    const ts =
+      typeof rawTs === 'string' && !Number.isNaN(Date.parse(rawTs))
+        ? Date.parse(rawTs)
+        : undefined;
 
     if (role === 'user') {
       const text = contentToText(content);
-      if (text) entries.push({ kind: 'user', text, streaming: false });
+      if (text) entries.push({ kind: 'user', text, streaming: false, ts });
       continue;
     }
 
@@ -889,9 +901,10 @@ export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
           text: think,
           tools: tools.map((t) => ({ id: t.id, name: t.name, args: t.input, text: '' })),
           streaming: false,
+          ts,
         });
       }
-      if (text) entries.push({ kind: 'assistant', text, streaming: false });
+      if (text) entries.push({ kind: 'assistant', text, streaming: false, ts });
       continue;
     }
 

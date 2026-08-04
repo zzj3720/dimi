@@ -43,6 +43,14 @@ const micIcon = {
     'M15.7806 10.1963C16.1326 10.3011 16.3336 10.6714 16.2288 11.0234L16.1487 11.2725C15.3429 13.6262 13.2236 15.3697 10.6644 15.6299L10.6653 16.835H12.0833L12.2171 16.8486C12.5202 16.9106 12.7484 17.1786 12.7484 17.5C12.7484 17.8214 12.5202 18.0894 12.2171 18.1514L12.0833 18.165H7.91632C7.5492 18.1649 7.25128 17.8672 7.25128 17.5C7.25128 17.1328 7.5492 16.8351 7.91632 16.835H9.33527L9.33429 15.6299C6.775 15.3697 4.6558 13.6262 3.84992 11.2725L3.76984 11.0234L3.74445 10.8906C3.71751 10.5825 3.91011 10.2879 4.21808 10.1963C4.52615 10.1047 4.84769 10.2466 4.99347 10.5195L5.04523 10.6436L5.10871 10.8418C5.8047 12.8745 7.73211 14.335 9.99933 14.335C12.3396 14.3349 14.3179 12.7789 14.9534 10.6436L15.0052 10.5195C15.151 10.2466 15.4725 10.1046 15.7806 10.1963ZM12.2513 5.41699C12.2513 4.17354 11.2437 3.16521 10.0003 3.16504C8.75675 3.16504 7.74835 4.17343 7.74835 5.41699V9.16699C7.74853 10.4104 8.75685 11.418 10.0003 11.418C11.2436 11.4178 12.2511 10.4103 12.2513 9.16699V5.41699ZM13.5814 9.16699C13.5812 11.1448 11.9781 12.7479 10.0003 12.748C8.02232 12.748 6.41845 11.1449 6.41828 9.16699V5.41699C6.41828 3.43889 8.02221 1.83496 10.0003 1.83496C11.9783 1.83514 13.5814 3.439 13.5814 5.41699V9.16699Z',
   ],
 };
+// Busy-state stop button (codex replaces the send arrow with a stop square
+// while a turn is running): 12×12 rounded square centered in the 20 viewBox.
+const stopIcon = {
+  vb: '0 0 20 20',
+  paths: [
+    'M8 4H12A2 2 0 0 1 14 6V14A2 2 0 0 1 12 16H8A2 2 0 0 1 6 14V6A2 2 0 0 1 8 4Z',
+  ],
+};
 
 const inputEl = ref<HTMLElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
@@ -417,7 +425,21 @@ function steerMode(mode: 'steer' | 'queue'): void {
                 <button type="button" :class="composerBtn" aria-label="听写" @click="state.statusMsg = '听写（暂未实现）'">
                   <svg :viewBox="micIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in micIcon.paths" :key="i" :d="p" /></svg>
                 </button>
+                <!-- Codex busy behavior: while a turn is running the send
+                     arrow becomes a stop square; clicking aborts the turn
+                     (Msg.Stop → doCancel, same abort API as Ctrl+C). -->
                 <button
+                  v-if="state.busy"
+                  type="button"
+                  :class="sendBtn"
+                  aria-label="停止"
+                  data-testid="stop-btn"
+                  @click="dispatch(Msg.Stop())"
+                >
+                  <svg :viewBox="stopIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in stopIcon.paths" :key="i" :d="p" /></svg>
+                </button>
+                <button
+                  v-else
                   type="submit"
                   :class="sendBtn"
                   :disabled="!state.currentSessionId"

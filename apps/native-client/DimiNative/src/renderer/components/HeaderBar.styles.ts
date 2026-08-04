@@ -43,8 +43,11 @@ export const headerSide = css({
 
 // Codex left-slot width = spring(sidebar width, default 275, clamp 240–520);
 // dimi's sidebar is v-if (no spring), so the zone snaps between the open
-// width and the natural 180px when the sidebar is hidden (§1.2 / §2).
-export const headerSideOpen = css({ width: size.sidebarW });
+// width and the natural 180px when the sidebar is hidden (§1.2 / §2). The
+// open width is DYNAMIC: it tracks state.sidebarWidth (Sidebar.vue's drag
+// writes it via the store), bound here by HeaderBar.vue as
+// headerSideOpen(width) — never the hardcoded 275.
+export const headerSideOpen = (w: number): string => css({ width: `${w}px` });
 export const headerSideClosed = css({ width: '180px' });
 
 export const headerSideGroup = css({

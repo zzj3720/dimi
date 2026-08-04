@@ -3,16 +3,16 @@
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue';
 import { state, Msg } from '../store';
 import type { Entry } from '../store';
-import { dispatch } from '../api';
+import { dispatch, api } from '../api';
 import { icons } from '../icons';
 import { renderMarkdown } from '../markdown';
 import { srOnly } from '../styles/global';
 import {
-  transcript, threadWrap, thread, turn, turnContent, itemDivider, turnActions, entryActionBtn, entryActionBtnReplyBad,
-  userMsgGroup, userBubble, userCopyRow,
+  transcript, threadWrap, thread, turn, turnContent, itemDivider, turnActions, turnActionsTime, entryActionBtn, entryActionBtnRating, entryActionBtnReplyBad,
+  userMsgGroup, userBubble, userCopyRow, userCopyTime,
   userEdit, userEditInput, userEditRow, userEditBtn, userEditBtnPrimary,
-  bodyMuted, toolCard, toolCardHeader, toolCardIcon, toolCardIconOpen, toolCardName, toolCardStatus,
-  toolShell, toolShellCollapsed, toolCardBody,
+  bodyMuted, toolCard, toolCardHeader, toolCardIcon, toolCardIconOpen, toolCardName, toolCardStatus, toolCardTime,
+  toolShell, toolShellInner, toolShellCollapsed, toolCardBody,
   clickable, entryUser, thinkingBlock,
   reasoningTitle, reasoningChevron, reasoningChevronOpen,
   reasoningShell, reasoningShellCollapsed, reasoningBody, thinkingMd,
@@ -395,6 +395,83 @@ function fmtDuration(ms: number): string {
   return `${m}m ${r}s`;
 }
 
+// ---- sent time (codex lsl/osl, extracted from the bundle 2026-08-04) ----
+// Same day → "2:34 PM"; within the last 7 days → "星期二 2:34 PM"; older →
+// "8月4日 2:34 PM" (react-intl formatDate with the app locale).
+function formatSentTime(tsMs: number): string {
+  const d = new Date(tsMs);
+  const now = new Date();
+  const dayDiff = Math.round(
+    (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() -
+      new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) /
+      864e5,
+  );
+  const opts: Intl.DateTimeFormatOptions =
+    dayDiff === 0
+      ? { hour: 'numeric', minute: '2-digit' }
+      : dayDiff < 0 && dayDiff > -7
+        ? { weekday: 'long', hour: 'numeric', minute: '2-digit' }
+        : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  return new Intl.DateTimeFormat(undefined, opts).format(d);
+}
+
+// The action row's sent time belongs to the turn's assistant message (codex
+// `data-assistant-message-sent-time`); fall back to the last dated entry.
+function turnSentTs(t: Turn): number | undefined {
+  for (let i = t.entries.length - 1; i >= 0; i--) {
+    const e = t.entries[i];
+    if (e.kind === 'assistant' && e.ts) return e.ts;
+  }
+  for (let i = t.entries.length - 1; i >= 0; i--) {
+    if (t.entries[i].ts) return t.entries[i].ts;
+  }
+  return undefined;
+}
+
+// Template-safe label: empty string when the turn has no timestamp (the
+// `v-if="turnSentTs(t)"` guard can't narrow the second function call).
+function turnSentLabel(t: Turn): string {
+  const ts = turnSentTs(t);
+  return ts === undefined ? '' : formatSentTime(ts);
+}
+
+// ---- rating (codex Svl §5.3: aria-pressed toggle, click again to cancel) ----
+// dimi has no turn-rating backend, so this is a local selected state plus a
+// status line (the feedback dialog of codex is not implemented).
+const ratings = reactive(new Map<number, 'good' | 'bad'>());
+
+function rateTurn(ti: number, kind: 'good' | 'bad'): void {
+  if (ratings.get(ti) === kind) {
+    ratings.delete(ti);
+    state.statusMsg = '已取消评分';
+  } else {
+    ratings.set(ti, kind);
+    state.statusMsg = kind === 'good' ? '已评分：回复优秀' : '已评分：回复不佳';
+  }
+}
+
+// "在新聊天中继续" (codex fork §5.4): fork the session server-side and switch
+// to the new chat (the wire endpoint returns the new session id).
+function continueInNewChat(): void {
+  if (!state.currentSessionId) {
+    state.statusMsg = 'select a session first';
+    return;
+  }
+  api('POST', `/api/v1/sessions/${state.currentSessionId}:fork`, {})
+    .then((data) => {
+      const id = (data?.data?.id as string) ?? '';
+      if (id) {
+        dispatch(Msg.SessionSelected(id));
+        state.statusMsg = '已在新聊天中继续';
+      } else {
+        state.statusMsg = 'forked';
+      }
+    })
+    .catch((e) => {
+      state.statusMsg = `fork failed: ${(e as Error).message}`;
+    });
+}
+
 // Codex-style disclosure label: "Thinking" while streaming, duration when the
 // model reasoned, otherwise the tool names (never a bare "思考" for a
 // tools-only turn).
@@ -482,6 +559,7 @@ function cleanText(s: string): string {
                             <svg v-if="copyFeedback !== userCopyKey(ti, i)" :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.copy.paths" :key="pi" :d="p" /></svg>
                             <svg v-else :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.check.paths" :key="pi" :d="p" /></svg>
                           </button>
+                          <span v-if="e.ts" :class="userCopyTime">{{ formatSentTime(e.ts) }}</span>
                         </div>
                       </template>
                     </div>
@@ -530,13 +608,14 @@ function cleanText(s: string): string {
                           <svg :class="[toolCardIcon, expandedTools.has(attachedToolKey(t.id)) ? toolCardIconOpen : null]" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.chevronDown.paths" :key="pi" :d="p" /></svg>
                           <span :class="toolCardName">{{ t.name }}</span>
                           <span :class="toolCardStatus">{{ t.text && t.text.length > 0 ? '已完成' : '进行中' }}</span>
+                          <span v-if="e.ts" :class="toolCardTime">{{ formatSentTime(e.ts) }}</span>
                         </div>
                         <div
                           :class="[toolShell, expandedTools.has(attachedToolKey(t.id)) ? null : toolShellCollapsed]"
                           :style="expandedTools.has(attachedToolKey(t.id)) ? { height: (toolMeta.get(attachedToolKey(t.id)) ?? 0) + 'px', opacity: 1 } : { height: '0px', opacity: 0 }"
                           :aria-hidden="expandedTools.has(attachedToolKey(t.id)) ? 'false' : 'true'"
                         >
-                          <div :ref="(el) => setToolEl(attachedToolKey(t.id), el)">
+                          <div :ref="(el) => setToolEl(attachedToolKey(t.id), el)" :class="toolShellInner">
                             <div v-if="t.args" :class="toolCardBody">{{ cleanText(shellCmd(t.args)) }}</div>
                             <div v-if="t.text && t.text.length > 0" :class="toolCardBody">{{ cleanText(t.text) }}</div>
                           </div>
@@ -551,13 +630,14 @@ function cleanText(s: string): string {
                       <svg :class="[toolCardIcon, expandedTools.has(standaloneToolKey(e)) ? toolCardIconOpen : null]" :viewBox="icons.chevronDown.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.chevronDown.paths" :key="pi" :d="p" /></svg>
                       <span :class="toolCardName">{{ e.toolName }}</span>
                       <span :class="toolCardStatus">{{ e.text && e.text.length > 0 ? '已完成' : '进行中' }}</span>
+                      <span v-if="e.ts" :class="toolCardTime">{{ formatSentTime(e.ts) }}</span>
                     </div>
                     <div
                       :class="[toolShell, expandedTools.has(standaloneToolKey(e)) ? null : toolShellCollapsed]"
                       :style="expandedTools.has(standaloneToolKey(e)) ? { height: (toolMeta.get(standaloneToolKey(e)) ?? 0) + 'px', opacity: 1 } : { height: '0px', opacity: 0 }"
                       :aria-hidden="expandedTools.has(standaloneToolKey(e)) ? 'false' : 'true'"
                     >
-                      <div :ref="(el) => setToolEl(standaloneToolKey(e), el)">
+                      <div :ref="(el) => setToolEl(standaloneToolKey(e), el)" :class="toolShellInner">
                         <div v-if="e.args" :class="toolCardBody">{{ cleanText(shellCmd(e.args)) }}</div>
                         <div v-if="e.text && e.text.length > 0" :class="toolCardBody">{{ cleanText(e.text) }}</div>
                       </div>
@@ -575,21 +655,34 @@ function cleanText(s: string): string {
 
             <!-- turn-level action row (assistant): opacity-0, revealed on
                  turn hover / focus (codex group-hover) — 复制 / 回复优秀 /
-                 回复不佳 / 在新聊天中继续 -->
+                 回复不佳 / 在新聊天中继续 + 发送时间 -->
             <div v-if="hasTurnActions(t)" :class="turnActions">
               <button :class="entryActionBtn" aria-label="复制" title="复制" @click="copyTurn(t, ti)">
                 <svg v-if="copyFeedback !== turnCopyKey(ti)" :viewBox="icons.copy.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.copy.paths" :key="pi" :d="p" /></svg>
                 <svg v-else :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, pi) in icons.check.paths" :key="pi" :d="p" /></svg>
               </button>
-              <button :class="entryActionBtn" aria-label="回复优秀" title="回复优秀">
+              <button
+                :class="[entryActionBtn, entryActionBtnRating]"
+                aria-label="回复优秀"
+                title="回复优秀"
+                :aria-pressed="ratings.get(ti) === 'good' ? 'true' : 'false'"
+                @click="rateTurn(ti, 'good')"
+              >
                 <svg :viewBox="ICON_REPLY_GOOD.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ICON_REPLY_GOOD.paths" :key="i" :d="p" /></svg>
               </button>
-              <button :class="entryActionBtn" aria-label="回复不佳" title="回复不佳">
+              <button
+                :class="[entryActionBtn, entryActionBtnRating]"
+                aria-label="回复不佳"
+                title="回复不佳"
+                :aria-pressed="ratings.get(ti) === 'bad' ? 'true' : 'false'"
+                @click="rateTurn(ti, 'bad')"
+              >
                 <svg :class="entryActionBtnReplyBad" :viewBox="ICON_REPLY_GOOD.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ICON_REPLY_GOOD.paths" :key="i" :d="p" /></svg>
               </button>
-              <button :class="entryActionBtn" aria-label="在新聊天中继续" title="在新聊天中继续" :disabled="isTurnStreaming(t)">
+              <button :class="entryActionBtn" aria-label="在新聊天中继续" title="在新聊天中继续" :disabled="isTurnStreaming(t)" @click="continueInNewChat">
                 <svg :viewBox="ICON_CONTINUE.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ICON_CONTINUE.paths" :key="i" :d="p" /></svg>
               </button>
+              <span v-if="turnSentTs(t)" :class="turnActionsTime" :data-assistant-message-sent-time="true">{{ turnSentLabel(t) }}</span>
             </div>
           </template>
         </div>

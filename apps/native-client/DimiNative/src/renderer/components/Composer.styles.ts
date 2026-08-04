@@ -213,7 +213,10 @@ export const composerBtn = css({
   '&:hover': { background: 'rgba(255, 255, 255, 0.078)' },
   '&:active': { background: 'rgba(255, 255, 255, 0.15)' }, // token-foreground @ 15%
   '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-  '& svg': { width: 16, height: 16 },
+  // Ghost icons (plus / mic) are pure white (#fff, token-text) — the button's
+  // own color stays tertiary for any text content; svg fill=currentColor
+  // resolves against the svg's own color.
+  '& svg': { width: 16, height: 16, color: colors.text },
 });
 
 export const modelPill = css({
