@@ -552,7 +552,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
     void this.runTurnNow(entry.turnId, entry.payload.origin)
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        // A failed turn must not vanish silently: the turn clock already
+        // advanced and the user message is in the context, so an invisible
+        // failure leaves the UI waiting forever. Surface it through the
+        // runner's log (previously `catch(() => undefined)` swallowed
+        // everything, e.g. a missing native binding surfaced as nothing).
+        this.log.error("[rustEngineTurnRunner] turn failed to start", { error });
+      })
       .finally(() => {
         this.turnRunning = false;
         this.executingTurnId = undefined;
