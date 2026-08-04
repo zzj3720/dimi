@@ -18,6 +18,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import type { ExecutableTool } from '#/tool/toolContract';
@@ -2390,6 +2391,71 @@ describe('Rust engine approval flow (manual mode)', () => {
     // The filtered tool was never registered → the engine rejects the call.
     expect(toolText).toContain('not found');
     expect(toolText).not.toContain('StubInactive executed');
+  });
+
+  it('consults the composed tool policy for the engine allowlist (P1-2)', async () => {
+    // The effective allowlist must come from `IAgentToolPolicyService`
+    // (profile + global [tools] + session denylist composition), not a
+    // profile-only filter — the runner consults the service per tool.
+    const policyStub: IAgentToolPolicyService = {
+      _serviceBrand: undefined,
+      isToolActive: (name: string) => name !== 'StubPolicyOff',
+      isToolActiveForDisclosure: () => true,
+      isToolActiveForProfile: () => true,
+      setSessionDisabledTools: async () => {},
+    };
+    const stubTool = (name: string): ExecutableTool => ({
+      name,
+      description: 'policy target',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async () => ({ output: `${name} executed`, isError: false }),
+      }),
+    });
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_policy_off',
+          name: 'StubPolicyOff',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after policy' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([
+      permissionModeServices('auto'),
+      agentService(IAgentToolPolicyService, policyStub),
+    ]);
+    ctx.get(IAgentToolRegistryService).register(stubTool('StubPolicyOn'));
+    ctx.get(IAgentToolRegistryService).register(stubTool('StubPolicyOff'));
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'call policy tool' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after policy')),
+      'post-policy reply',
+    );
+    const toolText = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .filter((message) => message.role === 'tool')
+      .map((message) => JSON.stringify(message.content))
+      .join('');
+    // The policy-declared-inactive tool was never registered → rejected.
+    expect(toolText).toContain('not found');
+    expect(toolText).not.toContain('StubPolicyOff executed');
   });
 
   it('fires PostToolUse for native in-engine tools (TS notifyPostToolUse parity)', async () => {
