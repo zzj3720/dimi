@@ -75,3 +75,19 @@ export const rootScroll = css({
   scrollbarColor: `${colors.scrollbarThumb} ${colors.scrollbarTrack}`,
   scrollbarWidth: 'auto',
 });
+
+// Global tooltip (codex Radix Tooltip: dark surface, small radius, centered
+// above the target with a 6px gap).
+export const tooltipStyle = css({
+  position: 'fixed',
+  zIndex: 200,
+  padding: '4px 8px',
+  background: '#1f1f1f',
+  borderRadius: 6,
+  color: 'rgba(255, 255, 255, 0.9)',
+  fontSize: 12,
+  lineHeight: '16px',
+  whiteSpace: 'nowrap',
+  pointerEvents: 'none',
+  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+});

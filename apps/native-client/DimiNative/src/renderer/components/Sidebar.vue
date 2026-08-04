@@ -379,16 +379,16 @@ function marqueeLeave(id: string): void {
           </div>
         </div>
         <div :class="brandActions">
-          <button :class="[brandIconBtn, brandIconBtnSearch]" type="button" aria-label="搜索" title="搜索" @click="toggleSearch">
+          <button :class="[brandIconBtn, brandIconBtnSearch]" type="button" aria-label="搜索" data-tooltip="搜索" @click="toggleSearch">
             <svg :viewBox="ic('search').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('search').paths" :key="i" :d="p" /></svg>
           </button>
-          <button :class="brandIconBtn" type="button" aria-label="优先级，需要关注" aria-pressed="false" title="优先级" @click="comingSoon('优先级')">
+          <button :class="brandIconBtn" type="button" aria-label="优先级，需要关注" aria-pressed="false" data-tooltip="优先级" @click="comingSoon('优先级')">
             <svg :viewBox="ic('priority').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('priority').paths" :key="i" :d="p" /></svg>
           </button>
         </div>
       </div>
       <!-- 新对话 stays FIXED in the header block (29px row) -->
-      <button :class="navItemHeader" type="button" title="新对话" @click="newChat">
+      <button :class="navItemHeader" type="button" data-tooltip="新对话" @click="newChat">
         <svg :viewBox="icons.newChat.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.newChat.paths" :key="i" :d="p" /></svg>
         <span>新对话</span>
       </button>
@@ -403,13 +403,13 @@ function marqueeLeave(id: string): void {
       <!-- fixed nav block: 站点 / 已安排 / 插件 (92px) -->
       <div :class="navBlockScroll">
         <div :class="navBlockItems">
-          <button :class="navItemScroll" type="button" title="站点" @click="comingSoon('站点')">
+          <button :class="navItemScroll" type="button" data-tooltip="站点" @click="comingSoon('站点')">
             <svg :viewBox="icons.sites.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sites.paths" :key="i" :d="p" /></svg><span>站点</span>
           </button>
-          <button :class="navItemScroll" type="button" title="已安排" @click="comingSoon('已安排')">
+          <button :class="navItemScroll" type="button" data-tooltip="已安排" @click="comingSoon('已安排')">
             <svg :viewBox="icons.scheduled.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.scheduled.paths" :key="i" :d="p" /></svg><span>已安排</span>
           </button>
-          <button :class="navItemScroll" type="button" title="插件" @click="comingSoon('插件')">
+          <button :class="navItemScroll" type="button" data-tooltip="插件" @click="comingSoon('插件')">
             <svg :viewBox="icons.plugins.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plugins.paths" :key="i" :d="p" /></svg><span>插件</span>
           </button>
         </div>
@@ -425,10 +425,10 @@ function marqueeLeave(id: string): void {
               <span>项目</span>
             </button>
             <div class="sb-title-actions" :class="sectionTitleActions">
-              <button :class="sectionTitleBtn" type="button" aria-label="项目侧边栏选项" title="项目侧边栏选项" @click="comingSoon('项目侧边栏选项')">
+              <button :class="sectionTitleBtn" type="button" aria-label="项目侧边栏选项" data-tooltip="项目侧边栏选项" @click="comingSoon('项目侧边栏选项')">
                 <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
               </button>
-              <button :class="sectionTitleBtn" type="button" aria-label="添加新项目" title="添加新项目" @click="comingSoon('添加新项目')">
+              <button :class="sectionTitleBtn" type="button" aria-label="添加新项目" data-tooltip="添加新项目" @click="comingSoon('添加新项目')">
                 <svg :viewBox="icons.plus.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.plus.paths" :key="i" :d="p" /></svg>
               </button>
             </div>
@@ -491,10 +491,10 @@ function marqueeLeave(id: string): void {
                   <span class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
                   <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
                   <span class="sb-hover-actions">
-                    <button class="sb-hover-btn" type="button" aria-label="置顶聊天" title="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+                    <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
                       <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
                     </button>
-                    <button class="sb-hover-btn" type="button" aria-label="归档聊天" title="归档聊天" @click.stop="comingSoon('归档聊天')">
+                    <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
                       <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
                     </button>
                   </span>
@@ -512,13 +512,13 @@ function marqueeLeave(id: string): void {
               <span>最近</span>
             </button>
             <div class="sb-title-actions" :class="sectionTitleActions">
-              <button :class="sectionTitleBtn" type="button" aria-label="聊天侧边栏选项" title="聊天侧边栏选项" @click="comingSoon('聊天侧边栏选项')">
+              <button :class="sectionTitleBtn" type="button" aria-label="聊天侧边栏选项" data-tooltip="聊天侧边栏选项" @click="comingSoon('聊天侧边栏选项')">
                 <svg :viewBox="icons.ellipsis.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.ellipsis.paths" :key="i" :d="p" /></svg>
               </button>
-              <button :class="sectionTitleBtn" type="button" aria-label="筛选聊天和工作" title="筛选聊天和工作" @click="comingSoon('筛选聊天和工作')">
+              <button :class="sectionTitleBtn" type="button" aria-label="筛选聊天和工作" data-tooltip="筛选聊天和工作" @click="comingSoon('筛选聊天和工作')">
                 <svg :viewBox="ic('filter').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('filter').paths" :key="i" :d="p" /></svg>
               </button>
-              <button :class="sectionTitleBtn" type="button" aria-label="新对话" title="新对话" @click="newChat">
+              <button :class="sectionTitleBtn" type="button" aria-label="新对话" data-tooltip="新对话" @click="newChat">
                 <svg :viewBox="icons.newChat.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.newChat.paths" :key="i" :d="p" /></svg>
               </button>
             </div>
@@ -554,10 +554,10 @@ function marqueeLeave(id: string): void {
               <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
               <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
               <span class="sb-hover-actions">
-                <button class="sb-hover-btn" type="button" aria-label="置顶聊天" title="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+                <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
                   <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
                 </button>
-                <button class="sb-hover-btn" type="button" aria-label="归档聊天" title="归档聊天" @click.stop="comingSoon('归档聊天')">
+                <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
                   <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
                 </button>
               </span>
@@ -579,7 +579,7 @@ function marqueeLeave(id: string): void {
             aria-label="搜索会话"
             @keydown.esc.prevent="closeSearch"
           />
-          <button :class="searchClear" type="button" aria-label="关闭搜索" title="关闭搜索" @click="closeSearch">
+          <button :class="searchClear" type="button" aria-label="关闭搜索" data-tooltip="关闭搜索" @click="closeSearch">
             <svg :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.close.paths" :key="i" :d="p" /></svg>
           </button>
         </div>
@@ -613,10 +613,10 @@ function marqueeLeave(id: string): void {
             <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
             <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
             <span class="sb-hover-actions">
-              <button class="sb-hover-btn" type="button" aria-label="置顶聊天" title="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+              <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
                 <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
               </button>
-              <button class="sb-hover-btn" type="button" aria-label="归档聊天" title="归档聊天" @click.stop="comingSoon('归档聊天')">
+              <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
                 <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
               </button>
             </span>

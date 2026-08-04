@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Root shell: Codex-style sidebar + header + transcript + composer + dialogs.
 // Owns global keyboard (window keydown) and the dimi:msg event bridge.
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import HeaderBar from './components/HeaderBar.vue';
 import Transcript from './components/Transcript.vue';
@@ -10,7 +10,46 @@ import Dialogs from './components/Dialogs.vue';
 import { state, Msg } from './store';
 import { dispatch, createSession, detachCurrentTask, recallLastQueued } from './api';
 import { app } from './styles/global';
-import { shell, mainCol, mainColWin, rootScroll } from './App.styles';
+import { shell, mainCol, mainColWin, rootScroll, tooltipStyle } from './App.styles';
+
+// Global tooltip (codex Radix Tooltip with delayOpen): any element with a
+// data-tooltip attribute shows a styled tip after ~500ms on hover. Native
+// title attributes stay only where a11y needs them (aria-label is separate).
+const tooltip = ref<{ text: string; x: number; y: number; dir: 'top' | 'bottom' } | null>(null);
+let tooltipTimer: number | null = null;
+
+function showTooltip(target: HTMLElement): void {
+  if (tooltipTimer !== null) window.clearTimeout(tooltipTimer);
+  tooltipTimer = window.setTimeout(() => {
+    const r = target.getBoundingClientRect();
+    tooltip.value = {
+      text: target.getAttribute('data-tooltip') ?? '',
+      x: r.left + r.width / 2,
+      y: r.top,
+      // Header buttons sit at the very top of the window; show the tip below
+      // them instead of clipping it off-screen (codex flips on overflow).
+      dir: r.top < 48 ? 'bottom' : 'top',
+    };
+  }, 500);
+}
+
+function hideTooltip(): void {
+  if (tooltipTimer !== null) {
+    window.clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+  }
+  tooltip.value = null;
+}
+
+function onGlobalMouseOver(e: MouseEvent): void {
+  const t = e.target as HTMLElement | null;
+  const hit = t?.closest?.('[data-tooltip]') as HTMLElement | null;
+  if (!hit || !hit.getAttribute('data-tooltip')) {
+    hideTooltip();
+    return;
+  }
+  showTooltip(hit);
+}
 
 const isMac = navigator.platform.startsWith('Mac');
 const isWin = navigator.platform.startsWith('Win');
@@ -189,11 +228,17 @@ const tick = setInterval(() => dispatch(Msg.Tick()), 1000);
 onMounted(() => {
   window.addEventListener('keydown', onWindowKeydown);
   window.addEventListener('dimi:msg', onDimiMsg);
+  document.addEventListener('mouseover', onGlobalMouseOver);
+  document.addEventListener('mouseout', hideTooltip);
+  document.addEventListener('mousedown', hideTooltip);
 });
 onUnmounted(() => {
   clearInterval(tick);
   window.removeEventListener('keydown', onWindowKeydown);
   window.removeEventListener('dimi:msg', onDimiMsg);
+  document.removeEventListener('mouseover', onGlobalMouseOver);
+  document.removeEventListener('mouseout', hideTooltip);
+  document.removeEventListener('mousedown', hideTooltip);
 });
 </script>
 
@@ -212,5 +257,14 @@ onUnmounted(() => {
       </div>
     </div>
     <Dialogs />
+    <!-- Global tooltip (codex Tooltip delayOpen) -->
+    <div
+      v-if="tooltip"
+      :class="tooltipStyle"
+      :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: tooltip.dir === 'top' ? 'translate(-50%, calc(-100% - 6px))' : 'translate(-50%, 12px)' }"
+      role="tooltip"
+    >
+      {{ tooltip.text }}
+    </div>
   </div>
 </template>

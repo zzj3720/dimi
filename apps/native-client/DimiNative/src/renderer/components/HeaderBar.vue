@@ -211,10 +211,10 @@ function openHelp(): void {
             <path v-for="(p, i) in icons.hideSidebar.paths" :key="i" :d="p" />
           </svg>
         </button>
-        <button :class="iconBtn" type="button" aria-label="返回" :disabled="!canBack" @click="navSession(-1)">
+        <button :class="iconBtn" type="button" aria-label="返回" data-tooltip="返回" :disabled="!canBack" @click="navSession(-1)">
           <svg :viewBox="icons.back.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.back.paths" :key="i" :d="p" /></svg>
         </button>
-        <button :class="iconBtn" type="button" aria-label="前进" :disabled="!canForward" @click="navSession(1)">
+        <button :class="iconBtn" type="button" aria-label="前进" data-tooltip="前进" :disabled="!canForward" @click="navSession(1)">
           <svg :viewBox="icons.forward.vb" fill="currentColor" aria-hidden="true" style="transform: scaleX(-1)"><path v-for="(p, i) in icons.forward.paths" :key="i" :d="p" /></svg>
         </button>
       </div>
@@ -235,19 +235,19 @@ function openHelp(): void {
     </div>
     <!-- Right zone: share pill + pinned summary + toggle sidebar -->
     <div :class="headerRight">
-      <button :class="shareBtn" type="button" aria-label="分享" @click="openHelp">
+      <button :class="shareBtn" type="button" aria-label="分享" data-tooltip="分享" @click="openHelp">
         <svg :viewBox="icons.share.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.share.paths" :key="i" :d="p" /></svg>
         <span>分享</span>
       </button>
       <button :class="[pinnedBtn, { [pinnedBtnOn]: pinnedSummaryOn }]" type="button"
-              :aria-pressed="pinnedSummaryOn" aria-label="切换固定摘要" title="切换固定摘要"
+              :aria-pressed="pinnedSummaryOn" aria-label="切换固定摘要" data-tooltip="切换固定摘要"
               @click="togglePinnedSummary">
         <svg :viewBox="icons.dots.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.dots.paths" :key="i" :d="p" /></svg>
       </button>
       <!-- dimi maps codex's right-panel toggle (HeaderButton pressed=isOpen)
            onto the left sidebar until a right panel exists; the pressed
            secondary state is left off to match codex's default ghost look. -->
-      <button :class="iconBtn" type="button" aria-label="切换侧边栏" :aria-pressed="state.sidebarVisible" @click="toggleSidebar">
+      <button :class="iconBtn" type="button" aria-label="切换侧边栏" data-tooltip="切换侧边栏" :aria-pressed="state.sidebarVisible" @click="toggleSidebar">
         <svg :viewBox="icons.menu.vb" fill="currentColor" aria-hidden="true" style="transform: rotate(180deg)"><path v-for="(p, i) in icons.menu.paths" :key="i" :d="p" /></svg>
       </button>
     </div>
