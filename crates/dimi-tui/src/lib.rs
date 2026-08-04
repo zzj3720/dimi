@@ -26,6 +26,7 @@ pub mod keys;
 pub mod markdown;
 pub mod markdown_theme;
 pub mod process_terminal;
+pub mod select_list;
 pub mod stdin_buffer;
 pub mod style;
 pub mod terminal;
