@@ -713,14 +713,8 @@ export function handleSseEvent(state, evt) {
     case 'prompt.submitted':
       state.currentPromptId = p.promptId ?? state.currentPromptId;
       state.statusMsg = '';
-      // TUI: the user's own message appears immediately on submit.
-      {
-        const text = promptContentToText(p.content);
-        if (text) {
-          state.entries.push({ kind: 'user', text, streaming: false });
-          state.entryCount = state.entries.length;
-        }
-      }
+      // The user message is rendered locally on submit (main.js sendPrompt);
+      // the server does not emit prompt.submitted on SSE, so no duplicate.
       return;
 
     case 'prompt.completed':

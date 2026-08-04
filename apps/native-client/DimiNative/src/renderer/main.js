@@ -803,6 +803,10 @@ async function sendPrompt(text) {
     const data = await api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
       content: [{ type: 'text', text }],
     });
+    // The server does not emit prompt.submitted on the SSE stream, so render
+    // the user's own message immediately (TUI shows it on submit).
+    model.entries.push({ kind: 'user', text, streaming: false });
+    model.entryCount = model.entries.length;
     const promptId = data?.data?.prompt_id ?? '';
     // TUI: isCompacting → enqueue, never steer (dimi-tui.ts:1370-1373).
     const steering = model.busy && model.busyInputMode === 'steer' && model.phase !== 'compacting' && promptId;

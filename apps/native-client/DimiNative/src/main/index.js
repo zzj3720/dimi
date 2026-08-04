@@ -116,7 +116,12 @@ ipcMain.handle('sse-start', async (evt, { channel, url }) => {
           if (!line.startsWith('data:')) continue;
           const payload = line.slice(5).trim();
           if (!payload) continue;
-          try { wc.send(channel, JSON.parse(payload)); } catch { wc.send(channel, { type: 'raw', data: payload }); }
+          try {
+            const parsed = JSON.parse(payload);
+            const evtType = parsed?.payload?.type ?? parsed?.type ?? '?';
+            console.log(`[sse-event] ${evtType}`);
+            wc.send(channel, parsed);
+          } catch { wc.send(channel, { type: 'raw', data: payload }); }
         }
       }
       wc.send(channel, { type: 'sse-ended', outcome: 'ok' });
