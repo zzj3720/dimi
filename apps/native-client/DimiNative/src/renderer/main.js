@@ -351,6 +351,32 @@ window.addEventListener('dimi:msg', (evt) => {
     loadMoreSessions();
     return;
   }
+  if (msg.type === 'btw_send') {
+    sendBtw(msg.text);
+    return;
+  }
+  if (msg.type === 'settings_set_model') {
+    api('POST', `/api/v1/models/${encodeURIComponent(msg.ref)}:set_default`, {})
+      .then((data) => { model.statusMsg = `default model → ${data?.data?.default_model ?? msg.ref}`; render(); })
+      .catch((e) => { model.statusMsg = `model set failed: ${e.message}`; render(); });
+    return;
+  }
+  if (msg.type === 'settings_set_permission') {
+    api('POST', `/api/v1/config`, { default_permission_mode: msg.mode })
+      .then(() => { model.statusMsg = `permission mode → ${msg.mode}`; render(); })
+      .catch((e) => { model.statusMsg = `permission failed: ${e.message}`; render(); });
+    return;
+  }
+  if (msg.type === 'settings_set_effort') {
+    api('POST', `/api/v1/config`, { thinking: { effort: msg.effort } })
+      .then(() => { model.statusMsg = `thinking effort → ${msg.effort}`; render(); })
+      .catch((e) => { model.statusMsg = `effort failed: ${e.message}`; render(); });
+    return;
+  }
+  if (msg.type === 'settings_set_theme') {
+    applyTheme(msg.theme);
+    return;
+  }
   dispatch(msg);
 });
 
@@ -531,29 +557,45 @@ function runSlashCommand(resolved) {
   }
   // Local commands the client can handle without the server.
   switch (cmd.name) {
-    case 'help': model.statusMsg = 'help panel (coming)'; break;
+    case 'help':
+      model.statusMsg = '';
+      model.helpDialogOpen = true;
+      render();
+      break;
     case 'exit': window.close(); break;
-    case 'version': model.statusMsg = 'dimi client 0.1.0'; break;
+    case 'version': model.statusMsg = 'Dimi Client 0.1.0'; break;
     case 'sessions':
       dispatch(Msg.PickerOpen());
       loadSessions();
       break;
     case 'new': {
-      // start a new session (server-side create)
       createSession().then((id) => {
         if (id) dispatch(Msg.SessionSelected(id));
       });
       break;
     }
-    case 'theme': model.statusMsg = `theme ${resolved.args || 'auto'}`; break;
+    case 'theme':
+      applyTheme(resolved.args || 'auto');
+      break;
     case 'settings': dispatch(Msg.SettingsOpen()); break;
-    case 'status': model.statusMsg = `status: session=${model.currentSessionId || '-'} busy=${model.busy} phase=${model.phase}`; break;
-    case 'model': model.statusMsg = `model ${resolved.args || '(current)'} (coming)`; break;
-    case 'permission': model.statusMsg = `permission ${resolved.args || '?'}`; break;
-    case 'yolo': model.statusMsg = `yolo ${resolved.args || 'on'}`; break;
-    case 'auto': model.statusMsg = `auto ${resolved.args || 'on'}`; break;
-    case 'plan': model.statusMsg = `plan ${resolved.args || ''}`; break;
-    case 'effort': model.statusMsg = `effort ${resolved.args || 'off'}`; break;
+    case 'status': {
+      const s = model.sessions.find((x) => x.id === model.currentSessionId);
+      model.statusMsg = `session=${model.currentSessionId || '-'} · busy=${model.busy} · phase=${model.phase} · title=${s?.title ?? ''}`;
+      break;
+    }
+    case 'copy': {
+      // Copy the last assistant message to the clipboard (TUI dispatch).
+      for (let i = model.entries.length - 1; i >= 0; i--) {
+        if (model.entries[i].kind === 'assistant') {
+          navigator.clipboard.writeText(model.entries[i].text).then(() => {
+            model.statusMsg = 'copied last assistant message';
+            render();
+          });
+          break;
+        }
+      }
+      break;
+    }
     case 'compact':
       if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
       api('POST', `/api/v1/sessions/${model.currentSessionId}:compact`, { instruction: resolved.args || undefined })
@@ -588,13 +630,148 @@ function runSlashCommand(resolved) {
         .catch((e) => { model.statusMsg = `btw failed: ${e.message}`; render(); });
       break;
     }
-    case 'usage': model.statusMsg = 'usage panel (coming)'; break;
+    case 'model': {
+      // /model [name] — with an arg, set the default model
+      // (POST /models/{provider/model}:set_default); without, show current.
+      if (resolved.args) {
+        const ref = resolved.args;
+        api('POST', `/api/v1/models/${encodeURIComponent(ref)}:set_default`, {})
+          .then((data) => {
+            model.statusMsg = `default model → ${data?.data?.default_model ?? ref}`;
+            render();
+          })
+          .catch((e) => { model.statusMsg = `model set failed: ${e.message}`; render(); });
+      } else {
+        api('GET', `/api/v1/config`)
+          .then((data) => {
+            const c = data?.data ?? {};
+            model.statusMsg = `default model: ${c.default_model ?? '(unset)'}`;
+            render();
+          })
+          .catch((e) => { model.statusMsg = `config failed: ${e.message}`; render(); });
+      }
+      break;
+    }
+    case 'permission': {
+      const mode = resolved.args || 'manual';
+      if (!['manual', 'auto', 'yolo'].includes(mode)) {
+        model.statusMsg = `permission: manual|auto|yolo (got ${mode})`;
+        render();
+        return;
+      }
+      api('POST', `/api/v1/config`, { default_permission_mode: mode })
+        .then(() => { model.statusMsg = `permission mode → ${mode}`; render(); })
+        .catch((e) => { model.statusMsg = `permission failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'yolo': {
+      const on = resolved.args !== 'off';
+      api('POST', `/api/v1/config`, { yolo: on })
+        .then(() => { model.statusMsg = `yolo ${on ? 'on' : 'off'}`; render(); })
+        .catch((e) => { model.statusMsg = `yolo failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'auto': {
+      const on = resolved.args !== 'off';
+      api('POST', `/api/v1/config`, { default_permission_mode: on ? 'auto' : 'manual' })
+        .then(() => { model.statusMsg = `auto ${on ? 'on' : 'off'}`; render(); })
+        .catch((e) => { model.statusMsg = `auto failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'plan': {
+      const on = resolved.args !== 'off' && resolved.args !== 'clear';
+      api('POST', `/api/v1/config`, { default_plan_mode: on })
+        .then(() => { model.statusMsg = `plan mode ${on ? 'on' : 'off'}`; render(); })
+        .catch((e) => { model.statusMsg = `plan failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'effort': {
+      const effort = resolved.args || 'off';
+      api('POST', `/api/v1/config`, { thinking: { effort } })
+        .then(() => { model.statusMsg = `thinking effort → ${effort}`; render(); })
+        .catch((e) => { model.statusMsg = `effort failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'usage': {
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      api('GET', `/api/v1/sessions/${model.currentSessionId}/status`)
+        .then((data) => {
+          const st = data?.data ?? {};
+          model.statusMsg = `context ${st.context_tokens ?? '?'}/${st.max_context_tokens ?? '?'} (${st.context_usage ?? '?'}%) · thinking ${st.thinking_level ?? '?'} · plan ${st.plan_mode ?? '?'}`;
+          render();
+        })
+        .catch((e) => { model.statusMsg = `usage failed: ${e.message}`; render(); });
+      break;
+    }
     case 'tasks': dispatch(Msg.TasksOpen()); break;
-    case 'copy': model.statusMsg = 'copy last assistant message'; break;
+    case 'fork': {
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      api('POST', `/api/v1/sessions/${model.currentSessionId}:fork`, {})
+        .then((data) => {
+          const id = data?.data?.id ?? '';
+          model.statusMsg = id ? `forked ${id}` : 'forked';
+          render();
+        })
+        .catch((e) => { model.statusMsg = `fork failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'title': {
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      if (!resolved.args) {
+        const s = model.sessions.find((x) => x.id === model.currentSessionId);
+        model.statusMsg = `title: ${s?.title ?? '(untitled)'}`;
+        render();
+        return;
+      }
+      api('POST', `/api/v1/sessions/${model.currentSessionId}/profile`, { title: resolved.args })
+        .then(() => { model.statusMsg = `renamed to ${resolved.args}`; render(); })
+        .catch((e) => { model.statusMsg = `rename failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'export-md': {
+      if (!model.currentSessionId) { model.statusMsg = 'select a session first'; render(); return; }
+      api('POST', `/api/v1/sessions/${model.currentSessionId}/export`, {})
+        .then((data) => {
+          const text = typeof data?.data === 'string' ? data.data : JSON.stringify(data?.data ?? {});
+          navigator.clipboard.writeText(text).then(() => {
+            model.statusMsg = 'export copied to clipboard';
+            render();
+          });
+        })
+        .catch((e) => { model.statusMsg = `export failed: ${e.message}`; render(); });
+      break;
+    }
+    case 'reload': {
+      // Reload the session: rebuild transcript baseline + reconnect SSE.
+      if (model.currentSessionId) {
+        connectSession(model.currentSessionId);
+        model.statusMsg = 'reloaded';
+      } else {
+        model.statusMsg = 'no session to reload';
+      }
+      render();
+      break;
+    }
     default:
       model.statusMsg = `/${cmd.name} is not wired in this client yet.`;
   }
   render();
+}
+
+function applyTheme(theme) {
+  model.theme = theme;
+  const root = document.documentElement;
+  if (theme === 'dark') {
+    root.style.setProperty('--bg', '#1e1e1e');
+    root.style.setProperty('--surface', '#252526');
+    root.style.setProperty('--text', '#d4d4d4');
+  } else if (theme === 'light') {
+    root.style.setProperty('--bg', '#ffffff');
+    root.style.setProperty('--surface', '#f3f3f3');
+    root.style.setProperty('--text', '#1e1e1e');
+  }
+  // 'auto' follows the OS scheme (default dark for the POC).
+  model.statusMsg = `theme ${theme}`;
 }
 
 async function sendPrompt(text) {
@@ -674,6 +851,26 @@ function drainQueuedBash() {
   model.queued.splice(idx, 1);
   runShellCommand(item.text);
   render();
+}
+
+// BTW side-chat: send a message to the btw agent and surface its reply.
+function sendBtw(text) {
+  if (!model.currentSessionId) return;
+  const agentId = model.btwAgentId || 'main';
+  model.btwPrompt = text;
+  model.btwAnswer = '';
+  model.btwBusy = true;
+  render();
+  api('POST', `/api/v1/sessions/${model.currentSessionId}/prompts`, {
+    content: [{ type: 'text', text }],
+    agent_id: agentId,
+  })
+    .then(() => { render(); })
+    .catch((e) => {
+      model.btwBusy = false;
+      model.btwAnswer = `error: ${e.message}`;
+      render();
+    });
 }
 
 function runUndo(count) {

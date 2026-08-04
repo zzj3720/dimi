@@ -47,7 +47,7 @@ export const model = {
   queued: [], // { text, mode }
   busyInputMode: DefaultBusyInputMode,
   draft: '',
-  inputHistory: [],
+  inputHistory: loadHistory(),
   historyIndex: -1,
   exitConfirmTicks: -1,
   tipTicks: 0,
@@ -83,6 +83,8 @@ export const model = {
 
   // settings
   settingsDialogOpen: false,
+  helpDialogOpen: false,
+  theme: 'auto',
 
   // todo panel
   todoExpanded: false,
@@ -146,6 +148,7 @@ export const Msg = {
   // ui
   Escape: () => ({ type: 'escape' }),
   ExpandToggle: () => ({ type: 'expand_toggle' }),
+  ToolsExpandToggle: (toolCallId) => ({ type: 'tools_expand_toggle', toolCallId }),
   Tick: () => ({ type: 'tick' }),
   TasksOpen: () => ({ type: 'tasks_open' }),
   TasksClose: () => ({ type: 'tasks_close' }),
@@ -478,6 +481,10 @@ export function update(state, msg) {
         state.settingsDialogOpen = false;
         return;
       }
+      if (state.helpDialogOpen) {
+        state.helpDialogOpen = false;
+        return;
+      }
       if (state.tasksBrowserOpen) {
         state.tasksBrowserOpen = false;
         return;
@@ -526,6 +533,13 @@ export function update(state, msg) {
         state.displayMode === 'summary' ? 'tools' : state.displayMode === 'tools' ? 'full' : 'summary';
       return;
 
+    case 'tools_expand_toggle': {
+      // Toggle a tool entry's output expansion (view.js click).
+      const e = state.entries.find((x) => x.kind === 'tool' && x.toolCallId === msg.toolCallId);
+      if (e) e.expanded = !e.expanded;
+      return;
+    }
+
     case 'plan_mode_toggle':
       state.planMode = !state.planMode;
       state.statusMsg = state.planMode ? 'plan mode on' : 'plan mode off';
@@ -565,6 +579,23 @@ export function update(state, msg) {
 }
 
 // ------------------------------------------------------------------ helpers
+
+// TUI persists input history to disk; the client uses localStorage.
+const HISTORY_KEY = 'dimi.inputHistory';
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveHistory(state) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(state.inputHistory.slice(-200)));
+  } catch { /* non-fatal */ }
+}
 
 // TUI DEFAULT_APPROVAL_CHOICES (reverse-rpc/approval/adapter.ts) — the
 // approval panel synthesizes these; the wire approval carries no options.
@@ -617,6 +648,12 @@ export function handleSseEvent(state, evt) {
     case 'assistant.delta': {
       const text = p.text ?? p.delta ?? '';
       if (!text) return;
+      // BTW side-agent replies render in the BTW panel, not the transcript.
+      if (state.btwOpen && state.btwAgentId && p.agentId === state.btwAgentId) {
+        state.btwAnswer += text;
+        state.btwBusy = false;
+        return;
+      }
       const last = state.entries[state.entries.length - 1];
       if (last && last.kind === 'assistant' && last.streaming) {
         last.text += text;

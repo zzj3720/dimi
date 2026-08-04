@@ -66,6 +66,7 @@ let failed = 0;
 
 async function test(name, fn) {
   try {
+    await cleanup();
     await fn();
     passed += 1;
     console.log(`  ✅ ${name}`);
@@ -113,6 +114,27 @@ async function fireSse(type, payload) {
   return cdp.eval(`(async () => {
     window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'sse_event', evt: { payload: { type: ${JSON.stringify(type)}, ...${JSON.stringify(payload)} } } } }));
     await new Promise(r => setTimeout(r, 100));
+    return true;
+  })()`);
+}
+
+// Reset UI state between tests: close dialogs, clear draft, clear
+// completion, dismiss any approval/question panel.
+async function cleanup() {
+  await cdp.eval(`(async () => {
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'approval_reject' } }));
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'question_dismiss' } }));
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'picker_close' } }));
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_close' } }));
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'completion_close' } }));
+    // Close any remaining layer (help dialog, btw, etc.) with repeated Esc.
+    for (let i = 0; i < 4; i++) {
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'escape' } }));
+    }
+    const ta = document.querySelector('#input');
+    ta.value = '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 150));
     return true;
   })()`);
 }

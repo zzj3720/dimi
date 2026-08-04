@@ -2,7 +2,7 @@
 // Renders `model` into the DOM after every update. No logic here — it is a
 // pure function of state (mirroring how the TUI renders its model).
 
-import { model, filteredSessions, isBashDraft, APPROVAL_CHOICES } from './app.js';
+import { model, filteredSessions, isBashDraft, APPROVAL_CHOICES, slashCommands } from './app.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -73,8 +73,22 @@ function renderTranscript() {
       row.querySelector('.body').textContent = e.text;
     } else if (e.kind === 'tool') {
       row.className = 'entry clickable';
-      row.innerHTML = `<span class="role role-tool">tool</span><div class="body tool"><span class="tool-name"></span></div>`;
-      row.querySelector('.tool-name').textContent = e.toolName ?? '';
+      row.innerHTML = `<span class="role role-tool">tool</span><div class="body tool"><span class="tool-name"></span><div class="tool-output"></div></div>`;
+      row.querySelector('.tool-name').textContent = `${e.toolName ?? ''}${e.expanded ? ' ▾' : ' ▸'}`;
+      const out = row.querySelector('.tool-output');
+      if (e.expanded && e.text) {
+        out.style.display = 'block';
+        out.style.marginTop = '4px';
+        out.style.fontFamily = 'monospace';
+        out.style.whiteSpace = 'pre-wrap';
+        out.style.wordBreak = 'break-word';
+        out.style.maxHeight = '200px';
+        out.style.overflow = 'auto';
+        out.style.color = 'var(--text-muted)';
+        out.textContent = e.text;
+      } else {
+        out.style.display = 'none';
+      }
       row.addEventListener('click', () => {
         window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'tools_expand_toggle', toolCallId: e.toolCallId } }));
       });
@@ -165,6 +179,8 @@ function renderDialogs() {
 
   if (model.pickerOpen) renderSessionPicker(root);
   if (model.settingsDialogOpen) renderSettingsDialog(root);
+  if (model.helpDialogOpen) renderHelpDialog(root);
+  if (model.btwOpen) renderBtw(root);
   if (model.currentApproval) renderApproval(root);
   if (model.currentQuestion) renderQuestion(root);
 }
@@ -244,7 +260,10 @@ function renderSessionPicker(root) {
       title.textContent = s.title || '(untitled)';
       const sub = document.createElement('div');
       sub.className = 'sub';
-      sub.textContent = `${s.id} · ${s.metadata?.cwd ?? s.cwd ?? ''}`;
+      const rel = relativeTime(s.updated_at);
+      const cwd = s.metadata?.cwd ?? s.cwd ?? '';
+      const last = s.last_prompt ? ` · "${truncate(s.last_prompt, 40)}"` : '';
+      sub.textContent = `${s.id} · ${rel}${cwd ? ` · ${cwd}` : ''}${last}`;
       item.appendChild(title);
       item.appendChild(sub);
       item.addEventListener('mousedown', (evt) => {
@@ -268,14 +287,211 @@ function renderSessionPicker(root) {
   root.appendChild(dialog('Sessions', body, [btnClose]));
 }
 
+function renderHelpDialog(root) {
+  const body = document.createElement('div');
+  body.style.maxWidth = '560px';
+  body.style.maxHeight = '420px';
+  body.style.overflowY = 'auto';
+  // The command table lives in app.js — import at module top instead.
+  const rows = slashCommands.map((c) => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.style.padding = '4px 8px';
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="tool-name">/${c.name}</span>${c.hint ? ` <span class="sub">${c.hint}</span>` : ''} <span class="sub">— ${c.desc}</span>`;
+    row.appendChild(line);
+    return row;
+  });
+  for (const r of rows) body.appendChild(r);
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-ghost';
+  btn.textContent = 'Close';
+  btn.addEventListener('click', () => { model.helpDialogOpen = false; render(); });
+  root.appendChild(dialog('Help', body, [btn]));
+}
+
 function renderSettingsDialog(root) {
   const body = document.createElement('div');
-  body.textContent = 'Settings — coming in next pass.';
+  body.style.display = 'flex';
+  body.style.flexDirection = 'column';
+  body.style.gap = '10px';
+  body.style.minWidth = '460px';
+
+  // Model selector (TUI model-selector): loads /models on open.
+  const modelRow = field('Default model');
+  const modelSel = document.createElement('select');
+  modelSel.className = 'search-input';
+  modelSel.innerHTML = '<option>loading…</option>';
+  modelSel.addEventListener('change', () => {
+    if (!modelSel.value || modelSel.value === 'loading') return;
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_model', ref: modelSel.value } }));
+  });
+  modelRow.appendChild(modelSel);
+  body.appendChild(modelRow);
+  loadModelsInto(modelSel);
+
+  // Permission mode selector.
+  const permRow = field('Permission mode');
+  const permSel = document.createElement('select');
+  permSel.className = 'search-input';
+  for (const m of ['manual', 'auto', 'yolo']) {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    permSel.appendChild(o);
+  }
+  permSel.addEventListener('change', () => {
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_permission', mode: permSel.value } }));
+  });
+  permRow.appendChild(permSel);
+  body.appendChild(permRow);
+
+  // Plan mode toggle.
+  const planRow = field('Plan mode');
+  const planBtn = document.createElement('button');
+  planBtn.className = 'btn btn-ghost';
+  planBtn.textContent = model.planMode ? 'on (toggle)' : 'off (toggle)';
+  planBtn.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'plan_mode_toggle' } }));
+  });
+  planRow.appendChild(planBtn);
+  body.appendChild(planRow);
+
+  // Thinking effort.
+  const effortRow = field('Thinking effort');
+  const effortSel = document.createElement('select');
+  effortSel.className = 'search-input';
+  for (const e of ['off', 'low', 'medium', 'high']) {
+    const o = document.createElement('option');
+    o.value = e; o.textContent = e;
+    effortSel.appendChild(o);
+  }
+  effortSel.addEventListener('change', () => {
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_effort', effort: effortSel.value } }));
+  });
+  effortRow.appendChild(effortSel);
+  body.appendChild(effortRow);
+
+  // Theme.
+  const themeRow = field('Theme');
+  const themeSel = document.createElement('select');
+  themeSel.className = 'search-input';
+  for (const t of ['auto', 'dark', 'light']) {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    themeSel.appendChild(o);
+  }
+  themeSel.value = model.theme;
+  themeSel.addEventListener('change', () => {
+    window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_theme', theme: themeSel.value } }));
+  });
+  themeRow.appendChild(themeSel);
+  body.appendChild(themeRow);
+
   const btn = document.createElement('button');
   btn.className = 'btn btn-ghost';
   btn.textContent = 'Close';
   btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_close' } })));
   root.appendChild(dialog('Settings', body, [btn]));
+}
+
+function field(label) {
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.alignItems = 'center';
+  row.style.gap = '8px';
+  const lab = document.createElement('span');
+  lab.className = 'sub';
+  lab.style.minWidth = '110px';
+  lab.textContent = label;
+  row.appendChild(lab);
+  return row;
+}
+
+async function loadModelsInto(sel) {
+  try {
+    const data = await window.dimi.request({ method: 'GET', url: '/api/v1/models' });
+    const items = data?.json?.data?.items ?? [];
+    sel.innerHTML = '';
+    if (items.length === 0) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = 'no models';
+      sel.appendChild(o);
+      return;
+    }
+    for (const m of items) {
+      const o = document.createElement('option');
+      // Model id is the provider/model reference.
+      o.value = `${m.provider}/${m.model}`;
+      o.textContent = `${m.display_name ?? m.model} (${m.provider}/${m.model})`;
+      sel.appendChild(o);
+    }
+  } catch {
+    sel.innerHTML = '<option>failed to load models</option>';
+  }
+}
+
+function renderBtw(root) {
+  const body = document.createElement('div');
+  body.style.display = 'flex';
+  body.style.flexDirection = 'column';
+  body.style.gap = '8px';
+  body.style.minWidth = '440px';
+
+  const chat = document.createElement('div');
+  chat.style.display = 'flex';
+  chat.style.flexDirection = 'column';
+  chat.style.gap = '6px';
+  chat.style.maxHeight = '260px';
+  chat.style.overflowY = 'auto';
+
+  if (model.btwPrompt) {
+    const p = document.createElement('div');
+    p.className = 'list-item';
+    p.innerHTML = `<span class="role role-user">you</span>`;
+    const pt = document.createElement('div');
+    pt.className = 'body';
+    pt.textContent = model.btwPrompt;
+    p.appendChild(pt);
+    chat.appendChild(p);
+  }
+  if (model.btwAnswer) {
+    const a = document.createElement('div');
+    a.className = 'list-item';
+    const at = document.createElement('div');
+    at.className = 'body';
+    at.textContent = model.btwAnswer;
+    a.appendChild(at);
+    chat.appendChild(a);
+  } else if (model.btwBusy) {
+    const b = document.createElement('div');
+    b.className = 'sub';
+    b.textContent = '…';
+    chat.appendChild(b);
+  }
+  body.appendChild(chat);
+
+  const input = document.createElement('input');
+  input.className = 'search-input';
+  input.placeholder = 'Ask by the way…';
+  input.value = model.btwDraft;
+  input.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter' && input.value.trim()) {
+      evt.preventDefault();
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'btw_send', text: input.value } }));
+      input.value = '';
+    } else if (evt.key === 'Escape') {
+      evt.preventDefault();
+      window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'escape' } }));
+    }
+  });
+  body.appendChild(input);
+
+  const hint = document.createElement('div');
+  hint.className = 'sub';
+  hint.textContent = 'Enter to ask · Esc to close';
+  body.appendChild(hint);
+
+  root.appendChild(dialog('BTW', body, []));
 }
 
 function renderApproval(root) {
@@ -298,10 +514,18 @@ function renderApproval(root) {
   body.appendChild(action);
 
   if (a.command) {
-    const cmd = document.createElement('div');
+    const cmd = document.createElement('pre');
     cmd.className = 'body';
     cmd.style.fontFamily = 'monospace';
     cmd.style.color = 'var(--text-muted)';
+    cmd.style.whiteSpace = 'pre-wrap';
+    cmd.style.wordBreak = 'break-word';
+    cmd.style.maxHeight = model.approvalPreview ? '220px' : '72px';
+    cmd.style.overflow = 'auto';
+    cmd.style.background = 'var(--bg)';
+    cmd.style.padding = '6px 8px';
+    cmd.style.borderRadius = '6px';
+    cmd.style.border = '1px solid var(--border)';
     cmd.textContent = a.command;
     body.appendChild(cmd);
   }
@@ -486,6 +710,22 @@ function renderQuestion(root) {
 
 function hasAnswer(qq) {
   return (qq.options ?? []).some((o) => o.selected) || (qq.otherText && qq.otherText.trim().length > 0);
+}
+
+function relativeTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function truncate(text, n) {
+  if (!text) return '';
+  return text.length > n ? text.slice(0, n) + '…' : text;
 }
 
 export { els };
