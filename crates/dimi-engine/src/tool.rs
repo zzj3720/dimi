@@ -2221,6 +2221,11 @@ impl AgentTasks {
 pub struct AsyncAgentTool {
     pub llm: Arc<dyn LlmClient>,
     pub tools: Arc<dyn ToolExecutor>,
+    /// The parent turn's tool definitions (`EngineTurnInput.tools`): nested
+    /// subagent turns must advertise the same tool set to their LLM, or the
+    /// subagent model never learns the tools exist (it then claims there are
+    /// no file-reading tools etc.). The nested input is built with these.
+    pub tools_defs: Vec<crate::types::EngineTool>,
     pub policy: crate::permission::PolicyConfig,
     pub max_steps: Option<u32>,
     pub shell: String,
@@ -2276,6 +2281,8 @@ async fn run_nested_turn(
     shell: String,
     llm: Arc<dyn LlmClient>,
     tools: Arc<dyn ToolExecutor>,
+    // Tool definitions advertised to the nested LLM (the parent's tool set).
+    tools_defs: Vec<crate::types::EngineTool>,
     policy: crate::permission::PolicyConfig,
     max_steps: Option<u32>,
     provider: crate::types::ProviderConfig,
@@ -2297,7 +2304,7 @@ async fn run_nested_turn(
     let input = crate::types::EngineTurnInput {
         turn_id: 0,
         messages,
-        tools: vec![],
+        tools: tools_defs,
         active_tools: None,
         provider,
         max_steps_per_turn: max_steps,
@@ -2615,6 +2622,9 @@ impl AsyncAgentTool {
         };
         let nested_provider = self.subagent_model_provider();
         let tools = Arc::clone(&self.tools);
+        // Copy the parent's tool definitions out of `&self` before the worker
+        // spawn (the nested turn advertises the same tool set to its LLM).
+        let tools_defs = self.tools_defs.clone();
         let policy = self.policy.clone();
         let max_steps = self.max_steps;
         let steer_queue: Arc<std::sync::Mutex<Vec<crate::types::LlmMessage>>> =
@@ -2686,6 +2696,7 @@ impl AsyncAgentTool {
                     shell,
                     llm,
                     tools,
+                    tools_defs,
                     policy,
                     max_steps,
                     nested_provider,
@@ -3011,6 +3022,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: sub_llm,
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3076,6 +3088,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: sub_llm,
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3323,6 +3336,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3370,6 +3384,101 @@ mod async_agent_tests {
         assert_eq!(read_json["output"], "cross-session output");
     }
 
+    #[tokio::test]
+    async fn subagent_request_advertises_parent_tools() {
+        // Regression: nested subagent turns built their EngineTurnInput with
+        // `tools: vec![]`, so the subagent's LLM request carried no tool
+        // definitions — the subagent model never learned the tools exist (it
+        // then claimed there are no file-reading tools etc.). The nested
+        // turn must advertise the parent's tool set.
+        use crate::llm::{ChatRequest, LlmClient, LlmError, StreamedTurn};
+        use crate::events::EventSink;
+        struct RecordingClient(std::sync::Mutex<Vec<Option<Vec<serde_json::Value>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, LlmError> {
+                self.0.lock().unwrap().push(request.tools.clone());
+                Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "done".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "done".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+        let recorded = std::sync::Arc::new(RecordingClient(std::sync::Mutex::new(Vec::new())));
+        let tasks = AgentTasks::new();
+        let agent = AsyncAgentTool {
+            llm: std::sync::Arc::clone(&recorded) as Arc<dyn LlmClient>,
+            tools: Arc::new(BashTool::default()),
+            tools_defs: vec![crate::types::EngineTool {
+                name: "Read".to_string(),
+                description: "Read a file".to_string(),
+                args_schema: serde_json::json!({"type": "object", "properties": {}}),
+            }],
+            policy: policy_auto(),
+            max_steps: Some(3),
+            shell: "/bin/sh".to_string(),
+            tasks: tasks.clone(),
+            steer_map: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            events: EventSink::new(),
+            agent_id_counter: std::sync::atomic::AtomicU64::new(0),
+            subagent_llm: None,
+            subagent_provider: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+        };
+        let launch = agent
+            .execute(
+                &ToolCall {
+                    id: "call_a".to_string(),
+                    name: "Agent".to_string(),
+                    arguments: serde_json::json!({"prompt": "read something"}),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!launch.is_error, "output: {}", launch.output);
+        let launch_json: serde_json::Value = serde_json::from_str(&launch.output).unwrap();
+        let agent_id = launch_json["agent_id"].as_str().unwrap().to_string();
+
+        let wait = WaitForTool {
+            tasks: tasks.clone(),
+        };
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": agent_id, "timeout_seconds": 10 }),
+                },
+                &ctx(),
+            )
+            .await;
+        assert!(!waited.is_error, "output: {}", waited.output);
+
+        let requests = recorded.0.lock().unwrap();
+        assert!(!requests.is_empty(), "nested turn must issue an LLM request");
+        let tools = requests[0].as_ref().expect("nested request must carry tools");
+        assert!(
+            tools.iter().any(|t| t["name"] == "Read"),
+            "nested request must advertise the parent tool set: {tools:?}"
+        );
+    }
+
 
     #[tokio::test]
     async fn subagent_emits_task_started_and_settled_events() {
@@ -3391,6 +3500,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3496,6 +3606,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3678,6 +3789,7 @@ mod async_agent_tests {
                 second_started: tokio::sync::Mutex::new(Some(second_tx)),
             }),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -3827,6 +3939,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             // One step only: after step 1 (streamed text + Bash tool call)
             // the max-steps guard fails the turn.
@@ -3964,6 +4077,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4106,6 +4220,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4176,6 +4291,7 @@ mod async_agent_tests {
                 },
             ])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),
@@ -4245,6 +4361,7 @@ mod async_agent_tests {
         let agent = AsyncAgentTool {
             llm: Arc::new(ScriptedLlmClient::once(vec![])),
             tools: Arc::new(BashTool::default()),
+            tools_defs: vec![],
             policy: policy_auto(),
             max_steps: Some(3),
             shell: "/bin/sh".to_string(),

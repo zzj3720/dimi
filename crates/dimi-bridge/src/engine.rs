@@ -827,6 +827,7 @@ impl RustTurnSession {
                 Box::new(AsyncAgentTool {
                     llm: std::sync::Arc::clone(&llm),
                     tools: subagent_tools,
+                    tools_defs: input.tools.clone(),
                     policy: policy.lock().unwrap_or_else(|p| p.into_inner()).clone(),
                     max_steps: input.max_steps_per_turn,
                     shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
