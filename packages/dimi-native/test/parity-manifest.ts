@@ -76,7 +76,7 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   {
     domain: 'tool result truncation (50k preview for external tools)',
     migrated: true,
-    coveredBy: 'PENDING — runner-level truncation test to be added',
+    coveredBy: 'rustEngineTurnRunner.test.ts (truncation service consulted for external results)',
   },
   {
     domain: 'PreToolUse/PostToolUse external hooks',
@@ -125,14 +125,15 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
     gap: 'engine hardcodes TurnOrigin::User',
   },
   {
-    domain: 'interrupted-step streamed text lands in context',
-    migrated: false,
-    gap: 'runner flushParts only fires on turn.step.completed; error/cancel paths lose partial text',
+    domain: 'interrupted-step streamed text (completed-response flush, mid-stream drop)',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (flushes text whose LLM response completed when interrupted mid-tool; drops mid-stream partials — TS parity)',
   },
   {
     domain: 'external tool updates streamed as tool.progress',
-    migrated: false,
-    gap: 'runner completes external calls with updates: []',
+    migrated: true,
+    coveredBy: 'rustEngineTurnRunner.test.ts (external-tool onUpdate → tool.progress bus events)',
   },
   {
     domain: 'worker rejection/cancel message suffix (TS guidance)',

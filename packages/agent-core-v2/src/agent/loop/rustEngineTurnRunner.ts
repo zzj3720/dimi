@@ -881,6 +881,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // part — never reordered into a merged think-before-text pair.
     type OpenSegment = { type: "think"; text: string } | { type: "text"; text: string };
     const segments: OpenSegment[] = [];
+    // Whether the CURRENT step's LLM response completed (a tool call started).
+    // TS lands the step's text as soon as its response completes; a step
+    // interrupted mid-tool must flush, a step interrupted mid-stream must not.
+    let stepSawToolCall = false;
     let usage = emptyUsage();
 
     const publish = (event: Record<string, unknown>): void => {
@@ -965,6 +969,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         case "turn.step.started": {
           const stepNumber = Number(event["step"] ?? 1);
           stepUuid = randomUUID();
+          stepSawToolCall = false;
           this.context.appendLoopEvent({
             type: "step.begin",
             uuid: stepUuid,
@@ -999,6 +1004,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         case "tool.call.started": {
           const id = toText(event["toolCallId"]);
           const name = toText(event["name"]);
+          stepSawToolCall = true;
           this.context.appendLoopEvent({
             type: "tool.call",
             stepUuid: stepUuid!,
@@ -1042,6 +1048,18 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             type: "compaction.completed",
             result,
           } as never);
+          break;
+        }
+        case "turn.step.interrupted": {
+          // TS `appendResponseContent` lands the step's text the moment its
+          // LLM response completes (before tools run). A step interrupted
+          // mid-tool has a completed response (tool calls were seen) → flush
+          // the buffered parts so the text survives a cancel; a step
+          // interrupted mid-LLM-stream (no tool calls yet) drops the partial
+          // text — the response never completed, matching TS.
+          if (stepSawToolCall) {
+            flushParts(turnId, Number(event["step"] ?? 1));
+          }
           break;
         }
         case "turn.step.completed": {

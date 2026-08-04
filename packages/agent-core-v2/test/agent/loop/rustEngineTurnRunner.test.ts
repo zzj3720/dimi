@@ -19,6 +19,7 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import type { ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
@@ -26,6 +27,7 @@ import {
   agentService,
   configServices,
   createTestAgent,
+  externalHookServices,
   InMemoryWireRecordPersistence,
   logServices,
   permissionModeServices,
@@ -2083,5 +2085,168 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(progress[0]!['toolCallId']).toBe('call_progress');
     expect(progress[0]!['update']).toMatchObject({ kind: 'progress', text: 'halfway' });
     expect(progress[1]!['update']).toMatchObject({ kind: 'status', text: 'finished' });
+  });
+
+  it('flushes completed-response text when a step is interrupted mid-tool (TS parity)', async () => {
+    // TS `appendResponseContent` lands the step's text the moment its LLM
+    // response completes (before tools run). When the turn is cancelled
+    // during the tool phase, that text must survive in the context; the
+    // runner must flush on `turn.step.interrupted`, not only on
+    // `turn.step.completed`.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'partial-before-tool' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_slow_interrupt',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+
+    const ended = new Promise<{ reason?: string }>((resolve) => {
+      const disposable = ctx.get(IEventBus).subscribe((event) => {
+        if ((event as { type?: string }).type === 'turn.ended') {
+          disposable.dispose();
+          resolve(event as { reason?: string });
+        }
+      });
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'interrupt me' }] });
+    await new Promise((resolve) => setTimeout(resolve, 200)); // text emitted, Bash sleeping
+    const runner = ctx.get(IRustEngineTurnRunner);
+    expect(runner.cancel()).toBe(true);
+    expect((await ended).reason).toBe('cancelled');
+    const context = ctx.get(IAgentContextMemoryService).get();
+    expect(JSON.stringify(context)).toContain('partial-before-tool');
+  });
+
+  it('consults tool-result truncation for external tool results (P1-7 parity)', async () => {
+    const truncationCalls: Array<Record<string, unknown>> = [];
+    const truncationService: IAgentToolResultTruncationService = {
+      _serviceBrand: undefined,
+      truncateForModel: async (input) => {
+        truncationCalls.push({ toolName: input.toolName, toolCallId: input.toolCallId });
+        return { ...input.result, output: 'TRUNCATED-PREVIEW' };
+      },
+    };
+    const stubTool: ExecutableTool = {
+      name: 'StubBig',
+      description: 'returns an oversized result',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async () => ({ output: 'x'.repeat(100_000), isError: false }),
+      }),
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'tool_call', toolCallId: 'call_big', name: 'StubBig', argumentsPart: '{}' },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after big' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([
+      permissionModeServices('auto'),
+      agentService(IAgentToolResultTruncationService, truncationService),
+    ]);
+    ctx.get(IAgentToolRegistryService).register(stubTool);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run big tool' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after big')),
+      'post-big reply',
+    );
+    expect(truncationCalls).toHaveLength(1);
+    expect(truncationCalls[0]!['toolName']).toBe('StubBig');
+    expect(truncationCalls[0]!['toolCallId']).toBe('call_big');
+    // The truncated preview flows through to the wire tool.result.
+    const context = JSON.stringify(ctx.get(IAgentContextMemoryService).get());
+    expect(context).toContain('TRUNCATED-PREVIEW');
+  });
+
+  it('applies PreToolUse veto + PostToolUse to external tools (P1-8 parity)', async () => {
+    // TS `fireBeforeExecute` veto settles the call synthetically WITHOUT
+    // executing it or firing PostToolUse; a non-vetoed call runs and fires
+    // PostToolUse. Both tools in one round pin the two paths.
+    const calls: Array<{ event: string; toolName?: string }> = [];
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async (
+        event: string,
+        args?: { matcherValue?: string },
+      ): Promise<{ block: true; reason: string } | undefined> => {
+        calls.push({ event, toolName: args?.matcherValue });
+        if (args?.matcherValue === 'StubHook') return { block: true, reason: 'vetoed by test hook' };
+        return undefined;
+      },
+      fireAndForgetTrigger: async (event: string, args?: { matcherValue?: string }) => {
+        calls.push({ event, toolName: args?.matcherValue });
+        return [];
+      },
+    };
+    const hookTool = (name: string): ExecutableTool => ({
+      name,
+      description: 'hook target',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async () => ({ output: `${name} ran`, isError: false }),
+      }),
+    });
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'tool_call', toolCallId: 'call_hook', name: 'StubHook', argumentsPart: '{}' },
+        { type: 'tool_call', toolCallId: 'call_allow', name: 'StubAllow', argumentsPart: '{}' },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after hook' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto'), externalHookServices(hookRunner)]);
+    ctx.get(IAgentToolRegistryService).register(hookTool('StubHook'));
+    ctx.get(IAgentToolRegistryService).register(hookTool('StubAllow'));
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run hook tools' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after hook')),
+      'post-hook reply',
+    );
+    // PostToolUse is fire-and-forget: allow a beat for the async trigger.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(calls).toContainEqual({ event: 'PreToolUse', toolName: 'StubHook' });
+    expect(calls).toContainEqual({ event: 'PreToolUse', toolName: 'StubAllow' });
+    // The vetoed call never executed → no PostToolUse for it.
+    expect(calls).not.toContainEqual({ event: 'PostToolUse', toolName: 'StubHook' });
+    // The allowed call executed → PostToolUse fires.
+    expect(calls).toContainEqual({ event: 'PostToolUse', toolName: 'StubAllow' });
+    const context = JSON.stringify(ctx.get(IAgentContextMemoryService).get());
+    // The vetoed call's tool result carries the block reason; the allowed
+    // call ran its executor.
+    expect(context).toContain('vetoed by test hook');
+    expect(context).toContain('StubAllow ran');
   });
 });
