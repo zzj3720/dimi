@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.15
+
+### Patch Changes
+
+- [`97ad223`](https://github.com/zzj3720/dimi/commit/97ad223bfa244676e121e025343408e882b909d8) - Fix user input typed while a session's history is replaying being silently dropped: `handleUserInput` rejected it with an error while `isReplaying` was set and never queued it, so a prompt typed during a slow session resume (large history) vanished. Input is now queued and flushed once the replay finishes.
+
 ## 0.6.14
 
 ### Patch Changes
