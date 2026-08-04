@@ -65,9 +65,11 @@ export const dialog = css({
 });
 
 // Session picker is a compact command menu (05-design §4.1 + §2.3), not a
-// modal. Codex menu tokens (radius 15, #2d2d2d@90%, ring 0.5px, shadow
-// 0 8px 16px -4px, padding 4px, backdrop blur-sm 8px); dimi keeps its wider
-// 440px column per the design note.
+// modal. Codex renders it as an input-type listbox (CDP/bundle-measured):
+// `rounded-xl border border-token-input-border bg-token-input-background p-1
+// text-token-input-foreground shadow-lg` — tokens: radius 15px, bg
+// rgba(45,45,45,0.96), border rgba(255,255,255,0.156), shadow-lg
+// 0 4px 8px -2px rgba(0,0,0,0.1). NO backdrop blur (unlike dialogs).
 // Enter animation mirrors the only animated codex menu instance — the
 // model-picker dropdown (05-design §5.4): 320ms cubic-bezier(.23,1,.32,1) +
 // 30ms delay, fade + scale(.98→1), disabled under prefers-reduced-motion.
@@ -77,12 +79,17 @@ const pickerEnter = keyframes({
 });
 
 export const dialogPicker = css({
-  ...modalShell,
+  position: 'relative',
   width: 440,
+  maxWidth: '92vw',
+  maxHeight: '80%',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  background: 'rgba(45, 45, 45, 0.96)', // --color-token-input-background
+  border: '1px solid rgba(255, 255, 255, 0.156)', // --color-token-input-border
   borderRadius: 15,
-  backdropFilter: 'blur(8px)',
-  WebkitBackdropFilter: 'blur(8px)',
-  boxShadow: `0 0 0 0.5px ${colors.border}, 0 8px 16px -4px rgba(0, 0, 0, 0.12)`,
+  boxShadow: '0 4px 8px -2px rgba(0, 0, 0, 0.1)', // --shadow-lg
   padding: 4,
   transformOrigin: 'center',
   animation: `${pickerEnter} 0.32s cubic-bezier(0.23, 1, 0.32, 1) 30ms both`,
