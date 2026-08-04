@@ -36,6 +36,22 @@ const els = {
 const expandedTools = new Set();      // toolCallId → tool output expanded
 const expandedThinking = new Set();   // entry object → thinking expanded
 
+// Transcript is updated incrementally: untouched entries keep their DOM
+// nodes (so text selection and scroll position are never destroyed by an
+// unrelated repaint), and only the changed last entry is rebuilt on stream
+// deltas. A full rebuild only happens when entries are added/removed/reset.
+let lastRenderedEntries = null; // reference array of rendered entries
+
+function entrySig(e) {
+  return `${e.kind}|${e.text ?? ''}|${e.toolName ?? ''}|${e.args ?? ''}|${e.folded ? 1 : 0}`;
+}
+
+// Force a transcript rebuild on the next render (used by expand/collapse
+// toggles, which live in local state and don't change entry content).
+function invalidateTranscript() {
+  lastRenderedEntries = null;
+}
+
 export function render() {
   renderHeader();
   renderTranscript();
@@ -60,125 +76,168 @@ function renderHeader() {
 
 function renderTranscript() {
   const root = els.transcript;
+  const entries = model.entries;
+  // Only auto-follow when the user is already at the bottom; never yank the
+  // scroll position out from under someone reading history.
+  const nearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 40;
+
+  // Incremental fast path: same entry count, same first N-1 references.
+  // Only the last entry may have changed (streaming delta / tool result).
+  const prev = lastRenderedEntries;
+  if (prev && entries.length === prev.length) {
+    const n = entries.length;
+    if (n === 0) return;
+    let samePrefix = true;
+    for (let i = 0; i < n - 1; i++) {
+      if (entries[i] !== prev[i]) { samePrefix = false; break; }
+    }
+    if (samePrefix) {
+      const last = entries[n - 1];
+      if (last === prev[n - 1] && entrySig(last) === entrySig(prev[n - 1])) return;
+      const lastRow = root.lastElementChild;
+      if (lastRow && lastRow.dataset && lastRow.dataset.idx === String(n - 1)) {
+        // Rebuild only that row — the selection and every other node stay.
+        lastRow.replaceWith(buildEntry(last, n - 1));
+        lastRenderedEntries = entries.slice();
+        if (nearBottom) root.scrollTop = root.scrollHeight;
+        return;
+      }
+    }
+  }
+
+  // Full rebuild (entries added/removed/reset, or folded layout changed).
+  lastRenderedEntries = entries.slice();
   root.textContent = '';
-  if (model.entries.length === 0) {
+  if (entries.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'entry';
     empty.innerHTML = '<div class="body muted">No messages yet. Send a message to start.</div>';
     root.appendChild(empty);
     return;
   }
-  for (const e of model.entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
     if (e.folded) continue;
-    const row = document.createElement('div');
-    if (e.kind === 'user') {
-      // TUI UserMessageComponent: `✨ ` bullet + full text, bold roleUser. No leading blank.
-      row.className = 'entry entry-user';
-      const role = document.createElement('span');
-      role.className = 'role';
-      role.textContent = '✨ ';
-      const body = document.createElement('div');
-      body.className = 'body';
-      body.textContent = e.text;
-      row.appendChild(role);
-      row.appendChild(body);
-    } else if (e.kind === 'assistant') {
-      // TUI AssistantMessageComponent: leading blank line, `● ` bullet + markdown.
-      row.className = 'entry entry-assistant';
-      const role = document.createElement('span');
-      role.className = 'role';
-      role.textContent = '● ';
-      const body = document.createElement('div');
-      body.className = 'body md';
-      renderMarkdownInto(body, e.text);
-      row.appendChild(role);
-      row.appendChild(body);
-    } else if (e.kind === 'thinking') {
-      // TUI ThinkingComponent: `● ` bullet (textDim) + italic textDim, 2-line preview.
-      const expanded = expandedThinking.has(e);
-      row.className = 'entry entry-thinking clickable';
-      const role = document.createElement('span');
-      role.className = 'role';
-      role.textContent = '● ';
-      const body = document.createElement('div');
-      body.className = 'body thinking';
-      const lines = String(e.text ?? '').split('\n');
-      const showAll = expanded || lines.length <= 2;
-      body.textContent = showAll ? e.text : lines.slice(0, 2).join('\n');
-      row.appendChild(role);
-      row.appendChild(body);
-      if (!showAll) {
-        const hint = document.createElement('div');
-        hint.className = 'body muted';
-        hint.textContent = `  ... (${lines.length - 2} more lines, click to expand)`;
-        row.appendChild(hint);
-      }
-      row.addEventListener('click', () => {
-        if (expandedThinking.has(e)) expandedThinking.delete(e);
-        else expandedThinking.add(e);
-        render();
-      });
-    } else if (e.kind === 'tool') {
-      // TUI ToolCallComponent header: bullet (state colour) + verb + bold
-      // primary name. Bash renders a fixed label like the TUI: "Running a
-      // command" / "Ran a command".
-      const done = !!e.text && e.text.length > 0;
-      const expanded = expandedTools.has(e.toolCallId);
-      row.className = 'entry entry-tool clickable';
-      const role = document.createElement('span');
-      role.className = 'role';
-      role.textContent = '● ';
-      role.style.color = done ? 'var(--success)' : 'var(--text)';
-      const body = document.createElement('div');
-      body.className = 'body tool';
-      const name = document.createElement('span');
-      name.className = 'tool-name';
-      if (e.toolName === 'Bash') {
-        name.textContent = done ? 'Ran a command' : 'Running a command';
-      } else {
-        name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
-      }
-      body.appendChild(name);
-      row.appendChild(role);
-      row.appendChild(body);
-      if (e.args) {
-        // Command echo `$ <cmd>` (shellMode), mirroring the TUI body.
-        const cmd = document.createElement('div');
-        cmd.className = 'body tool';
-        cmd.style.color = 'var(--shell-mode)';
-        cmd.textContent = '$ ' + e.args;
-        row.appendChild(cmd);
-      }
-      if (done && e.text) {
-        // Output preview (TUI RESULT_PREVIEW_LINES = 3), click to expand.
-        const out = document.createElement('div');
-        out.className = 'body tool';
-        out.style.display = 'block';
-        out.style.marginTop = '2px';
-        out.style.whiteSpace = 'pre-wrap';
-        out.style.wordBreak = 'break-word';
-        out.style.maxHeight = expanded ? 'none' : '4.2em';
-        out.style.overflow = 'hidden';
-        out.textContent = e.text;
-        row.appendChild(out);
-      }
-      row.addEventListener('click', () => {
-        if (expandedTools.has(e.toolCallId)) expandedTools.delete(e.toolCallId);
-        else expandedTools.add(e.toolCallId);
-        render();
-      });
-    } else {
-      // Status / compaction / notices: indented 2 cells, textDim
-      // (TUI StatusMessageComponent).
-      row.className = 'entry entry-status';
-      const body = document.createElement('div');
-      body.className = 'body';
-      body.textContent = e.text;
-      row.appendChild(body);
-    }
-    root.appendChild(row);
+    root.appendChild(buildEntry(e, i));
   }
-  root.scrollTop = root.scrollHeight;
+  if (nearBottom) root.scrollTop = root.scrollHeight;
+}
+
+function buildEntry(e, idx) {
+  const row = document.createElement('div');
+  row.dataset.idx = String(idx);
+  if (e.kind === 'user') {
+    // TUI UserMessageComponent: `✨ ` bullet + full text, bold roleUser. No leading blank.
+    row.className = 'entry entry-user';
+    const role = document.createElement('span');
+    role.className = 'role';
+    role.textContent = '✨ ';
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = e.text;
+    row.appendChild(role);
+    row.appendChild(body);
+  } else if (e.kind === 'assistant') {
+    // TUI AssistantMessageComponent: leading blank line, `● ` bullet + markdown.
+    row.className = 'entry entry-assistant';
+    const role = document.createElement('span');
+    role.className = 'role';
+    role.textContent = '● ';
+    const body = document.createElement('div');
+    body.className = 'body md';
+    renderMarkdownInto(body, e.text);
+    row.appendChild(role);
+    row.appendChild(body);
+  } else if (e.kind === 'thinking') {
+    // TUI ThinkingComponent: `● ` bullet (textDim) + italic textDim, 2-line preview.
+    const expanded = expandedThinking.has(e);
+    row.className = 'entry entry-thinking clickable';
+    const role = document.createElement('span');
+    role.className = 'role';
+    role.textContent = '● ';
+    const body = document.createElement('div');
+    body.className = 'body thinking';
+    const lines = String(e.text ?? '').split('\n');
+    const showAll = expanded || lines.length <= 2;
+    body.textContent = showAll ? e.text : lines.slice(0, 2).join('\n');
+    row.appendChild(role);
+    row.appendChild(body);
+    if (!showAll) {
+      const hint = document.createElement('div');
+      hint.className = 'body muted';
+      hint.textContent = `  ... (${lines.length - 2} more lines, click to expand)`;
+      row.appendChild(hint);
+    }
+    row.addEventListener('click', () => {
+      // Don't toggle when the user just selected text (click after a drag).
+      if (window.getSelection && window.getSelection().toString().length > 0) return;
+      if (expandedThinking.has(e)) expandedThinking.delete(e);
+      else expandedThinking.add(e);
+      invalidateTranscript();
+      render();
+    });
+  } else if (e.kind === 'tool') {
+    // TUI ToolCallComponent header: bullet (state colour) + verb + bold
+    // primary name. Bash renders a fixed label like the TUI: "Running a
+    // command" / "Ran a command".
+    const done = !!e.text && e.text.length > 0;
+    const expanded = expandedTools.has(e.toolCallId);
+    row.className = 'entry entry-tool clickable';
+    const role = document.createElement('span');
+    role.className = 'role';
+    role.textContent = '● ';
+    role.style.color = done ? 'var(--success)' : 'var(--text)';
+    const body = document.createElement('div');
+    body.className = 'body tool';
+    const name = document.createElement('span');
+    name.className = 'tool-name';
+    if (e.toolName === 'Bash') {
+      name.textContent = done ? 'Ran a command' : 'Running a command';
+    } else {
+      name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
+    }
+    body.appendChild(name);
+    row.appendChild(role);
+    row.appendChild(body);
+    if (e.args) {
+      // Command echo `$ <cmd>` (shellMode), mirroring the TUI body.
+      const cmd = document.createElement('div');
+      cmd.className = 'body tool';
+      cmd.style.color = 'var(--shell-mode)';
+      cmd.textContent = '$ ' + e.args;
+      row.appendChild(cmd);
+    }
+    if (done && e.text) {
+      // Output preview (TUI RESULT_PREVIEW_LINES = 3), click to expand.
+      const out = document.createElement('div');
+      out.className = 'body tool';
+      out.style.display = 'block';
+      out.style.marginTop = '2px';
+      out.style.whiteSpace = 'pre-wrap';
+      out.style.wordBreak = 'break-word';
+      out.style.maxHeight = expanded ? 'none' : '4.2em';
+      out.style.overflow = 'hidden';
+      out.textContent = e.text;
+      row.appendChild(out);
+    }
+    row.addEventListener('click', () => {
+      // Don't toggle when the user just selected text (click after a drag).
+      if (window.getSelection && window.getSelection().toString().length > 0) return;
+      if (expandedTools.has(e.toolCallId)) expandedTools.delete(e.toolCallId);
+      else expandedTools.add(e.toolCallId);
+      invalidateTranscript();
+      render();
+    });
+  } else {
+    // Status / compaction / notices: indented 2 cells, textDim
+    // (TUI StatusMessageComponent).
+    row.className = 'entry entry-status';
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = e.text;
+    row.appendChild(body);
+  }
+  return row;
 }
 
 function renderComposer() {
