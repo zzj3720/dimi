@@ -4,6 +4,13 @@
 import { ref, watch, nextTick } from 'vue';
 import { state, Msg, isBashDraft, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, sendBtw, maybeUpdateAtMention } from '../api';
+import {
+  composer, capsule, footer, inputRow, inputWrap, composerLeft, composerRight,
+  composerBtn, modelPill, input, sendBtn, composerToolbar, hint, footerRight, queuedCount,
+  completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
+  btn, btnGhost,
+} from './Composer.styles';
+import { spacer } from '../styles/global';
 
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
@@ -182,53 +189,63 @@ function sendBtwText(): void {
 </script>
 
 <template>
-  <footer class="composer">
+  <footer :class="composer">
     <!-- Completion popup -->
-    <div v-if="state.completionOpen && state.completionItems.length > 0" ref="completionEl" class="completion">
+    <div v-if="state.completionOpen && state.completionItems.length > 0" ref="completionEl" :class="completion">
       <div
         v-for="(item, i) in state.completionItems"
         :key="i"
-        class="completion-item"
-        :class="{ selected: i === state.completionSelected }"
+        :class="[completionItem, { [completionSelected]: i === state.completionSelected }]"
         @mousedown.prevent="acceptCompletion"
       >
-        <span class="pointer">{{ i === state.completionSelected ? '❯ ' : '  ' }}</span>
-        <span class="value">{{ item.label }}</span>
-        <span v-if="item.description" class="desc">{{ item.description }}</span>
+        <span :class="completionPointer">{{ i === state.completionSelected ? '❯ ' : '  ' }}</span>
+        <span :class="completionValue">{{ item.label }}</span>
+        <span v-if="item.description" :class="completionDesc">{{ item.description }}</span>
       </div>
     </div>
 
-    <div class="composer-capsule">
-      <textarea
-        ref="inputEl"
-        v-model="state.draft"
-        class="input"
-        rows="1"
-        placeholder="Message…"
-        autofocus
-        @input="onInput"
-        @keydown="onKeydown"
-        @compositionend="onInput"
-      ></textarea>
-      <button
-        class="send-btn"
-        :disabled="!state.draft.trim() || !state.currentSessionId"
-        title="Send"
-        @click="dispatch(Msg.Submit())"
-      >↑</button>
+    <div :class="capsule">
+      <div :class="footer">
+        <div :class="inputRow">
+          <div :class="inputWrap">
+            <textarea
+              ref="inputEl"
+              v-model="state.draft"
+              :class="input"
+              rows="1"
+              placeholder="Message…"
+              autofocus
+              @input="onInput"
+              @keydown="onKeydown"
+              @compositionend="onInput"
+            ></textarea>
+          </div>
+        </div>
+        <div :class="composerLeft">
+          <button :class="composerBtn" title="Attach" @click="dispatch(Msg.SettingsOpen())">＋</button>
+        </div>
+        <div :class="composerRight">
+          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ state.modelName || '模型' }}</span>
+          <button
+            :class="sendBtn"
+            :disabled="!state.draft.trim() || !state.currentSessionId"
+            title="Send"
+            @click="dispatch(Msg.Submit())"
+          >↑</button>
+        </div>
+      </div>
     </div>
 
-    <div class="composer-toolbar">
-      <span class="model-pill" @click="dispatch(Msg.SettingsOpen())">{{ state.modelName || '模型' }}</span>
-      <span v-if="state.queued.length > 0" class="queued-count">{{ state.queued.length }} queued</span>
+    <div :class="composerToolbar">
+      <span v-if="state.queued.length > 0" :class="queuedCount">{{ state.queued.length }} queued</span>
       <template v-if="state.busy">
-        <button class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'steer' }" @click="steerMode('steer')">steer</button>
-        <button class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'queue' }" @click="steerMode('queue')">queue</button>
-        <button class="btn btn-ghost" @click="dispatch(Msg.Cancel())">Cancel</button>
+        <button :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'steer' }]" @click="steerMode('steer')">steer</button>
+        <button :class="[btn, btnGhost, { 'btn-selected': state.busyInputMode === 'queue' }]" @click="steerMode('queue')">queue</button>
+        <button :class="[btn, btnGhost]" @click="dispatch(Msg.Cancel())">Cancel</button>
       </template>
-      <span class="hint">{{ state.statusMsg }}</span>
-      <span class="spacer"></span>
-      <span class="footer-right">{{ state.footerContext }}</span>
+      <span :class="hint">{{ state.statusMsg }}</span>
+      <span :class="spacer"></span>
+      <span :class="footerRight">{{ state.footerContext }}</span>
     </div>
   </footer>
 </template>

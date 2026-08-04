@@ -12,6 +12,7 @@
     "dev:electron": "vp build && electron ."
   },
   "dependencies": {
+    "@emotion/css": "^11.13.5",
     "dompurify": "^3.4.13",
     "marked": "^18.0.9",
     "vue": "^3.5.35"

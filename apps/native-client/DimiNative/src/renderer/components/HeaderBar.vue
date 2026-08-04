@@ -5,6 +5,7 @@
 import { computed } from 'vue';
 import { state } from '../store';
 import { loadSessions } from '../api';
+import { header, headerLeft, headerTitle, iconBtn, headerRight, headerStatus } from './HeaderBar.styles';
 
 const current = computed(() => state.sessions.find((s) => s.id === state.currentSessionId));
 
@@ -14,18 +15,14 @@ function refresh(): void {
 </script>
 
 <template>
-  <header class="header">
-    <div class="header-left">
-      <button class="icon-btn" title="Sessions" @click="state.pickerOpen = true">☰</button>
-      <span class="header-title" :title="state.currentCwd">{{ current?.title || '' }}</span>
+  <header :class="header">
+    <div :class="headerLeft">
+      <button :class="iconBtn" title="Sessions" @click="state.pickerOpen = true">☰</button>
+      <span :class="headerTitle" :title="state.currentCwd">{{ current?.title || '' }}</span>
     </div>
-    <div class="segmented">
-      <button class="seg active" data-seg="chat">聊天</button>
-      <button class="seg" data-seg="work">工作</button>
-    </div>
-    <div class="header-right">
-      <span v-if="state.busy" class="header-status">{{ state.phase === 'compacting' ? 'compacting' : 'working' }}</span>
-      <button class="icon-btn" title="Refresh" @click="refresh">↻</button>
+    <div :class="headerRight">
+      <span v-if="state.busy" :class="headerStatus">{{ state.phase === 'compacting' ? 'compacting' : 'working' }}</span>
+      <button :class="iconBtn" title="Refresh" @click="refresh">↻</button>
     </div>
   </header>
 </template>

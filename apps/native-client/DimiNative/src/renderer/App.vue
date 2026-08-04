@@ -9,6 +9,8 @@ import Composer from './components/Composer.vue';
 import Dialogs from './components/Dialogs.vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from './store';
 import { dispatch, createSession, detachCurrentTask, recallLastQueued } from './api';
+import { app } from './styles/global';
+import { shell, mainCol } from './App.styles';
 
 const isMac = navigator.platform.startsWith('Mac');
 function ctrlKey(evt: KeyboardEvent): boolean {
@@ -185,11 +187,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app">
-    <div class="shell">
+  <div :class="app">
+    <HeaderBar />
+    <div :class="shell">
       <Sidebar />
-      <div class="main-col">
-        <HeaderBar />
+      <div :class="mainCol">
         <Transcript />
         <Composer />
       </div>

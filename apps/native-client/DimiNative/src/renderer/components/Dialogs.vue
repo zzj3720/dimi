@@ -4,6 +4,11 @@ import { computed, ref } from 'vue';
 import { state, Msg, filteredSessions, slashCommands, APPROVAL_CHOICES } from '../store';
 import type { Question } from '../store';
 import { dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
+import {
+  dialogRoot, dialogBackdrop, dialog, dialogTitle, dialogBody, dialogFooter,
+  searchInput, listItem, listItemSelected, listItemTitle, listItemSub, toolName,
+  btn, btnGhost, btnPrimary, badge, badgePrimary, badgeOutline, badgeSecondary,
+} from './Dialogs.styles';
 
 // ---- session picker
 const pickerList = computed(() => filteredSessions(state));
@@ -61,162 +66,158 @@ function btwSend(): void {
 </script>
 
 <template>
-  <div class="dialog-root">
+  <div :class="dialogRoot">
     <!-- Session picker -->
-    <div v-if="state.pickerOpen" class="dialog-backdrop" @mousedown.self="dispatch(Msg.PickerClose())">
-      <div class="dialog">
-        <div class="dialog-title">Sessions</div>
-        <div class="dialog-body">
-          <input class="search-input" placeholder="Search sessions…" :value="state.pickerQuery" @input="dispatch(Msg.PickerSearch(($event.target as HTMLInputElement).value))" @keydown="pickerKeydown" />
+    <div v-if="state.pickerOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.PickerClose())">
+      <div :class="dialog">
+        <div :class="dialogTitle">Sessions</div>
+        <div :class="dialogBody">
+          <input :class="searchInput" placeholder="Search sessions…" :value="state.pickerQuery" @input="dispatch(Msg.PickerSearch(($event.target as HTMLInputElement).value))" @keydown="pickerKeydown" />
           <div style="overflow-y: auto; max-height: 320px" @scroll="onPickerScroll">
             <div
               v-for="(s, i) in pickerList"
               :key="s.id"
-              class="list-item"
-              :class="{ selected: i === state.pickerSelectedIndex }"
+              :class="[listItem, { [listItemSelected]: i === state.pickerSelectedIndex }]"
               @mousedown.prevent="dispatch(Msg.PickerSelect())"
             >
-              <div class="title">{{ s.title || '(untitled)' }}</div>
-              <div class="sub">{{ s.id }}</div>
+              <div :class="listItemTitle">{{ s.title || '(untitled)' }}</div>
+              <div :class="listItemSub">{{ s.id }}</div>
             </div>
-            <div v-if="pickerList.length === 0" class="list-item sub">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
+            <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
           </div>
-          <div class="sub" style="margin-top: 8px">↑↓ navigate · Enter select · Esc cancel</div>
+          <div :class="listItemSub" style="margin-top: 8px">↑↓ navigate · Enter select · Esc cancel</div>
         </div>
-        <div class="dialog-footer">
-          <button class="btn btn-ghost" @click="dispatch(Msg.PickerClose())">Close</button>
+        <div :class="dialogFooter">
+          <button :class="[btn, btnGhost]" @click="dispatch(Msg.PickerClose())">Close</button>
         </div>
       </div>
     </div>
 
     <!-- Settings -->
-    <div v-if="state.settingsDialogOpen" class="dialog-backdrop" @mousedown.self="dispatch(Msg.SettingsClose())">
-      <div class="dialog" @click="openSettings">
-        <div class="dialog-title">Settings</div>
-        <div class="dialog-body">
+    <div v-if="state.settingsDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.SettingsClose())">
+      <div :class="dialog" @click="openSettings">
+        <div :class="dialogTitle">Settings</div>
+        <div :class="dialogBody">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
-            <span class="sub" style="min-width: 110px">Default model</span>
-            <select class="search-input" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_model', ref: ($event.target as HTMLSelectElement).value } }))">
+            <span :class="listItemSub" style="min-width: 110px">Default model</span>
+            <select :class="searchInput" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_model', ref: ($event.target as HTMLSelectElement).value } }))">
               <option v-if="models.length === 0">loading…</option>
               <option v-for="m in models" :key="m.value" :value="m.value">{{ m.label }}</option>
             </select>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
-            <span class="sub" style="min-width: 110px">Permission mode</span>
-            <select class="search-input" :value="state.permissionMode" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_permission', mode: ($event.target as HTMLSelectElement).value } }))">
+            <span :class="listItemSub" style="min-width: 110px">Permission mode</span>
+            <select :class="searchInput" :value="state.permissionMode" @change="window.dispatchEvent(new CustomEvent('dimi:msg', { detail: { type: 'settings_set_permission', mode: ($event.target as HTMLSelectElement).value } }))">
               <option value="manual">manual</option>
               <option value="auto">auto</option>
               <option value="yolo">yolo</option>
             </select>
           </div>
           <div style="display: flex; align-items: center; gap: 8px">
-            <span class="sub" style="min-width: 110px">Plan mode</span>
-            <button class="btn btn-ghost" @click="dispatch({ type: 'plan_mode_toggle' })">{{ state.planMode ? 'on (toggle)' : 'off (toggle)' }}</button>
+            <span :class="listItemSub" style="min-width: 110px">Plan mode</span>
+            <button :class="[btn, btnGhost]" @click="dispatch({ type: 'plan_mode_toggle' })">{{ state.planMode ? 'on (toggle)' : 'off (toggle)' }}</button>
           </div>
         </div>
-        <div class="dialog-footer">
-          <button class="btn btn-ghost" @click="dispatch(Msg.SettingsClose())">Close</button>
+        <div :class="dialogFooter">
+          <button :class="[btn, btnGhost]" @click="dispatch(Msg.SettingsClose())">Close</button>
         </div>
       </div>
     </div>
 
     <!-- Help -->
-    <div v-if="state.helpDialogOpen" class="dialog-backdrop" @mousedown.self="dispatch(Msg.Escape())">
-      <div class="dialog">
-        <div class="dialog-title">Help</div>
-        <div class="dialog-body" style="max-height: 420px">
-          <div v-for="c in slashCommands" :key="c.name" class="list-item" style="padding: 4px 8px">
-            <span><span class="tool-name">/{{ c.name }}</span> <span class="sub">{{ c.hint }} — {{ c.desc }}</span></span>
+    <div v-if="state.helpDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.Escape())">
+      <div :class="dialog">
+        <div :class="dialogTitle">Help</div>
+        <div :class="dialogBody" style="max-height: 420px">
+          <div v-for="c in slashCommands" :key="c.name" :class="listItem" style="padding: 4px 8px">
+            <span><span :class="toolName">{{ '/' + c.name }}</span> <span :class="listItemSub">{{ c.hint }} — {{ c.desc }}</span></span>
           </div>
         </div>
-        <div class="dialog-footer">
-          <button class="btn btn-ghost" @click="dispatch(Msg.Escape())">Close</button>
+        <div :class="dialogFooter">
+          <button :class="[btn, btnGhost]" @click="dispatch(Msg.Escape())">Close</button>
         </div>
       </div>
     </div>
 
     <!-- BTW -->
-    <div v-if="state.btwOpen" class="dialog-backdrop" @mousedown.self="state.btwOpen = false">
-      <div class="dialog">
-        <div class="dialog-title">BTW</div>
-        <div class="dialog-body">
-          <div v-if="state.btwPrompt" class="list-item">
+    <div v-if="state.btwOpen" :class="dialogBackdrop" @mousedown.self="state.btwOpen = false">
+      <div :class="dialog">
+        <div :class="dialogTitle">BTW</div>
+        <div :class="dialogBody">
+          <div v-if="state.btwPrompt" :class="listItem">
             <div class="body">{{ state.btwPrompt }}</div>
           </div>
-          <div v-if="state.btwAnswer" class="list-item">
+          <div v-if="state.btwAnswer" :class="listItem">
             <div class="body">{{ state.btwAnswer }}</div>
           </div>
-          <div v-else-if="state.btwBusy" class="sub">…</div>
-          <input class="search-input" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc="state.btwOpen = false" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
-          <div class="sub" style="margin-top: 8px">Enter to ask · Esc to close</div>
+          <div v-else-if="state.btwBusy" :class="listItemSub">…</div>
+          <input :class="searchInput" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc="state.btwOpen = false" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
+          <div :class="listItemSub" style="margin-top: 8px">Enter to ask · Esc to close</div>
         </div>
       </div>
     </div>
 
     <!-- Approval -->
-    <div v-if="state.currentApproval" class="dialog-backdrop">
-      <div class="dialog">
-        <div class="dialog-title">{{ state.currentApproval.toolName || 'Approval required' }}</div>
-        <div class="dialog-body">
+    <div v-if="state.currentApproval" :class="dialogBackdrop">
+      <div :class="dialog">
+        <div :class="dialogTitle">{{ state.currentApproval.toolName || 'Approval required' }}</div>
+        <div :class="dialogBody">
           <div class="body" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ state.currentApproval.action }}</div>
-          <pre v-if="state.currentApproval.command" class="body" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; max-height: 72px; overflow: auto">{{ state.currentApproval.command }}</pre>
+          <pre v-if="state.currentApproval.command" class="body" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 72px; overflow: auto">{{ state.currentApproval.command }}</pre>
           <div style="margin-top: 8px">
             <div
               v-for="(opt, i) in APPROVAL_CHOICES"
               :key="i"
-              class="list-item"
-              :class="{ selected: i === state.approvalSelectedIndex }"
+              :class="[listItem, { [listItemSelected]: i === state.approvalSelectedIndex }]"
               @mousedown.prevent="dispatch(Msg.ApprovalSelect(i)); dispatch(Msg.ApprovalConfirm())"
             >{{ opt.label }}</div>
           </div>
           <input
             v-if="state.approvalSelectedIndex === 3"
-            class="search-input"
+            :class="searchInput"
             placeholder="Feedback…"
             :value="state.approvalFeedbackText"
             @input="state.approvalFeedbackText = ($event.target as HTMLInputElement).value"
             @keydown.enter="dispatch(Msg.ApprovalConfirm())"
           />
-          <div class="sub" style="margin-top: 8px">↑↓ navigate · Enter confirm · 1-4 select · Esc reject</div>
+          <div :class="listItemSub" style="margin-top: 8px">↑↓ navigate · Enter confirm · 1-4 select · Esc reject</div>
         </div>
       </div>
     </div>
 
     <!-- Question -->
-    <div v-if="state.currentQuestion" class="dialog-backdrop">
-      <div class="dialog">
-        <div class="dialog-title">Question</div>
-        <div class="dialog-body">
+    <div v-if="state.currentQuestion" :class="dialogBackdrop">
+      <div :class="dialog">
+        <div :class="dialogTitle">Question</div>
+        <div :class="dialogBody">
           <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px">
             <span
               v-for="(qq, i) in (state.currentQuestion.allQuestions ?? [state.currentQuestion])"
               :key="i"
-              class="badge"
-              :class="i === (state.currentQuestion.questionTabIndex ?? 0) ? 'badge-primary' : 'badge-outline'"
+              :class="[badge, i === (state.currentQuestion.questionTabIndex ?? 0) ? badgePrimary : badgeOutline]"
             >Q{{ i + 1 }}{{ hasAnswer(qq) ? ' ✓' : '' }}</span>
-            <span class="badge" :class="(state.currentQuestion.questionTabIndex ?? 0) === questionTabs(state.currentQuestion) - 1 ? 'badge-primary' : 'badge-outline'">Submit</span>
+            <span :class="[badge, (state.currentQuestion.questionTabIndex ?? 0) === questionTabs(state.currentQuestion) - 1 ? badgePrimary : badgeOutline]">Submit</span>
           </div>
-          <div class="title">{{ state.currentQuestion.question }}</div>
+          <div :class="listItemTitle">{{ state.currentQuestion.question }}</div>
           <div style="margin-top: 8px">
             <div
               v-for="(opt, i) in (state.currentQuestion.options ?? [])"
               :key="i"
-              class="list-item"
-              :class="{ selected: i === state.questionSelectedIndex }"
+              :class="[listItem, { [listItemSelected]: i === state.questionSelectedIndex }]"
               @mousedown.prevent="state.currentQuestion.kind === 'multi' ? dispatch({ type: 'question_toggle', index: i }) : (dispatch({ type: 'question_select', index: i }), dispatch(Msg.QuestionConfirm()))"
             >{{ (state.currentQuestion.kind === 'multi' || state.currentQuestion.kind === 'multi_with_other') ? (opt.selected ? '✓ ' : '○ ') : (i === state.questionSelectedIndex ? '● ' : '○ ') }}{{ opt.label }}</div>
           </div>
           <input
             v-if="state.currentQuestion.allowOther"
-            class="search-input"
+            :class="searchInput"
             :placeholder="state.currentQuestion.otherLabel || 'Other…'"
             :value="state.currentQuestion.otherText ?? ''"
             @input="dispatch({ type: 'question_other', text: ($event.target as HTMLInputElement).value })"
           />
-          <div class="sub" style="margin-top: 8px">←/→ tabs · 1-9 select · space toggle · Enter confirm</div>
+          <div :class="listItemSub" style="margin-top: 8px">←/→ tabs · 1-9 select · space toggle · Enter confirm</div>
         </div>
-        <div class="dialog-footer">
-          <button class="btn btn-primary" @click="dispatch(Msg.QuestionConfirm())">Submit</button>
+        <div :class="dialogFooter">
+          <button :class="[btn, btnPrimary]" @click="dispatch(Msg.QuestionConfirm())">Submit</button>
         </div>
       </div>
     </div>
