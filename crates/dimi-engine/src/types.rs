@@ -118,6 +118,13 @@ pub struct EngineTurnInput {
     /// Tools registered for this turn (slice 1: Bash only).
     #[serde(default)]
     pub tools: Vec<EngineTool>,
+    /// Whitelist of tool names visible to the LLM (TS `activeToolNames`
+    /// parity): when set, the bridge filters the request `tools` defs down
+    /// to these names before constructing the session. `None` = all
+    /// registered defs are advertised. The whitelist only affects
+    /// LLM-visible defs — tool execution registration is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_tools: Option<Vec<String>>,
     pub provider: ProviderConfig,
     #[serde(default)]
     pub max_steps_per_turn: Option<u32>,

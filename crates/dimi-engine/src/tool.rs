@@ -2244,6 +2244,7 @@ async fn run_nested_turn(
         turn_id: 0,
         messages,
         tools: vec![],
+        active_tools: None,
         provider,
         max_steps_per_turn: max_steps,
         max_retries_per_step: None,

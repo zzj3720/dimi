@@ -1718,6 +1718,7 @@ mod tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://example.test/v1".to_string(),
                 api_key: "test-key".to_string(),
@@ -2140,6 +2141,7 @@ mod window_tests {
                 msg("user", "u3"),
             ],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2244,6 +2246,7 @@ mod steer_tests {
                 reasoning: None,
             }],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2389,6 +2392,7 @@ mod completion_review_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2784,6 +2788,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -2915,6 +2920,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3009,6 +3015,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3087,6 +3094,7 @@ mod compaction_tests {
             turn_id: 1,
             messages: vec![msg("user", "small")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3216,6 +3224,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3346,6 +3355,7 @@ mod compaction_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3444,6 +3454,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3489,6 +3500,90 @@ mod cancel_tests {
             tools.iter().any(|t| t["function"]["name"] == "Lookup"),
             "request tools must include the registered def: {tools:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn active_tools_whitelist_reaches_request_tools_verbatim() {
+        // The bridge pre-filters `input.tools` by `EngineTurnInput.active_tools`
+        // (see `engine_tools` in dimi-bridge); the engine must advertise
+        // exactly that list to the LLM — a whitelist-filtered tool (Bash here)
+        // must never reappear in `request.tools`.
+        use std::sync::{Arc, Mutex};
+        struct RecordingClient(Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>>);
+        #[async_trait::async_trait]
+        impl LlmClient for RecordingClient {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                self.0.lock().unwrap().push(request.tools.clone());
+                Ok(StreamedTurn {
+                    events: vec![LlmStreamEvent::Finish {
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: String::new(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let recorded: Arc<Mutex<Vec<Option<Vec<serde_json::Value>>>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let llm = RecordingClient(Arc::clone(&recorded));
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "hi")],
+            // The bridge's filtered def list (Bash excluded by
+            // `active_tools`); the engine passes it to the request untouched.
+            tools: vec![crate::types::EngineTool {
+                name: "Read".to_string(),
+                description: "Read files".to_string(),
+                args_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            }],
+            active_tools: Some(vec!["Read".to_string()]),
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(1),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::new(input);
+        let __bash = crate::tool::BashTool::default();
+        session
+            .run(&llm, &__bash, &policy, &mut |_| {})
+            .await;
+        let requests = recorded.lock().unwrap();
+        let tools = requests[0].as_ref().expect("tools present");
+        assert_eq!(
+            tools.len(),
+            1,
+            "only the whitelisted def is advertised: {tools:?}"
+        );
+        assert_eq!(tools[0]["function"]["name"], "Read");
     }
 
 
@@ -3544,6 +3639,7 @@ mod cancel_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3649,6 +3745,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3750,6 +3847,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hi")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3865,6 +3963,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "run it")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -3951,6 +4050,7 @@ mod cancel_tests {
             turn_id: 1,
             messages: vec![msg("user", "hello")],
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://x".to_string(),
                 api_key: "k".to_string(),
@@ -4121,6 +4221,7 @@ mod approval_batch_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://example.test/v1".to_string(),
                 api_key: "test-key".to_string(),
@@ -4988,6 +5089,7 @@ mod dedupe_tests {
             turn_id: 1,
             messages,
             tools: vec![],
+            active_tools: None,
             provider: ProviderConfig {
                 base_url: "http://example.test/v1".to_string(),
                 api_key: "test-key".to_string(),

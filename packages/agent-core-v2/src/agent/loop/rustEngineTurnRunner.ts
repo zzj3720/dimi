@@ -536,6 +536,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // the "Try a different approach…" suffix to permission-deny and
       // approval-rejected tool outputs (toolApprovalService.ts).
       usesWorkerRejectionGuidance: this.scopeContext.agentId !== 'main',
+      // TS `isToolActive` parity, engine side: the bridge filters its native
+      // defs (Bash/…) by this allowlist, so an inactive Bash no longer leaks
+      // into the request `tools` field. `null` = unconstrained (all tools).
+      activeTools: this.effectiveActiveTools() ?? null,
       messages,
       tools: [],
       provider,
@@ -658,17 +662,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const engineNativeTools = ENGINE_NATIVE_TOOLS;
     // TS `isToolActive` parity (profile allowlist/denylist): only active
     // tools are exposed to the model. AllDone is always active (the
-    // completion-review protocol needs it). The engine's hardcoded Bash def
-    // is filtered engine-side by the same allowlist (see `active_tools`).
-    const profileData = this.profile.data();
-    const activeToolNames = profileData.activeToolNames;
-    const disallowedTools = profileData.disallowedTools;
-    const isToolActiveForRunner = (name: string): boolean => {
-      if (name === ALL_DONE_TOOL_NAME) return true;
-      if (activeToolNames !== undefined && !activeToolNames.includes(name)) return false;
-      if (disallowedTools !== undefined && disallowedTools.includes(name)) return false;
-      return true;
-    };
+    // completion-review protocol needs it). The engine's hardcoded native
+    // defs (Bash/…) are filtered by the same set via `activeTools`.
+    const activeSet = this.effectiveActiveTools();
+    const isToolActiveForRunner = (name: string): boolean =>
+      activeSet === undefined || activeSet.includes(name);
     for (const info of this.toolRegistry.list()) {
       if (!isToolActiveForRunner(info.name)) continue;
       try {
@@ -1695,6 +1693,28 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   private maxStepsPerTurn(): number | undefined {
     return this.config.get<{ maxStepsPerTurn?: number }>("loop_control")?.maxStepsPerTurn;
+  }
+
+  /**
+   * The effective engine-side tool allowlist (TS `isToolActive` parity):
+   * profile `activeToolNames` (allowlist) + `disallowedTools` (denylist),
+   * with the AllDone exception — the completion-review protocol needs AllDone
+   * regardless of the profile. `undefined` = unconstrained (all tools).
+   */
+  private effectiveActiveTools(): string[] | undefined {
+    const data = this.profile.data();
+    const activeToolNames = data.activeToolNames;
+    const disallowedTools = data.disallowedTools;
+    if (activeToolNames === undefined && disallowedTools === undefined) return undefined;
+    return this.toolRegistry
+      .list()
+      .map((info) => info.name)
+      .filter((name) => {
+        if (name === ALL_DONE_TOOL_NAME) return true;
+        if (activeToolNames !== undefined && !activeToolNames.includes(name)) return false;
+        if (disallowedTools !== undefined && disallowedTools.includes(name)) return false;
+        return true;
+      });
   }
 
   private maxRetriesPerStep(): number | undefined {

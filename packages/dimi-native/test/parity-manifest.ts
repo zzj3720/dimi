@@ -92,8 +92,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'activeToolNames filtering (policy [tools]/disabled)',
-    migrated: false,
-    gap: 'not implemented — the model sees every registered tool',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (filtered tool rejected) + bridge engine_tools_filters_defs_by_active_tools + engine request-tools pass-through',
   },
   {
     domain: 'step-level cancel (per-step AbortController)',

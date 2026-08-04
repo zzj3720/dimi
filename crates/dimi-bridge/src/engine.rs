@@ -443,6 +443,10 @@ pub struct RustTurnSession {
     inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
     llm: std::sync::Arc<dyn LlmClient>,
     tools: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+    /// LLM-visible tool whitelist (`EngineTurnInput.active_tools`): re-applied
+    /// on every run/resume tool re-sync so filtered defs never leak into a
+    /// request. `None` = all registered defs are advertised.
+    active_tools: Option<Vec<String>>,
     /// Live policy: session-scope approvals recorded mid-turn are appended
     /// here so the SAME turn's resumed batch honors them (P1-6 review — TS
     /// session-approval-history reads live; a frozen snapshot would re-ask).
@@ -677,8 +681,15 @@ fn make_client(
 /// Convert the registry's LLM-facing defs into `EngineTool` (the engine's
 /// request `tools` field). A def that cannot be converted is discarded with
 /// a warning (def name + reason) instead of being silently dropped; the
-/// returned list is unchanged otherwise.
-fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> {
+/// returned list is unchanged otherwise. `active_tools` (TS
+/// `activeToolNames` parity) narrows the result to the whitelisted names —
+/// defs outside it are hidden from the LLM while their executors stay
+/// registered (the model just never sees them, so it never calls them).
+/// `None` = every registered def is advertised.
+fn engine_tools(
+    registry: &ToolRegistry,
+    active_tools: Option<&[String]>,
+) -> Vec<dimi_engine::types::EngineTool> {
     let mut tools = Vec::new();
     for def in registry.tool_defs() {
         let Some(function) = def.get("function") else {
@@ -693,6 +704,13 @@ fn engine_tools(registry: &ToolRegistry) -> Vec<dimi_engine::types::EngineTool> 
             );
             continue;
         };
+        // The whitelist hides non-listed defs from the LLM (execution
+        // registration is untouched — the filtered model never calls them).
+        if let Some(active) = active_tools {
+            if !active.iter().any(|n| n == name) {
+                continue;
+            }
+        }
         let description = function
             .get("description")
             .and_then(|d| d.as_str())
@@ -837,11 +855,12 @@ impl RustTurnSession {
         // re-synced before every run/resume so tools registered mid-session
         // become visible to the model).
         let mut input = input;
+        let active_tools = input.active_tools.clone();
         {
             let registry = tools
                 .try_lock()
                 .map_err(|_| napi::Error::from_reason("registry busy"))?;
-            input.tools = engine_tools(&registry);
+            input.tools = engine_tools(&registry, active_tools.as_deref());
         }
         let steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -858,6 +877,7 @@ impl RustTurnSession {
             ),
             llm,
             tools,
+            active_tools,
             policy,
             tool_gate,
             pending_external: std::sync::Arc::new(std::sync::Mutex::new(
@@ -1035,7 +1055,7 @@ impl RustTurnSession {
             // registered since the session was constructed).
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry));
+                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
             // Clone the policy snapshot (P1-6): the guard must not survive
@@ -1185,7 +1205,7 @@ impl RustTurnSession {
             let mut inner = self.inner.lock().await;
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry));
+                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
             // Clone the policy snapshot (P1-6): the guard must not survive
@@ -1356,5 +1376,53 @@ mod tests {
         drop_task_registry("agent-a".to_string());
         let fresh = session_registry("agent-a");
         assert!(fresh.tasks.get(&task_id).is_none(), "drop must clear the scope");
+    }
+
+    #[test]
+    fn engine_tools_filters_defs_by_active_tools() {
+        // `active_tools` (TS `activeToolNames` parity) hides non-whitelisted
+        // defs from the LLM — today the bridge's hardcoded Bash def leaks even
+        // when the profile does not allow Bash. `None` (absent) keeps every
+        // registered def. Only the LLM-facing advertisement is filtered: the
+        // executors stay in the registry (the filtered model simply never
+        // calls them).
+        let mut registry = ToolRegistry::new();
+        for name in ["Bash", "Read", "Write"] {
+            registry.register_with_def(
+                name,
+                Box::new(BashTool::default()),
+                Some(serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": format!("{name} tool"),
+                        "parameters": { "type": "object", "properties": {} },
+                    }
+                })),
+            );
+        }
+        let names = |tools: Vec<dimi_engine::types::EngineTool>| -> Vec<String> {
+            tools.into_iter().map(|t| t.name).collect()
+        };
+
+        // No whitelist → every registered def is advertised.
+        let all = names(engine_tools(&registry, None));
+        assert_eq!(
+            all,
+            vec!["Bash".to_string(), "Read".to_string(), "Write".to_string()]
+        );
+
+        // Whitelist → only the listed defs; the hardcoded Bash def must not
+        // leak when it is outside the whitelist.
+        let whitelisted = names(engine_tools(&registry, Some(&["Read".to_string()])));
+        assert_eq!(whitelisted, vec!["Read".to_string()]);
+        assert!(
+            !whitelisted.iter().any(|n| n == "Bash"),
+            "Bash must not be advertised when it is outside the whitelist"
+        );
+
+        // An empty whitelist hides every tool.
+        let none = names(engine_tools(&registry, Some(&[])));
+        assert!(none.is_empty(), "an empty whitelist hides every tool");
     }
 }
