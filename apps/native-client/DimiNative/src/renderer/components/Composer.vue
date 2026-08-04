@@ -199,9 +199,6 @@ function sendBtwText(): void {
     </div>
 
     <div class="composer-capsule">
-      <span class="prompt-token" :style="isBashDraft(state.draft) ? { color: 'var(--primary)' } : {}">
-        {{ isBashDraft(state.draft) ? '!' : '>' }}
-      </span>
       <textarea
         ref="inputEl"
         v-model="state.draft"
@@ -213,17 +210,22 @@ function sendBtwText(): void {
         @keydown="onKeydown"
         @compositionend="onInput"
       ></textarea>
-      <div class="composer-actions">
-        <span v-if="state.queued.length > 0" class="queued-count">{{ state.queued.length }} queued</span>
-        <button v-if="state.busy" class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'steer' }" @click="steerMode('steer')">steer</button>
-        <button v-if="state.busy" class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'queue' }" @click="steerMode('queue')">queue</button>
-        <button v-if="state.busy" class="btn btn-ghost" @click="dispatch(Msg.Cancel())">Cancel</button>
-        <button class="btn btn-primary" :disabled="!state.draft.trim() || !state.currentSessionId" @click="dispatch(Msg.Submit())">Send</button>
-      </div>
+      <button
+        class="send-btn"
+        :disabled="!state.draft.trim() || !state.currentSessionId"
+        title="Send"
+        @click="dispatch(Msg.Submit())"
+      >↑</button>
     </div>
 
     <div class="composer-toolbar">
       <span class="model-pill" @click="dispatch(Msg.SettingsOpen())">{{ state.modelName || '模型' }}</span>
+      <span v-if="state.queued.length > 0" class="queued-count">{{ state.queued.length }} queued</span>
+      <template v-if="state.busy">
+        <button class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'steer' }" @click="steerMode('steer')">steer</button>
+        <button class="btn btn-ghost" :class="{ 'btn-selected': state.busyInputMode === 'queue' }" @click="steerMode('queue')">queue</button>
+        <button class="btn btn-ghost" @click="dispatch(Msg.Cancel())">Cancel</button>
+      </template>
       <span class="hint">{{ state.statusMsg }}</span>
       <span class="spacer"></span>
       <span class="footer-right">{{ state.footerContext }}</span>

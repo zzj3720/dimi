@@ -193,6 +193,11 @@ body {
 }
 .icon-btn:hover { background: var(--hover); color: var(--text); }
 .header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.header-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 
 /* Segmented control (chat/work pill, 32px, Codex-style) */
 .segmented {
@@ -274,6 +279,13 @@ body {
 .entry-thinking .body { color: var(--text-dim); font-size: 14px; }
 .entry-tool .body { color: var(--text-dim); font-size: 14px; }
 .entry-status .body { color: var(--text-muted); font-size: 14px; }
+/* Codex-style reasoning disclosure title. */
+.reasoning-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
 
 /* ---------------- welcome page (empty session) ---------------- */
 .welcome {
@@ -406,6 +418,24 @@ body {
   outline: none;
 }
 .input::placeholder { color: var(--text-muted); }
+/* Codex-style circular send button inside the capsule. */
+.send-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.send-btn:hover { background: #0a8fff; }
+.send-btn:disabled { background: var(--hover-strong); color: var(--text-muted); cursor: default; }
 .composer-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .queued-count { color: var(--text-muted); font-size: 12px; }
 .composer-toolbar {

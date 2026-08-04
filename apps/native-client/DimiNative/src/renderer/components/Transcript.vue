@@ -86,8 +86,9 @@ function shellCmd(args: string): string {
         <!-- assistant: markdown -->
         <div v-else-if="e.kind === 'assistant'" class="body md" v-html="renderMarkdown(e.text)"></div>
 
-        <!-- thinking: muted, collapsible -->
+        <!-- thinking: reasoning disclosure, collapsible -->
         <div v-else-if="e.kind === 'thinking'" class="entry-thinking clickable" @click="toggleThinking(e)">
+          <div class="reasoning-title">思考</div>
           <div class="body thinking">{{ thinkingPreview(e).text }}</div>
           <div v-if="thinkingPreview(e).hint" class="body muted">{{ thinkingPreview(e).hint }}</div>
         </div>

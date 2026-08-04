@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Codex-style header (46px): sidebar toggle + session title + segmented
-// control (chat/work) + connection/status badges + refresh.
+// control (chat/work) + minimal actions. No status badges — Codex keeps
+// the header clean; status lives in the composer area.
 import { computed } from 'vue';
 import { state } from '../store';
 import { loadSessions } from '../api';
@@ -23,13 +24,7 @@ function refresh(): void {
       <button class="seg" data-seg="work">工作</button>
     </div>
     <div class="header-right">
-      <span
-        id="connection-badge"
-        class="badge"
-        :class="state.connection === 'connected' ? 'badge-secondary' : state.connection === 'failed' ? 'badge-primary' : 'badge-secondary'"
-      >{{ state.connection }}</span>
-      <span v-if="state.busy" class="badge badge-primary">busy</span>
-      <span v-if="state.busy && state.phase !== 'idle'" class="badge badge-outline">{{ state.phase }}</span>
+      <span v-if="state.busy" class="header-status">{{ state.phase === 'compacting' ? 'compacting' : 'working' }}</span>
       <button class="icon-btn" title="Refresh" @click="refresh">↻</button>
     </div>
   </header>
