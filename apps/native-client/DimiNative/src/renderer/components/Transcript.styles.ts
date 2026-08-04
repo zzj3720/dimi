@@ -48,11 +48,12 @@ export const bodyTool = css({
   cursor: 'pointer',
 });
 export const bodyThinking = css({
-  color: colors.textDim,
+  color: colors.text,
   fontSize: font.chat,
   lineHeight: font.chatLh,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
+  marginTop: 4,
 });
 export const bodyCompaction = css({ color: colors.textMuted, fontSize: font.chat });
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
@@ -111,10 +112,10 @@ export const toolCardBody = css({
 });
 export const clickable = css({ cursor: 'pointer' });
 
-// Hover action buttons on messages (Codex: copy / retry etc.)
+// Hover action buttons on messages (Codex: 26×26 row below the message)
 export const entryActions = css({
   position: 'absolute',
-  top: 0,
+  bottom: -2,
   right: 0,
   display: 'flex',
   gap: 2,
@@ -132,11 +133,11 @@ export const entryActionBtn = css({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 24,
-  height: 24,
+  width: 26,
+  height: 26,
   padding: 4,
   border: `1px solid ${colors.border}`,
-  borderRadius: 8,
+  borderRadius: 10,
   background: colors.surface2,
   color: colors.textDim,
   cursor: 'pointer',

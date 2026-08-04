@@ -65,12 +65,13 @@ export const md = css({
     color: colors.textDim,
     margin: '6px 0',
     borderLeft: `2px solid ${colors.borderHeavy}`,
-    paddingLeft: 10,
+    padding: '8px 0 8px 24px',
+    lineHeight: '24px',
   },
   '& hr': { border: 'none', borderTop: `1px solid ${colors.border}`, margin: '8px 0' },
   '& ul, & ol': { margin: '4px 0', paddingLeft: '1.5em' },
   '& li': { margin: '2px 0', lineHeight: font.chatLh },
-  // Codex-style tables
+  // Codex-style tables: roomy cells, no row separators
   '& table': {
     borderCollapse: 'collapse',
     margin: '8px 0',
@@ -78,14 +79,13 @@ export const md = css({
     fontSize: font.chat,
     lineHeight: font.chatLh,
   },
-  '& thead': { borderBottom: `1px solid ${colors.borderHeavy}` },
   '& th': {
     textAlign: 'left',
     fontWeight: 600,
-    padding: '6px 10px',
-    borderBottom: `1px solid ${colors.border}`,
+    fontSize: '14px',
+    lineHeight: '16px',
+    padding: '8px 24px 8px 0',
     whiteSpace: 'nowrap',
   },
-  '& td': { padding: '6px 10px', borderBottom: `1px solid ${colors.border}`, verticalAlign: 'top' },
-  '& tr:last-child td': { borderBottom: 'none' },
+  '& td': { padding: '10px 24px 10px 0', verticalAlign: 'top' },
 });
