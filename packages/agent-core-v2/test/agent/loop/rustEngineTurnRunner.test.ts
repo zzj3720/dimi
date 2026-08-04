@@ -1449,7 +1449,7 @@ describe('Rust engine turn runner (default)', () => {
 
   it('cancels background work and drops late settles when the agent is disposed', async () => {
     // The main turn launches a background subagent whose nested turn blocks in
-    // Bash (`sleep 2`). Disposing the agent while the subagent is still
+    // Bash (`sleep 10`). Disposing the agent while the subagent is still
     // running must not throw or log errors (P1-5): the runner closes every
     // Rust session — the EventSink stops forwarding and the worker observes
     // `is_closed` and skips the settle — so no `task.terminated` op /
@@ -1469,7 +1469,7 @@ describe('Rust engine turn runner (default)', () => {
           type: 'tool_call',
           toolCallId: 'call_nested_sleep',
           name: 'Bash',
-          argumentsPart: '{"command":"sleep 2"}',
+          argumentsPart: '{"command":"sleep 10"}',
         },
         { type: 'finish', finishReason: 'tool_calls' },
       ],
@@ -1508,14 +1508,21 @@ describe('Rust engine turn runner (default)', () => {
       () => busEvents.some((event) => event['type'] === 'subagent.spawned'),
       'subagent spawn',
     );
+    // Snapshot the events already delivered BEFORE the dispose: the shared
+    // scripted client is a single cursor, so the subagent may settle early
+    // (empty segment) or the main turn may consume the nested segment — both
+    // are legitimate pre-dispose events. The dispose contract is that NO NEW
+    // terminal event lands AFTER the teardown.
+    const beforeDispose = busEvents.length;
     await ctx.dispose();
 
-    // Give the nested turn (sleep 2) time to settle into the closed session.
+    // Give any in-flight nested work time to settle into the closed session.
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(errors).toEqual([]);
+    const afterDispose = busEvents.slice(beforeDispose);
     // No terminal task records / notification reached the disposed runner.
-    expect(busEvents.some((event) => event['type'] === 'task.terminated')).toBe(false);
-    expect(busEvents.some((event) => event['type'] === 'task.notified')).toBe(false);
+    expect(afterDispose.some((event) => event['type'] === 'task.terminated')).toBe(false);
+    expect(afterDispose.some((event) => event['type'] === 'task.notified')).toBe(false);
   }, 30_000);
 
   it('queues a prompt behind the running turn and runs it after', async () => {

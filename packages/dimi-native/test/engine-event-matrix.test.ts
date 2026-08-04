@@ -389,3 +389,85 @@ describe('engine event-sequence golden matrix', () => {
     ]);
   });
 });
+
+describe('native tool PreToolUse gate (A2)', () => {
+  test('a block verdict vetoes Bash before it executes', async () => {
+    const session = new RustTurnSession(
+      JSON.stringify({
+        turnId: 1,
+        messages: [userMessage('run')],
+        tools: [],
+        provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'test-model' },
+        maxStepsPerTurn: null,
+        cwd: '/tmp',
+        shell: '/bin/sh',
+      }),
+      JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+      JSON.stringify([
+        toolCallSegment([BASH('call_bash', 'echo hi')]),
+        [{ type: 'text', delta: 'done' }, { type: 'finish', finishReason: 'stop' }],
+      ]),
+      'test-registry',
+    );
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+    session.setToolGate((payloadJson: string) => {
+      const payload = JSON.parse(payloadJson) as { requestId: string; toolName: string };
+      session.completeToolGate(
+        payload.requestId,
+        JSON.stringify({ decision: 'block', reason: 'blocked by test gate' }),
+      );
+    });
+    const batch = JSON.parse(await session.run()) as {
+      progress: { status: string; outcome?: EngineEventBatch['outcome'] };
+    };
+    expect(batch.progress.outcome?.status).toBe('completed');
+    const bashResult = events.find(
+      (e) => e['type'] === 'tool.result' && e['toolCallId'] === 'call_bash',
+    );
+    expect(bashResult).toBeDefined();
+    expect(bashResult?.['isError']).toBe(true);
+    expect(String(bashResult?.['output'])).toBe('blocked by test gate');
+    // The command never ran: no progress events from Bash.
+    expect(events.filter((e) => e['type'] === 'tool.progress')).toHaveLength(0);
+  });
+
+  test('an allow verdict lets Bash execute normally', async () => {
+    const session = new RustTurnSession(
+      JSON.stringify({
+        turnId: 1,
+        messages: [userMessage('run')],
+        tools: [],
+        provider: { baseUrl: 'http://example.test/v1', apiKey: 'test-key', model: 'test-model' },
+        maxStepsPerTurn: null,
+        cwd: '/tmp',
+        shell: '/bin/sh',
+      }),
+      JSON.stringify({ mode: 'auto', rules: [], sessionApprovedPatterns: [] }),
+      JSON.stringify([
+        toolCallSegment([BASH('call_bash', 'echo hi')]),
+        [{ type: 'text', delta: 'done' }, { type: 'finish', finishReason: 'stop' }],
+      ]),
+      'test-registry',
+    );
+    const events: Array<Record<string, unknown>> = [];
+    session.setOnEvent((eventJson: string) => {
+      events.push(JSON.parse(eventJson) as Record<string, unknown>);
+    });
+    session.setToolGate((payloadJson: string) => {
+      const payload = JSON.parse(payloadJson) as { requestId: string };
+      session.completeToolGate(payload.requestId, JSON.stringify({ decision: 'allow' }));
+    });
+    const batch = JSON.parse(await session.run()) as {
+      progress: { status: string; outcome?: EngineEventBatch['outcome'] };
+    };
+    expect(batch.progress.outcome?.status).toBe('completed');
+    const bashResult = events.find(
+      (e) => e['type'] === 'tool.result' && e['toolCallId'] === 'call_bash',
+    );
+    expect(bashResult?.['isError']).toBe(false);
+    expect(events.filter((e) => e['type'] === 'tool.progress').length).toBeGreaterThan(0);
+  });
+});

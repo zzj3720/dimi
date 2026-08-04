@@ -84,6 +84,11 @@ const WAIT_FOR_NATIVE_DESCRIPTION = [
   "Prefer AgentOutput for a quick status check; use WaitFor when the turn should pause until the subagent finishes.",
 ].join(" ");
 
+/** Engine-native tools that execute inside Rust (not through the TS
+ *  toolExecutor): the PreToolUse gate and the external-tool registration
+ *  distinguish them from TS-side tools. */
+const ENGINE_NATIVE_TOOLS = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
+
 const WAIT_FOR_NATIVE_PARAMETERS = {
   type: "object",
   properties: {
@@ -537,6 +542,46 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     );
     this.sessions.add(session);
     this.activeSession = session;
+    // A2 (review): native tools (Bash/Agent/…) execute inside the engine,
+    // bypassing the TS toolExecutor — register the PreToolUse gate so
+    // user-configured veto hooks apply to them too. External tools answer
+    // `allow` here (their callback runs its own PreToolUse).
+    session.setToolGate((payloadJson: string) => {
+      void (async () => {
+        const payload = JSON.parse(payloadJson) as {
+          requestId: string;
+          toolName: string;
+          arguments: unknown;
+        };
+        let verdict: { decision: "allow" } | { decision: "block"; reason: string } = {
+          decision: "allow",
+        };
+        try {
+          const hooksRunner = this.instantiation.invokeFunction(
+            (accessor) =>
+              accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+          );
+          if (hooksRunner !== undefined && ENGINE_NATIVE_TOOLS.has(payload.toolName)) {
+            const block = await hooksRunner.triggerBlock("PreToolUse", {
+              matcherValue: payload.toolName,
+              signal: new AbortController().signal,
+              sessionId: this.sessionContext.sessionId,
+              inputData: {
+                toolName: payload.toolName,
+                toolInput: isPlainRecord(payload.arguments) ? payload.arguments : {},
+                toolCallId: `native-${payload.toolName}`,
+              },
+            });
+            if (block !== undefined) {
+              verdict = { decision: "block", reason: block.reason };
+            }
+          }
+        } catch {
+          // Fail-open: no hooks configured / runner unavailable.
+        }
+        session.completeToolGate(payload.requestId, JSON.stringify(verdict));
+      })();
+    });
     try {
       await this.runEngineSession(session, turnId, provider["model"] as string);
     } finally {
@@ -575,7 +620,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // here must NOT escape into `startQueuedTurn`'s `.catch(() => undefined)`
     // (the prompt op is already recorded, so the turn would never end): log
     // it, then skip the tool, or fail the turn for the native-def path.
-    const engineNativeTools = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
+    const engineNativeTools = ENGINE_NATIVE_TOOLS;
     for (const info of this.toolRegistry.list()) {
       try {
         if (engineNativeTools.has(info.name)) {

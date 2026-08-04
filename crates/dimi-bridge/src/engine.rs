@@ -447,6 +447,10 @@ pub struct RustTurnSession {
     /// here so the SAME turn's resumed batch honors them (P1-6 review — TS
     /// session-approval-history reads live; a frozen snapshot would re-ask).
     policy: std::sync::Arc<std::sync::Mutex<PolicyConfig>>,
+    /// Native-tool PreToolUse gate (A2 review): the TS runner vetoes native
+    /// tool calls before they execute, mirroring the TS pipeline the engine
+    /// bypasses.
+    tool_gate: std::sync::Arc<ToolGate>,
     /// TS tool call completions keyed by request id.
     pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     /// Subagent steering queues keyed by agent id.
@@ -494,8 +498,114 @@ impl Drop for RustTurnSession {
     }
 }
 
-/// Mutex-wrapped registry implementing ToolExecutor.
-struct LockedRegistry(std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>);
+/// Native-tool PreToolUse gate (A2 architecture review).
+///
+/// The TS toolExecutor runs PreToolUse hooks (veto) for EVERY tool — native
+/// and external. The Rust engine executes native tools (Bash/Agent/…) inside
+/// the engine, bypassing the TS pipeline, so without a gate a user-configured
+/// command-level veto hook silently never applies to Bash. This bridge lets
+/// the TS runner veto a native call before it executes:
+///
+/// 1. `LockedRegistry::execute` sends a gate request through the callback and
+///    awaits the verdict via a oneshot;
+/// 2. the runner triggers `PreToolUse` and answers `complete_tool_gate`;
+/// 3. a block verdict short-circuits the call with an error result.
+///
+/// The gate applies to every registry call (native + external); the runner
+/// answers `allow` immediately for external tools, which already run their
+/// own PreToolUse inside the external-tool callback.
+#[derive(Default)]
+struct ToolGate {
+    /// TS-side gate callback (fire-and-forget request → `complete_tool_gate`).
+    callback: std::sync::Mutex<Option<ToolCallback>>,
+    /// Pending gate requests awaiting the TS verdict.
+    pending: std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>,
+    >,
+    /// Monotonic gate request id.
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+impl ToolGate {
+    fn request_id(&self) -> String {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("gate-{id}")
+    }
+}
+
+/// Mutex-wrapped registry implementing ToolExecutor, with the native-tool
+/// PreToolUse gate (A2).
+struct LockedRegistry {
+    registry: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+    gate: std::sync::Arc<ToolGate>,
+}
+
+impl LockedRegistry {
+    fn with_gate(
+        registry: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
+        gate: std::sync::Arc<ToolGate>,
+    ) -> Self {
+        Self { registry, gate }
+    }
+
+    /// Ask the TS runner for a PreToolUse verdict; `None` when no gate is
+    /// registered (no hooks configured — allow) or the runner never answers.
+    async fn pre_gate(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+    ) -> Option<dimi_engine::tool::ToolResult> {
+        let request_id = self.gate.request_id();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(request_id.clone(), tx);
+        let payload = serde_json::json!({
+            "requestId": request_id,
+            "toolName": call.name,
+            "arguments": call.arguments,
+        });
+        // The TSFN is not Clone — call while holding the guard (Blocking mode
+        // blocks only until the callback is scheduled, not until it runs).
+        // The guard must not survive the `rx.await` below (std guards are
+        // !Send), so the call happens inside a block that ends before it.
+        {
+            let guard = self.gate.callback.lock().unwrap_or_else(|p| p.into_inner());
+            let Some(callback) = guard.as_ref() else {
+                return None;
+            };
+            let _ = callback.call(payload.to_string(), ThreadsafeFunctionCallMode::Blocking);
+        }
+        match rx.await {
+            Ok(verdict_json) => {
+                let verdict: serde_json::Value =
+                    serde_json::from_str(&verdict_json).unwrap_or(serde_json::json!({ "decision": "allow" }));
+                match verdict.get("decision").and_then(|v| v.as_str()) {
+                    Some("block") => {
+                        let reason = verdict
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Tool was blocked by a PreToolUse hook.")
+                            .to_string();
+                        Some(dimi_engine::tool::ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            output: reason,
+                            is_error: true,
+                            stop_turn: false,
+                            updates: vec![],
+                        })
+                    }
+                    _ => None,
+                }
+            }
+            Err(_) => None,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl ToolExecutor for LockedRegistry {
@@ -504,7 +614,12 @@ impl ToolExecutor for LockedRegistry {
         call: &dimi_engine::tool::ToolCall,
         ctx: &dimi_engine::tool::ToolContext,
     ) -> dimi_engine::tool::ToolResult {
-        let registry = self.0.lock().await;
+        // A2: PreToolUse veto for native tools (the runner answers allow for
+        // external tools, which gate themselves inside their callback).
+        if let Some(blocked) = self.pre_gate(call).await {
+            return blocked;
+        }
+        let registry = self.registry.lock().await;
         registry.execute(call, ctx).await
     }
 
@@ -521,7 +636,7 @@ impl ToolExecutor for LockedRegistry {
     /// switch the tool execution to `tokio::spawn` (a spawned future is not
     /// dropped by the select) without revisiting this.
     fn abort(&self, call: &dimi_engine::tool::ToolCall) {
-        let registry = self.0.try_lock();
+        let registry = self.registry.try_lock();
         if let Ok(registry) = registry {
             registry.abort(call);
         }
@@ -657,6 +772,7 @@ impl RustTurnSession {
                 }
             })),
         );
+        let tool_gate = std::sync::Arc::new(ToolGate::default());
         let tools = std::sync::Arc::new(napi::tokio::sync::Mutex::new(registry));
         {
             let mut registry = tools
@@ -665,7 +781,10 @@ impl RustTurnSession {
             // Subagents execute through the same registry (all registered
             // tools — Bash, external TS tools, and the async tools).
             let subagent_tools: std::sync::Arc<dyn ToolExecutor> =
-                std::sync::Arc::new(LockedRegistry(std::sync::Arc::clone(&tools)));
+                std::sync::Arc::new(LockedRegistry::with_gate(
+                    std::sync::Arc::clone(&tools),
+                    std::sync::Arc::clone(&tool_gate),
+                ));
             // Subagent model parity (TS `resolveSubagentBinding`): when the
             // runner resolved a subagent model that differs from the parent's
             // provider, build a dedicated aimux client for nested turns so
@@ -740,6 +859,7 @@ impl RustTurnSession {
             llm,
             tools,
             policy,
+            tool_gate,
             pending_external: std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
@@ -771,6 +891,30 @@ impl RustTurnSession {
         let mut policy = self.policy.lock().unwrap_or_else(|p| p.into_inner());
         if !policy.session_approved_patterns.contains(&pattern) {
             policy.session_approved_patterns.push(pattern);
+        }
+    }
+
+    /// Register the native-tool PreToolUse gate (A2 review): every registry
+    /// tool call is first announced through this callback
+    /// (`{requestId, toolName, arguments}` JSON); the runner answers with
+    /// `completeToolGate(requestId, {decision:'allow'|'block', reason?})`.
+    /// A block short-circuits the call with an error result.
+    #[napi]
+    pub fn set_tool_gate(&self, callback: ToolCallback) {
+        *self.tool_gate.callback.lock().unwrap_or_else(|p| p.into_inner()) = Some(callback);
+    }
+
+    /// Answer a pending gate request (see `set_tool_gate`).
+    #[napi]
+    pub fn complete_tool_gate(&self, request_id: String, verdict_json: String) {
+        let sender = self
+            .tool_gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&request_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(verdict_json);
         }
     }
 
@@ -900,7 +1044,7 @@ impl RustTurnSession {
             inner
                 .run(
                     self.llm.as_ref(),
-                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
+                    &LockedRegistry::with_gate(std::sync::Arc::clone(&self.tools), std::sync::Arc::clone(&self.tool_gate)),
                     &policy,
                     &mut move |event| {
                         let _ = channel.send(event);
@@ -1051,7 +1195,7 @@ impl RustTurnSession {
                 .resume(
                     decision,
                     self.llm.as_ref(),
-                    &LockedRegistry(std::sync::Arc::clone(&self.tools)),
+                    &LockedRegistry::with_gate(std::sync::Arc::clone(&self.tools), std::sync::Arc::clone(&self.tool_gate)),
                     &policy,
                     &mut move |event| {
                         let _ = channel.send(event);

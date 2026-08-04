@@ -668,6 +668,19 @@ export class RustTurnSession {
     this.#inner.addSessionApproval(pattern);
   }
 
+  /** Register the native-tool PreToolUse gate (A2 review): every registry
+   *  tool call is announced through `callback` (`{requestId, toolName,
+   *  arguments}` JSON); answer with `completeToolGate(requestId,
+   *  {decision:'allow'|'block', reason?})`. A block short-circuits the call. */
+  setToolGate(callback: (payloadJson: string) => void): void {
+    this.#inner.setToolGate(callback);
+  }
+
+  /** Answer a pending gate request (see `setToolGate`). */
+  completeToolGate(requestId: string, verdictJson: string): void {
+    this.#inner.completeToolGate(requestId, verdictJson);
+  }
+
   /** Register a TS-side tool; `completeToolCall` finishes each call. The
    *  definition (description + JSON parameters schema) is advertised to the
    *  model from the next request on. */
@@ -744,6 +757,8 @@ export interface RustTurnSessionHandle {
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
   addSessionApproval(pattern: string): void;
+  setToolGate(callback: (payloadJson: string) => void): void;
+  completeToolGate(requestId: string, verdictJson: string): void;
   registerExternalTool(
     name: string,
     description: string,
