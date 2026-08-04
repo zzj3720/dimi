@@ -562,3 +562,52 @@ impl Component for ToolCallComponent {
         self.render_cache = None;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component::Component;
+    use crate::theme::{DARK_COLORS, set_palette};
+
+    fn ask_user(output: &str, is_error: bool) -> ToolCallComponent {
+        ToolCallComponent::new(
+            ToolCallData {
+                id: "c".into(),
+                name: "AskUserQuestion".into(),
+                args: serde_json::json!({ "questions": [{"question": "Pick one?"}] })
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+                truncated: false,
+            },
+            Some(ToolResultData {
+                tool_call_id: "c".into(),
+                output: output.to_owned(),
+                is_error,
+            }),
+        )
+    }
+
+    #[test]
+    fn ask_user_answered_renders_qa_lines() {
+        set_palette(DARK_COLORS);
+        let mut c = ask_user(r#"{"answers":{"Pick one?":"Rust"}}"#, false);
+        let lines = c.render(80);
+        let joined = lines.join("\n");
+        assert!(joined.contains("Q"), "should show Q marker: {joined}");
+        assert!(
+            joined.contains("Pick one?"),
+            "should show question: {joined}"
+        );
+        assert!(joined.contains("Rust"), "should show answer: {joined}");
+    }
+
+    #[test]
+    fn ask_user_dismissed_renders_note() {
+        set_palette(DARK_COLORS);
+        let mut c = ask_user(r#"{"answers":{}}"#, false);
+        let lines = c.render(80);
+        let joined = lines.join("\n");
+        assert!(joined.contains("User dismissed the question."), "{joined}");
+    }
+}

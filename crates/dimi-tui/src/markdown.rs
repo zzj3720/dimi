@@ -214,8 +214,10 @@ impl Markdown {
                     lines.push(String::new());
                 }
             }
-            NodeValue::Text(_) => {
-                lines.push(self.render_inline_children(node, ctx));
+            NodeValue::Text(t) => {
+                // A bare text block (marked emits top-level text tokens; comrak
+                // normally nests them in paragraphs, but render defensively).
+                lines.push(self.apply_fn(&ctx.apply, t.as_ref()));
             }
             NodeValue::CodeBlock(cb) => {
                 let indent = self.theme.code_block_indent().to_owned();

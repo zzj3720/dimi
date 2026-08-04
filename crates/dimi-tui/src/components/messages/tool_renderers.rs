@@ -131,12 +131,16 @@ pub fn pick_chip(tool_name: &str, tool_call: &ToolCallData, result: &ToolResultD
             let mut count = 0usize;
             for line in &lines {
                 let t = line.trim_start();
-                let after_digits = t.trim_start_matches(|c: char| c.is_ascii_digit());
-                if after_digits != t
-                    && (after_digits.starts_with(". ") || after_digits.starts_with(") "))
-                    || after_digits.starts_with("- ")
-                    || after_digits.starts_with("* ")
-                {
+                // TS regex: /^\s*(\d+\.|[-*])\s+/ — digits + "." or "-"/"*"
+                // followed by whitespace.
+                let rest = t.trim_start_matches(|c: char| c.is_ascii_digit());
+                let after_digits = rest != t;
+                let numbered = after_digits
+                    && rest.starts_with('.')
+                    && rest[1..].chars().next().is_some_and(|c| c.is_whitespace());
+                let bullet = (t.starts_with('-') || t.starts_with('*'))
+                    && t[1..].chars().next().is_some_and(|c| c.is_whitespace());
+                if numbered || bullet {
                     count += 1;
                 }
             }
@@ -390,4 +394,47 @@ fn path_from_grep_line(line: &str) -> String {
         return line.to_owned();
     };
     line[..idx + 1 + second].to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{DARK_COLORS, set_palette};
+
+    fn websearch_result(output: &str) -> ToolResultData {
+        ToolResultData {
+            tool_call_id: "c".into(),
+            output: output.to_owned(),
+            is_error: false,
+        }
+    }
+
+    fn call(query: &str) -> ToolCallData {
+        ToolCallData {
+            id: "c".into(),
+            name: "WebSearch".into(),
+            args: serde_json::json!({ "query": query })
+                .as_object()
+                .cloned()
+                .unwrap(),
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn websearch_chip_counts_list_items_only() {
+        set_palette(DARK_COLORS);
+        // Matches: numbered list items and dash/star bullets.
+        let r = websearch_result("1. first\n2. second\n- third");
+        assert_eq!(pick_chip("WebSearch", &call("q"), &r), "3 results");
+        // "10) ten" is NOT a match (TS regex requires \d+\. or [-*]).
+        let r = websearch_result("10) ten\n7) seven");
+        assert_eq!(pick_chip("WebSearch", &call("q"), &r), "web result");
+        // Empty → no results.
+        let r = websearch_result("");
+        assert_eq!(pick_chip("WebSearch", &call("q"), &r), "no results");
+        // Plain prose → web result.
+        let r = websearch_result("Search results...");
+        assert_eq!(pick_chip("WebSearch", &call("q"), &r), "web result");
+    }
 }
