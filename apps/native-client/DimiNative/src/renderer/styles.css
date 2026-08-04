@@ -180,18 +180,10 @@ body {
   font-family: inherit;
   font-size: 0.95em;
 }
-.md pre {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--text-muted);
-  border-radius: 0;
-  padding: 4px 8px;
-  margin: 4px 0;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.md pre code { color: var(--text); font-size: 0.95em; }
+/* Fenced code blocks render their ``` fences as literal textMuted lines
+   (TUI codeBlockBorder), content in text colour. */
+.md-code-border { color: var(--text-muted); white-space: pre-wrap; }
+.md-code { color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
   color: var(--text);
   font-weight: 700;
@@ -200,12 +192,12 @@ body {
 }
 .md a { color: var(--primary); text-decoration: none; }
 .md a .md-url { color: var(--text-muted); }
-.md blockquote {
+/* Blockquote: `│ ` textDim prefix per line (TUI quoteBorder). */
+.md .md-quote {
   color: var(--text-dim);
-  border-left: 1px solid var(--text-dim);
-  padding-left: 6px;
   margin: 2px 0;
 }
+.md .md-quote::before { content: '│ '; }
 .md hr {
   border: none;
   border-top: 1px solid var(--border);
@@ -219,54 +211,93 @@ body {
 .md ol li { counter-increment: md-ol; }
 .md ol li::before { content: counter(md-ol) '.'; }
 
-/* ---------------- composer ---------------- */
+/* ---------------- composer (TUI-style bordered editor) ---------------- */
+/* Mirrors CustomEditor + wrapWithSideBorders: a full box drawn with
+   ╭─╮ │ > content │ ╰─╯. Border colour: border (default), shellMode in
+   bash mode (with a `! shell mode` top-border label), primary when the
+   editor is highlighted (plan mode). */
 .composer {
   position: relative;
   background: var(--surface);
-  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
-.composer-row {
+.editor-frame { margin: 8px 10px 0; }
+.editor-top, .editor-bottom {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 8px 12px;
+  align-items: center;
+  color: var(--border);
+  line-height: 1;
+  user-select: none;
 }
-.prompt-token {
+.editor-top .fill { flex: 1; border-top: 1px solid var(--border); height: 0; }
+.editor-bottom .fill { flex: 1; border-bottom: 1px solid var(--border); height: 0; }
+.editor-top .corner, .editor-bottom .corner { color: var(--border); }
+.editor-label {
+  color: var(--shell-mode);
   font-weight: 700;
-  color: var(--primary);
-  font-size: 14px;
-  line-height: 20px;
-  padding-bottom: 2px;
+  font-size: 12px;
+  padding: 0 4px 0 2px;
+}
+.editor-row { display: flex; align-items: center; color: var(--border); }
+.editor-row .bar { color: var(--border); flex-shrink: 0; user-select: none; }
+.prompt-token {
   flex-shrink: 0;
+  margin: 0 1ch 0 1ch;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 20px;
 }
 .input {
   flex: 1;
   resize: none;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: var(--bg);
+  border: none;
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 13px;
   line-height: 20px;
-  padding: 6px 10px;
+  padding: 4px 0;
   max-height: 160px;
   outline: none;
 }
-.input:focus { border-color: var(--primary); }
-.composer-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.input::placeholder { color: var(--text-muted); }
+
+/* Bash mode: whole frame turns shellMode violet, prompt becomes `!`, and
+   the top border carries the `! shell mode` label. */
+.editor-frame.bash .corner, .editor-frame.bash .bar { color: var(--shell-mode); }
+.editor-frame.bash .fill { border-color: var(--shell-mode); }
+.editor-frame.bash .prompt-token { color: var(--shell-mode); }
+
+/* Plan-mode highlight: frame turns primary. */
+.editor-frame.plan .corner, .editor-frame.plan .bar { color: var(--primary); }
+.editor-frame.plan .fill { border-color: var(--primary); }
+.editor-frame.plan .prompt-token { color: var(--primary); }
+
 .queued-count { color: var(--text-muted); font-size: 11px; }
 
-.footer-line {
+/* ---------------- footer (2-line TUI status bar) ---------------- */
+/* Line 1: mode badges + model + cwd + git, tips on the right (textMuted).
+   Line 2: transient hint (warning bold, left) + context readout (right). */
+.footer-line1, .footer-line2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px 6px;
-  border-top: 1px solid var(--border);
+  padding: 2px 12px;
+  min-height: 20px;
 }
-.hint { color: var(--warning); font-size: 11px; }
-.footer-right { color: var(--text-muted); font-size: 11px; }
+.footer-line1 { padding-top: 6px; }
+.footer-status { display: flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.footer-status .mode-badge { font-weight: 700; }
+.footer-status .mode-auto, .footer-status .mode-yolo { color: var(--warning); font-weight: 700; }
+.footer-status .mode-plan { color: var(--primary); font-weight: 700; }
+.footer-status .mode-swarm { color: var(--accent); font-weight: 700; }
+.footer-status .footer-model { color: var(--text); }
+.footer-status .footer-cwd { color: var(--text-dim); }
+.footer-status .footer-git { color: var(--text-dim); }
+.footer-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.footer-tips { color: var(--text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hint { color: var(--warning); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.footer-context { color: var(--text); font-size: 12px; white-space: nowrap; }
 
 /* ---------------- completion popup ---------------- */
 /* Mirrors the TUI editor selectList: highlighted row = `❯` prefix + value in

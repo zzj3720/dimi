@@ -367,7 +367,7 @@ window.addEventListener('dimi:msg', (evt) => {
   }
   if (msg.type === 'settings_set_permission') {
     api('POST', `/api/v1/config`, { default_permission_mode: msg.mode })
-      .then(() => { model.statusMsg = `permission mode → ${msg.mode}`; render(); })
+      .then(() => { model.permissionMode = msg.mode; model.statusMsg = `permission mode → ${msg.mode}`; render(); })
       .catch((e) => { model.statusMsg = `permission failed: ${e.message}`; render(); });
     return;
   }
@@ -460,6 +460,17 @@ export async function connectSession(sessionId) {
   }
   subscribeSse(sessionId);
   fetchStatus(sessionId);
+
+  // Footer chrome data: cwd from the session record; model from its profile
+  // (only when present — fetchStatus already fills it from /status).
+  const s = model.sessions.find((x) => x.id === sessionId);
+  model.currentCwd = s?.metadata?.cwd ?? s?.cwd ?? '';
+  try {
+    const prof = await api('GET', `/api/v1/sessions/${sessionId}`);
+    const m = prof?.data?.agent_config?.model;
+    if (m) model.modelName = m;
+  } catch { /* non-fatal */ }
+  render();
 }
 
 export async function fetchStatus(sessionId) {
@@ -469,9 +480,28 @@ export async function fetchStatus(sessionId) {
     if (st) {
       model.busy = !!st.busy;
       model.phase = st.busy ? 'streaming' : 'idle';
+      // Footer chrome: model label, permission mode, context readout
+      // (TUI footer.ts; status endpoint uses snake_case).
+      if (st.model) model.modelName = st.model;
+      if (st.permission) model.permissionMode = st.permission;
+      if (typeof st.plan_mode === 'boolean') model.planMode = st.plan_mode;
+      if (typeof st.context_tokens === 'number' && typeof st.max_context_tokens === 'number') {
+        const max = st.max_context_tokens;
+        const pct = max > 0 ? Math.round((st.context_tokens / max) * 100) : 0;
+        model.footerContext = `context: ${pct}% (${fmtK(st.context_tokens)}/${fmtK(max)})`;
+      }
       render();
     }
   } catch { /* non-fatal */ }
+}
+
+// TUI formatTokenCount: 1024-based, `12.3k` style.
+function fmtK(n) {
+  if (n >= 1024) {
+    const v = n / 1024;
+    return (v >= 10 ? String(Math.round(v)) : v.toFixed(1)) + 'k';
+  }
+  return String(n);
 }
 
 export function subscribeSse(sessionId) {
@@ -676,21 +706,21 @@ function runSlashCommand(resolved) {
         return;
       }
       api('POST', `/api/v1/config`, { default_permission_mode: mode })
-        .then(() => { model.statusMsg = `permission mode → ${mode}`; render(); })
+        .then(() => { model.permissionMode = mode; model.statusMsg = `permission mode → ${mode}`; render(); })
         .catch((e) => { model.statusMsg = `permission failed: ${e.message}`; render(); });
       break;
     }
     case 'yolo': {
       const on = resolved.args !== 'off';
       api('POST', `/api/v1/config`, { yolo: on })
-        .then(() => { model.statusMsg = `yolo ${on ? 'on' : 'off'}`; render(); })
+        .then(() => { model.permissionMode = on ? 'yolo' : 'manual'; model.statusMsg = `yolo ${on ? 'on' : 'off'}`; render(); })
         .catch((e) => { model.statusMsg = `yolo failed: ${e.message}`; render(); });
       break;
     }
     case 'auto': {
       const on = resolved.args !== 'off';
       api('POST', `/api/v1/config`, { default_permission_mode: on ? 'auto' : 'manual' })
-        .then(() => { model.statusMsg = `auto ${on ? 'on' : 'off'}`; render(); })
+        .then(() => { model.permissionMode = on ? 'auto' : 'manual'; model.statusMsg = `auto ${on ? 'on' : 'off'}`; render(); })
         .catch((e) => { model.statusMsg = `auto failed: ${e.message}`; render(); });
       break;
     }

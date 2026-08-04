@@ -14,6 +14,8 @@ const els = {
   transcript: $('#transcript'),
   input: $('#input'),
   promptToken: $('#prompt-token'),
+  editorFrame: $('#editor-frame'),
+  editorLabel: $('#editor-label'),
   queuedCount: $('#queued-count'),
   btnSteer: $('#btn-steer'),
   btnQueue: $('#btn-queue'),
@@ -22,7 +24,9 @@ const els = {
   btnSessions: $('#btn-sessions'),
   btnRefresh: $('#btn-refresh'),
   hint: $('#hint'),
-  footerRight: $('#footer-right'),
+  footerStatus: $('#footer-status'),
+  footerTips: $('#footer-tips'),
+  footerContext: $('#footer-context'),
   completion: $('#completion'),
   dialogRoot: $('#dialog-root'),
 };
@@ -36,6 +40,7 @@ export function render() {
   renderHeader();
   renderTranscript();
   renderComposer();
+  renderFooter();
   renderCompletion();
   renderDialogs();
 }
@@ -114,7 +119,9 @@ function renderTranscript() {
         render();
       });
     } else if (e.kind === 'tool') {
-      // TUI ToolCallComponent header: bullet (state colour) + verb + bold primary name.
+      // TUI ToolCallComponent header: bullet (state colour) + verb + bold
+      // primary name. Bash renders a fixed label like the TUI: "Running a
+      // command" / "Ran a command".
       const done = !!e.text && e.text.length > 0;
       const expanded = expandedTools.has(e.toolCallId);
       row.className = 'entry entry-tool clickable';
@@ -126,10 +133,22 @@ function renderTranscript() {
       body.className = 'body tool';
       const name = document.createElement('span');
       name.className = 'tool-name';
-      name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
+      if (e.toolName === 'Bash') {
+        name.textContent = done ? 'Ran a command' : 'Running a command';
+      } else {
+        name.textContent = `${done ? 'Used' : 'Using'} ${e.toolName ?? 'tool'}`;
+      }
       body.appendChild(name);
       row.appendChild(role);
       row.appendChild(body);
+      if (e.args) {
+        // Command echo `$ <cmd>` (shellMode), mirroring the TUI body.
+        const cmd = document.createElement('div');
+        cmd.className = 'body tool';
+        cmd.style.color = 'var(--shell-mode)';
+        cmd.textContent = '$ ' + e.args;
+        row.appendChild(cmd);
+      }
       if (done && e.text) {
         // Output preview (TUI RESULT_PREVIEW_LINES = 3), click to expand.
         const out = document.createElement('div');
@@ -164,8 +183,15 @@ function renderTranscript() {
 
 function renderComposer() {
   const bash = isBashDraft(model.draft);
+  // TUI editor: `>` prompt (terminal fg) / `!` in bash mode; the whole frame
+  // is shellMode violet in bash, primary when plan mode is active (the TUI
+  // highlights the editor border for plan mode / slash context).
   els.promptToken.textContent = bash ? '!' : '>';
-  els.promptToken.style.color = bash ? 'var(--shell-mode)' : 'var(--primary)';
+  els.promptToken.className = 'prompt-token';
+  els.editorFrame.classList.toggle('bash', bash);
+  els.editorFrame.classList.toggle('plan', model.planMode);
+  els.editorLabel.classList.toggle('hidden', !bash);
+  if (bash) els.editorLabel.textContent = '! shell mode';
 
   // Only touch the textarea value when it differs (keeps the native IME
   // composition and caret undisturbed).
@@ -173,9 +199,6 @@ function renderComposer() {
 
   const canSend = model.draft.trim().length > 0 && !!model.currentSessionId;
   els.btnSend.disabled = !canSend;
-  // Send button stays visible (TUI always shows submit); only disabled when
-  // there is nothing to send.
-  els.btnSend.classList.remove('hidden');
 
   const busyActions = model.busy;
   els.btnSteer.classList.toggle('hidden', !busyActions);
@@ -188,8 +211,48 @@ function renderComposer() {
 
   els.queuedCount.classList.toggle('hidden', model.queued.length === 0);
   if (model.queued.length > 0) els.queuedCount.textContent = `${model.queued.length} queued`;
+}
 
-  // Footer hint (TUI queue-pane adaptive hint).
+// TUI FooterComponent: line 1 = mode badges + model + cwd (+ git) with tips
+// on the right; line 2 = transient hint (left) + context readout (right).
+function renderFooter() {
+  const status = els.footerStatus;
+  status.textContent = '';
+
+  // Mode badges (footer.ts buildSlots): auto/yolo warning bold, plan primary,
+  // swarm accent. Manual mode renders no badge.
+  const modes = [];
+  if (model.permissionMode === 'auto') modes.push(['auto', 'mode-auto']);
+  else if (model.permissionMode === 'yolo') modes.push(['yolo', 'mode-yolo']);
+  if (model.planMode) modes.push(['plan', 'mode-plan']);
+  for (const [label, cls] of modes) {
+    const b = document.createElement('span');
+    b.className = `mode-badge ${cls}`;
+    b.textContent = label;
+    status.appendChild(b);
+  }
+
+  // Model label (text colour).
+  const modelName = model.modelName ?? model.displayMode ?? '';
+  if (modelName) {
+    const m = document.createElement('span');
+    m.className = 'footer-model';
+    m.textContent = modelName;
+    status.appendChild(m);
+  }
+
+  // CWD (textDim), like shortenCwd in footer.ts.
+  const cwd = model.currentCwd ?? window.dimiCwd ?? '';
+  if (cwd) {
+    const c = document.createElement('span');
+    c.className = 'footer-cwd';
+    c.textContent = shortenCwd(cwd);
+    status.appendChild(c);
+  }
+
+  els.footerTips.textContent = model.footerTips ?? '';
+
+  // Line 2 hint (TUI queue-pane adaptive hint + footer transient hint).
   let hint = '';
   if (model.phase === 'compacting' && !model.busy) {
     hint = '↑ to edit · will send after compaction';
@@ -202,9 +265,14 @@ function renderComposer() {
   }
   els.hint.textContent = hint;
 
-  els.footerRight.textContent = model.currentSessionId
-    ? `${model.entryCount} messages · ${model.displayMode}`
-    : '';
+  els.footerContext.textContent = model.footerContext ?? '';
+}
+
+function shortenCwd(path) {
+  if (!path) return path;
+  const segments = path.split('/').filter((s) => s.length > 0);
+  if (segments.length <= 3) return path;
+  return '…/' + segments.slice(-3).join('/');
 }
 
 function renderCompletion() {
@@ -824,21 +892,30 @@ function renderMarkdownInto(container, text) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Fenced code block.
+    // Fenced code block. The TUI renders the fence as literal ``` lines in
+    // textMuted (pi-tui codeBlockBorder), not a CSS box — match that.
     if (/^```/.test(trimmed)) {
       flushPara();
       const buf = [];
+      const lang = trimmed.slice(3).trim();
       i++;
       while (i < lines.length && !/^```/.test(lines[i].trim())) {
         buf.push(lines[i]);
         i++;
       }
       i++; // closing fence
-      const pre = document.createElement('pre');
-      const code = document.createElement('code');
+      const open = document.createElement('div');
+      open.className = 'md-code-border';
+      open.textContent = '```' + lang; // TUI renders the fence as ```lang, no space
+      container.appendChild(open);
+      const code = document.createElement('div');
+      code.className = 'md-code';
       code.textContent = buf.join('\n');
-      pre.appendChild(code);
-      container.appendChild(pre);
+      container.appendChild(code);
+      const close = document.createElement('div');
+      close.className = 'md-code-border';
+      close.textContent = '```';
+      container.appendChild(close);
       continue;
     }
 
@@ -871,6 +948,7 @@ function renderMarkdownInto(container, text) {
         i++;
       }
       const bq = document.createElement('blockquote');
+      bq.className = 'md-quote';
       const p = document.createElement('p');
       renderInline(p, buf.join(' '));
       bq.appendChild(p);

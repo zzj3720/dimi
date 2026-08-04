@@ -44,6 +44,11 @@ export const model = {
   busy: false,
   phase: 'idle', // idle | streaming | shell | compacting
   planMode: false,
+  permissionMode: 'manual', // manual | auto | yolo (footer mode badges)
+  modelName: '',            // footer model label
+  currentCwd: '',           // footer cwd
+  footerTips: '/init: generate AGENTS.md | @: mention files', // footer line-1 tips (textMuted)
+  footerContext: '',        // footer line-2 right context readout
   queued: [], // { text, mode }
   busyInputMode: DefaultBusyInputMode,
   draft: '',
@@ -691,6 +696,11 @@ export function handleSseEvent(state, evt) {
         kind: 'tool',
         toolName: p.toolName ?? p.name ?? 'tool',
         toolCallId: p.toolCallId ?? p.id ?? '',
+        args: typeof p.toolInput === 'string' ? p.toolInput
+          : typeof p.tool_input === 'string' ? p.tool_input
+          : typeof p.arguments === 'string' ? p.arguments
+          : (p.toolInput ?? p.tool_input ?? p.args) ? JSON.stringify(p.toolInput ?? p.tool_input ?? p.args)
+          : '',
         text: '',
         streaming: false,
       });
