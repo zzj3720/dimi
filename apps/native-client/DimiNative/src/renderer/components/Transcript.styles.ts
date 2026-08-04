@@ -54,6 +54,39 @@ export const bodyCompaction = css({ color: colors.textMuted, fontSize: font.chat
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
 export const clickable = css({ cursor: 'pointer' });
 
+// Hover action buttons on messages (Codex: copy / retry etc.)
+export const entryActions = css({
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  display: 'flex',
+  gap: 2,
+  opacity: 0,
+  transition: 'opacity 0.12s ease',
+  zIndex: 5,
+});
+
+export const entryHasActions = css({
+  position: 'relative',
+  [`&:hover .${entryActions}`]: { opacity: 1 },
+});
+
+export const entryActionBtn = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 24,
+  height: 24,
+  padding: 4,
+  border: `1px solid ${colors.border}`,
+  borderRadius: 8,
+  background: colors.surface2,
+  color: colors.textDim,
+  cursor: 'pointer',
+  '&:hover': { color: colors.text, background: colors.hoverStrong },
+  '& svg': { width: 14, height: 14 },
+});
+
 export const entryUser = css({ '& .body': { color: colors.text, lineHeight: '21px' } });
 export const entryAssistant = css({ '& .body': { color: colors.text } });
 export const entryThinking = css({ '& .body': { color: colors.textDim, fontSize: font.chat } });

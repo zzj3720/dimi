@@ -6,7 +6,8 @@ import type { Entry } from '../store';
 import { dispatch } from '../api';
 import { renderMarkdown } from '../markdown';
 import {
-  transcript, thread, entry, entrySameTurn, bodyMuted, bodyTool, bodyThinking, bodyCompaction,
+  transcript, thread, entry, entrySameTurn, entryHasActions, entryActions, entryActionBtn,
+  bodyMuted, bodyTool, bodyThinking, bodyCompaction,
   toolName, clickable, entryUser, entryAssistant, entryThinking, entryTool, entryStatus,
   reasoningTitle, welcome, welcomeH1, suggestions, suggestionCard, welcomeModels,
   welcomeModelsTitle, modelRow, modelName, modelLevel, md,
@@ -85,6 +86,13 @@ function thinkingPreview(e: Entry): { text: string; hint: string | null } {
 function shellCmd(args: string): string {
   return '$ ' + args;
 }
+
+function copyEntry(e: Entry): void {
+  const text = e.text ?? '';
+  void navigator.clipboard.writeText(text).catch(() => {
+    /* clipboard unavailable */
+  });
+}
 </script>
 
 <template>
@@ -110,9 +118,17 @@ function shellCmd(args: string): string {
         :class="[
           entry,
           i > 0 && isSameTurn(state.entries[i - 1], e) ? entrySameTurn : null,
+          e.kind === 'user' || e.kind === 'assistant' ? entryHasActions : null,
           e.kind === 'user' ? entryUser : e.kind === 'assistant' ? entryAssistant : e.kind === 'thinking' ? entryThinking : e.kind === 'tool' ? entryTool : entryStatus,
         ]"
       >
+        <!-- hover actions: copy -->
+        <div v-if="e.kind === 'user' || e.kind === 'assistant'" :class="entryActions">
+          <button :class="entryActionBtn" title="Copy" @click.stop="copyEntry(e)">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 4.5V3.5a1 1 0 0 0-1-1h-5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+        </div>
+
         <!-- user -->
         <div v-if="e.kind === 'user'" class="body">{{ e.text }}</div>
 
