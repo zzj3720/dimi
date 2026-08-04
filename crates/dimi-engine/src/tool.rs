@@ -321,7 +321,12 @@ impl ToolExecutor for BashTool {
             }
         };
 
-        let cwd = args.cwd.as_deref().unwrap_or(&ctx.cwd);
+        // An explicit empty `cwd` is invalid (spawn would fail with ENOENT);
+        // fall back to the context cwd, mirroring the engine tool_ctx guard.
+        let cwd = match args.cwd.as_deref() {
+            Some(cwd) if !cwd.is_empty() => cwd,
+            _ => ctx.cwd.as_str(),
+        };
         // TS `spawn`: `cd ${shellQuote(shellCwd)} && ${command}`.
         let script = format!("cd {} && {}", shell_quote(cwd), args.command);
         // TS bashTool builds noninteractiveEnv over process.env; dimi-exec's
@@ -929,6 +934,55 @@ mod tests {
             .await;
         assert!(!result.is_error, "output: {}", result.output);
         assert!(result.output.contains("hello"), "output: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn bash_tool_runs_with_bash_in_real_cwd() {
+        // Regression probe: the production ToolContext uses `default_shell()`
+        // (bash on macOS) and a real workspace cwd, not `/bin/sh` + temp.
+        let tool = BashTool::default();
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_1".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "echo hello"}),
+                },
+                &ToolContext {
+                    cwd: "/Users/zuozijian/projects/k-3720".to_string(),
+                    shell: "/bin/bash".to_string(),
+                    tool_calls: vec![],
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(result.output.contains("hello"), "output: {}", result.output);
+    }
+
+    #[tokio::test]
+    async fn bash_tool_falls_back_when_explicit_cwd_is_empty() {
+        // Regression: an explicit empty `cwd` ("" — e.g. a profile whose
+        // session cwd resolved to empty) used to spawn with
+        // `current_dir("")`, which fails with ENOENT
+        // ("No such file or directory (os error 2)") — every Bash call
+        // failed. The empty string must fall back to the context cwd.
+        let tool = BashTool::default();
+        let result = tool
+            .execute(
+                &ToolCall {
+                    id: "call_1".to_string(),
+                    name: "Bash".to_string(),
+                    arguments: serde_json::json!({"command": "echo empty-cwd-ok", "cwd": ""}),
+                },
+                &ToolContext {
+                    cwd: std::env::temp_dir().to_string_lossy().to_string(),
+                    shell: "/bin/sh".to_string(),
+                    tool_calls: vec![],
+                },
+            )
+            .await;
+        assert!(!result.is_error, "output: {}", result.output);
+        assert!(result.output.contains("empty-cwd-ok"), "output: {}", result.output);
     }
 
     #[tokio::test]

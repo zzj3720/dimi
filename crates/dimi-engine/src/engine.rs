@@ -668,7 +668,13 @@ impl TurnSession {
 
     fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
         ToolContext {
-            cwd: self.input.cwd.clone().unwrap_or_else(|| ".".to_string()),
+            // An empty `cwd` (e.g. a profile with no session cwd resolved)
+            // would spawn with `current_dir("")` → ENOENT; fall back to the
+            // spawn default (the engine process cwd via `"."`).
+            cwd: match self.input.cwd.as_deref() {
+                Some(cwd) if !cwd.is_empty() => cwd.to_string(),
+                _ => ".".to_string(),
+            },
             shell: self
                 .input
                 .shell
@@ -1806,6 +1812,23 @@ mod tests {
             );
             assert!(matches!(parsed.unwrap(), aimux_core::tool::Tool::Function(_)));
         }
+    }
+
+    #[test]
+    fn tool_ctx_falls_back_when_input_cwd_is_empty() {
+        // Regression: an empty `input.cwd` ("") — a profile whose session
+        // cwd resolved to empty — flowed into ToolContext unchanged, and the
+        // Bash tool spawned with `current_dir("")` → ENOENT on every call.
+        // The tool context must fall back to "." so the shell runs in the
+        // engine process cwd.
+        let mut session = TurnSession::new(input(vec![]));
+        session.input.cwd = Some(String::new());
+        let ctx = session.tool_ctx(&[]);
+        assert_eq!(ctx.cwd, ".");
+        // A real cwd passes through untouched.
+        session.input.cwd = Some("/workspace".to_string());
+        let ctx = session.tool_ctx(&[]);
+        assert_eq!(ctx.cwd, "/workspace");
     }
 
     #[tokio::test]

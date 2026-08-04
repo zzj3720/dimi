@@ -612,7 +612,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         minSteps: COMPLETION_REVIEW_MIN_STEPS,
         reminder: COMPLETION_REVIEW_REMINDER,
       },
-      cwd: this.profile.data().cwd ?? process.cwd(),
+      cwd: this.profile.data().cwd || process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
       // `/usr/local/bin/bash` → `/bin/sh`), matching the TS bash tool's
