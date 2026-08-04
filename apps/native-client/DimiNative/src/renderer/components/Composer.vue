@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Codex-style composer: 25px capsule + completion popup + bottom toolbar.
 // Keyboard handling mirrors the old main.js editor bindings.
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, computed } from 'vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention } from '../api';
 import {
@@ -11,6 +11,15 @@ import {
   btn, btnGhost,
 } from './Composer.styles';
 import { spacer } from '../styles/global';
+
+// Codex shows a short model name in the composer pill (e.g. "5.6 Terra"),
+// not the full provider/model ref.
+const shortModelName = computed(() => {
+  const m = state.modelName || '';
+  if (!m) return '模型';
+  const last = m.split('/').pop() ?? m;
+  return last.length > 24 ? last.slice(0, 22) + '…' : last;
+});
 
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
@@ -285,7 +294,7 @@ function steerMode(mode: 'steer' | 'queue'): void {
           <button :class="composerBtn" title="Settings" @click="dispatch(Msg.SettingsOpen())">⚙</button>
         </div>
         <div :class="composerRight">
-          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ state.modelName || '模型' }}</span>
+          <span :class="modelPill" @click="dispatch(Msg.SettingsOpen())">{{ shortModelName }}</span>
           <button
             :class="sendBtn"
             :disabled="!state.draft.trim() || !state.currentSessionId"
