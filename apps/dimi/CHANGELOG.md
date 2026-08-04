@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.6.14
+
+### Patch Changes
+
+- [`39c1140`](https://github.com/zzj3720/dimi/commit/39c1140ff1583dea0b1c5af580d69f03299c1fc4) - Surface silent turn-start failures: a RustTurnSession constructor error (e.g. a missing native binding after a rebuild) was swallowed by the turn runner's `catch(() => undefined)`, leaving the UI waiting forever with the user message recorded but no turn running. The failure is now logged through the runner's error log instead of vanishing.
+
+- [`1b0bbc0`](https://github.com/zzj3720/dimi/commit/1b0bbc07b88578b41963fc1b179c58d4d103aaf6) - Fix subagent tasks (Agent tool) completing instantly without doing any work: the tool definitions advertised to the nested subagent LLM were snapshotted at session construction, when the tool registry is still empty (TS hands an empty `tools` array and the bridge re-syncs the defs before every run/resume). The snapshot stayed empty forever, so subagent requests carried no tools and the model fell back to fabricated call formats (DSML), "completing" with 0 tool executions. Subagent tool defs are now read from a shared cell that every run/resume re-sync writes.
+
 ## 0.6.13
 
 ### Patch Changes
