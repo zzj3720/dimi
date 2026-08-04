@@ -2291,4 +2291,60 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(started.length).toBeGreaterThan(0);
     expect(started[0]!['origin']).toMatchObject({ kind: 'task', taskId: 'task_1' });
   });
+
+  it('filters tools by the profile activeToolNames (TS isToolActive parity)', async () => {
+    // The runner registers only ACTIVE tools with the engine. A tool the
+    // model calls but that is filtered out must not resolve — the engine
+    // answers `Tool "X" not found` instead of executing it.
+    const stubTool = (name: string): ExecutableTool => ({
+      name,
+      description: 'filter target',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async () => ({ output: `${name} executed`, isError: false }),
+      }),
+    });
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_inactive',
+          name: 'StubInactive',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after inactive' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(stubTool('StubActive'));
+    ctx.get(IAgentToolRegistryService).register(stubTool('StubInactive'));
+    ctx.get(IAgentProfileService).update({ activeToolNames: ['StubActive'] });
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'call filtered tool' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after inactive')),
+      'post-filtered reply',
+    );
+    const toolText = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .filter((message) => message.role === 'tool')
+      .map((message) => JSON.stringify(message.content))
+      .join('');
+    // The filtered tool was never registered → the engine rejects the call.
+    expect(toolText).toContain('not found');
+    expect(toolText).not.toContain('StubInactive executed');
+  });
 });

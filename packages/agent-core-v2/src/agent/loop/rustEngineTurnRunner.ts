@@ -63,6 +63,7 @@ import {
   fullCompactionComplete,
 } from "#/agent/fullCompaction/compactionOps";
 import {
+  ALL_DONE_TOOL_NAME,
   COMPLETION_REVIEW_MIN_STEPS,
   COMPLETION_REVIEW_REMINDER,
 } from "#/agent/completion/completion";
@@ -655,7 +656,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     // (the prompt op is already recorded, so the turn would never end): log
     // it, then skip the tool, or fail the turn for the native-def path.
     const engineNativeTools = ENGINE_NATIVE_TOOLS;
+    // TS `isToolActive` parity (profile allowlist/denylist): only active
+    // tools are exposed to the model. AllDone is always active (the
+    // completion-review protocol needs it). The engine's hardcoded Bash def
+    // is filtered engine-side by the same allowlist (see `active_tools`).
+    const profileData = this.profile.data();
+    const activeToolNames = profileData.activeToolNames;
+    const disallowedTools = profileData.disallowedTools;
+    const isToolActiveForRunner = (name: string): boolean => {
+      if (name === ALL_DONE_TOOL_NAME) return true;
+      if (activeToolNames !== undefined && !activeToolNames.includes(name)) return false;
+      if (disallowedTools !== undefined && disallowedTools.includes(name)) return false;
+      return true;
+    };
     for (const info of this.toolRegistry.list()) {
+      if (!isToolActiveForRunner(info.name)) continue;
       try {
         if (engineNativeTools.has(info.name)) {
           // The Rust-native tools (Agent / AgentOutput / WaitFor) are
