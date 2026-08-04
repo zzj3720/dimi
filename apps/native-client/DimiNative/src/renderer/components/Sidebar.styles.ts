@@ -451,6 +451,10 @@ export const sessionItem = css({
     justifyContent: 'center',
   },
   '& .s-title': { flex: 1, minWidth: 0, ...fadeTruncate },
+  // 24px right spacer (Codex shrink-0 group-hover:hidden): non-hover rows
+  // reserve space that the hover actions replace on hover.
+  '& .sb-row-spacer': { width: 24, flexShrink: 0 },
+  '&:hover .sb-row-spacer': { display: 'none' },
   // inner span is what marquees inside the masked viewport
   '& .sb-title-inner': {
     display: 'inline-block',
