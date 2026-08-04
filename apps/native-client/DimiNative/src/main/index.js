@@ -22,7 +22,12 @@ function createWindow() {
     minWidth: 640,
     minHeight: 400,
     title: 'Dimi Client',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: '#141414', // matches the renderer app background (was #1e1e1e → gray flash on resize)
+    // Codex-style hidden title bar: the macOS traffic lights float over the
+    // custom 46px header, which owns -webkit-app-region:drag + an 88px safe
+    // left inset (HeaderBar.styles.ts) exactly like the codex shell.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 17 }, // vertically centered in the 46px header
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
