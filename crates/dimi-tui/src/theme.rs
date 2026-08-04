@@ -228,6 +228,18 @@ impl Theme {
         StyleChain::new(vec![self.fg_style(token), BOLD]).apply(text)
     }
 
+    /// `chalk.bold.hex(token)(text)` — bold opens *before* the colour.
+    ///
+    /// Some TS components call `chalk.bold.hex(...)` directly instead of
+    /// `currentTheme.boldFg(...)`; chalk applies styles in chain order, so
+    /// this variant emits `\x1b[1m` before the `38;2` colour and closes in
+    /// reverse. Used by `welcome.ts`, `diff-preview.ts`, and the markdown
+    /// heading theme — do not "normalise" it back to [`bold_fg`].
+    pub fn bold_hex(&self, token: ColorToken, text: &str) -> String {
+        use crate::style::{BOLD, StyleChain};
+        StyleChain::new(vec![BOLD, self.fg_style(token)]).apply(text)
+    }
+
     /// `chalk.hex(token).dim(text)`.
     pub fn dim_fg(&self, token: ColorToken, text: &str) -> String {
         use crate::style::{DIM, StyleChain};
@@ -338,6 +350,11 @@ mod tests {
         assert_eq!(
             theme.bold_fg(ColorToken::RoleUser, "x"),
             "\x1b[38;2;255;203;107m\x1b[1mx\x1b[22m\x1b[39m"
+        );
+        // chalk.bold.hex('#4FA8FF')('x') — bold opens before the colour.
+        assert_eq!(
+            theme.bold_hex(ColorToken::Primary, "x"),
+            "\x1b[1m\x1b[38;2;79;168;255mx\x1b[39m\x1b[22m"
         );
         // chalk.dim('x')
         assert_eq!(theme.dim("x"), "\x1b[2mx\x1b[22m");

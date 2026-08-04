@@ -216,7 +216,7 @@ impl TruncatedOutputComponent {
     }
 
     fn render_hint(&self, width: usize, hint: &str) -> String {
-        let indent_width = self.indent.min(width.max(0));
+        let indent_width = self.indent.min(width);
         let hint_width = width.saturating_sub(indent_width);
         format!(
             "{}{}",

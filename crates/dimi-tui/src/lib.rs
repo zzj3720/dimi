@@ -18,6 +18,7 @@
 //!    replace the `apps/dimi` TUI entry.
 
 pub mod ansi;
+pub mod chrome;
 pub mod commands;
 pub mod component;
 pub mod components;
@@ -25,9 +26,11 @@ pub mod container;
 pub mod custom_editor;
 pub mod editor;
 pub mod footer;
+pub mod fuzzy;
 pub mod keys;
 pub mod markdown;
 pub mod markdown_theme;
+pub mod paging;
 pub mod process_terminal;
 pub mod select_list;
 pub mod stdin_buffer;

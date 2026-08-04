@@ -137,7 +137,7 @@ impl Component for ThinkingComponent {
                 let mut truncated = lines[..1 + THINKING_PREVIEW_LINES].to_vec();
                 let remaining = content_lines.len() - THINKING_PREVIEW_LINES;
                 let hint = format!("... ({remaining} more lines, ctrl+o to expand)");
-                let indent_width = MESSAGE_INDENT.len().min(width.max(0));
+                let indent_width = MESSAGE_INDENT.len().min(width);
                 let hint_width = width.saturating_sub(indent_width);
                 truncated.push(format!(
                     "{}{}",
