@@ -748,6 +748,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               turnId: 0,
               toolCallId,
               signal,
+              onUpdate: (update) => {
+                if (signal.aborted) return;
+                // TS `dispatchToolProgress` parity: stream live tool
+                // updates as `tool.progress` bus events.
+                this.eventBus.publish({
+                  type: "tool.progress",
+                  turnId,
+                  toolCallId,
+                  update,
+                } as never);
+              },
             });
             // P1-7 (review): truncate oversized tool results for the model
             // (TS toolResultTruncation parity). The engine feeds the raw
@@ -864,8 +875,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     //    assistant + tool messages, so the runner never appends messages by
     //    hand (that produced duplicated/placeholder history).
     let stepUuid: string | undefined;
-    let openText = "";
-    let openThinking = "";
+    // Streamed parts are recorded in arrival order (TS `appendResponseContent`
+    // iterates the provider message content in stream order): consecutive
+    // deltas of the same type merge into one part, a type change opens a new
+    // part — never reordered into a merged think-before-text pair.
+    type OpenSegment = { type: "think"; text: string } | { type: "text"; text: string };
+    const segments: OpenSegment[] = [];
     let usage = emptyUsage();
 
     const publish = (event: Record<string, unknown>): void => {
@@ -874,16 +889,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     };
 
     const flushParts = (turnId: number, step: number): void => {
-      const parts: ContentPart[] = [];
-      if (openThinking.length > 0) {
-        parts.push({ type: "think", think: openThinking });
-        openThinking = "";
-      }
-      if (openText.length > 0) {
-        parts.push({ type: "text", text: openText });
-        openText = "";
-      }
-      for (const part of parts) {
+      for (const segment of segments.splice(0)) {
+        const part: ContentPart =
+          segment.type === "think"
+            ? { type: "think", think: segment.text }
+            : { type: "text", text: segment.text };
         this.context.appendLoopEvent({
           type: "content.part",
           stepUuid: stepUuid!,
@@ -964,11 +974,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "thinking.delta": {
-          openThinking += toText(event["delta"]);
+          const last = segments[segments.length - 1];
+          if (last?.type === "think") {
+            last.text += toText(event["delta"]);
+          } else {
+            segments.push({ type: "think", text: toText(event["delta"]) });
+          }
           break;
         }
         case "assistant.delta": {
-          openText += toText(event["delta"]);
+          const last = segments[segments.length - 1];
+          if (last?.type === "text") {
+            last.text += toText(event["delta"]);
+          } else {
+            segments.push({ type: "text", text: toText(event["delta"]) });
+          }
           break;
         }
         case "tool.call.delta": {
@@ -1029,7 +1049,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const stepNumber = Number(event["step"] ?? 1);
           flushParts(turnId, stepNumber);
           // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
-          // four-component TokenUsage + wire usage.record.
+          // four-component TokenUsage + wire usage.record. Per-step parity:
+          // every step.end carries THIS step's LLM usage (TS
+          // llmRequesterService starts each request at emptyUsage), so a
+          // step without recorded tokens gets zeros — never the previous
+          // step's numbers carried forward.
           const engineUsage = event["usage"] as
             | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
             | undefined;
@@ -1041,12 +1065,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               inputCacheRead,
               inputCacheCreation: 0,
             };
-            this.usageService.record(
-              providerModel,
-              usage,
-              { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
-            );
+          } else {
+            usage = emptyUsage();
           }
+          this.usageService.record(
+            providerModel,
+            usage,
+            { kind: "loop", turnId: String(turnId), step: stepNumber } as never,
+          );
           this.context.appendLoopEvent({
             type: "step.end",
             uuid: stepUuid!,
@@ -1059,11 +1085,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         }
         case "turn.ended": {
           // Failed turns surface the error bus event (TS failLoopStep
-          // parity) so error handlers/subscribers see it.
+          // parity) so error handlers/subscribers see it. TS routes the
+          // error through `toDimiErrorPayload`, which always carries the
+          // error class `name`; the engine payload is `{ message, code }` —
+          // fill `name` from the code when missing.
           if (event["reason"] === "failed" && event["error"] !== undefined) {
+            const rawError = event["error"] as Record<string, unknown>;
+            const error = { ...rawError };
+            if (error["name"] === undefined || error["name"] === null) {
+              error["name"] =
+                error["code"] === "PROVIDER_FILTERED" ? "ProviderFilteredError" : "Error";
+            }
             this.eventBus.publish({
               type: "error",
-              ...(event["error"] as Record<string, unknown>),
+              ...error,
             } as never);
           }
           break;

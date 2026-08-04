@@ -18,12 +18,15 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TaskModel } from '#/agent/task/taskOps';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
 import {
   agentService,
   configServices,
   createTestAgent,
+  InMemoryWireRecordPersistence,
   logServices,
   permissionModeServices,
   type TestAgentContext,
@@ -1906,5 +1909,179 @@ describe('Rust engine approval flow (manual mode)', () => {
     // did not silently accept it — and the sibling Bash call still ran.
     expect(text).toContain('AllDone must be the only tool call in its round.');
     expect(text).toContain('mixed-ok');
+  });
+
+  it('records per-step usage: a usage-less step gets zeros, not the previous step (TS parity)', async () => {
+    // TS `finishStep` writes the CURRENT LLM response's usage on every
+    // step.end (llmRequesterService starts each request at emptyUsage), so a
+    // step with no engine usage must NOT carry the previous step's numbers
+    // forward. Step 1 reports 100 prompt / 50 completion; step 2 reports none.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_usage',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo usage"}',
+        },
+        { type: 'usage', promptTokens: 100, completionTokens: 50 },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'usage done' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    const persistence = new InMemoryWireRecordPersistence();
+    ctx = createTestAgent([permissionModeServices('auto')], { persistence });
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'measure usage' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) => messages.filter((message) => message.role === 'assistant').length >= 2,
+      'two assistant messages',
+    );
+    const stepEnds = persistence.records.filter(
+      (record) =>
+        record.type === 'context.append_loop_event' &&
+        (record as { event?: { type?: string } }).event?.type === 'step.end',
+    ) as unknown as Array<{
+      event: {
+        type: 'step.end';
+        step: number;
+        usage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
+      };
+    }>;
+    expect(stepEnds).toHaveLength(2);
+    // Step 1: the engine's usage (100 prompt / 50 completion) converted to
+    // the four-component TS shape.
+    expect(stepEnds[0]!.event.usage).toEqual({
+      inputOther: 100,
+      output: 50,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+    // Step 2: no engine usage → zeros (never the previous step's numbers).
+    expect(stepEnds[1]!.event.usage).toEqual({
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+  });
+
+  it('records streamed parts in stream order, not merged think-before-text (TS parity)', async () => {
+    // TS `appendResponseContent` iterates the provider message content in
+    // arrival order — [text, think, text] stays [text, think, text]. The
+    // runner must not reorder deltas into a merged think-then-text pair.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'first text' },
+        { type: 'thinking', delta: 'middle think' },
+        { type: 'text', delta: 'last text' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'interleave' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) => messages.some((message) => message.role === 'assistant'),
+      'assistant message',
+    );
+    const assistant = ctx
+      .get(IAgentContextMemoryService)
+      .get()
+      .find((message) => message.role === 'assistant')!;
+    const parts = assistant.content.filter(
+      (part) => part.type === 'text' || part.type === 'think',
+    );
+    expect(
+      parts.map((part) =>
+        part.type === 'text'
+          ? `text:${(part as { text?: string }).text}`
+          : `think:${(part as { think?: string }).think}`,
+      ),
+    ).toEqual(['text:first text', 'think:middle think', 'text:last text']);
+  });
+
+  it('publishes a failed-turn error with a name (TS toDimiErrorPayload parity)', async () => {
+    // TS `turn.ended` failed errors go through `toDimiErrorPayload`, which
+    // always carries the error class name. The engine payload is
+    // `{ message, code }` — the runner must fill `name` before publishing.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'error', message: 'provider exploded' }],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const errors: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'error') {
+        errors.push(event as Record<string, unknown>);
+      }
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'fail me' }] });
+    for (let i = 0; i < 600 && errors.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!['message']).toBe('provider exploded');
+    expect(errors[0]!['name']).toBeDefined();
+  });
+
+  it('streams external-tool updates as tool.progress (TS dispatchToolProgress parity)', async () => {
+    const stubTool: ExecutableTool = {
+      name: 'StubProgress',
+      description: 'emits progress updates',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async ({ onUpdate }) => {
+          onUpdate?.({ kind: 'progress', text: 'halfway' });
+          onUpdate?.({ kind: 'status', text: 'finished' });
+          return { output: 'stub done', isError: false };
+        },
+      }),
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_progress',
+          name: 'StubProgress',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after progress' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(stubTool);
+    ctx.get(IAgentLoopService);
+    const progress: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'tool.progress') {
+        progress.push(event as Record<string, unknown>);
+      }
+    });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run progress tool' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after progress')),
+      'post-progress reply',
+    );
+    expect(progress.length).toBeGreaterThanOrEqual(2);
+    expect(progress[0]!['toolCallId']).toBe('call_progress');
+    expect(progress[0]!['update']).toMatchObject({ kind: 'progress', text: 'halfway' });
+    expect(progress[1]!['update']).toMatchObject({ kind: 'status', text: 'finished' });
   });
 });
