@@ -164,6 +164,29 @@ function toText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value) ?? "";
 }
 
+/**
+ * Serialize a TS `PromptOrigin` into the wire `TurnOrigin` JSON shape the
+ * engine deserializes (`{ kind: 'user' }` / `{ kind: 'task', taskId }` /
+ * … — see `dimi-wire` `model.rs`). Unknown kinds fall back to a plain user
+ * origin (the wire default).
+ */
+function toEngineTurnOrigin(origin: PromptOrigin): Record<string, unknown> {
+  switch (origin.kind) {
+    case "task":
+      return { kind: "task", taskId: origin.taskId };
+    case "cron_job":
+      return { kind: "cron", taskId: origin.jobId };
+    case "cron_missed":
+      return { kind: "cron" };
+    case "hook_result":
+      return { kind: "hook" };
+    case "compaction_summary":
+      return { kind: "compaction" };
+    default:
+      return { kind: "user" };
+  }
+}
+
 /** Optional numeric engine field (pid / exitCode). */
 function toOptionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -475,7 +498,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   }): void {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
-    void this.runTurnNow(entry.turnId)
+    void this.runTurnNow(entry.turnId, entry.payload.origin)
       .catch(() => undefined)
       .finally(() => {
         this.turnRunning = false;
@@ -493,7 +516,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       });
   }
 
-  private async runTurnNow(turnId: number): Promise<{ readonly turnId: number }> {
+  private async runTurnNow(turnId: number, origin: PromptOrigin): Promise<{ readonly turnId: number }> {
     if (this.disposed) return { turnId };
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
@@ -507,6 +530,11 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     const provider = await this.providerConfig();
     const inputJson = JSON.stringify({
       turnId,
+      origin: toEngineTurnOrigin(origin),
+      // TS `usesWorkerRejectionGuidance` parity: subagent/worker turns append
+      // the "Try a different approach…" suffix to permission-deny and
+      // approval-rejected tool outputs (toolApprovalService.ts).
+      usesWorkerRejectionGuidance: this.scopeContext.agentId !== 'main',
       messages,
       tools: [],
       provider,

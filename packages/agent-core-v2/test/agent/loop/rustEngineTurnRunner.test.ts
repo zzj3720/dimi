@@ -2249,4 +2249,46 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(context).toContain('vetoed by test hook');
     expect(context).toContain('StubAllow ran');
   });
+
+  it('passes the turn origin through to the engine turn.started (TS parity)', async () => {
+    // The runner serializes the prompt origin into the wire `TurnOrigin`
+    // shape and the engine echoes it on `turn.started` — task-origin
+    // notification turns must not arrive as plain user turns.
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [{ type: 'text', delta: 'task turn reply' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const started: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'turn.started') {
+        started.push(event as Record<string, unknown>);
+      }
+    });
+    const runner = ctx.get(IRustEngineTurnRunner);
+    const launched = await runner.runTurn({
+      input: [{ type: 'text', text: 'task notification' }],
+      origin: {
+        kind: 'task',
+        taskId: 'task_1',
+        status: 'completed',
+        notificationId: 'task_1:completed',
+      },
+    });
+    expect(launched).toBeDefined();
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('task turn reply')),
+      'task turn reply',
+    );
+    expect(started.length).toBeGreaterThan(0);
+    expect(started[0]!['origin']).toMatchObject({ kind: 'task', taskId: 'task_1' });
+  });
 });

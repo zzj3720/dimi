@@ -18,7 +18,9 @@
 
 use std::time::Instant;
 
-use dimi_wire::model::{TranscriptUsage, TurnOrigin};
+use dimi_wire::model::TranscriptUsage;
+#[cfg(test)]
+use dimi_wire::model::TurnOrigin;
 
 use crate::events::{EngineEvent, FinishReason};
 use crate::llm::{ChatRequest, LlmClient, LlmStreamEvent};
@@ -144,6 +146,15 @@ impl UsageAccumulator {
 /// `TOOL_INTERRUPTED_TEXT`).
 const TOOL_INTERRUPTED_TEXT: &str =
     "Tool result is not available in the current context. Do not assume the tool completed successfully.";
+
+/// The rejection-guidance suffix TS appends to deny / approval-rejection
+/// messages for subagent/worker turns (`toolApprovalService.ts`
+/// `formatDenyMessage` / `formatApprovalRejectionMessage` when
+/// `scopeContext.agentId !== 'main'`). Byte-for-byte parity (leading space
+/// and em-dash included — the suffix is appended directly after the base
+/// message with no separator).
+const WORKER_REJECTION_GUIDANCE_SUFFIX: &str =
+    " Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
 
 /// Close unresolved tool exchanges in a message list before sending it to the
 /// summarizer: an assistant message whose tool_calls never got a result would
@@ -425,7 +436,7 @@ impl TurnSession {
         // loop is re-entered after an approval resume, and a second
         // `turn.started` would corrupt the transcript (P2-3 review fix).
         let turn_id = self.input.turn_id;
-        let origin = TurnOrigin::User { payload: None };
+        let origin = self.input.origin.clone();
         let prompt = last_user_text(&self.input.messages);
         emit(
             on_event,
@@ -525,19 +536,22 @@ impl TurnSession {
                 // once per call (P2-2 review — TS toolExecutorService
                 // dispatch parity).
                 emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                // TS `formatApprovalRejectionMessage` parity: worker turns
+                // append the rejection-guidance suffix to the message.
+                let output = self.worker_rejection_output(match feedback {
+                    Some(reason) if !reason.is_empty() => format!(
+                        "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
+                        pending.call.name, reason
+                    ),
+                    _ => format!(
+                        "Tool \"{}\" was not run because the user rejected the approval request.",
+                        pending.call.name
+                    ),
+                });
                 ToolResult {
                     tool_call_id: pending.call.id.clone(),
                     tool_name: pending.call.name.clone(),
-                    output: match feedback {
-                        Some(reason) if !reason.is_empty() => format!(
-                            "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
-                            pending.call.name, reason
-                        ),
-                        _ => format!(
-                            "Tool \"{}\" was not run because the user rejected the approval request.",
-                            pending.call.name
-                        ),
-                    },
+                    output,
                     is_error: true,
                     stop_turn: false,
                     updates: vec![],
@@ -545,13 +559,16 @@ impl TurnSession {
             }
             ApprovalDecision::Cancelled => {
                 emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                // The TS `formatApprovalRejectionMessage` prefix for a
+                // cancelled decision also carries the worker guidance suffix.
+                let output = self.worker_rejection_output(format!(
+                    "Tool \"{}\" was not run because the approval request was cancelled.",
+                    pending.call.name
+                ));
                 ToolResult {
                     tool_call_id: pending.call.id.clone(),
                     tool_name: pending.call.name.clone(),
-                    output: format!(
-                        "Tool \"{}\" was not run because the approval request was cancelled.",
-                        pending.call.name
-                    ),
+                    output,
                     is_error: true,
                     stop_turn: false,
                     updates: vec![],
@@ -654,6 +671,19 @@ impl TurnSession {
                 .clone()
                 .unwrap_or_else(dimi_exec::env::default_shell),
             tool_calls: calls.to_vec(),
+        }
+    }
+
+    /// Append the worker rejection-guidance suffix when the input requests it
+    /// (TS `usesWorkerRejectionGuidance` parity — `scopeContext.agentId !==
+    /// 'main'`): the runner sets `uses_worker_rejection_guidance` for
+    /// subagent/worker turns, and the deny / approval-rejection tool outputs
+    /// then carry the same suffix TS appends for the model/user.
+    fn worker_rejection_output(&self, output: String) -> String {
+        if self.input.uses_worker_rejection_guidance {
+            format!("{output}{WORKER_REJECTION_GUIDANCE_SUFFIX}")
+        } else {
+            output
         }
     }
 
@@ -766,10 +796,13 @@ impl TurnSession {
                     // The call still happened (the fold's tool.result needs
                     // the tool.call record).
                     emit_tool_call_started(call, turn_id, on_event);
+                    // TS `formatDenyMessage` parity: worker turns append the
+                    // rejection-guidance suffix to the deny message.
+                    let output = self.worker_rejection_output(reason);
                     let result = ToolResult {
                         tool_call_id: call.id.clone(),
                         tool_name: call.name.clone(),
-                        output: reason,
+                        output,
                         is_error: true,
                         stop_turn: false,
                         updates: vec![],
@@ -1648,6 +1681,8 @@ mod tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         }
     }
 
@@ -1731,6 +1766,91 @@ mod tests {
         // turn.ended reason completed.
         let ended = serde_json::to_value(&events[5]).unwrap();
         assert_eq!(ended["reason"], "completed");
+    }
+
+    #[tokio::test]
+    async fn turn_started_carries_the_input_origin() {
+        // TS parity: `turn.started` carries the input's `origin`
+        // (PromptOrigin); the default is a user-origin turn.
+        let engine = Engine::default();
+        let llm = ScriptedLlmClient::once(vec![
+            LlmStreamEvent::Text {
+                delta: "hi".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        let __bash = crate::tool::BashTool::default();
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+
+        // Custom origin: the event carries it verbatim.
+        let mut custom_input = input(vec![user_message("hi")]);
+        custom_input.origin = TurnOrigin::Task {
+            task_id: dimi_wire::id::TaskId::new_unchecked("task-1".to_string()),
+            payload: None,
+        };
+        let mut events = Vec::new();
+        engine
+            .run_turn(
+                &custom_input,
+                &llm,
+                &__bash,
+                &policy,
+                &mut |event| events.push(event),
+            )
+            .await;
+        let started = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(started["type"], "turn.started");
+        assert_eq!(started["origin"]["kind"], "task");
+        assert_eq!(started["origin"]["taskId"], "task-1");
+
+        // Default input: a user-origin turn.
+        let mut events = Vec::new();
+        engine
+            .run_turn(
+                &input(vec![user_message("hi")]),
+                &llm,
+                &__bash,
+                &policy,
+                &mut |event| events.push(event),
+            )
+            .await;
+        let started = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(started["origin"]["kind"], "user");
+        assert!(started["origin"].get("payload").is_none());
+    }
+
+    #[test]
+    fn input_json_parses_optional_origin_and_worker_guidance() {
+        // The bridge deserializes `EngineTurnInput` straight from the
+        // runner's JSON: absent fields fall back to a user origin + no worker
+        // guidance, and the `{kind: 'task', taskId}` shape (TS PromptOrigin,
+        // `TurnOrigin`'s serde in dimi-wire) is accepted — this pins the
+        // contract the runner will send through `RustTurnSession`.
+        let base = r#"{
+            "turnId": 1,
+            "messages": [],
+            "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" }
+        }"#;
+        let input: EngineTurnInput = serde_json::from_str(base).unwrap();
+        assert_eq!(input.origin, TurnOrigin::User { payload: None });
+        assert!(!input.uses_worker_rejection_guidance);
+
+        let custom: EngineTurnInput = serde_json::from_str(r#"{
+            "turnId": 2,
+            "messages": [],
+            "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" },
+            "origin": { "kind": "task", "taskId": "agent-1" },
+            "usesWorkerRejectionGuidance": true
+        }"#)
+        .unwrap();
+        assert!(matches!(custom.origin, TurnOrigin::Task { .. }));
+        assert!(custom.uses_worker_rejection_guidance);
     }
 
     #[tokio::test]
@@ -1983,6 +2103,8 @@ mod window_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2085,6 +2207,8 @@ mod steer_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2231,6 +2355,8 @@ mod completion_review_tests {
                 min_steps,
                 reminder,
             }),
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         }
     }
 
@@ -2618,6 +2744,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2747,6 +2875,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2839,6 +2969,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -2915,6 +3047,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3042,6 +3176,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3170,6 +3306,8 @@ mod compaction_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3266,6 +3404,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3364,6 +3504,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3467,6 +3609,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: Some(3),
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3566,6 +3710,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3679,6 +3825,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3763,6 +3911,8 @@ mod cancel_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         };
         let policy = crate::permission::PolicyConfig {
             mode: crate::permission::PermissionMode::Auto,
@@ -3931,6 +4081,8 @@ mod approval_batch_tests {
             max_running_tasks: None,
             max_retries_per_step: None,
             completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         }
     }
 
@@ -3959,6 +4111,37 @@ mod approval_batch_tests {
             LlmStreamEvent::Finish {
                 finish_reason: Some("tool_calls".to_string()),
             },
+        ]
+    }
+
+    /// One final text step ("done") — the deny / rejection flows need a
+    /// second LLM step after the tool result to end the turn.
+    fn done_segment() -> Vec<LlmStreamEvent> {
+        vec![
+            LlmStreamEvent::Text {
+                delta: "done".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]
+    }
+
+    /// One Bash tool-call step followed by a done step — used twice (two
+    /// sessions, with and without the worker-guidance flag).
+    fn bash_then_done_segments() -> Vec<Vec<LlmStreamEvent>> {
+        vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            done_segment(),
         ]
     }
 
@@ -4097,6 +4280,34 @@ mod approval_batch_tests {
                 )
             })
             .count()
+    }
+
+    /// The `ToolResult` event's output for a call id (panics when missing).
+    fn result_output(events: &[EngineEvent], call_id: &str) -> String {
+        events
+            .iter()
+            .find_map(|e| match e {
+                EngineEvent::ToolResult { tool_call_id, output, .. } if tool_call_id == call_id => {
+                    Some(output.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no tool.result for {call_id} in {events:?}"))
+    }
+
+    /// A manual-mode policy that denies `Bash` outright (user-configured
+    /// deny rule with a reason — the `PolicyDecision::Deny` path).
+    fn deny_policy() -> PolicyConfig {
+        PolicyConfig {
+            mode: PermissionMode::Manual,
+            rules: vec![crate::permission::PermissionRule {
+                decision: crate::permission::RuleDecision::Deny,
+                scope: "user".to_string(),
+                pattern: "Bash".to_string(),
+                reason: Some("no bash".to_string()),
+            }],
+            session_approved_patterns: vec![],
+        }
     }
 
     #[tokio::test]
@@ -4408,6 +4619,126 @@ mod approval_batch_tests {
             *executor.executed.lock().unwrap(),
             vec!["call_read".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn deny_output_appends_worker_guidance_when_requested() {
+        // TS `formatDenyMessage` parity: with `uses_worker_rejection_guidance`
+        // (subagent/worker turns) the permission-deny tool output carries the
+        // guidance suffix; without it the deny message is unchanged.
+        // Two sessions, each consuming a Bash-call step + a done step.
+        let llm = ScriptedLlmClient::new([
+            bash_then_done_segments(),
+            bash_then_done_segments(),
+        ].concat());
+        let executor = RecordingToolExecutor::new(vec![]);
+        let base = "Tool \"Bash\" was denied by permission rule. Reason: no bash";
+
+        // Worker guidance on: the suffix is appended (leading space, exact TS
+        // text).
+        let mut session = TurnSession::new(input(vec![msg("user", "run")]));
+        session.input.uses_worker_rejection_guidance = true;
+        let mut events = Vec::new();
+        let progress = session
+            .run(&llm, &executor, &deny_policy(), &mut |event| events.push(event))
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(
+            result_output(&events, "call_bash"),
+            format!("{base}{WORKER_REJECTION_GUIDANCE_SUFFIX}"),
+            "events: {events:?}"
+        );
+
+        // Guidance off: the deny message is unchanged.
+        let mut session = TurnSession::new(input(vec![msg("user", "run")]));
+        session.input.uses_worker_rejection_guidance = false;
+        let mut events = Vec::new();
+        let progress = session
+            .run(&llm, &executor, &deny_policy(), &mut |event| events.push(event))
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(result_output(&events, "call_bash"), base);
+    }
+
+    #[tokio::test]
+    async fn rejected_resume_appends_worker_guidance_when_requested() {
+        // TS `formatApprovalRejectionMessage` parity: a rejected approval
+        // carries the guidance suffix for worker turns (with feedback, the
+        // suffix lands after ` Reason: …`, exactly like TS) and stays
+        // unchanged otherwise.
+        // Two sessions, each consuming the approval batch + a done step.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            done_segment(),
+            batch_segment(),
+            done_segment(),
+        ]);
+        let executor = RecordingToolExecutor::new(vec![result(
+            "call_read",
+            "Read",
+            "read output",
+            false,
+        )]);
+        let base =
+            "Tool \"Bash\" was not run because the user rejected the approval request. Reason: no thanks";
+
+        // Worker guidance on: suffix appended after ` Reason: no thanks`.
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        session.input.uses_worker_rejection_guidance = true;
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(
+            result_output(&events, "call_bash"),
+            format!("{base}{WORKER_REJECTION_GUIDANCE_SUFFIX}"),
+            "events: {events:?}"
+        );
+
+        // Guidance off: the rejection message is unchanged.
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        session.input.uses_worker_rejection_guidance = false;
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Rejected {
+                    feedback: Some("no thanks".to_string()),
+                },
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(result_output(&events, "call_bash"), base);
     }
 
     #[tokio::test]

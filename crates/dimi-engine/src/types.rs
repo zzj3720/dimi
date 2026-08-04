@@ -8,6 +8,15 @@
 
 use serde::{Deserialize, Serialize};
 
+use dimi_wire::model::TurnOrigin;
+
+/// Serde default for `EngineTurnInput.origin`: a missing/absent field is a
+/// plain user-origin turn (TS `PromptOrigin` default), so existing callers
+/// and tests keep working unchanged.
+fn default_turn_origin() -> TurnOrigin {
+    TurnOrigin::User { payload: None }
+}
+
 /// One LLM chat message — the OpenAI-compatible wire shape the TS side
 /// assembles from its context (roles: system/user/assistant/tool).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,6 +185,20 @@ pub struct EngineTurnInput {
     /// profiles; short turns below the threshold are unaffected).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_review: Option<CompletionReviewConfig>,
+    /// How the turn was opened (TS `PromptOrigin` parity): `turn.started`
+    /// carries it verbatim. Absent = `TurnOrigin::User { payload: None }`
+    /// (the runner sends `{kind: 'user'}` / `{kind: 'task', taskId}` — the
+    /// `TurnOrigin` serde shape in `dimi-wire`).
+    #[serde(default = "default_turn_origin")]
+    pub origin: TurnOrigin,
+    /// Subagent/worker rejection guidance (TS `scopeContext.agentId !==
+    /// 'main'` parity): when true, permission-deny and approval-rejected
+    /// tool-result outputs append the "Try a different approach — …" suffix
+    /// (`toolApprovalService.ts` `formatDenyMessage` /
+    /// `formatApprovalRejectionMessage`). The runner sets it for non-main
+    /// agents. Absent = `false`.
+    #[serde(default)]
+    pub uses_worker_rejection_guidance: bool,
 }
 
 /// Why the turn ended (mirrors `TurnEndReason` in turnEvents.ts).
