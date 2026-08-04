@@ -1663,6 +1663,63 @@ describe('Rust engine approval flow (manual mode)', () => {
     expect(toolText).toContain('ask-ok');
   });
 
+  it('auto-approves the same tool later in the turn after a session-scope approval', async () => {
+    // P1-6 (review): approving a tool for the session must be honored by the
+    // SAME turn — the resumed batch's second call to the same tool runs
+    // without a second approval request (TS session-approval-history reads
+    // live; the engine's frozen policy is updated via addSessionApproval).
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_ask_1',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo one"}',
+        },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_ask_2',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo two"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        { type: 'text', delta: 'session approved done' },
+        { type: 'finish', finishReason: 'stop' },
+      ],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+
+    const approvalPromise = ctx.takeApprovalRequest();
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'run session' }] });
+
+    const approval = await approvalPromise;
+    approval.respond({ decision: 'approved', scope: 'session' });
+    await promptPromise;
+
+    // Both batch calls ran — the second was auto-approved by the session
+    // pattern (if it re-asked, promptPromise would never resolve).
+    await waitForContext(
+      ctx,
+      (messages) => messages.filter((m) => m.role === 'tool').length >= 2,
+      'two tool messages',
+    );
+    const context = ctx.get(IAgentContextMemoryService).get();
+    const toolMessages = context.filter((message) => message.role === 'tool');
+    expect(toolMessages.length).toBe(2);
+    const text = toolMessages
+      .flatMap((m) =>
+        (m.content ?? [])
+          .filter((part) => part.type === 'text')
+          .map((part) => (part as { text?: string }).text ?? ''),
+      )
+      .join('');
+    expect(text).toContain('one');
+    expect(text).toContain('two');
+  });
+
   it('denies the tool when the approval is rejected', async () => {
     ctx = createTestAgent();
     ctx.get(IAgentLoopService);

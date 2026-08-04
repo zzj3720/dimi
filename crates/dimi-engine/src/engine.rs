@@ -218,7 +218,7 @@ impl Engine {
                     TurnProgress::Completed(outcome) => outcome,
                     TurnProgress::NeedsApproval(_) => {
                         // Another approval surfaced — deny it too, then finish.
-                        session
+                        match session
                             .resume(
                                 ApprovalDecision::Rejected { feedback: None },
                                 llm,
@@ -227,7 +227,19 @@ impl Engine {
                                 on_event,
                             )
                             .await
-                            .into_completed_or_failed()
+                        {
+                            TurnProgress::Completed(outcome) => outcome,
+                            // A third approval surfaced — fail with the
+                            // session's real step count (P2-12 review: a
+                            // hardcoded 0 under-reported progress).
+                            TurnProgress::NeedsApproval(_) => TurnOutcome {
+                                status: TurnEndReason::Failed,
+                                steps: session.steps,
+                                error: Some("approval pending without a resolver".to_string()),
+                                error_code: Some("APPROVAL_PENDING".to_string()),
+                                truncated: None,
+                            },
+                        }
                     }
                 }
             }
@@ -363,22 +375,6 @@ pub enum TurnProgress {
     NeedsApproval(ApprovalRequest),
 }
 
-impl TurnProgress {
-    /// Non-interactive fallback: collapse any state into an outcome.
-    pub fn into_completed_or_failed(self) -> TurnOutcome {
-        match self {
-            TurnProgress::Completed(outcome) => outcome,
-            TurnProgress::NeedsApproval(_) => TurnOutcome {
-                status: TurnEndReason::Failed,
-                steps: 0,
-                error: Some("approval pending without a resolver".to_string()),
-                error_code: Some("APPROVAL_PENDING".to_string()),
-                truncated: None,
-            },
-        }
-    }
-}
-
 impl TurnSession {
     pub fn new(input: EngineTurnInput) -> Self {
         Self::with_steer(input, None)
@@ -475,6 +471,13 @@ impl TurnSession {
                 truncated: None,
             });
         };
+        // P1-5 (review): the user already cancelled while the approval was
+        // pending (TaskStop / session close) — do not execute the pending
+        // call, continue the batch, or re-ask. Finish cancelled immediately
+        // (TS parity: the step signal aborts the whole step).
+        if self.cancel.is_cancelled() {
+            return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
+        }
         let pending_step = pending.step;
         let pending_usage = pending.usage.clone();
         let result = match decision {
@@ -663,6 +666,17 @@ impl TurnSession {
     ) -> Result<bool, TurnProgress> {
         let mut stop_turn = false;
         for (index, call) in calls.iter().enumerate().skip(start) {
+            // P1-5 (review): a cancel arriving between siblings stops the
+            // batch instead of executing the rest or surfacing another
+            // approval request after the user already cancelled.
+            if self.cancel.is_cancelled() {
+                return Err(self.finish_turn_with_error(
+                    TurnEndReason::Cancelled,
+                    None,
+                    None,
+                    on_event,
+                ));
+            }
             let input = PolicyInput {
                 mode: policy.mode,
                 tool_name: call.name.clone(),
@@ -674,6 +688,8 @@ impl TurnSession {
                     .get("command")
                     .and_then(|v| v.as_str())
                     .map(str::to_owned),
+                cwd: self.input.cwd.clone(),
+                paths: crate::permission::extract_access_paths(&call.name, &call.arguments),
             };
             match evaluate(&input) {
                 PolicyDecision::Approve => {
@@ -793,9 +809,10 @@ impl TurnSession {
             let skipped = ToolResult {
                 tool_call_id: sibling.id.clone(),
                 tool_name: sibling.name.clone(),
-                output:
-                    "Tool was not run because a previous tool in the same round stopped the turn."
-                        .to_string(),
+                // P2-5 (review): byte-for-byte TS `prepareSkippedToolCall`
+                // output — the text is fed to the LLM, so divergence would
+                // show up in model-visible behavior.
+                output: "Tool skipped because a previous tool call stopped the turn.".to_string(),
                 is_error: true,
                 stop_turn: false,
                 updates: vec![],
@@ -937,21 +954,13 @@ impl TurnSession {
                 return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
             }
 
-            // max-steps guard.
+            // max-steps guard. TS parity: the guard fires before a step
+            // begins (`runtime.current` is undefined), so TS never emits
+            // `turn.step.interrupted` for it — emitting one would overwrite
+            // the already-completed step's state on the transcript. The turn
+            // ends failed via `turn.ended` alone.
             if let Some(max) = self.input.max_steps_per_turn {
                 if max > 0 && self.steps >= max {
-                    emit(
-                        on_event,
-                        EngineEvent::TurnStepInterrupted {
-                            turn_id,
-                            step: self.steps as i64,
-                            step_id: None,
-                            reason: "max_steps".to_string(),
-                            message: Some(format!(
-                                "Turn exceeded maxSteps={max}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn)"
-                            )),
-                        },
-                    );
                     return self.finish_turn_with_error(
                         TurnEndReason::Failed,
                         Some(format!("Turn exceeded maxSteps={max}")),
@@ -1299,6 +1308,10 @@ impl TurnSession {
                         // mid-batch): surface that progress to the caller.
                         Err(progress) => return progress,
                     };
+                    // P2-4 (review): a successful tool-call step also resets
+                    // the transient-failure retry budget (TS stepRetry resets
+                    // on every successful step via `onDidFinishStep`).
+                    self.retry_attempts = 0;
                     if stop_turn {
                         self.mark_finished();
                         emit(
@@ -1806,14 +1819,17 @@ mod tests {
             outcome.error_code.as_deref(),
             Some("LOOP_MAX_STEPS_EXCEEDED")
         );
+        // TS parity: the max-steps failure happens before a step begins
+        // (`runtime.current` is undefined in beginLoopStep), so TS never
+        // emits `turn.step.interrupted` for it — emitting one here would
+        // overwrite the already-completed step's state on the transcript.
         let names = event_names(&events);
-        assert!(names.contains(&"turn.step.interrupted".to_string()));
-        let interrupted_idx = names
-            .iter()
-            .position(|name| name == "turn.step.interrupted")
-            .unwrap();
-        let interrupted = serde_json::to_value(&events[interrupted_idx]).unwrap();
-        assert_eq!(interrupted["reason"], "max_steps");
+        assert!(
+            !names.contains(&"turn.step.interrupted".to_string()),
+            "max_steps must not emit turn.step.interrupted: {names:?}"
+        );
+        // The turn still ends failed via turn.ended.
+        assert!(names.contains(&"turn.ended".to_string()));
     }
 
     #[tokio::test]
@@ -4027,7 +4043,7 @@ mod approval_batch_tests {
                 .content
                 .as_str()
                 .unwrap()
-                .contains("Tool was not run because a previous tool in the same round stopped the turn."),
+                .contains("Tool skipped because a previous tool call stopped the turn."),
             "sibling result: {:?}",
             sibling.content
         );
@@ -4223,6 +4239,79 @@ mod approval_batch_tests {
     }
 
     #[tokio::test]
+    async fn resume_honors_session_pattern_added_before_resume() {
+        // P1-6 (review): the bridge records a session-scope approval into
+        // the live policy BEFORE resume — the resumed batch must auto-approve
+        // the same tool instead of surfacing a second approval request.
+        // Both batch calls are Ask tools in manual mode.
+        let llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 1\"}".to_string()),
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_2".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 2\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash_1", "Bash", "out1", false),
+            result("call_bash_2", "Bash", "out2", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |_| {},
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::NeedsApproval(ref r) if r.tool_call_id == "call_bash_1"),
+            "{progress:?}"
+        );
+        // The bridge appended the session pattern to the live policy before
+        // resuming (add_session_approval + the engine re-reads the policy).
+        let mut live = policy(PermissionMode::Manual);
+        live.session_approved_patterns = vec!["Bash".to_string()];
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &live,
+                &mut |_| {},
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::Completed(_)),
+            "second Bash must auto-approve via the session pattern, got {progress:?}"
+        );
+        // Both calls ran; no dangling tool_call.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            vec!["call_bash_1".to_string(), "call_bash_2".to_string()]
+        );
+        assert_no_dangling_tool_calls(session.messages());
+    }
+
+    #[tokio::test]
     async fn rejected_resume_emits_started_once_before_result() {
         // P2-2 (final review, rejected path): a rejected resume announces the
         // call exactly once and only after the decision, before the result
@@ -4375,6 +4464,87 @@ mod approval_batch_tests {
         assert!(
             !events.iter().any(|e| matches!(e, EngineEvent::TurnStepStarted { step: 2, .. })),
             "turn must end after step 1: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_during_pending_approval_stops_the_turn() {
+        // P1-5 (review): once the user cancelled (TaskStop / session close),
+        // a resume must not keep executing the batch or re-ask — the engine
+        // checks the cancel signal and finishes cancelled. Both batch calls
+        // are Ask tools: without the cancel check the resumed batch would
+        // surface a SECOND NeedsApproval (the user already cancelled), and
+        // with the in-flight select race a sibling could still run.
+        let llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 1\"}".to_string()),
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_bash_2".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some("{\"command\":\"echo 2\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash_1", "Bash", "out1", false),
+            result("call_bash_2", "Bash", "out2", false),
+        ]);
+        let cancel = std::sync::Arc::new(CancelSignal::new());
+        let mut session = TurnSession::with_steer_and_cancel(
+            input(vec![msg("user", "run both")]),
+            None,
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |_| {},
+            )
+            .await;
+        assert!(
+            matches!(progress, TurnProgress::NeedsApproval(ref r) if r.tool_call_id == "call_bash_1"),
+            "{progress:?}"
+        );
+        // The user cancelled while the approval was pending.
+        cancel.cancel();
+        let progress = session
+            .resume(
+                ApprovalDecision::Cancelled,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |_| {},
+            )
+            .await;
+        match progress {
+            TurnProgress::Completed(outcome) => {
+                assert_eq!(outcome.status, TurnEndReason::Cancelled, "{outcome:?}");
+            }
+            other => panic!("expected Completed(Cancelled), got {other:?}"),
+        }
+        // No sibling ran after the cancellation.
+        assert_eq!(
+            *executor.executed.lock().unwrap(),
+            Vec::<String>::new(),
+            "no sibling may run after the user cancelled"
         );
     }
 }

@@ -2223,6 +2223,15 @@ impl ToolExecutor for ToolRegistry {
             },
         }
     }
+
+    /// Forward cancellation to the registered executor (P1-2 review): the
+    /// engine cancels through the registry (bridge path), so a no-op here
+    /// would orphan a running Bash command when the turn is cancelled.
+    fn abort(&self, call: &ToolCall) {
+        if let Some(tool) = self.tools.get(&call.name) {
+            tool.abort(call);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2259,6 +2268,52 @@ mod tool_registry_tests {
         assert!(registry.set_def("Native", None));
         assert!(registry.tool_defs().is_empty());
         assert!(!registry.set_def("Missing", Some(serde_json::json!({}))));
+    }
+
+    #[tokio::test]
+    async fn registry_abort_forwards_to_the_registered_tool() {
+        // P1-2 (review): turn cancellation calls `tools.abort(call)` — the
+        // registry must forward it to the inner executor (e.g. BashTool's
+        // process-tree kill) instead of the trait's no-op default, or a
+        // cancelled Bash command keeps running as an orphan.
+        #[async_trait::async_trait]
+        impl ToolExecutor for AbortRecordingTool {
+            async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "ran".to_string(),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+            fn abort(&self, call: &ToolCall) {
+                self.aborted.lock().unwrap().push(call.id.clone());
+            }
+        }
+        struct AbortRecordingTool {
+            aborted: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        }
+
+        let aborted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut registry = ToolRegistry::new();
+        registry.register(
+            "Bash",
+            Box::new(AbortRecordingTool {
+                aborted: std::sync::Arc::clone(&aborted),
+            }),
+        );
+        registry.abort(&ToolCall {
+            id: "call_1".to_string(),
+            name: "Bash".to_string(),
+            arguments: serde_json::json!({}),
+        });
+        assert_eq!(
+            *aborted.lock().unwrap(),
+            vec!["call_1".to_string()],
+            "registry.abort must reach the registered tool"
+        );
     }
 }
 

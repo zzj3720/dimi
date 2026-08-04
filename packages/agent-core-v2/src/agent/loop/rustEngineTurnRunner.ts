@@ -42,6 +42,10 @@ import { cancelTurn, promptTurn, steerTurn, TurnModel } from "#/agent/loop/turnO
 import { IEventBus } from "#/app/event/eventBus";
 import { IConfigService } from "#/app/config/config";
 import { ILogService } from "#/_base/log/log";
+import { isPlainRecord } from "#/_base/utils/canonical-args";
+import { toDimiErrorPayload } from "#/errors";
+import { IExternalHooksRunnerService } from "#/app/externalHooksRunner/externalHooksRunner";
+import { IAgentToolResultTruncationService } from "#/agent/toolResultTruncation/toolResultTruncation";
 import { ISessionApprovalService, type ApprovalResponse } from "#/session/approval/approval";
 import { IAgentUsageService } from "#/agent/usage/usage";
 import { IAgentProfileService } from "#/agent/profile/profile";
@@ -651,22 +655,105 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               );
               return;
             }
+            // P1-8 (review): the Rust path bypasses the TS toolExecutor, so
+            // PreToolUse external hooks (veto) never fire on their own — the
+            // runner triggers them explicitly, exactly where TS does
+            // (`beforeExecuteEmitter.fireBeforeExecute` after resolve,
+            // before execute). A block vetoes the call.
+            const signal = new AbortController().signal;
+            const hooksRunner = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
+            );
+            const toolInput = isPlainRecord(payload.arguments) ? payload.arguments : {};
+            const toolCallId = payload.toolCallId ?? payload.requestId;
+            if (hooksRunner !== undefined) {
+              const block = await hooksRunner.triggerBlock("PreToolUse", {
+                matcherValue: payload.name,
+                signal,
+                sessionId: this.sessionContext.sessionId,
+                inputData: {
+                  toolName: payload.name,
+                  toolInput,
+                  toolCallId,
+                },
+              });
+              if (block !== undefined) {
+                session.completeToolCall(
+                  payload.requestId,
+                  JSON.stringify({
+                    toolCallId,
+                    toolName: payload.name,
+                    output:
+                      block.reason ?? `Tool "${payload.name}" was blocked by a PreToolUse hook.`,
+                    isError: true,
+                    stopTurn: false,
+                    updates: [],
+                  }),
+                );
+                return;
+              }
+            }
             const result = await execution.execute({
               turnId: 0,
-              toolCallId: payload.toolCallId ?? payload.requestId,
-              signal: new AbortController().signal,
+              toolCallId,
+              signal,
             });
+            // P1-7 (review): truncate oversized tool results for the model
+            // (TS toolResultTruncation parity). The engine feeds the raw
+            // output text into the next request, so a multi-MB result must
+            // be replaced by the persisted-file preview; fail soft if the
+            // truncation service is unavailable.
+            let finalResult = result;
+            const truncation = this.instantiation.invokeFunction(
+              (accessor) =>
+                accessor.get(IAgentToolResultTruncationService) as
+                  | IAgentToolResultTruncationService
+                  | undefined,
+            );
+            if (truncation !== undefined) {
+              try {
+                finalResult = await truncation.truncateForModel({
+                  toolName: payload.name,
+                  toolCallId,
+                  result,
+                });
+              } catch {
+                // Keep the full output (fail soft).
+              }
+            }
             session.completeToolCall(
               payload.requestId,
               JSON.stringify({
-                toolCallId: payload.toolCallId ?? payload.requestId,
+                toolCallId,
                 toolName: payload.name,
-                output: toText(result.output),
-                isError: result.isError === true,
-                stopTurn: result.stopTurn === true,
+                output: toText(finalResult.output),
+                isError: finalResult.isError === true,
+                stopTurn: finalResult.stopTurn === true,
                 updates: [],
               }),
             );
+            // P1-8 (review): PostToolUse fire-and-forget (TS
+            // `notifyPostToolUse` parity — informational, never blocks).
+            if (hooksRunner !== undefined) {
+              const outputText = toText(finalResult.output);
+              const isError = finalResult.isError === true;
+              void hooksRunner.fireAndForgetTrigger(
+                isError ? "PostToolUseFailure" : "PostToolUse",
+                {
+                  matcherValue: payload.name,
+                  signal,
+                  sessionId: this.sessionContext.sessionId,
+                  inputData: {
+                    toolName: payload.name,
+                    toolInput,
+                    toolCallId,
+                    error: isError ? toDimiErrorPayload(outputText) : undefined,
+                    toolOutput: isError ? undefined : outputText.slice(0, 2000),
+                  },
+                },
+              );
+            }
           } catch (error) {
             session.completeToolCall(
               payload.requestId,
@@ -1011,6 +1098,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             : undefined,
         result: response,
       });
+      // P1-6 (review): the engine's policy is frozen per session — push a
+      // session-scope approval into the live policy so the SAME turn's
+      // remaining batch auto-approves instead of re-asking (TS
+      // session-approval-history parity). Must happen before resume so the
+      // continued batch evaluates with the updated policy.
+      if (response.decision === "approved" && response.scope === "session") {
+        session.addSessionApproval(approvalRequest.toolName);
+      }
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
     }
   }

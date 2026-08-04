@@ -647,6 +647,13 @@ export class RustTurnSession {
     return this.#inner.resume(decisionJson);
   }
 
+  /** Record a session-scope approval (P1-6): the engine's policy is re-read
+   *  on every run/resume, so a pattern approved for the session mid-turn is
+   *  honored by the SAME turn's remaining batch. */
+  addSessionApproval(pattern: string): void {
+    this.#inner.addSessionApproval(pattern);
+  }
+
   /** Register a TS-side tool; `completeToolCall` finishes each call. The
    *  definition (description + JSON parameters schema) is advertised to the
    *  model from the next request on. */
@@ -722,6 +729,7 @@ export interface RustTurnSessionHandle {
   setOnEvent(callback: (eventJson: string) => void): void;
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
+  addSessionApproval(pattern: string): void;
   registerExternalTool(
     name: string,
     description: string,

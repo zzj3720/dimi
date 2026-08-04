@@ -443,7 +443,10 @@ pub struct RustTurnSession {
     inner: napi::tokio::sync::Mutex<dimi_engine::engine::TurnSession>,
     llm: std::sync::Arc<dyn LlmClient>,
     tools: std::sync::Arc<napi::tokio::sync::Mutex<ToolRegistry>>,
-    policy: PolicyConfig,
+    /// Live policy: session-scope approvals recorded mid-turn are appended
+    /// here so the SAME turn's resumed batch honors them (P1-6 review — TS
+    /// session-approval-history reads live; a frozen snapshot would re-ask).
+    policy: std::sync::Arc<std::sync::Mutex<PolicyConfig>>,
     /// TS tool call completions keyed by request id.
     pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     /// Subagent steering queues keyed by agent id.
@@ -503,6 +506,17 @@ impl ToolExecutor for LockedRegistry {
     ) -> dimi_engine::tool::ToolResult {
         let registry = self.0.lock().await;
         registry.execute(call, ctx).await
+    }
+
+    /// Forward cancellation through the registry (P1-2 review): the engine's
+    /// cancel path calls `abort` on the executor it was given — the bridge
+    /// gives it a `LockedRegistry`, so without forwarding, a cancelled Bash
+    /// command would keep running as an orphan.
+    fn abort(&self, call: &dimi_engine::tool::ToolCall) {
+        let registry = self.0.try_lock();
+        if let Ok(registry) = registry {
+            registry.abort(call);
+        }
     }
 }
 
@@ -589,6 +603,9 @@ impl RustTurnSession {
     ) -> napi::Result<Self> {
         let input: EngineTurnInput = serde_json::from_str(&input_json).map_err(wire_error)?;
         let policy: PolicyConfig = serde_json::from_str(&policy_json).map_err(wire_error)?;
+        // Live policy (P1-6): the engine re-reads it on every run/resume, so
+        // `add_session_approval` recorded mid-turn takes effect immediately.
+        let policy = std::sync::Arc::new(std::sync::Mutex::new(policy));
         let llm: std::sync::Arc<dyn LlmClient> =
             std::sync::Arc::from(make_client(&input, scripted_segments_json)?);
         let registry = session_registry(&registry_id);
@@ -665,7 +682,7 @@ impl RustTurnSession {
                 Box::new(AsyncAgentTool {
                     llm: std::sync::Arc::clone(&llm),
                     tools: subagent_tools,
-                    policy: policy.clone(),
+                    policy: policy.lock().unwrap_or_else(|p| p.into_inner()).clone(),
                     max_steps: input.max_steps_per_turn,
                     shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
                     tasks: tasks.clone(),
@@ -734,6 +751,19 @@ impl RustTurnSession {
     #[napi]
     pub fn cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Record a session-scope approval (P1-6 review): the engine's policy is
+    /// re-read on every run/resume, so a pattern approved for the session
+    /// mid-turn is honored by the SAME turn's remaining batch — the runner
+    /// calls this before resuming, matching the TS session-approval-history
+    /// policy which reads live (a frozen snapshot would re-ask).
+    #[napi]
+    pub fn add_session_approval(&self, pattern: String) {
+        let mut policy = self.policy.lock().unwrap_or_else(|p| p.into_inner());
+        if !policy.session_approved_patterns.contains(&pattern) {
+            policy.session_approved_patterns.push(pattern);
+        }
     }
 
     /// Cancel a background task (TaskStop parity): flips the task's cancel
@@ -856,11 +886,14 @@ impl RustTurnSession {
                 inner.update_tools(engine_tools(&registry));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
+            // Clone the policy snapshot (P1-6): the guard must not survive
+            // the await (std MutexGuard is !Send).
+            let policy = self.policy.lock().unwrap_or_else(|p| p.into_inner()).clone();
             inner
                 .run(
                     self.llm.as_ref(),
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
-                    &self.policy,
+                    &policy,
                     &mut move |event| {
                         let _ = channel.send(event);
                     },
@@ -1003,12 +1036,15 @@ impl RustTurnSession {
                 inner.update_tools(engine_tools(&registry));
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
+            // Clone the policy snapshot (P1-6): the guard must not survive
+            // the await (std MutexGuard is !Send).
+            let policy = self.policy.lock().unwrap_or_else(|p| p.into_inner()).clone();
             inner
                 .resume(
                     decision,
                     self.llm.as_ref(),
                     &LockedRegistry(std::sync::Arc::clone(&self.tools)),
-                    &self.policy,
+                    &policy,
                     &mut move |event| {
                         let _ = channel.send(event);
                     },

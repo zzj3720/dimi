@@ -198,8 +198,11 @@ describe('RustEngine minimal closed loop', () => {
 
     expect(batch.outcome.status).toBe('failed');
     expect(batch.outcome.errorCode).toBe('LOOP_MAX_STEPS_EXCEEDED');
+    // TS parity: max-steps fails before a step begins (`runtime.current` is
+    // undefined), so no `turn.step.interrupted` is emitted — the turn ends
+    // via `turn.ended` alone.
     const interrupted = batch.events.find((event) => event['type'] === 'turn.step.interrupted');
-    expect(interrupted?.['reason']).toBe('max_steps');
+    expect(interrupted).toBeUndefined();
     const ended = batch.events[batch.events.length - 1]!;
     expect(ended['type']).toBe('turn.ended');
     expect(ended['reason']).toBe('failed');
