@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.12
+
+### Patch Changes
+
+- [`7354c99`](https://github.com/zzj3720/dimi/commit/7354c99cd02a473488e33b76a63beebc29e2a39f) - Fix subagents (Agent tool) not receiving the tool definitions in their LLM request, so they did not know the available tools existed (e.g. claimed there were no file-reading tools); subagent requests now advertise the parent's tool set.
+
 ## 0.6.11
 
 ### Patch Changes
