@@ -28,4 +28,5 @@ pub mod terminal;
 pub mod theme;
 pub mod tui;
 pub mod width;
+pub mod wire_transcript;
 pub mod wrap;
