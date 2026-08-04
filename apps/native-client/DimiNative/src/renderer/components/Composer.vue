@@ -1,12 +1,23 @@
 <script setup lang="ts">
 // Codex-style composer: 25px capsule + completion popup + bottom toolbar.
 // Keyboard handling mirrors the old main.js editor bindings.
-import { ref, watch } from 'vue';
+import { ref, watch, nextTick } from 'vue';
 import { state, Msg, isBashDraft, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, sendBtw, maybeUpdateAtMention } from '../api';
 
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const completionEl = ref<HTMLElement | null>(null);
+
+// Keep the selected completion row in view (Codex list behavior).
+watch(
+  () => state.completionSelected,
+  () => {
+    void nextTick(() => {
+      const sel = completionEl.value?.querySelector('.selected');
+      sel?.scrollIntoView({ block: 'nearest' });
+    });
+  },
+);
 
 const isMac = navigator.platform.startsWith('Mac');
 function ctrlKey(evt: KeyboardEvent): boolean {
@@ -212,7 +223,7 @@ function sendBtwText(): void {
     </div>
 
     <div class="composer-toolbar">
-      <span class="model-pill">{{ state.modelName || '模型' }}</span>
+      <span class="model-pill" @click="dispatch(Msg.SettingsOpen())">{{ state.modelName || '模型' }}</span>
       <span class="hint">{{ state.statusMsg }}</span>
       <span class="spacer"></span>
       <span class="footer-right">{{ state.footerContext }}</span>

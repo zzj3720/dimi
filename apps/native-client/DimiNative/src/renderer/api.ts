@@ -649,6 +649,24 @@ export function runUndo(count: number): void {
     });
 }
 
+export function recallLastQueued(): void {
+  if (state.queued.length === 0) return;
+  const last = state.queued.pop();
+  state.draft = last?.text ?? '';
+  document.querySelector<HTMLTextAreaElement>('#input')?.focus();
+}
+
+export function detachCurrentTask(): void {
+  if (!state.currentSessionId) return;
+  api('POST', `/api/v1/sessions/${state.currentSessionId}:abort`, {})
+    .then(() => {
+      state.statusMsg = 'detached (running in background)';
+    })
+    .catch((e) => {
+      state.statusMsg = `detach failed: ${(e as Error).message}`;
+    });
+}
+
 // ------------------------------------------------------------------ steer/cancel
 
 function doSteer(): void {

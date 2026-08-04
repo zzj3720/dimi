@@ -1,8 +1,37 @@
 <script setup lang="ts">
 // Codex-style left sidebar: brand + new-chat + sessions grouped by workspace.
-import { computed } from 'vue';
+// Width is draggable via a resize handle on the right edge (Codex behavior).
+import { computed, ref } from 'vue';
 import { state } from '../store';
 import { dispatch } from '../api';
+
+const RESIZE_KEY = 'dimi.sidebarWidth';
+const MIN_W = 200;
+const MAX_W = 480;
+
+const sidebarWidth = ref(Number(localStorage.getItem(RESIZE_KEY)) || 275);
+
+const clamp = (w: number): number => Math.min(MAX_W, Math.max(MIN_W, w));
+
+function startResize(e: MouseEvent): void {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startW = sidebarWidth.value;
+  const move = (ev: MouseEvent): void => {
+    sidebarWidth.value = clamp(startW + (ev.clientX - startX));
+  };
+  const up = (): void => {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    try {
+      localStorage.setItem(RESIZE_KEY, String(sidebarWidth.value));
+    } catch {
+      /* non-fatal */
+    }
+  };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+}
 
 const groups = computed(() => {
   const map = new Map<string, typeof state.sessions>();
@@ -28,7 +57,7 @@ function newChat(): void {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
     <div class="sidebar-top">
       <div class="sidebar-brand">Dimi</div>
       <button class="btn-new-chat" @click="newChat">＋ 新对话</button>
@@ -58,5 +87,10 @@ function newChat(): void {
       </div>
     </div>
     <div class="sidebar-bottom">user</div>
+
+    <!-- Codex-style resize handle on the right edge -->
+    <div class="sidebar-resize-handle" @mousedown="startResize">
+      <div class="sidebar-resize-handle-line"></div>
+    </div>
   </aside>
 </template>
