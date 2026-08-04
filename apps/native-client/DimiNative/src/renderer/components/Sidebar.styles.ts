@@ -166,8 +166,7 @@ export const brandIconBtnSearch = css({
 
 // ---- nav rows ----
 // 新对话 (header block) = 29px row; 站点/已安排/插件 (scroll block) = 30px rows.
-// text-sm in the codex window is 13px (JS-injected --text-sm), lh 18.5714px
-// (13 × 1.42857); session rows use leading-5 → 20px. (02-sidebar-code B1/B2)
+// Codex nav rows use text-base: CDP-measured 14px / 21px line-height.
 const navItemBase = (height: number) =>
   css({
     display: 'flex',
@@ -176,8 +175,8 @@ const navItemBase = (height: number) =>
     padding: '0 8px',
     height,
     borderRadius: size.sidebarItemRadius,
-    fontSize: 13,
-    lineHeight: '18.5714px',
+    fontSize: 14,
+    lineHeight: '21px',
     fontWeight: 445, // variable-font weight
     color: cText,
     cursor: 'default',
@@ -354,8 +353,8 @@ export const folderRow = css({
   height: 30,
   padding: '0 8px',
   borderRadius: size.sidebarItemRadius,
-  fontSize: 13, // folder row name text-sm → 13px
-  lineHeight: '18.5714px',
+  fontSize: 14, // Codex folder row text-base (CDP-measured 14px/21px)
+  lineHeight: '21px',
   fontWeight: 445,
   color: cText,
   cursor: 'default',
@@ -433,10 +432,10 @@ export const sessionItem = css({
   alignItems: 'center',
   gap: 8,
   height: 30,
-  padding: '0 4px 0 8px', // left 8 (--padding-row-cell-x), right 4 (.pe-1)
+  padding: '0 8px', // Codex py-row-y + px-2 (5px 8px) — CDP-measured 2026-08-05; right was 4px
   borderRadius: size.sidebarItemRadius,
-  fontSize: 13, // session text-sm → 13px
-  lineHeight: '20px', // Codex session text leading-5 (20px)
+  fontSize: 14, // Codex text-sm = 14px (was 13px)
+  lineHeight: '20px', // Codex text-sm leading (CDP-measured 20px)
   fontWeight: 445,
   color: cText,
   cursor: 'default',
