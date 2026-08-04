@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.6.10
+
+### Patch Changes
+
+- [`f195cc0`](https://github.com/zzj3720/dimi/commit/f195cc0afb8d608042551dea629b0efc4418c85a) - Fix tool definitions being dropped from LLM requests in the Rust engine, which made models write tool calls as literal XML text instead of calling tools; tools are now sent in the format the request path parses.
+
 ## 0.6.9
 
 ### Patch Changes
