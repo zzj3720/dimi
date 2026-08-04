@@ -830,28 +830,93 @@ export function submitQuestion(): void {
 // ------------------------------------------------------------------ helpers
 
 export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
-  return msgs.map((m) => ({
-    kind: m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'status',
-    text: contentToText(m.content),
-  }));
+  const entries: Entry[] = [];
+  for (const m of msgs) {
+    const role = m.role as string;
+    const content = m.content;
+
+    if (role === 'user') {
+      const text = contentToText(content);
+      if (text) entries.push({ kind: 'user', text, streaming: false });
+      continue;
+    }
+
+    // tool results attach to the matching tool card instead of polluting
+    // the thread as a raw status row.
+    if (role === 'tool') {
+      const parts = Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
+      for (const p of parts) {
+        if (p && p.type === 'tool_result') {
+          const id = (p.tool_call_id as string) ?? (p.toolCallId as string) ?? '';
+          for (let i = entries.length - 1; i >= 0; i--) {
+            if (entries[i].kind === 'tool' && entries[i].toolCallId === id) {
+              entries[i].text =
+                typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
+              break;
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (role === 'assistant') {
+      const parts = Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
+      const texts: string[] = [];
+      const thinks: string[] = [];
+      const tools: { id: string; name: string; input: string }[] = [];
+      for (const p of parts) {
+        if (!p) continue;
+        if (p.type === 'text') texts.push((p.text as string) ?? '');
+        else if (p.type === 'thinking') thinks.push((p.text as string) ?? '');
+        else if (p.type === 'tool_use') {
+          tools.push({
+            id: (p.tool_call_id as string) ?? (p.id as string) ?? '',
+            name: (p.tool_name as string) ?? (p.name as string) ?? 'tool',
+            input:
+              typeof p.input === 'string' ? p.input : p.input ? JSON.stringify(p.input) : '',
+          });
+        }
+      }
+      const text = texts.join('\n').trim();
+      const think = thinks.join('\n').trim();
+      if (think) entries.push({ kind: 'thinking', text: think, streaming: false });
+      if (text) entries.push({ kind: 'assistant', text, streaming: false });
+      for (const t of tools) {
+        entries.push({ kind: 'tool', toolName: t.name, toolCallId: t.id, args: t.input, text: '', streaming: false });
+      }
+      continue;
+    }
+
+    // system / other roles: keep the thread clean like Codex.
+  }
+  return entries;
 }
 
 function contentToText(content: unknown): string {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') return stripInternalBlocks(content);
   if (!Array.isArray(content)) return '';
   return content
     .map((part) => {
       if (!part) return '';
-      if (part.type === 'text') return part.text ?? '';
+      if (part.type === 'text') return stripInternalBlocks(part.text ?? '');
       if (part.type === 'thinking') return '';
-      if (part.type === 'tool_use') return `[tool: ${part.tool_name}]`;
-      if (part.type === 'tool_result') {
-        return typeof part.output === 'string' ? part.output : JSON.stringify(part.output ?? '');
-      }
+      if (part.type === 'tool_use') return '';
+      if (part.type === 'tool_result') return '';
       return '';
     })
     .filter((s) => s.length > 0)
     .join('\n');
+}
+
+// Remove agent-internal blocks that must never surface in the UI
+// (system reminders, handoff notes, etc.). Codex never shows these.
+function stripInternalBlocks(text: string): string {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<system>[\s\S]*?<\/system>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 export async function createSession(): Promise<string | null> {
