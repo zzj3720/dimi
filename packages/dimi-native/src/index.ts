@@ -31,6 +31,12 @@ export interface NativeBinding {
   paginateTurns: typeof paginateTurns;
   /** Parse a `wire.jsonl` file into records JSON. */
   readWireRecords: typeof readWireRecords;
+  /** Evaluate one tool call against the Rust permission chain (A1 review —
+   *  the differential exit point: the TS permission-policy test feeds the
+   *  same corpus here and to `AgentPermissionPolicyService` and asserts
+   *  decision + reason parity). Input: `PolicyInput` JSON; output:
+   *  `PolicyDecision` JSON. */
+  evaluatePolicy: typeof evaluatePolicy;
   /** One agent's transcript store, held on the Rust side. */
   RustAgentTranscript: RustAgentTranscriptConstructor;
   /** Rust exec layer: process spawn (M2) — the IHostProcessService socket. */
@@ -186,6 +192,14 @@ export function paginateTurns(itemsJson: string, queryJson: string): string {
 /** Parse a `wire.jsonl` file into records JSON. */
 export function readWireRecords(path: string): string {
   return loadNative().readWireRecords(path);
+}
+
+/** Evaluate one tool call against the Rust permission chain (A1 review — the
+ *  differential exit point: the TS permission-policy test feeds the same
+ *  corpus here and to `AgentPermissionPolicyService` and asserts parity).
+ *  Input: `PolicyInput` JSON; output: `PolicyDecision` JSON. */
+export function evaluatePolicy(inputJson: string): string {
+  return loadNative().evaluatePolicy(inputJson);
 }
 
 /** Release an agent's scoped subagent registry (tasks + steering queues).

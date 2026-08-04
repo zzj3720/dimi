@@ -422,34 +422,95 @@ fn parse_pattern(pattern: &str) -> Option<(String, Option<String>)> {
     Some((tool, Some(arg)))
 }
 
-/// Minimal glob matcher supporting `*` (any run), `?` (one char), `**`
-/// (any path-ish run) — a subset of picomatch sufficient for the rule
-/// patterns the product uses (tool names and serialized-arg fragments).
+/// Minimal glob matcher with picomatch semantics (the TS
+/// `matchesGlobRuleSubject` path): `*` matches any run of NON-`/`
+/// characters, `?` matches one non-`/` character, `**` matches any run
+/// including `/` (so `Bash(rm*)` does NOT match `rm -rf /` — picomatch
+/// treats `/` as a path separator — while `Bash(rm**)` does). Tool-name
+/// patterns never contain `/`, so the distinction only affects argGlobs.
+/// The differential gate (`permissionDifferential.test.ts`) pins this
+/// against the TS implementation.
 fn glob_match(pattern: &str, text: &str) -> bool {
     let pattern = pattern.trim();
-    if pattern == "*" {
+    if pattern == "*" || pattern == "**" {
         return true;
     }
-    let p: Vec<char> = pattern.chars().collect();
+    let tokens = glob_tokens(pattern);
     let t: Vec<char> = text.chars().collect();
-    // DP over (pattern idx, text idx); `**` consumes greedily.
-    let mut dp = vec![vec![false; t.len() + 1]; p.len() + 1];
+    // DP over (token idx, text idx).
+    let mut dp = vec![vec![false; t.len() + 1]; tokens.len() + 1];
     dp[0][0] = true;
-    for i in 1..=p.len() {
-        if p[i - 1] == '*' {
-            dp[i][0] = dp[i - 1][0];
+    for (i, token) in tokens.iter().enumerate() {
+        let i = i + 1;
+        for j in 0..=t.len() {
+            if !dp[i - 1][j] {
+                continue;
+            }
+            match token {
+                Tok::DoubleStar => {
+                    // Matches empty or any sequence (including `/`).
+                    for k in j..=t.len() {
+                        dp[i][k] = true;
+                    }
+                }
+                Tok::Star => {
+                    // Empty, or any run of non-`/` characters.
+                    dp[i][j] = true;
+                    let mut k = j;
+                    while k < t.len() && t[k] != '/' {
+                        dp[i][k + 1] = true;
+                        k += 1;
+                    }
+                }
+                Tok::Question => {
+                    if j < t.len() && t[j] != '/' {
+                        dp[i][j + 1] = true;
+                    }
+                }
+                Tok::Lit(c) => {
+                    if j < t.len() && t[j] == *c {
+                        dp[i][j + 1] = true;
+                    }
+                }
+            }
         }
     }
-    for i in 1..=p.len() {
-        for j in 1..=t.len() {
-            dp[i][j] = match p[i - 1] {
-                '*' => dp[i - 1][j] || dp[i][j - 1],
-                '?' => dp[i - 1][j - 1],
-                c => dp[i - 1][j - 1] && c == t[j - 1],
-            };
+    dp[tokens.len()][t.len()]
+}
+
+enum Tok {
+    Star,
+    DoubleStar,
+    Question,
+    Lit(char),
+}
+
+fn glob_tokens(pattern: &str) -> Vec<Tok> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '*' => {
+                if i + 1 < chars.len() && chars[i + 1] == '*' {
+                    out.push(Tok::DoubleStar);
+                    i += 2;
+                } else {
+                    out.push(Tok::Star);
+                    i += 1;
+                }
+            }
+            '?' => {
+                out.push(Tok::Question);
+                i += 1;
+            }
+            c => {
+                out.push(Tok::Lit(c));
+                i += 1;
+            }
         }
     }
-    dp[p.len()][t.len()]
+    out
 }
 
 #[cfg(test)]
@@ -570,6 +631,20 @@ mod tests {
     }
 
     #[test]
+    fn glob_matches_picomatch_separator_semantics() {
+        // Differential-gate pin: the TS matcher is picomatch, where `*`/`?`
+        // do NOT cross `/` while `**` does — so `Bash(rm*)` does not match
+        // `rm -rf /` (a real divergence the gate caught; Rust used to match).
+        assert!(!glob_match("rm*", "rm -rf /"));
+        assert!(glob_match("rm*", "rm -rf"));
+        assert!(glob_match("rm**", "rm -rf /"));
+        assert!(glob_match("a/b*", "a/bc"));
+        assert!(!glob_match("a*b", "a/b"));
+        assert!(!glob_match("a?b", "a/b"));
+        assert!(glob_match("a**b", "a/b"));
+    }
+
+    #[test]
     fn user_deny_overrides_whitelist_and_auto_mode() {
         // P1-3 (review): the TS chain runs user-configured-deny BEFORE
         // auto-approve and the default whitelist — a user deny of a
@@ -596,6 +671,8 @@ mod tests {
             }
         );
         // Deny rules are scanned before allow rules, regardless of order.
+        // `rm**` crosses the `/` in `rm -rf /` (picomatch parity: a bare
+        // `rm*` does not cross the path separator).
         let mut j = input("Bash", PermissionMode::Manual);
         j.match_arg = Some("rm -rf /".to_string());
         j.rules = vec![
@@ -608,7 +685,7 @@ mod tests {
             PermissionRule {
                 decision: RuleDecision::Deny,
                 scope: "user".to_string(),
-                pattern: "Bash(rm*)".to_string(),
+                pattern: "Bash(rm**)".to_string(),
                 reason: Some("no rm".to_string()),
             },
         ];
