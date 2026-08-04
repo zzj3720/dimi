@@ -398,6 +398,12 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     if (this.disposed) return undefined;
     // 1. Turn clock + user message (mirrors loopService.startTurn).
     this.wire.dispatch(promptTurn({ input: [...payload.input], origin: payload.origin }));
+    // Turn ids are 0-based (TS parity): the TS loop reserves `nextTurnId - 1`
+    // — `reserveTurnId` reads the wire clock *before* the `turn.prompt` op is
+    // dispatched at start, so the first turn is 0 (verified by loop.test.ts
+    // telemetry `turn_id: 0` and the TurnModel clock reducer, which only stays
+    // consistent when engine event turn ids are 0-based). Do not "fix" this to
+    // 1-based: it diverges from TS and double-advances the wire clock.
     const turnId = this.wire.getModel(TurnModel).nextTurnId - 1;
 
     const userMessage: ContextMessage = {

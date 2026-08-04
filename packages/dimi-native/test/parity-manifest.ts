@@ -114,9 +114,10 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
     gap: 'not implemented — separate module slice',
   },
   {
-    domain: 'turn id 1-based (wire ordinals)',
-    migrated: false,
-    gap: 'runner uses nextTurnId - 1, first turn id is 0 (TS uses 1)',
+    domain: 'turn id 0-based on the wire (TS parity)',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts + rust-engine-coverage.test.ts (turn_id 0, 1, …; TS loop.test.ts telemetry also asserts turn_id: 0)',
   },
   {
     domain: 'turn.started origin (task-origin turns)',
