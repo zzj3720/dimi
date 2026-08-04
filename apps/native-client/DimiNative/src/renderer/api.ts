@@ -831,7 +831,10 @@ export function submitQuestion(): void {
 
 export function msgsToEntries(msgs: Record<string, unknown>[]): Entry[] {
   const entries: Entry[] = [];
-  for (const m of msgs) {
+  // The messages API returns items newest-first. Convert to chronological
+  // order so a tool_use entry exists before its tool_result sibling arrives.
+  const ordered = msgs.slice().reverse();
+  for (const m of ordered) {
     const role = m.role as string;
     const content = m.content;
 

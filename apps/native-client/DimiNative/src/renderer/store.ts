@@ -794,10 +794,27 @@ export function handleSseEvent(s: State, evt: unknown): void {
 
     case 'tool.call.started': {
       const ti = p.toolInput ?? p.tool_input ?? p.args;
+      const id = (p.toolCallId as string) ?? (p.id as string) ?? '';
+      // History reload may already have created this tool card (msgsToEntries);
+      // update it instead of stacking a duplicate "in progress" row.
+      const existing = s.entries.find((e) => e.kind === 'tool' && e.toolCallId === id);
+      if (existing) {
+        existing.args =
+          typeof p.toolInput === 'string'
+            ? p.toolInput
+            : typeof p.tool_input === 'string'
+              ? p.tool_input
+              : typeof p.arguments === 'string'
+                ? p.arguments
+                : ti
+                  ? JSON.stringify(ti)
+                  : existing.args;
+        return;
+      }
       s.entries.push({
         kind: 'tool',
         toolName: (p.toolName as string) ?? (p.name as string) ?? 'tool',
-        toolCallId: (p.toolCallId as string) ?? (p.id as string) ?? '',
+        toolCallId: id,
         args:
           typeof p.toolInput === 'string'
             ? p.toolInput

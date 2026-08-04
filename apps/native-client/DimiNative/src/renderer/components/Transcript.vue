@@ -88,8 +88,17 @@ function shellCmd(args: string): string {
   return '$ ' + args;
 }
 
+// Agent-internal blocks must never surface in the UI regardless of source
+// (history load, SSE stream, prompt echoes).
+function cleanText(s: string): string {
+  return (s ?? '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<system>[\s\S]*?<\/system>/g, '')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 function copyEntry(e: Entry): void {
-  const text = e.text ?? '';
+  const text = cleanText(e.text ?? '');
   void navigator.clipboard.writeText(text).catch(() => {
     /* clipboard unavailable */
   });
@@ -131,15 +140,15 @@ function copyEntry(e: Entry): void {
         </div>
 
         <!-- user -->
-        <div v-if="e.kind === 'user'" class="body">{{ e.text }}</div>
+        <div v-if="e.kind === 'user'" class="body">{{ cleanText(e.text) }}</div>
 
         <!-- assistant: markdown -->
-        <div v-else-if="e.kind === 'assistant'" class="body md" :class="md" v-html="renderMarkdown(e.text)"></div>
+        <div v-else-if="e.kind === 'assistant'" class="body md" :class="md" v-html="renderMarkdown(cleanText(e.text))"></div>
 
         <!-- thinking: reasoning disclosure, collapsible -->
         <div v-else-if="e.kind === 'thinking'" :class="clickable" @click="toggleThinking(e)">
           <div :class="reasoningTitle">思考</div>
-          <div :class="bodyThinking">{{ thinkingPreview(e).text }}</div>
+          <div :class="bodyThinking">{{ cleanText(thinkingPreview(e).text) }}</div>
           <div v-if="thinkingPreview(e).hint" :class="bodyMuted">{{ thinkingPreview(e).hint }}</div>
         </div>
 
@@ -153,15 +162,15 @@ function copyEntry(e: Entry): void {
           <div
             v-if="expandedTools.has(e.toolCallId) && e.args"
             :class="toolCardBody"
-          >{{ shellCmd(e.args) }}</div>
+          >{{ cleanText(shellCmd(e.args)) }}</div>
           <div
             v-if="expandedTools.has(e.toolCallId) && e.text && e.text.length > 0"
             :class="toolCardBody"
-          >{{ e.text }}</div>
+          >{{ cleanText(e.text) }}</div>
         </div>
 
         <!-- status / compaction -->
-        <div v-else :class="bodyMuted">{{ e.text }}</div>
+        <div v-else :class="bodyMuted">{{ cleanText(e.text) }}</div>
       </div>
     </div>
   </main>
