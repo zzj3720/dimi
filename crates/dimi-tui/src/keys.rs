@@ -1210,10 +1210,10 @@ mod tests {
     #[test]
     fn kitty_ctrl_letter() {
         set_kitty_protocol_active(true);
-        assert!(!matches_key("\x1b[99;5u", "ctrl+c"));
+        assert!(matches_key("\x1b[99;5u", "ctrl+c"));
         assert!(matches_key("\x1b[100;5u", "ctrl+d"));
         assert!(matches_key("\x1b[122;5u", "ctrl+z"));
-        assert!(matches_key("\x1b[1089::99;5u", "ctrl+d"));
+        assert!(!matches_key("\x1b[1089::99;5u", "ctrl+d"));
         assert!(!matches_key("\x1b[1089::99;5u", "ctrl+shift+c"));
         set_kitty_protocol_active(false);
     }
@@ -1221,7 +1221,7 @@ mod tests {
     #[test]
     fn kitty_cyrillic_base_layout() {
         set_kitty_protocol_active(true);
-        assert!(!matches_key("\x1b[1089::99;5u", "ctrl+c"));
+        assert!(matches_key("\x1b[1089::99;5u", "ctrl+c"));
         assert!(matches_key("\x1b[1092::100;5u", "ctrl+d"));
         assert!(matches_key("\x1b[1093::122;5u", "ctrl+z"));
         assert!(matches_key("\x1b[1093::122;6u", "ctrl+shift+z"));
@@ -1235,7 +1235,7 @@ mod tests {
         assert!(matches_key("\x1b[13;9u", "super+enter"));
         assert!(matches_key("\x1b[107;13u", "ctrl+super+k"));
         assert!(matches_key("\x1b[107;14u", "ctrl+shift+super+k"));
-        assert!(matches_key("\x1b[107;13u", "super+k"));
+        assert!(!matches_key("\x1b[107;13u", "super+k"));
         assert_eq!(parse_key("\x1b[107;9u").as_deref(), Some("super+k"));
         assert_eq!(parse_key("\x1b[13;9u").as_deref(), Some("super+enter"));
         assert_eq!(parse_key("\x1b[107;13u").as_deref(), Some("ctrl+super+k"));
@@ -1249,13 +1249,13 @@ mod tests {
     #[test]
     fn kitty_digits_and_keypad() {
         set_kitty_protocol_active(true);
-        assert!(!matches_key("\x1b[49u", "1"));
+        assert!(matches_key("\x1b[49u", "1"));
         assert!(matches_key("\x1b[49;5u", "ctrl+1"));
-        assert!(matches_key("\x1b[49;5u", "ctrl+2"));
+        assert!(!matches_key("\x1b[49;5u", "ctrl+2"));
         assert_eq!(parse_key("\x1b[49u").as_deref(), Some("1"));
         assert_eq!(parse_key("\x1b[49;5u").as_deref(), Some("ctrl+1"));
         // Numpad → plain keys.
-        assert!(!matches_key("\x1b[57400u", "1"));
+        assert!(matches_key("\x1b[57400u", "1"));
         assert!(matches_key("\x1b[57410u", "/"));
         assert!(matches_key("\x1b[57417u", "left"));
         assert!(matches_key("\x1b[57426u", "delete"));
@@ -1279,9 +1279,9 @@ mod tests {
         assert!(matches_key("\x1b[1089:1057:99;6:2u", "ctrl+shift+c"));
         // Dvorak: codepoint authoritative.
         assert!(matches_key("\x1b[107::118;5u", "ctrl+k"));
-        assert!(matches_key("\x1b[107::118;5u", "ctrl+v"));
-        assert!(!matches_key("\x1b[47::91;5u", "ctrl+/"));
-        assert!(matches_key("\x1b[47::91;5u", "ctrl+["));
+        assert!(!matches_key("\x1b[107::118;5u", "ctrl+v"));
+        assert!(matches_key("\x1b[47::91;5u", "ctrl+/"));
+        assert!(!matches_key("\x1b[47::91;5u", "ctrl+["));
         set_kitty_protocol_active(false);
     }
 
@@ -1415,7 +1415,6 @@ mod tests {
 
     #[test]
     fn legacy_raw_backspace() {
-        // Raw 0x08 is plain backspace outside Windows Terminal.
         // Raw 0x08 outside Windows Terminal (no WT_SESSION) is plain
         // backspace; the env-snapshot helper drives the platform branch.
         assert!(!is_windows_terminal_session_with(false, false));
@@ -1471,7 +1470,6 @@ mod tests {
         assert_eq!(decode_printable_key("\x1b[27;5;99~"), None); // ctrl+c not printable
         assert_eq!(decode_printable_key("\x1b[27;1;99~").as_deref(), Some("c"));
         assert_eq!(decode_printable_key("\x1b[27;2;99~").as_deref(), Some("c"));
-        set_kitty_protocol_active(false);
     }
 
     #[test]
