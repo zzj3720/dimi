@@ -69,7 +69,7 @@ export const brand = css({
   whiteSpace: 'nowrap',
   cursor: 'pointer',
   '&:hover': { background: colors.hover },
-  '& svg': { width: 14, height: 14, flexShrink: 0 },
+  '& svg': { width: 14, height: 14, flexShrink: 0, color: colors.textTertiary },
 });
 
 export const brandActions = css({
@@ -94,7 +94,7 @@ export const navItem = css({
   padding: '5px 8px',
   borderRadius: size.sidebarItemRadius,
   fontSize: font.xs,
-  lineHeight: font.xsLh,
+  lineHeight: '20px', // Codex nav items are 30px tall (5px padding × 2 + 20px lh)
   color: 'rgba(255, 255, 255, 0.85)',
   cursor: 'pointer',
   border: 'none',
@@ -213,6 +213,9 @@ export const userRow = css({
   border: 'none',
   background: 'transparent',
   textAlign: 'left',
+  fontSize: font.xs,
+  lineHeight: font.xsLh,
+  color: 'rgba(255, 255, 255, 0.85)',
   '&:hover': { background: colors.hover8 },
   '& .sb-avatar': {
     width: 18,

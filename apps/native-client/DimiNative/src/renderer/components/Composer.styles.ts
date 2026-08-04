@@ -30,7 +30,7 @@ export const footer = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, auto) auto minmax(0, 1fr)',
   alignItems: 'center',
-  columnGap: 0, // Codex uses an explicit 0px middle column, no gap
+  columnGap: 5, // Codex template "28px 0px 682px" leaves 5px gaps each side
   padding: '0 8px',
   marginBottom: 8, // capsule top 14 + 76 + 8 = 98
   minHeight: 76,
@@ -186,12 +186,12 @@ export const btnGhost = css({
   '&:hover': { background: colors.hover },
 });
 
-// ---- completion popup ----
+// ---- completion popup (floats ABOVE the 98px capsule + 16px bottom margin)
 export const completion = css({
   position: 'absolute',
   left: '50%',
   transform: 'translateX(-50%)',
-  bottom: 84,
+  bottom: 128,
   width: 'min(640px, calc(100vw - 48px))',
   background: colors.surface2,
   border: `1px solid ${colors.border}`,

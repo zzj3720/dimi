@@ -14,8 +14,8 @@ export const transcript = css({
 export const thread = css({
   maxWidth: size.threadMaxW,
   margin: '0 auto',
-  // py-5: top 20px, bottom 32px (thread) + 20px (msgList) = 52px
-  padding: '20px 16px 52px',
+  // Codex: 32px bottom padding (no extra msgList gap)
+  padding: '20px 16px 32px',
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
@@ -53,21 +53,21 @@ export const bodyThinking = css({
   lineHeight: font.chatLh,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
-  marginTop: 4,
+  marginTop: 16, // Codex: expanded content starts 16px below the button
 });
 export const bodyCompaction = css({ color: colors.textMuted, fontSize: font.chat });
 export const toolName = css({ color: colors.textDim, fontWeight: 500 });
 
-// Codex-style tool call card: icon + name + status header, collapsible body.
+// Codex-style tool call row: avatar-stack icon + summary text, NO card chrome.
 export const toolCard = css({
-  background: 'rgba(255, 255, 255, 0.03)',
-  border: `1px solid ${colors.border}`,
-  borderRadius: 10,
-  padding: '6px 10px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 0,
+  padding: 0,
   margin: '2px 0',
   cursor: 'pointer',
   userSelect: 'none',
-  '&:hover': { borderColor: colors.borderHeavy },
+  '&:hover': { opacity: 0.85 },
 });
 
 export const toolCardHeader = css({
@@ -76,17 +76,22 @@ export const toolCardHeader = css({
   gap: 8,
   fontSize: font.chat,
   lineHeight: font.chatLh,
-});
-
-export const toolCardIcon = css({
-  width: 14,
-  height: 14,
-  flexShrink: 0,
   color: colors.textTertiary,
 });
 
+export const toolCardIcon = css({
+  width: 16,
+  height: 16,
+  flexShrink: 0,
+  color: colors.textTertiary,
+  borderRadius: 4,
+  background: 'rgba(255, 255, 255, 0.1)',
+  padding: 3,
+  boxSizing: 'border-box',
+});
+
 export const toolCardName = css({
-  color: colors.text,
+  color: colors.textTertiary,
   fontWeight: 500,
   flexShrink: 0,
 });
@@ -100,9 +105,8 @@ export const toolCardStatus = css({
 });
 
 export const toolCardBody = css({
-  marginTop: 6,
-  paddingTop: 6,
-  borderTop: `1px solid ${colors.border}`,
+  marginTop: 4,
+  paddingTop: 4,
   fontSize: font.chat,
   lineHeight: font.chatLh,
   color: colors.textDim,
@@ -112,20 +116,19 @@ export const toolCardBody = css({
 });
 export const clickable = css({ cursor: 'pointer' });
 
-// Hover action buttons on messages (Codex: 26×26 row below the message)
+// Hover action buttons on messages (Codex: 26×26 row BELOW the message, flow
+// layout with gap 4 — never overlaps the message itself).
 export const entryActions = css({
-  position: 'absolute',
-  bottom: -2,
-  right: 0,
   display: 'flex',
-  gap: 2,
+  justifyContent: 'flex-end',
+  gap: 4,
+  marginTop: 4,
   opacity: 0,
   transition: 'opacity 0.12s ease',
   zIndex: 5,
 });
 
 export const entryHasActions = css({
-  position: 'relative',
   [`&:hover .${entryActions}`]: { opacity: 1 },
 });
 
@@ -152,7 +155,7 @@ export const entryUser = css({
   justifyContent: 'flex-end',
   '& .body': {
     color: colors.text,
-    lineHeight: '21px',
+    lineHeight: '22px', // Codex 22px
     background: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 20,
     padding: '8px 12px',
@@ -182,10 +185,6 @@ export const reasoningTitle = css({
   color: colors.textTertiary,
   cursor: 'pointer',
   userSelect: 'none',
-  borderRadius: 8,
-  padding: '1px 4px 1px 2px',
-  marginLeft: -2,
-  '&:hover': { color: colors.textDim, background: colors.hover },
 });
 
 export const reasoningChevron = css({

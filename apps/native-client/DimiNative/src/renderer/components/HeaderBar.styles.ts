@@ -41,7 +41,7 @@ export const headerMain = css({
   minWidth: 0,
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 4, // Codex gap-1
   paddingLeft: 14, // Codex title sits at main-left + 14px
 });
 
@@ -55,13 +55,21 @@ export const headerTitle = css({
   color: colors.text,
   background: 'transparent',
   border: 'none',
-  padding: 0,
+  padding: '0 6px', // Codex px-1.5
+  borderRadius: 10, // Codex rounded-md
   cursor: 'pointer',
-  maxWidth: '60%',
+  maxWidth: 320, // Codex max-w-[320px]
   overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-  '&:hover': { opacity: 0.85 },
+  flexShrink: 1,
+  minWidth: 0,
+  '& span': {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  '&:hover': { opacity: 0.85, background: colors.hover },
   '& svg': { width: 14, height: 14, flexShrink: 0, color: colors.textTertiary },
 });
 

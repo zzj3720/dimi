@@ -307,7 +307,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
             title="Send"
             data-testid="send-btn"
             @click="onSend"
-          >↑</button>
+          >
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
       </div>
     </div>
