@@ -24,6 +24,8 @@ import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/
 import type { ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
+import { IProviderRuntime } from '#/app/providerRuntime/providerRuntime';
+import type { Provider } from '#/app/providerRuntime/types';
 import {
   agentService,
   configServices,
@@ -110,6 +112,48 @@ describe('Rust engine turn runner (default)', () => {
     expect(textParts.map((part) => (part as { text?: string }).text)).toContain('<rust-answer>');
     const thinkParts = parts.filter((part) => part.type === 'think');
     expect(thinkParts.map((part) => (part as { think?: string }).think)).toContain('<rust-think>');
+  });
+
+  it('forwards the bare model id to the engine provider config (not the qualified alias)', async () => {
+    // Regression: providerConfig() used to send the qualified
+    // "provider/model" alias as the request model id. Strict providers
+    // (OpenCode) reject the prefixed form with HTTP 401 `Model
+    // opencode-go/deepseek-v4-flash is not supported` → provider.auth_error,
+    // while the TS loop streams with the catalog's bare `model.id`. The
+    // engine path must resolve through the catalog the same way.
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService); // agent scope must be live
+    const runtime = ctx.get(IProviderRuntime);
+    runtime.setProvider({
+      id: 'opencode-go',
+      name: 'OpenCode Go',
+      baseUrl: 'https://opencode.ai/zen/go/v1',
+      auth: {},
+      getModels: () => [
+        {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek V4 Flash',
+          api: 'openai-completions',
+          provider: 'opencode-go',
+          baseUrl: 'https://opencode.ai/zen/go/v1',
+          reasoning: true,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 1_000_000,
+          maxTokens: 384_000,
+        },
+      ],
+      stream: async function* () {},
+    } as unknown as Provider);
+    // The profile alias is the qualified form; the catalog model id is bare.
+    ctx.get(IAgentProfileService).update({ modelAlias: 'opencode-go/deepseek-v4-flash' });
+
+    const runner = ctx.get(IRustEngineTurnRunner) as unknown as {
+      providerConfig(): Promise<Record<string, unknown>>;
+    };
+    const config = await runner.providerConfig();
+    expect(config['model']).toBe('deepseek-v4-flash');
+    expect(config['baseUrl']).toBe('https://opencode.ai/zen/go/v1');
   });
 
   it('advertises Agent/AgentOutput/WaitFor defs to the model', async () => {
