@@ -1118,12 +1118,19 @@ impl TurnSession {
             );
 
             let mut usage = UsageAccumulator::default();
-            let request_messages = match self.input.context_window {
+            let mut request_messages = match self.input.context_window {
                 Some(window) if window > 0 => {
                     crate::context::project_window(&self.messages, window)
                 }
                 _ => self.messages.clone(),
             };
+            // Every request must carry a tool result for each assistant
+            // `tool_calls` entry, or strict providers (DeepSeek, OpenAI)
+            // reject the request with HTTP 400. The working history can hold
+            // a dangling exchange when a compaction/steer boundary split a
+            // call from its result; close it before sending (TS
+            // contextProjector parity, same as the compaction path).
+            close_unresolved_tool_exchanges(&mut request_messages);
             let request = ChatRequest {
                 messages: request_messages,
                 tools: Some(aimux_tools_json(&self.input.tools)),
