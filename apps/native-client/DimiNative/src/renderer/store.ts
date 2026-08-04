@@ -107,7 +107,9 @@ export interface State {
   planMode: boolean;
   permissionMode: PermissionMode;
   modelName: string;
-  effort: string; // thinking effort off|low|high (codex Work model picker strength)
+  effort: string;
+  pinnedIds: string[]; // local pin simulation (server has no pin API)
+  archivedIds: string[]; // local archive simulation // thinking effort off|low|high (codex Work model picker strength)
   currentCwd: string;
   footerTips: string;
   queued: { text: string; mode: string; promptId?: string }[];
@@ -233,6 +235,8 @@ export function createInitialState(): State {
     permissionMode: 'manual',
     modelName: '',
     effort: 'low',
+    pinnedIds: (() => { try { return JSON.parse(localStorage.getItem('dimi.pinnedSessions') ?? '[]') as string[]; } catch { return []; } })(),
+    archivedIds: (() => { try { return JSON.parse(localStorage.getItem('dimi.archivedSessions') ?? '[]') as string[]; } catch { return []; } })(),
     currentCwd: '',
     footerTips: '/init: generate AGENTS.md | @: mention files',
     queued: [],
@@ -337,6 +341,8 @@ export const Msg = {
   SettingsOpen: (): Msg => ({ type: 'settings_open' }),
   SettingsClose: (): Msg => ({ type: 'settings_close' }),
   SidebarResize: (width: number): Msg => ({ type: 'sidebar_resize', width }),
+  PinToggle: (id: string): Msg => ({ type: 'pin_toggle', id }),
+  ArchiveToggle: (id: string): Msg => ({ type: 'archive_toggle', id }),
 };
 
 // ------------------------------------------------------------------ helpers
@@ -396,6 +402,18 @@ export function update(s: State, msg: Msg): void {
       s.sidebarVisible = !s.sidebarVisible;
       return;
 
+    case 'pin_toggle': {
+      const id = msg.id as string;
+      s.pinnedIds = s.pinnedIds.includes(id) ? s.pinnedIds.filter((x) => x !== id) : [...s.pinnedIds, id];
+      try { localStorage.setItem('dimi.pinnedSessions', JSON.stringify(s.pinnedIds)); } catch { /* non-fatal */ }
+      return;
+    }
+    case 'archive_toggle': {
+      const id = msg.id as string;
+      s.archivedIds = s.archivedIds.includes(id) ? s.archivedIds.filter((x) => x !== id) : [...s.archivedIds, id];
+      try { localStorage.setItem('dimi.archivedSessions', JSON.stringify(s.archivedIds)); } catch { /* non-fatal */ }
+      return;
+    }
     case 'sidebar_resize': {
       const w = Number(msg.width);
       if (!Number.isFinite(w)) return;

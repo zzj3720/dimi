@@ -72,12 +72,14 @@ function toggleFolder(cwd: string): void {
 }
 
 // Sessions with a cwd become folder rows under 项目; sessions without one
-// land in 最近.
+// land in 最近. Archived sessions are hidden; pinned ones move to the
+// Pinned section.
 const groups = computed(() => {
   const map = new Map<string, typeof state.sessions>();
   for (const s of state.sessions) {
     const cwd = s.metadata?.cwd ?? s.cwd ?? '';
     if (!cwd) continue;
+    if (state.archivedIds.includes(s.id)) continue;
     if (!map.has(cwd)) map.set(cwd, []);
     map.get(cwd)!.push(s);
   }
@@ -85,8 +87,30 @@ const groups = computed(() => {
 });
 
 const recent = computed(() =>
-  state.sessions.filter((s) => !(s.metadata?.cwd ?? s.cwd)),
+  state.sessions.filter(
+    (s) => !(s.metadata?.cwd ?? s.cwd) && !state.pinnedIds.includes(s.id) && !state.archivedIds.includes(s.id),
+  ),
 );
+
+// Codex Pinned section (local simulation: the server has no pin API, so the
+// pinned set lives in localStorage via the pin_toggle reducer).
+const pinned = computed(() =>
+  state.sessions
+    .filter((s) => state.pinnedIds.includes(s.id))
+    .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0)),
+);
+
+function togglePin(s: SessionSummary): void {
+  const pin = !state.pinnedIds.includes(s.id);
+  dispatch(Msg.PinToggle(s.id));
+  state.statusMsg = pin ? '已置顶' : '已取消置顶';
+}
+
+function toggleArchive(s: SessionSummary): void {
+  const arch = !state.archivedIds.includes(s.id);
+  dispatch(Msg.ArchiveToggle(s.id));
+  state.statusMsg = arch ? '已归档' : '已取消归档';
+}
 
 function groupLabel(cwd: string): string {
   return cwd.split('/').filter(Boolean).pop() || cwd || '其他';
@@ -491,10 +515,10 @@ function marqueeLeave(id: string): void {
                   <span class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
                   <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
                   <span class="sb-hover-actions">
-                    <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+                    <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">
                       <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
                     </button>
-                    <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
+                    <button class="sb-hover-btn" type="button" :aria-label="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" :data-tooltip="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" @click.stop="toggleArchive(s)">
                       <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
                     </button>
                   </span>
@@ -502,6 +526,44 @@ function marqueeLeave(id: string): void {
               </div>
             </div>
           </template>
+        </section>
+
+        <!-- 置顶 section (codex Pinned; local simulation) -->
+        <section v-if="pinned.length > 0" :class="section">
+          <div :class="sectionTitleRow">
+            <button :class="sectionToggle" type="button" :aria-expanded="!recentCollapsed" @click="recentCollapsed = !recentCollapsed">
+              <svg class="sb-chevron" :class="{ collapsed: recentCollapsed }" :viewBox="icons.sectionChevron.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sectionChevron.paths" :key="i" :d="p" /></svg>
+              <span>置顶</span>
+            </button>
+          </div>
+          <div v-if="!recentCollapsed" :class="sessionList">
+            <div
+              v-for="s in pinned"
+              :key="s.id"
+              :class="[sessionItem, { [sessionItemActive]: s.id === state.currentSessionId }]"
+              role="listitem"
+              :aria-label="sessionTitle(s)"
+              :aria-current="s.id === state.currentSessionId ? 'page' : undefined"
+              :title="sessionTitle(s)"
+              @click="select(s.id)"
+              @contextmenu.prevent="openCtxMenu($event, s)"
+            >
+              <span class="sb-slot"></span>
+              <span class="s-title" @mouseenter="marqueeEnter($event, s.id)" @mouseleave="marqueeLeave(s.id)">
+                <span class="sb-title-inner" :class="{ 'sb-marquee': marqueeActive.has(s.id) }">{{ sessionTitle(s) }}</span>
+              </span>
+              <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
+              <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
+              <span class="sb-hover-actions">
+                <button class="sb-hover-btn" type="button" aria-label="取消置顶" data-tooltip="取消置顶" @click.stop="togglePin(s)">
+                  <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
+                </button>
+                <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="toggleArchive(s)">
+                  <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
+                </button>
+              </span>
+            </div>
+          </div>
         </section>
 
         <!-- 最近 section: chats without a cwd -->
@@ -554,10 +616,10 @@ function marqueeLeave(id: string): void {
               <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
               <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
               <span class="sb-hover-actions">
-                <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+                <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">
                   <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
                 </button>
-                <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
+                <button class="sb-hover-btn" type="button" :aria-label="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" :data-tooltip="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" @click.stop="toggleArchive(s)">
                   <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
                 </button>
               </span>
@@ -613,10 +675,10 @@ function marqueeLeave(id: string): void {
             <span v-if="sessionCwd(s)" class="sb-suffix">{{ groupLabel(sessionCwd(s)) }}</span>
             <span class="sb-badge"><span class="sb-badge-box"><svg :viewBox="ic('badgeIcon').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('badgeIcon').paths" :key="i" :d="p" /></svg></span></span>
             <span class="sb-hover-actions">
-              <button class="sb-hover-btn" type="button" aria-label="置顶聊天" data-tooltip="置顶聊天" @click.stop="comingSoon('置顶聊天')">
+              <button class="sb-hover-btn" type="button" :aria-label="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" :data-tooltip="state.pinnedIds.includes(s.id) ? '取消置顶' : '置顶聊天'" @click.stop="togglePin(s)">
                 <svg class="sb-pin" :viewBox="ic('pin').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('pin').paths" :key="i" :d="p" /></svg>
               </button>
-              <button class="sb-hover-btn" type="button" aria-label="归档聊天" data-tooltip="归档聊天" @click.stop="comingSoon('归档聊天')">
+              <button class="sb-hover-btn" type="button" :aria-label="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" :data-tooltip="state.archivedIds.includes(s.id) ? '取消归档' : '归档聊天'" @click.stop="toggleArchive(s)">
                 <svg :viewBox="ic('archive').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('archive').paths" :key="i" :d="p" /></svg>
               </button>
             </span>
