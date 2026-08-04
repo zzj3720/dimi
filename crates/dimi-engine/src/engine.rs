@@ -97,7 +97,7 @@ enum StepDisposition {
 /// `turn.step.completed` (the projection layer folds step usages into the
 /// turn header).
 #[derive(Debug, Clone, Default)]
-struct UsageAccumulator {
+pub(crate) struct UsageAccumulator {
     prompt_tokens: u64,
     completion_tokens: u64,
     cached_tokens: u64,
@@ -345,6 +345,15 @@ pub struct PendingApproval {
     /// `ToolResolutionContext.toolCalls` parity; AllDone's mixed-use guard
     /// needs the whole original batch).
     pub batch: Vec<ToolCall>,
+    /// The engine step that owns this batch (the paused step): after the
+    /// resumed batch finishes, the step must still emit its
+    /// `TurnStepCompleted` (P2-3 review — TS loop parity, the approval
+    /// round-trip lives inside the step's tool phase).
+    pub step: u32,
+    /// The step's LLM usage accumulated before the pause, carried so the
+    /// resumed step's `TurnStepCompleted` reports the same usage the normal
+    /// path would (TS `finishStep` parity).
+    pub(crate) usage: UsageAccumulator,
 }
 
 /// Where the turn stands after `run` / `resume`.
@@ -416,6 +425,20 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
         self.messages = self.input.messages.clone();
+        // `turn.started` belongs to the run entry, not the step loop: the
+        // loop is re-entered after an approval resume, and a second
+        // `turn.started` would corrupt the transcript (P2-3 review fix).
+        let turn_id = self.input.turn_id;
+        let origin = TurnOrigin::User { payload: None };
+        let prompt = last_user_text(&self.input.messages);
+        emit(
+            on_event,
+            EngineEvent::TurnStarted {
+                turn_id,
+                origin: origin.clone(),
+                prompt,
+            },
+        );
         self.run_loop(llm, tools, policy, on_event).await
     }
 
@@ -452,6 +475,8 @@ impl TurnSession {
                 truncated: None,
             });
         };
+        let pending_step = pending.step;
+        let pending_usage = pending.usage.clone();
         let result = match decision {
             ApprovalDecision::Approved => {
                 let ctx = self.tool_ctx(&pending.batch);
@@ -478,34 +503,44 @@ impl TurnSession {
                     }
                 }
             }
-            ApprovalDecision::Rejected { feedback } => ToolResult {
-                tool_call_id: pending.call.id.clone(),
-                tool_name: pending.call.name.clone(),
-                output: match feedback {
-                    Some(reason) if !reason.is_empty() => format!(
-                        "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
-                        pending.call.name, reason
-                    ),
-                    _ => format!(
-                        "Tool \"{}\" was not run because the user rejected the approval request.",
+            ApprovalDecision::Rejected { feedback } => {
+                // The fold needs the started record before the result; the
+                // started event lands after the approval decision, exactly
+                // once per call (P2-2 review — TS toolExecutorService
+                // dispatch parity).
+                emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                ToolResult {
+                    tool_call_id: pending.call.id.clone(),
+                    tool_name: pending.call.name.clone(),
+                    output: match feedback {
+                        Some(reason) if !reason.is_empty() => format!(
+                            "Tool \"{}\" was not run because the user rejected the approval request. Reason: {}",
+                            pending.call.name, reason
+                        ),
+                        _ => format!(
+                            "Tool \"{}\" was not run because the user rejected the approval request.",
+                            pending.call.name
+                        ),
+                    },
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+            ApprovalDecision::Cancelled => {
+                emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
+                ToolResult {
+                    tool_call_id: pending.call.id.clone(),
+                    tool_name: pending.call.name.clone(),
+                    output: format!(
+                        "Tool \"{}\" was not run because the approval request was cancelled.",
                         pending.call.name
                     ),
-                },
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
-            ApprovalDecision::Cancelled => ToolResult {
-                tool_call_id: pending.call.id.clone(),
-                tool_name: pending.call.name.clone(),
-                output: format!(
-                    "Tool \"{}\" was not run because the approval request was cancelled.",
-                    pending.call.name
-                ),
-                is_error: true,
-                stop_turn: false,
-                updates: vec![],
-            },
+                    is_error: true,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
         };
         emit_tool_result(&result, self.input.turn_id, on_event);
         self.messages.push(LlmMessage {
@@ -521,6 +556,12 @@ impl TurnSession {
             // siblings never run and get synthetic skipped results (P2-7
             // parity), so no tool_call dangles in the next request.
             self.synthesize_skipped_siblings(&pending.batch, pending.index + 1, on_event);
+            self.emit_step_completed(
+                pending_step,
+                &pending_usage,
+                normalize_finish_reason(FinishReason::Completed),
+                on_event,
+            );
             return self.finish_turn(TurnEndReason::Completed, on_event);
         }
         // P1-1: an approval pauses the batch, it does not cancel the round —
@@ -535,17 +576,57 @@ impl TurnSession {
                 on_event,
                 self.input.turn_id,
                 self.steps,
+                &pending_usage,
             )
             .await
         {
             Ok(stop_turn) => {
                 if stop_turn {
+                    self.emit_step_completed(
+                        pending_step,
+                        &pending_usage,
+                        normalize_finish_reason(FinishReason::Completed),
+                        on_event,
+                    );
                     return self.finish_turn(TurnEndReason::Completed, on_event);
                 }
+                // The paused step finishes once its batch resolved (P2-3
+                // review): without this the transcript keeps the step open
+                // and the next `turn.step.started` has no matching
+                // `turn.step.completed`.
+                self.emit_step_completed(
+                    pending_step,
+                    &pending_usage,
+                    normalize_finish_reason(FinishReason::ToolCalls),
+                    on_event,
+                );
                 self.run_loop(llm, tools, policy, on_event).await
             }
             Err(progress) => progress,
         }
+    }
+
+    /// Emit `TurnStepCompleted` for a step whose batch was interrupted by an
+    /// approval pause (TS `finishStep` parity): the normal path emits it
+    /// right after `execute_batch` returns, and the resumed path must do the
+    /// same so the transcript never sees an open step.
+    fn emit_step_completed(
+        &self,
+        step: u32,
+        usage: &UsageAccumulator,
+        finish: &str,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        emit(
+            on_event,
+            EngineEvent::TurnStepCompleted {
+                turn_id: self.input.turn_id,
+                step: step as i64,
+                step_id: None,
+                usage: usage.transcript_usage(),
+                finish_reason: Some(finish.to_string()),
+            },
+        );
     }
 
     fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
@@ -578,6 +659,7 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
         turn_id: i64,
         step_number: u32,
+        usage: &UsageAccumulator,
     ) -> Result<bool, TurnProgress> {
         let mut stop_turn = false;
         for (index, call) in calls.iter().enumerate().skip(start) {
@@ -663,10 +745,11 @@ impl TurnSession {
                     });
                 }
                 PolicyDecision::Ask => {
-                    // The call is announced before the pause (TS onToolCall
-                    // semantics), so a rejected resume still folds a proper
-                    // tool message.
-                    emit_tool_call_started(call, turn_id, on_event);
+                    // The call is announced when it is dispatched after the
+                    // approval decision (resume emits started + result for
+                    // every decision — P2-2 parity with TS
+                    // toolExecutorService), so no event is emitted at the
+                    // pause itself.
                     let request = ApprovalRequest {
                         request_id: format!("approval-{turn_id}-{}", call.id),
                         tool_call_id: call.id.clone(),
@@ -683,6 +766,8 @@ impl TurnSession {
                         call: call.clone(),
                         batch: calls.to_vec(),
                         index,
+                        step: step_number,
+                        usage: usage.clone(),
                     });
                     return Err(TurnProgress::NeedsApproval(request));
                 }
@@ -701,6 +786,10 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) {
         for sibling in &calls[after..] {
+            // P2-1 (review): announce the skipped call before its synthetic
+            // result (TS `prepareSkippedToolCall` emits started first) — a
+            // bare `tool.result` would be an orphan on the wire/transcript.
+            emit_tool_call_started(sibling, self.input.turn_id, on_event);
             let skipped = ToolResult {
                 tool_call_id: sibling.id.clone(),
                 tool_name: sibling.name.clone(),
@@ -840,16 +929,6 @@ impl TurnSession {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
         let turn_id = self.input.turn_id;
-        let origin = TurnOrigin::User { payload: None };
-        let prompt = last_user_text(&self.input.messages);
-        emit(
-            on_event,
-            EngineEvent::TurnStarted {
-                turn_id,
-                origin: origin.clone(),
-                prompt,
-            },
-        );
 
         loop {
             // Cancellation (RPC cancel → engine): checked at every step
@@ -1203,7 +1282,16 @@ impl TurnSession {
                         reasoning: None,
                     });
                     let stop_turn = match self
-                        .execute_batch(&calls, 0, tools, policy, on_event, turn_id, step_number)
+                        .execute_batch(
+                            &calls,
+                            0,
+                            tools,
+                            policy,
+                            on_event,
+                            turn_id,
+                            step_number,
+                            &usage,
+                        )
                         .await
                     {
                         Ok(stop_turn) => stop_turn,
@@ -3942,6 +4030,175 @@ mod approval_batch_tests {
                 .contains("Tool was not run because a previous tool in the same round stopped the turn."),
             "sibling result: {:?}",
             sibling.content
+        );
+    }
+
+    /// Counts `ToolCallStarted` events for a call id.
+    fn started_count(events: &[EngineEvent], call_id: &str) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolCallStarted { tool_call_id, .. } if tool_call_id == call_id
+                )
+            })
+            .count()
+    }
+
+    /// Counts `ToolResult` events for a call id.
+    fn result_count(events: &[EngineEvent], call_id: &str) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    EngineEvent::ToolResult { tool_call_id, .. } if tool_call_id == call_id
+                )
+            })
+            .count()
+    }
+
+    #[tokio::test]
+    async fn approval_resume_emits_tool_started_exactly_once() {
+        // P2-2 (final review): an Approved resume must not emit a second
+        // `ToolCallStarted` for the pending call — the started event lands
+        // exactly once per call, at the dispatch point after the approval
+        // decision (TS toolExecutorService parity).
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        // Each call got exactly one started + one result — no duplicate
+        // started from pause + resume.
+        assert_eq!(started_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_bash"), 1, "events: {events:?}");
+        assert_eq!(started_count(&events, "call_read"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_read"), 1, "events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn skipped_sibling_emits_started_and_result() {
+        // P2-1 (final review): a synthetic skipped sibling must be announced
+        // (`tool.call.started`) before its result, exactly like TS
+        // `prepareSkippedToolCall` — no orphan `tool.result` on the wire.
+        let llm = ScriptedLlmClient::once(batch_segment());
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "stopping now", true),
+            result("call_read", "Read", "should not run", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Auto),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        assert_eq!(started_count(&events, "call_read"), 1, "events: {events:?}");
+        assert_eq!(result_count(&events, "call_read"), 1, "events: {events:?}");
+    }
+
+    #[tokio::test]
+    async fn paused_step_emits_step_completed_after_resume() {
+        // P2-3 (final review): the step that paused for approval must still
+        // emit `TurnStepCompleted` once the resumed batch finishes (TS loop
+        // parity: the approval round-trip happens inside the step's tool
+        // phase, and `step.end` is emitted after the batch resolves), so the
+        // next LLM step starts cleanly.
+        let llm = ScriptedLlmClient::new(vec![
+            batch_segment(),
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let executor = RecordingToolExecutor::new(vec![
+            result("call_bash", "Bash", "bash output", false),
+            result("call_read", "Read", "read output", false),
+        ]);
+        let mut session = TurnSession::new(input(vec![msg("user", "run both")]));
+        let mut events = Vec::new();
+        let progress = session
+            .run(
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::NeedsApproval(_)), "{progress:?}");
+        let progress = session
+            .resume(
+                ApprovalDecision::Approved,
+                &llm,
+                &executor,
+                &policy(PermissionMode::Manual),
+                &mut |event| events.push(event),
+            )
+            .await;
+        assert!(matches!(progress, TurnProgress::Completed(_)), "{progress:?}");
+        let completed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::TurnStepCompleted { step, finish_reason, .. } => {
+                    Some((*step, finish_reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(
+            completed.iter().any(|(step, _)| *step == 1),
+            "paused step 1 never completed; completed: {completed:?}, events: {events:?}"
+        );
+        // The step that carried the paused batch finishes as tool_calls
+        // (normalized to `tool_use` like the non-paused path).
+        assert_eq!(
+            completed
+                .iter()
+                .find(|(step, _)| *step == 1)
+                .map(|(_, reason)| reason.clone()),
+            Some(Some("tool_use".to_string())),
+            "step 1 finish_reason: {completed:?}"
         );
     }
 }

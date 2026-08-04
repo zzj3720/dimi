@@ -3069,12 +3069,7 @@ impl ToolExecutor for WaitForTool {
                 updates: vec![],
             };
         }
-        if self
-            .tasks
-            .get(&agent_id)
-            .or_else(|| self.tasks.find_by_agent_id(&agent_id))
-            .is_none()
-        {
+        if self.tasks.find_by_agent_id(&agent_id).is_none() {
             return ToolResult {
                 tool_call_id: call.id.clone(),
                 tool_name: call.name.clone(),
@@ -3085,11 +3080,7 @@ impl ToolExecutor for WaitForTool {
             };
         }
         loop {
-            if let Some(state) = self
-                .tasks
-                .get(&agent_id)
-                .or_else(|| self.tasks.find_by_agent_id(&agent_id))
-            {
+            if let Some(state) = self.tasks.find_by_agent_id(&agent_id) {
                 if state.status != "running" {
                     return ToolResult {
                         tool_call_id: call.id.clone(),
@@ -3374,6 +3365,52 @@ mod async_agent_tests {
         assert_eq!(waited_json["status"], "completed");
         assert_eq!(waited_json["output"], "done");
         assert!(waited.stop_turn);
+    }
+
+    #[tokio::test]
+    async fn waitfor_rejects_a_task_id_instead_of_agent_id() {
+        // P2-4 (final review): the task registry is keyed by task id, but
+        // the WaitFor def REQUIRES `agent_id` — passing a task id must fail
+        // fast ("No subagent task found for agent_id: ...") instead of
+        // accidentally matching the task via the raw key and parking for
+        // the full timeout.
+        let tasks = AgentTasks::new();
+        tasks.insert(
+            "task-xyz".to_string(),
+            TaskState {
+                agent_id: "agent-xyz".to_string(),
+                status: "running".to_string(),
+                output: String::new(),
+                error: None,
+                messages: vec![],
+                started_at: 1,
+                deadline: std::time::Instant::now(),
+                cancel: None,
+            },
+        );
+        let wait = WaitForTool { tasks };
+        let started = std::time::Instant::now();
+        let waited = wait
+            .execute(
+                &ToolCall {
+                    id: "call_w".to_string(),
+                    name: "WaitFor".to_string(),
+                    arguments: serde_json::json!({ "agent_id": "task-xyz", "timeout_seconds": 1 }),
+                },
+                &ctx(),
+            )
+            .await;
+        let elapsed = started.elapsed();
+        assert!(waited.is_error, "output: {}", waited.output);
+        assert!(
+            waited.output.contains("task-xyz"),
+            "output: {}",
+            waited.output
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "task id must fail fast, took {elapsed:?}"
+        );
     }
 
     #[test]
