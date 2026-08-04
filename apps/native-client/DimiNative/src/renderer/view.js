@@ -66,11 +66,30 @@ function renderTranscript() {
     const row = document.createElement('div');
     row.className = 'entry';
     if (e.kind === 'user') {
-      row.innerHTML = `<span class="role role-user">you</span><div class="body"></div>`;
-      row.querySelector('.body').textContent = e.text;
+      // User message: right-aligned accent bubble (chat-style).
+      row.style.flexDirection = 'row-reverse';
+      const bubble = document.createElement('div');
+      bubble.className = 'body';
+      bubble.style.maxWidth = '78%';
+      bubble.style.background = 'var(--accent-dim)';
+      bubble.style.border = '1px solid rgba(79, 193, 255, 0.35)';
+      bubble.style.borderRadius = '12px';
+      bubble.style.padding = '8px 12px';
+      bubble.textContent = e.text;
+      row.innerHTML = `<span class="role role-user">you</span>`;
+      row.appendChild(bubble);
     } else if (e.kind === 'assistant') {
-      row.innerHTML = `<span class="role role-dimi">dimi</span><div class="body"></div>`;
-      row.querySelector('.body').textContent = e.text;
+      // Assistant message: left-aligned surface bubble.
+      const bubble = document.createElement('div');
+      bubble.className = 'body';
+      bubble.style.maxWidth = '85%';
+      bubble.style.background = 'var(--surface)';
+      bubble.style.border = '1px solid var(--border)';
+      bubble.style.borderRadius = '12px';
+      bubble.style.padding = '8px 12px';
+      bubble.textContent = e.text;
+      row.innerHTML = `<span class="role role-dimi">dimi</span>`;
+      row.appendChild(bubble);
     } else if (e.kind === 'tool') {
       row.className = 'entry clickable';
       row.innerHTML = `<span class="role role-tool">tool</span><div class="body tool"><span class="tool-name"></span><div class="tool-output"></div></div>`;
@@ -115,7 +134,9 @@ function renderComposer() {
 
   const canSend = model.draft.trim().length > 0 && !!model.currentSessionId;
   els.btnSend.disabled = !canSend;
-  els.btnSend.classList.toggle('hidden', model.draft.trim().length === 0);
+  // Send button stays visible (TUI always shows submit); only disabled when
+  // there is nothing to send.
+  els.btnSend.classList.remove('hidden');
 
   const busyActions = model.busy;
   els.btnSteer.classList.toggle('hidden', !busyActions);
