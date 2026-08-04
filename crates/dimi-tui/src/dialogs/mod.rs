@@ -21,15 +21,27 @@
 //! lives in the `tests` module at the bottom of this file.
 
 pub mod approval;
+pub mod custom_provider_dialog;
 pub mod effort_selector;
 pub mod experiments_selector;
+pub mod feedback_input_dialog;
 pub mod help;
 pub mod input_line;
 pub mod model_common;
 pub mod model_selector;
+pub mod plugin_types;
+pub mod plugins_selector;
+pub mod provider_auth_selector;
+pub mod provider_login_dialog;
 pub mod question;
 pub mod selectors;
 pub mod session_picker;
+pub mod settings_selector;
+pub mod start_permission_prompt;
+pub mod swarm_start_permission_prompt;
+pub mod tabbed_model_selector;
+pub mod task_output_viewer;
+pub mod task_types;
 pub mod undo_selector;
 
 use crate::width::visible_width;

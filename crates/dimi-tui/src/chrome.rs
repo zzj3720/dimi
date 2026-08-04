@@ -289,7 +289,7 @@ impl TodoStatus {
 }
 
 /// One todo item.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TodoItem {
     pub title: String,
     pub status: TodoStatus,

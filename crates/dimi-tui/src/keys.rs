@@ -1202,6 +1202,13 @@ pub fn decode_printable_key(data: &str) -> Option<String> {
     decode_kitty_printable(data).or_else(|| decode_modify_other_keys_printable(data))
 }
 
+/// `printableChar` — decode a printable key, falling back to the raw input
+/// when it is not a Kitty/other-keys sequence (mirrors
+/// `apps/dimi/src/tui/utils/printable-key.ts`).
+pub fn printable_char(data: &str) -> String {
+    decode_printable_key(data).unwrap_or_else(|| data.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

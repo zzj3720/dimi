@@ -6,6 +6,8 @@
 //! `ColorPalette`, the same change must land here (and in the docs/schema
 //! mirrors per the apps/dimi AGENTS.md hard rule).
 
+use crate::component::Component;
+
 /// Semantic color tokens consumed by every UI component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorPalette {
@@ -323,6 +325,38 @@ pub fn set_palette(palette: ColorPalette) {
     CURRENT_THEME.with(|t| t.borrow_mut().set_palette(palette));
 }
 
+/// Switch the global theme palette (port of `DimiTUI.applyTheme` in
+/// `apps/dimi/src/tui/dimi-tui.ts`).
+///
+/// Mirrors the TS flow:
+///
+/// 1. resolve the palette for the theme name (`getColorPalette`),
+/// 2. `currentTheme.setPalette(palette)` — this function,
+/// 3. update `state.theme` / `state.appState.theme` and restyle the editor
+///    border highlight (`updateEditorBorderHighlight`) — host-side,
+/// 4. force every component to re-render so Markdown/Text caches holding old
+///    ANSI codes are cleared (`state.transcriptContainer.invalidate()` +
+///    `ui.requestRender(true)`) — see [`invalidate_components`],
+/// 5. persist the choice via `saveTuiConfig` — host-side.
+///
+/// Only the palette switch is library-side; the component invalidation is
+/// exposed separately as [`invalidate_components`] because there is no live
+/// TUI tree inside the library.
+pub fn apply_theme(palette: ColorPalette) {
+    set_palette(palette);
+}
+
+/// Call `.invalidate()` on every passed component — the library-side analogue
+/// of the TS `state.transcriptContainer.invalidate()` + `ui.requestRender(true)`
+/// steps of `applyTheme`. The host gathers its live components (transcript,
+/// footer, chrome, …) and passes them here after an [`apply_theme`] switch so
+/// cached ANSI rendering is rebuilt.
+pub fn invalidate_components<'a>(components: impl IntoIterator<Item = &'a mut dyn Component>) {
+    for component in components {
+        component.invalidate();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +407,44 @@ mod tests {
         let t = current_theme();
         assert_eq!(t.color(ColorToken::Primary), "#1565C0");
         set_palette(DARK_COLORS);
+    }
+
+    #[test]
+    fn apply_theme_switches_singleton() {
+        apply_theme(DARK_COLORS);
+        assert_eq!(current_theme().color(ColorToken::Primary), "#4FA8FF");
+        assert_eq!(current_theme().color(ColorToken::ShellMode), "#BD93F9");
+        apply_theme(LIGHT_COLORS);
+        assert_eq!(current_theme().color(ColorToken::Primary), "#1565C0");
+        assert_eq!(current_theme().color(ColorToken::ShellMode), "#5E35B1");
+        apply_theme(DARK_COLORS);
+    }
+
+    #[test]
+    fn invalidate_components_calls_invalidate_on_each() {
+        /// Test component that records whether `invalidate` was called.
+        struct RecordingComponent {
+            invalidated: bool,
+        }
+        impl Component for RecordingComponent {
+            fn render(&mut self, _width: usize) -> Vec<String> {
+                Vec::new()
+            }
+            fn invalidate(&mut self) {
+                self.invalidated = true;
+            }
+        }
+
+        let mut a = RecordingComponent { invalidated: false };
+        let mut b = RecordingComponent { invalidated: false };
+        let mut c = RecordingComponent { invalidated: false };
+        let mut components: Vec<&mut dyn Component> =
+            vec![&mut a as &mut dyn Component, &mut b as &mut dyn Component];
+        invalidate_components(components.iter_mut().map(|c| &mut **c));
+        invalidate_components([&mut c as &mut dyn Component]);
+        assert!(a.invalidated);
+        assert!(b.invalidated);
+        assert!(c.invalidated);
     }
 
     #[test]
