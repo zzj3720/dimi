@@ -340,6 +340,13 @@ describe('RustEngine minimal closed loop', () => {
           },
           { type: 'finish', finishReason: 'tool_calls' },
         ],
+        // The launching turn continues after the Agent call (same-turn
+        // continue parity): it consumes the next segment, so the SUBAGENT's
+        // result is the final segment.
+        [
+          { type: 'text', delta: 'main turn done' },
+          { type: 'finish', finishReason: 'stop' },
+        ],
         [
           { type: 'text', delta: 'subagent result text' },
           { type: 'finish', finishReason: 'stop' },

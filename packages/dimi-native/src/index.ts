@@ -188,6 +188,12 @@ export function readWireRecords(path: string): string {
   return loadNative().readWireRecords(path);
 }
 
+/** Release an agent's scoped subagent registry (tasks + steering queues).
+ *  Call when the owning agent scope is disposed. */
+export function dropTaskRegistry(registryId: string): void {
+  loadNative().dropTaskRegistry(registryId);
+}
+
 /**
  * One agent's transcript store, held on the Rust side — the swap-in socket
  * for the kap-server `TranscriptService` storage backend.
@@ -623,7 +629,7 @@ export class RustTurnSession {
   /** Release the agent-scoped subagent registry (tasks + steering queues).
    *  Call when the owning agent scope is disposed. */
   static dropTaskRegistry(registryId: string): void {
-    loadNative().dropTaskRegistry(registryId);
+    dropTaskRegistry(registryId);
   }
 
   /** Register the per-event callback: every engine event emitted by `run()` /
