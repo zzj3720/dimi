@@ -51,6 +51,13 @@ export interface RegisterAgentTaskOptions {
    *  `generateTaskId(idPrefix)` id. */
   readonly taskId?: string;
   readonly detached?: boolean;
+  /** Persist task state (`<taskId>.json`) even for non-detached entries.
+   *  Engine tasks are registered `detached: false` (the engine runner owns
+   *  the wire ops and notifications), but without persistence a restart
+   *  silently drops them: no ghost, no lost marker, and waits for the task
+   *  fail with "task not found". Set this to keep the task recoverable
+   *  while preserving the non-detached wire/notification behavior. */
+  readonly persist?: boolean;
   readonly timeoutMs?: number;
   readonly detachTimeoutMs?: number;
   readonly autoBackgroundOnTimeout?: boolean;

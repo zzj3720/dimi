@@ -878,6 +878,51 @@ describe('AgentTaskService', () => {
     expect(info?.status).toBe('completed');
     expect(persistedChars()).toBeGreaterThanOrEqual(bigResult.length);
   });
+describe('engine task persistence', () => {
+  it('persists running and settled state for engine tasks registered with persist:true', async () => {
+    const writes = stubTaskWrites();
+    const svc = ix.get(IAgentTaskService);
+    const engineTask: AgentTask = {
+      idPrefix: 'agent',
+      kind: 'agent',
+      description: 'engine review task',
+      start: async (sink) => {
+        await sink.settle({ status: 'completed' });
+      },
+      toInfo: (base) => ({
+        ...base,
+        kind: 'agent',
+        agentId: 'agent-0',
+        subagentType: 'review',
+        detached: true,
+      }),
+    };
+    const taskId = svc.registerTask(engineTask, {
+      taskId: 'agent-58a6682f',
+      detached: false,
+      persist: true,
+    });
+
+    await svc.wait(taskId, 2000);
+
+    // The engine runner owns the wire ops/notifications, so the registry
+    // entry is `recorded: false`; with `persist: true` it must still write
+    // task state so a restart can mark the task lost instead of dropping it.
+    expect(writes.length).toBeGreaterThanOrEqual(2);
+    expect(writes[0]).toMatchObject({ taskId: 'agent-58a6682f', status: 'running' });
+    expect(writes.at(-1)).toMatchObject({ taskId: 'agent-58a6682f', status: 'completed' });
+  });
+
+  it('does not persist engine tasks without the persist flag (unchanged behavior)', async () => {
+    const writes = stubTaskWrites();
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(fakeProcessTask(), { taskId: 'agent-00000000', detached: false });
+
+    await svc.wait(taskId, 2000);
+
+    expect(writes).toEqual([]);
+  });
+});
 });
 
 describe('Agent task notification XML', () => {
@@ -957,3 +1002,4 @@ describe('Agent task notification XML', () => {
     expect(text).not.toContain('should stay out of the XML');
   });
 });
+

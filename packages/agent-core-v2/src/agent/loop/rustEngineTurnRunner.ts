@@ -1599,7 +1599,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     });
     this.engineTaskAdapters.set(taskId, adapter);
     try {
-      this.tasks.registerTask(adapter, { taskId, detached: false });
+      this.tasks.registerTask(adapter, { taskId, detached: false, persist: true });
     } catch (error) {
       // Registration can fail (e.g. the agent scope is being torn down): the
       // wire ops still record the lifecycle; TaskList/TaskStop lose the live
