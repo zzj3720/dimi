@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.6.8
+
+### Patch Changes
+
+- [`91da4d2`](https://github.com/zzj3720/dimi/commit/91da4d2689cb4e8b7829144e67f433e898d073d4) - Fix the Rust engine not retrying some transient provider errors (rate limits, overloads, connection failures) that should be retried per step.
+
+- [`91da4d2`](https://github.com/zzj3720/dimi/commit/91da4d2689cb4e8b7829144e67f433e898d073d4) - Fix token usage accounting across tool steps in the Rust engine, suppress repeated identical tool calls, and stop exposing disabled tools to the model.
+
 ## 0.6.7
 
 ### Patch Changes
