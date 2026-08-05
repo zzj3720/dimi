@@ -261,6 +261,35 @@ impl Engine {
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnOutcome {
         let mut session = TurnSession::new(input.clone());
+        Self::drive_turn(&mut session, llm, tools, policy, on_event).await
+    }
+
+    /// Run a turn with a steering channel: user messages pushed into `steer`
+    /// while the turn runs are drained into the next step's request (the TS
+    /// "prompt while busy" steer semantics). Same completion driver as
+    /// [`Engine::run_turn`] — only the session construction differs.
+    pub async fn run_turn_with_steer(
+        &self,
+        input: &EngineTurnInput,
+        steer: std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>,
+        llm: &dyn LlmClient,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnOutcome {
+        let mut session = TurnSession::with_steer(input.clone(), Some(steer));
+        Self::drive_turn(&mut session, llm, tools, policy, on_event).await
+    }
+
+    /// Shared completion driver: run the turn, resolving any approval request
+    /// by denying it (no resolver is wired — never hang).
+    async fn drive_turn(
+        session: &mut TurnSession,
+        llm: &dyn LlmClient,
+        tools: &dyn ToolExecutor,
+        policy: &PolicyConfig,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> TurnOutcome {
         match session.run(llm, tools, policy, on_event).await {
             TurnProgress::Completed(outcome) => outcome,
             TurnProgress::NeedsApproval(_) => {

@@ -19,7 +19,9 @@ use dimi_engine::events::EngineEvent;
 use dimi_engine::llm::{LlmClient, OpenAiCompatibleClient};
 use dimi_engine::permission::{PermissionMode, PolicyConfig};
 use dimi_engine::tool::{BashTool, ToolRegistry};
-use dimi_engine::types::{EngineTool, EngineTurnInput, LlmMessage, ProviderConfig};
+use dimi_engine::types::{
+    EngineTool, EngineTurnInput, LlmMessage, LlmToolCall, LlmToolCallFunction, ProviderConfig,
+};
 use dimi_tui::chrome::{QueuePaneOptions, WelcomeState};
 use dimi_tui::commands::{
     DispatchAction, SlashCommand, builtin_slash_commands, dispatch_input,
@@ -38,7 +40,10 @@ use dimi_tui::editor::EditorOptions;
 use dimi_tui::footer::{FooterComponent, FooterState};
 use dimi_tui::keys::matches_key;
 use dimi_tui::process_terminal::ProcessTerminal;
-use dimi_tui::session::{BusyInputMode, SessionBackend, SessionError, SessionManager};
+use dimi_tui::session::{
+    BusyInputIntent, BusyInputMode, SessionBackend, SessionError, SessionManager,
+    resolve_busy_input_intent,
+};
 use dimi_tui::terminal::Terminal;
 use dimi_tui::theme::{ColorToken, DARK_COLORS, LIGHT_COLORS, invalidate_components, set_palette};
 use dimi_tui::tui::Tui;
@@ -99,33 +104,83 @@ fn engine_tools() -> Vec<EngineTool> {
     }]
 }
 
-/// Assemble the OpenAI-shaped conversation from the transcript entries
-/// (user/assistant text only — tool/thinking/status entries are display-only
-/// and skipped). Minimal context assembly: no system prompt, no compaction
-/// (slice 6a leftover).
+/// A plain user LLM message (used to merge a prompt that is not already in the
+/// transcript — the `/btw` side prompt — and for steer injection).
+fn user_llm_message(content: &str) -> LlmMessage {
+    LlmMessage {
+        role: "user".to_string(),
+        content: serde_json::Value::String(content.to_owned()),
+        name: None,
+        tool_call_id: None,
+        tool_calls: None,
+        reasoning: None,
+    }
+}
+
+/// Assemble the OpenAI-shaped conversation from the transcript entries.
+/// User/assistant text maps to `user`/`assistant` messages; tool exchanges
+/// map back to `assistant(tool_calls)` + `tool(result)` messages so a later
+/// turn's context stays well-formed (consecutive user messages would 400).
+/// Thinking/status entries are display-only and skipped.
 fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
-    entries
-        .iter()
-        .filter_map(|e| match e.kind {
-            TranscriptEntryKind::User => Some(LlmMessage {
+    let mut out = Vec::new();
+    for entry in entries {
+        match entry.kind {
+            TranscriptEntryKind::User => out.push(LlmMessage {
                 role: "user".to_string(),
-                content: serde_json::Value::String(e.content.clone()),
+                content: serde_json::Value::String(entry.content.clone()),
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
             }),
-            TranscriptEntryKind::Assistant => Some(LlmMessage {
+            TranscriptEntryKind::Assistant => out.push(LlmMessage {
                 role: "assistant".to_string(),
-                content: serde_json::Value::String(e.content.clone()),
+                content: serde_json::Value::String(entry.content.clone()),
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
             }),
-            _ => None,
-        })
-        .collect()
+            TranscriptEntryKind::ToolCall => {
+                // The tool-call card maps back to an assistant message with
+                // `tool_calls` (OpenAI wire shape: args serialized to JSON).
+                if let Some(call) = &entry.tool_call {
+                    let args_json = serde_json::Value::Object(call.args.clone());
+                    out.push(LlmMessage {
+                        role: "assistant".to_string(),
+                        content: serde_json::Value::String(String::new()),
+                        name: None,
+                        tool_call_id: None,
+                        tool_calls: Some(vec![LlmToolCall {
+                            id: call.id.clone(),
+                            call_type: Some("function".to_string()),
+                            function: LlmToolCallFunction {
+                                name: call.name.clone(),
+                                arguments: serde_json::to_string(&args_json)
+                                    .unwrap_or_else(|_| "{}".to_string()),
+                            },
+                        }]),
+                        reasoning: None,
+                    });
+                }
+                // The attached result (when it landed) maps to a `tool`
+                // message completing the exchange.
+                if let Some(result) = &entry.tool_result {
+                    out.push(LlmMessage {
+                        role: "tool".to_string(),
+                        content: serde_json::Value::String(result.output.clone()),
+                        name: None,
+                        tool_call_id: Some(result.tool_call_id.clone()),
+                        tool_calls: None,
+                        reasoning: None,
+                    });
+                }
+            }
+            TranscriptEntryKind::Thinking | TranscriptEntryKind::Status => {}
+        }
+    }
+    out
 }
 
 /// The engine backend behind [`SessionManager`] (slice 6a: real engine
@@ -148,6 +203,24 @@ pub struct EngineBackend {
     /// Set when a drained batch contained `turn.ended`: the app resets the
     /// session's streaming flag so the next idle flush can dispatch.
     turn_idle: bool,
+    /// Persistent `tool_call_id → (turn_id, transcript entry index)` map: the
+    /// P1 cross-batch fix — a `tool.result` arriving in a later pump batch is
+    /// attached to the tool-call card it was created in, instead of being
+    /// dropped for living outside the current batch. Entries are removed when
+    /// their turn ends.
+    pending_tool_cards: HashMap<String, (i64, usize)>,
+    /// Turn ids whose events belong to the BTW side panel (P3/P7): they are
+    /// skipped by the main-transcript projection and never set `turn_idle`
+    /// (a btw turn finishing must not clear a concurrent user turn's
+    /// streaming). Registered by [`EngineBackend::start_btw_turn`], removed
+    /// when the turn ends.
+    btw_turn_ids: HashSet<i64>,
+    /// The current main (non-btw) turn's steering channel (P6): while a turn
+    /// is streaming, `handle_submit` in steer mode pushes user messages here
+    /// and the engine drains them into the next step's request. `None` while
+    /// idle (or only a btw turn is running) — steering then falls back to
+    /// queueing.
+    steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
     /// Provider config (`None` = not configured → clear error status).
     provider: Option<ProviderConfig>,
     policy: PolicyConfig,
@@ -179,6 +252,9 @@ impl EngineBackend {
             tx,
             current_turn: None,
             turn_idle: false,
+            pending_tool_cards: HashMap::new(),
+            btw_turn_ids: HashSet::new(),
+            steer: None,
             provider,
             policy: PolicyConfig {
                 mode: PermissionMode::Auto,
@@ -192,11 +268,64 @@ impl EngineBackend {
         }
     }
 
-    /// Spawn one engine turn for `text` (used by both prompt and `!` bash
-    /// lines — slice 6a routes bash through the model — and by `/btw`).
-    /// Returns the spawned turn's id, or `None` when the provider is not
-    /// configured (a clear status was already pushed to the transcript).
-    pub fn start_turn(&mut self, _text: &str) -> Option<i64> {
+    /// Spawn one main engine turn for `text` (used by both prompt and `!`
+    /// bash lines — slice 6a routes bash through the model). The text is
+    /// expected to already be the trailing user entry (the app pushes it
+    /// before flushing); a steering channel is created so a busy Enter can
+    /// inject mid-turn (P6). Returns the spawned turn's id, or `None` when
+    /// the provider is not configured (a clear status was already pushed to
+    /// the transcript).
+    pub fn start_turn(&mut self, text: &str) -> Option<i64> {
+        let transcript = self.transcript.borrow();
+        let mut messages = transcript_messages(transcript.entries());
+        // Defensive: if the caller did not push `text` into the transcript
+        // (all current callers do), merge it so the prompt always reaches the
+        // LLM rather than silently dropping (P2 sibling of the `/btw` fix).
+        let already_trailing = matches!(
+            messages.last(),
+            Some(LlmMessage {
+                role,
+                content: serde_json::Value::String(s),
+                ..
+            }) if role == "user" && s == text
+        );
+        if !already_trailing {
+            messages.push(user_llm_message(text));
+        }
+        drop(transcript);
+        self.spawn_turn(messages, false)
+    }
+
+    /// Spawn a `/btw` side-agent turn. The prompt is merged into the request
+    /// as a user message — it is owned by the BTW panel, not the main
+    /// transcript, so it cannot be assembled from the transcript entries
+    /// (P2). The turn is registered as a btw turn: its events update the
+    /// panel only and its end never clears a concurrent main turn's streaming
+    /// (P3/P7).
+    pub fn start_btw_turn(&mut self, prompt: &str) -> Option<i64> {
+        let transcript = self.transcript.borrow();
+        let mut messages = transcript_messages(transcript.entries());
+        messages.push(user_llm_message(prompt));
+        drop(transcript);
+        self.spawn_turn(messages, true)
+    }
+
+    /// Inject a steering message into the running main turn (P6). Returns
+    /// `false` when there is no live turn to steer into (idle, or only a btw
+    /// turn is running) — the caller then falls back to queueing.
+    pub fn inject_steer(&mut self, text: &str) -> bool {
+        let Some(steer) = &self.steer else {
+            return false;
+        };
+        steer.lock().unwrap().push(user_llm_message(text));
+        true
+    }
+
+    /// Build the turn input and spawn it on the app runtime. `is_btw`
+    /// registers the turn as panel-owned (skipped by the main transcript
+    /// projection, its end ignored for streaming) and does not claim the
+    /// steering channel.
+    fn spawn_turn(&mut self, messages: Vec<LlmMessage>, is_btw: bool) -> Option<i64> {
         let Some(provider) = self.provider.clone() else {
             self.transcript.borrow_mut().push(status_entry(
                 ENGINE_NOT_CONFIGURED_MSG,
@@ -205,9 +334,6 @@ impl EngineBackend {
             return None;
         };
 
-        let transcript = self.transcript.borrow();
-        let messages = transcript_messages(transcript.entries());
-        drop(transcript);
         let turn_id = self.next_turn_id;
         self.next_turn_id += 1;
         let input = EngineTurnInput {
@@ -233,6 +359,13 @@ impl EngineBackend {
             uses_worker_rejection_guidance: false,
         };
 
+        let steer = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        if is_btw {
+            self.btw_turn_ids.insert(turn_id);
+        } else {
+            self.steer = Some(steer.clone());
+        }
+
         let engine = Engine::default();
         let llm = self.llm.clone();
         let tools = self.tools.clone();
@@ -243,7 +376,14 @@ impl EngineBackend {
                 let _ = tx.send(event);
             };
             let _ = engine
-                .run_turn(&input, llm.as_ref(), tools.as_ref(), &policy, &mut on_event)
+                .run_turn_with_steer(
+                    &input,
+                    steer,
+                    llm.as_ref(),
+                    tools.as_ref(),
+                    &policy,
+                    &mut on_event,
+                )
                 .await;
         });
         self.current_turn = Some(handle);
@@ -287,23 +427,45 @@ impl EngineBackend {
         batch
     }
 
-    /// Map a batch of engine events to transcript entries (minimal slice 6a
-    /// mapping: assistant text + tool calls/results + turn-end status).
+    /// Map a batch of engine events to transcript entries (assistant text +
+    /// tool calls/results + turn-end status). Entries are pushed to the
+    /// transcript immediately so tool-call cards get a stable index the
+    /// persistent `pending_tool_cards` map can refer back to across batches
+    /// (P1). BTW-turn events are skipped here — they belong to the panel
+    /// (P3), and their turn end never sets `turn_idle` (P7).
     fn apply_engine_events(&mut self, events: &[EngineEvent]) {
         let mut pending_assistant = String::new();
-        let mut entries: Vec<TranscriptEntry> = Vec::new();
-        let mut turn_ended = false;
+        let mut main_turn_ended = false;
         for event in events {
+            let btw = event_turn_id(event).is_some_and(|id| self.btw_turn_ids.contains(&id));
+            if btw {
+                // P3/P7: btw-turn events update the panel only. Still clean up
+                // its pending tool cards when the turn ends.
+                if let EngineEvent::TurnEnded { turn_id, .. } = event {
+                    self.pending_tool_cards.retain(|_, (t, _)| *t != *turn_id);
+                }
+                continue;
+            }
             match event {
                 EngineEvent::AssistantDelta { delta, .. } => pending_assistant.push_str(delta),
                 EngineEvent::ToolCallStarted {
+                    turn_id,
                     tool_call_id,
                     name,
                     args,
                     ..
                 } => {
-                    flush_assistant(&mut entries, &mut pending_assistant);
-                    entries.push(tool_call_entry(tool_call_id, name, args.as_ref()));
+                    self.flush_assistant_to_transcript(&mut pending_assistant);
+                    let idx = {
+                        let mut transcript = self.transcript.borrow_mut();
+                        let idx = transcript.entries().len();
+                        transcript.push(tool_call_entry(tool_call_id, name, args.as_ref()));
+                        idx
+                    };
+                    // Record the card's location so a result arriving in a
+                    // later batch can still attach (P1).
+                    self.pending_tool_cards
+                        .insert(tool_call_id.clone(), (*turn_id, idx));
                 }
                 EngineEvent::ToolResult {
                     tool_call_id,
@@ -311,34 +473,43 @@ impl EngineBackend {
                     is_error,
                     ..
                 } => {
-                    if let Some(entry) = entries
-                        .iter_mut()
-                        .rev()
-                        .find(|e| e.tool_call.as_ref().is_some_and(|c| c.id == *tool_call_id))
-                    {
-                        entry.tool_result = Some(ToolResultData {
+                    self.attach_tool_result(
+                        tool_call_id,
+                        ToolResultData {
                             tool_call_id: tool_call_id.clone(),
                             output: output.clone(),
                             is_error: is_error.unwrap_or(false),
-                        });
-                    }
+                        },
+                    );
                 }
-                EngineEvent::TurnEnded { reason, error, .. } => {
-                    flush_assistant(&mut entries, &mut pending_assistant);
+                EngineEvent::TurnEnded {
+                    turn_id,
+                    reason,
+                    error,
+                    ..
+                } => {
+                    self.flush_assistant_to_transcript(&mut pending_assistant);
                     if reason == "completed" {
-                        entries.push(status_entry("✓ turn 完成", None));
+                        self.transcript
+                            .borrow_mut()
+                            .push(status_entry("✓ turn 完成", None));
                     } else {
                         let message = error
                             .as_ref()
                             .and_then(|e| e.get("message"))
                             .and_then(|m| m.as_str())
                             .unwrap_or("engine turn failed");
-                        entries.push(status_entry(
+                        self.transcript.borrow_mut().push(status_entry(
                             &format!("✗ turn {reason}: {message}"),
                             Some(ColorToken::Error),
                         ));
                     }
-                    turn_ended = true;
+                    // This turn's tool exchanges are fully resolved — forget
+                    // their card indices (the map is per-turn, not per-batch).
+                    self.pending_tool_cards.retain(|_, (t, _)| *t != *turn_id);
+                    // The session's busy flag must drop so the next idle flush
+                    // can dispatch new input (TS `streamingPhase` idle parity).
+                    main_turn_ended = true;
                 }
                 EngineEvent::TaskStarted {
                     task_id,
@@ -383,31 +554,81 @@ impl EngineBackend {
                 _ => {}
             }
         }
-        flush_assistant(&mut entries, &mut pending_assistant);
-        if !entries.is_empty() {
+        self.flush_assistant_to_transcript(&mut pending_assistant);
+        if main_turn_ended {
+            self.turn_idle = true;
+            // The main turn is done → its steering channel is dead; a later
+            // busy submit must not inject into it.
+            self.steer = None;
+        }
+    }
+
+    /// Attach a tool result to its tool-call card, resolving the card across
+    /// the whole transcript — the persistent `pending_tool_cards` map first
+    /// (works when the card lives in an earlier batch, P1), falling back to a
+    /// scan when the recorded index is stale (undo/clear truncated the
+    /// transcript).
+    fn attach_tool_result(&mut self, tool_call_id: &str, result: ToolResultData) {
+        if let Some((_, idx)) = self.pending_tool_cards.get(tool_call_id).copied() {
             let mut transcript = self.transcript.borrow_mut();
-            for entry in entries {
-                transcript.push(entry);
+            if let Some(entry) = transcript.entries_mut().get_mut(idx)
+                && entry.kind == TranscriptEntryKind::ToolCall
+                && entry
+                    .tool_call
+                    .as_ref()
+                    .is_some_and(|c| c.id == tool_call_id)
+            {
+                entry.tool_result = Some(result);
+                return;
             }
         }
-        if turn_ended {
-            // The session's busy flag must drop so the next idle flush can
-            // dispatch new input (TS `streamingPhase` idle parity).
-            self.turn_idle = true;
+        // Index stale (transcript truncated/cleared) → scan for the card.
+        let mut transcript = self.transcript.borrow_mut();
+        if let Some(entry) = transcript
+            .entries_mut()
+            .iter_mut()
+            .rev()
+            .find(|e| e.tool_call.as_ref().is_some_and(|c| c.id == tool_call_id))
+        {
+            entry.tool_result = Some(result);
         }
     }
-}
 
-/// Push the accumulated assistant text as one entry (empty → no-op).
-fn flush_assistant(entries: &mut Vec<TranscriptEntry>, pending: &mut String) {
-    if pending.is_empty() {
-        return;
+    /// Flush the accumulated assistant text into the transcript as one entry
+    /// (empty → no-op).
+    fn flush_assistant_to_transcript(&self, pending: &mut String) {
+        if pending.is_empty() {
+            return;
+        }
+        self.transcript.borrow_mut().push(assistant_entry(pending));
+        pending.clear();
     }
-    entries.push(assistant_entry(pending));
-    pending.clear();
 }
 
-/// Human label for a [`BackgroundTaskStatus`] (displayed in the tasks panel).
+/// The `turn_id` carried by an engine event, if any (task/agent events have
+/// none).
+fn event_turn_id(event: &EngineEvent) -> Option<i64> {
+    match event {
+        EngineEvent::TurnStarted { turn_id, .. }
+        | EngineEvent::TurnEnded { turn_id, .. }
+        | EngineEvent::TurnStepStarted { turn_id, .. }
+        | EngineEvent::TurnStepCompleted { turn_id, .. }
+        | EngineEvent::TurnStepInterrupted { turn_id, .. }
+        | EngineEvent::TurnStepRetrying { turn_id, .. }
+        | EngineEvent::AssistantDelta { turn_id, .. }
+        | EngineEvent::ThinkingDelta { turn_id, .. }
+        | EngineEvent::ToolCallDelta { turn_id, .. }
+        | EngineEvent::ToolCallStarted { turn_id, .. }
+        | EngineEvent::ToolProgress { turn_id, .. }
+        | EngineEvent::ToolResult { turn_id, .. }
+        | EngineEvent::ContextCompacted { turn_id, .. }
+        | EngineEvent::CompletionReviewInjected { turn_id, .. } => Some(*turn_id),
+        EngineEvent::TaskStarted { .. }
+        | EngineEvent::TaskSettled { .. }
+        | EngineEvent::TaskOutput { .. } => None,
+    }
+}
+
 fn task_status_label(status: BackgroundTaskStatus) -> String {
     match status {
         BackgroundTaskStatus::Running => "running",
@@ -890,6 +1111,12 @@ impl DimiApp {
             self.session.set_streaming(false);
             changed = true;
             self.sync_activity_mode();
+            // P4: the turn ended → dispatch anything queued while it streamed
+            // (TS drains on turn.ended; the Rust port never did, leaving the
+            // queue stranded until the next manual submit).
+            self.session.flush_queued_messages(&mut self.backend);
+            self.update_queue_pane();
+            self.sync_activity_mode();
         }
         changed
     }
@@ -1124,11 +1351,7 @@ impl DimiApp {
     fn dispatch_action(&mut self, action: DispatchAction) {
         match action {
             DispatchAction::SendNormal(msg) => {
-                self.session.enqueue_message(&msg, None);
-                self.push_user(&msg, None);
-                self.session.flush_queued_messages(&mut self.backend);
-                self.update_queue_pane();
-                self.record_last_prompt(&msg);
+                self.dispatch_normal_message(&msg);
             }
             DispatchAction::RunBuiltin { name, args } => self.handle_builtin(&name, &args),
             DispatchAction::RunSkill { skill_name, .. } => {
@@ -1141,6 +1364,32 @@ impl DimiApp {
                 self.push_status(&msg, Some(ColorToken::Error));
             }
         }
+    }
+
+    /// Dispatch one normal (non-slash) message. When the agent is streaming
+    /// and `busy_input_mode` is `steer`, the text is injected into the running
+    /// turn (P6) instead of being enqueued — the TS `steerMessage` path. Queue
+    /// mode (or no live turn to steer into) falls back to enqueue + flush.
+    fn dispatch_normal_message(&mut self, msg: &str) {
+        let intent = resolve_busy_input_intent(
+            !self.session.streaming(),
+            self.session.compacting(),
+            true,
+            self.session.busy_input_mode(),
+        );
+        if intent == BusyInputIntent::Steer {
+            self.push_user(msg, None);
+            if self.backend.inject_steer(msg) {
+                self.update_queue_pane();
+                return;
+            }
+            // No live main turn to steer into → don't lose the input; enqueue.
+        }
+        self.session.enqueue_message(msg, None);
+        self.push_user(msg, None);
+        self.session.flush_queued_messages(&mut self.backend);
+        self.update_queue_pane();
+        self.record_last_prompt(msg);
     }
 
     /// Route one builtin slash command to its handler. `name` is always the
@@ -1703,7 +1952,9 @@ impl DimiApp {
         // mirrors `active()` and keeps the prompt text.
         self.btw_controller.borrow_mut().open(BTW_AGENT_ID, prompt);
         self.btw_panel.borrow_mut().open(prompt);
-        if let Some(turn_id) = self.backend.start_turn(prompt) {
+        // The side turn carries the prompt as a user message (P2); its events
+        // are panel-owned (P3/P7).
+        if let Some(turn_id) = self.backend.start_btw_turn(prompt) {
             self.btw_turn_id = Some(turn_id);
         }
     }
@@ -1912,6 +2163,7 @@ impl DimiApp {
             return;
         };
         let mut consumed = false;
+        let mut btw_ended = false;
         for event in events {
             let tui_event = match event {
                 EngineEvent::AssistantDelta { turn_id, delta } if *turn_id == btw_turn_id => {
@@ -1932,6 +2184,7 @@ impl DimiApp {
                     error,
                     ..
                 } if *turn_id == btw_turn_id => {
+                    btw_ended = true;
                     let reason = match reason.as_str() {
                         "completed" => TurnEndReason::Completed,
                         "cancelled" => TurnEndReason::Cancelled,
@@ -1968,6 +2221,12 @@ impl DimiApp {
         }
         if consumed && let Some(state) = self.btw_controller.borrow().active().cloned() {
             self.btw_panel.borrow_mut().sync(&state);
+        }
+        if btw_ended {
+            // The turn is done — drop the btw-turn bookkeeping so a later
+            // `/btw` starts clean and the backend stops skipping its turn id.
+            self.btw_turn_id = None;
+            self.backend.btw_turn_ids.remove(&btw_turn_id);
         }
     }
 
@@ -2895,6 +3154,68 @@ mod engine_tests {
         DimiApp::with_llm(config, llm)
     }
 
+    fn app_with_llm(llm: std::sync::Arc<dyn LlmClient>) -> DimiApp {
+        set_palette(DARK_COLORS);
+        let config = Config {
+            model: Some("test-model".to_string()),
+            work_dir: Some("/tmp".to_string()),
+            base_url: Some("http://localhost:1/v1".to_string()),
+            api_key: Some("test-key".to_string()),
+            ..Config::default()
+        };
+        DimiApp::with_llm(config, llm)
+    }
+
+    /// A scripted client that also records every request — lets a test assert
+    /// what conversation actually reached the LLM (history, `/btw` prompt,
+    /// steer, cross-turn tool messages) while the engine drives the scripted
+    /// segments deterministically.
+    struct RecordingScriptedClient {
+        inner: ScriptedLlmClient,
+        requests: std::sync::Mutex<Vec<ChatRequest>>,
+    }
+
+    impl RecordingScriptedClient {
+        fn new(segments: Vec<Vec<LlmStreamEvent>>) -> Self {
+            Self {
+                inner: ScriptedLlmClient::new(segments),
+                requests: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingScriptedClient {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, dimi_engine::llm::LlmError> {
+            self.requests.lock().unwrap().push(request.clone());
+            self.inner.stream_chat(request).await
+        }
+    }
+
+    /// Pump engine turns until `pred` holds or the deadline elapses (each
+    /// pump is one live drain batch). Returns whether `pred` became true —
+    /// tests use it to reach a mid-turn phase deterministically.
+    fn pump_until(
+        app: &mut DimiApp,
+        deadline_ms: u64,
+        mut pred: impl FnMut(&DimiApp) -> bool,
+    ) -> bool {
+        let step = std::time::Duration::from_millis(5);
+        let mut elapsed = 0u64;
+        while elapsed < deadline_ms {
+            app.pump_engine_turns();
+            if pred(app) {
+                return true;
+            }
+            std::thread::sleep(step);
+            elapsed += 5;
+        }
+        false
+    }
+
     /// A client that records the request it saw and returns an empty turn —
     /// proves the assembled conversation (messages) reaches the LLM boundary.
     struct RecordingClient {
@@ -3129,6 +3450,473 @@ mod engine_tests {
             a.render(80)
         };
         assert!(lines.is_empty(), "activity hidden after the turn ends");
+    }
+
+    // ── P1: cross-batch tool result (live pump, not wait_for_turn) ──────────
+    #[test]
+    fn live_cross_batch_tool_result_attaches_to_prior_batch_card() {
+        // The tool-call card and its result are drained in SEPARATE live pump
+        // batches (the tool sleeps between them). The result must attach to
+        // the card created by the earlier batch — not be silently dropped.
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![vec![
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_1".to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: None,
+            },
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_1".to_string(),
+                name: None,
+                arguments_part: Some("{\"command\":\"sleep 0.3 && echo done\"}".to_string()),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("tool_calls".to_string()),
+            },
+        ]]));
+        let mut app = app_with_llm(client.clone());
+        app.handle_submit("run a slow tool");
+
+        // First batch: pump until the tool-call card lands. The tool is still
+        // sleeping, so the result is NOT in this batch.
+        let card_idx = {
+            let mut idx = None;
+            for _ in 0..200 {
+                app.pump_engine_turns();
+                if let Some(i) = entries(&app)
+                    .iter()
+                    .position(|e| e.kind == TranscriptEntryKind::ToolCall)
+                {
+                    idx = Some(i);
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            idx.expect("tool-call card must appear in the first batch")
+        };
+        assert!(
+            entries(&app)[card_idx].tool_result.is_none(),
+            "result must not land in the call-only batch"
+        );
+
+        // Second batch: the result arrives later and must attach to the card.
+        app.wait_for_turn();
+        let e = entries(&app);
+        let result = e[card_idx]
+            .tool_result
+            .as_ref()
+            .expect("result must attach across live pump batches");
+        assert!(result.output.contains("done"), "output: {}", result.output);
+        assert!(!result.is_error);
+    }
+
+    // ── P2: the /btw prompt reaches the LLM ─────────────────────────────────
+    #[test]
+    fn btw_prompt_reaches_the_llm_request() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![vec![
+            LlmStreamEvent::Text {
+                delta: "side note".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]]));
+        let mut app = app_with_llm(client.clone());
+        app.handle_submit("/btw hi");
+        app.wait_for_turn();
+        let requests = client.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "one btw turn ran");
+        let texts: Vec<&str> = requests[0]
+            .messages
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts.contains(&"hi"),
+            "btw prompt must be a user message in the request: {texts:?}"
+        );
+    }
+
+    // ── P3: btw answer stays in the panel, not the main transcript ──────────
+    #[test]
+    fn btw_answer_stays_in_the_panel_not_the_main_transcript() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "btw answer".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        app.handle_submit("/btw hello");
+        app.wait_for_turn();
+        let panel = {
+            let mut panel = app.btw_panel.borrow_mut();
+            dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"))
+        };
+        assert!(
+            panel.contains("btw answer"),
+            "answer routed to panel: {panel}"
+        );
+        assert!(panel.contains("Q: hello"), "prompt shown in panel: {panel}");
+        let e = entries(&app);
+        assert!(
+            e.iter().all(|x| !x.content.contains("btw answer")),
+            "btw answer must not leak into the main transcript: {e:#?}"
+        );
+        assert!(
+            e.iter()
+                .all(|x| !(x.kind == TranscriptEntryKind::User && x.content == "hello")),
+            "btw prompt must not be echoed into the main transcript: {e:#?}"
+        );
+    }
+
+    // ── P4: turn end flushes messages queued while streaming ────────────────
+    #[test]
+    fn turn_end_flushes_messages_queued_while_streaming() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![vec![], vec![]]));
+        let mut app = app_with_llm(client.clone());
+        app.session.set_busy_input_mode(BusyInputMode::Queue);
+
+        app.handle_submit("first");
+        assert!(app.session.streaming(), "turn 1 busy");
+        app.handle_submit("second"); // queued while busy (queue mode)
+        assert_eq!(
+            app.session.queued_messages().len(),
+            1,
+            "queued while streaming"
+        );
+
+        // Turn 1 ends → the idle flush must dispatch the queued prompt.
+        app.wait_for_turn();
+        assert!(
+            app.session.queued_messages().is_empty(),
+            "queue must drain when the turn ends"
+        );
+        assert!(app.session.streaming(), "a second turn started");
+
+        app.wait_for_turn();
+        let requests = client.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2, "both turns dispatched: {requests:#?}");
+        let last = requests[1].messages.last().unwrap();
+        assert_eq!(last.role, "user");
+        assert_eq!(last.content, serde_json::json!("second"));
+    }
+
+    // ── P5: turn 2 request carries turn 1's tool history ────────────────────
+    #[test]
+    fn second_turn_request_carries_the_tool_exchange_history() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: None,
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: None,
+                    arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![], // turn 1 step 2 after the tool runs
+            vec![], // turn 2
+        ]));
+        let mut app = app_with_llm(client.clone());
+        app.handle_submit("run tool");
+        app.wait_for_turn();
+        let e = entries(&app);
+        assert!(
+            e.iter()
+                .any(|x| x.kind == TranscriptEntryKind::ToolCall && x.tool_result.is_some()),
+            "turn 1 tool card with result: {e:#?}"
+        );
+
+        app.handle_submit("follow up");
+        app.wait_for_turn();
+        let requests = client.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            3,
+            "turn1 step1 + step2 + turn2: {requests:#?}"
+        );
+        let req = &requests[2];
+        let assistant = req
+            .messages
+            .iter()
+            .find(|m| m.role == "assistant" && m.tool_calls.as_ref().is_some_and(|c| !c.is_empty()))
+            .expect("assistant tool_calls message in turn 2");
+        let call = &assistant.tool_calls.as_ref().unwrap()[0];
+        assert_eq!(call.id, "call_1");
+        assert_eq!(call.function.name, "Bash");
+        assert!(
+            call.function.arguments.contains("echo hi"),
+            "arguments: {}",
+            call.function.arguments
+        );
+        let tool_msg = req
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("call_1"))
+            .expect("tool result message in turn 2");
+        assert_eq!(tool_msg.content.as_str().unwrap().trim(), "hi");
+        let last = req.messages.last().unwrap();
+        assert_eq!(last.role, "user");
+        assert_eq!(last.content, serde_json::json!("follow up"));
+    }
+
+    // ── P6: streaming submit steers into the running turn ───────────────────
+    #[test]
+    fn streaming_submit_steers_into_the_running_turn() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![
+            // turn 1 step 1: a slow tool call leaves a window to steer
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: None,
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: None,
+                    arguments_part: Some("{\"command\":\"sleep 0.4\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            // turn 1 step 2: final text
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "main done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]));
+        let mut app = app_with_llm(client.clone());
+        app.session.set_busy_input_mode(BusyInputMode::Steer);
+        app.handle_submit("main task");
+        assert!(app.session.streaming());
+
+        // Reach the tool phase while the turn is still streaming (sleeping).
+        assert!(
+            pump_until(&mut app, 2000, |a| {
+                entries(a)
+                    .iter()
+                    .any(|e| e.kind == TranscriptEntryKind::ToolCall)
+            }),
+            "turn must reach the tool phase"
+        );
+
+        app.handle_submit("steer now");
+        assert!(
+            app.session.queued_messages().is_empty(),
+            "steer must inject, not enqueue"
+        );
+        let e = entries(&app);
+        assert!(
+            e.iter()
+                .any(|x| x.kind == TranscriptEntryKind::User && x.content == "steer now"),
+            "steer echoed into the transcript: {e:#?}"
+        );
+
+        app.wait_for_turn();
+        let requests = client.requests.lock().unwrap();
+        assert!(requests.len() >= 2, "requests: {requests:#?}");
+        let texts: Vec<&str> = requests[1]
+            .messages
+            .iter()
+            .filter_map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            texts.contains(&"steer now"),
+            "steer must reach the LLM request: {texts:?}"
+        );
+    }
+
+    // ── P7: btw turn end does not clear concurrent user streaming ───────────
+    #[test]
+    fn btw_turn_end_does_not_clear_concurrent_user_streaming() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![
+            // user turn step 1: a slow tool call keeps it alive while btw runs
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: None,
+                },
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    name: None,
+                    arguments_part: Some("{\"command\":\"sleep 0.8\"}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            // btw turn: quick text answer
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "side answer".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+            // user turn step 2: final text
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "main done".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]));
+        let mut app = app_with_llm(client.clone());
+
+        app.handle_submit("main task");
+        assert!(app.session.streaming());
+        assert!(
+            pump_until(&mut app, 3000, |a| {
+                entries(a)
+                    .iter()
+                    .any(|e| e.kind == TranscriptEntryKind::ToolCall)
+            }),
+            "user turn reaches its tool phase"
+        );
+
+        // Start a btw turn while the user turn is still streaming.
+        app.handle_submit("/btw side question");
+        assert!(app.btw_panel.borrow().is_open());
+        assert!(
+            pump_until(&mut app, 3000, |a| {
+                a.btw_panel.borrow().phase() == crate::btw_panel::BtwPhase::Done
+            }),
+            "btw turn finishes while the user turn is still sleeping"
+        );
+        assert!(
+            app.session.streaming(),
+            "btw turn end must not clear the concurrent user turn's streaming"
+        );
+
+        // The user turn eventually finishes on its own.
+        assert!(
+            pump_until(&mut app, 3000, |a| !a.session.streaming()),
+            "user turn ends after its tool result"
+        );
+    }
+
+    // ── P3/P7: btw bookkeeping is released on completion ────────────────────
+    #[test]
+    fn btw_completion_releases_its_turn_and_later_main_turns_skip_the_panel() {
+        let client = std::sync::Arc::new(RecordingScriptedClient::new(vec![
+            // btw turn
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "side answer".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+            // main turn
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "main reply".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]));
+        let mut app = app_with_llm(client.clone());
+        app.handle_submit("/btw side question");
+        app.wait_for_turn();
+        assert!(app.btw_panel.borrow().is_open());
+        // Completing the btw turn releases its bookkeeping.
+        assert!(app.btw_turn_id.is_none(), "btw turn id released");
+        assert!(
+            app.backend.btw_turn_ids.is_empty(),
+            "backend btw turn ids released"
+        );
+
+        // A later main turn must not be routed into the (still-open) panel.
+        app.handle_submit("main prompt");
+        app.wait_for_turn();
+        let panel = {
+            let mut panel = app.btw_panel.borrow_mut();
+            dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"))
+        };
+        assert!(
+            panel.contains("side answer"),
+            "panel keeps its answer: {panel}"
+        );
+        assert!(
+            !panel.contains("main reply"),
+            "main turn must not leak into the panel: {panel}"
+        );
+    }
+
+    // ── P1: a result for an unknown call is ignored safely ──────────────────
+    #[test]
+    fn tool_result_for_unknown_call_is_ignored_safely() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "hi".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        app.transcript.borrow_mut().push(tool_call_entry(
+            "call_1",
+            "Bash",
+            Some(&serde_json::json!({ "command": "ls" })),
+        ));
+        // A stray result for an unrelated id arrives after the turn: it must
+        // be ignored (no crash, no wrong card).
+        app.backend
+            .tx
+            .send(EngineEvent::ToolResult {
+                turn_id: 999,
+                tool_call_id: "stray_9".to_string(),
+                output: "boom".to_string(),
+                is_error: Some(true),
+                synthetic: None,
+            })
+            .unwrap();
+        app.pump_engine_turns();
+        let e = entries(&app);
+        let card = e
+            .iter()
+            .find(|x| x.kind == TranscriptEntryKind::ToolCall)
+            .unwrap();
+        assert!(
+            card.tool_result.is_none(),
+            "stray result must not attach: {e:#?}"
+        );
+    }
+
+    // ── P5: a tool card without a result maps to assistant(tool_calls) only ─
+    #[test]
+    fn transcript_messages_maps_tool_cards_without_result_to_assistant_only() {
+        let entries = vec![tool_call_entry(
+            "call_1",
+            "Bash",
+            Some(&serde_json::json!({ "command": "ls" })),
+        )];
+        let messages = transcript_messages(&entries);
+        assert_eq!(messages.len(), 1, "no dangling tool message: {messages:#?}");
+        assert_eq!(messages[0].role, "assistant");
+        let calls = messages[0].tool_calls.as_ref().unwrap();
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].function.name, "Bash");
+        assert!(calls[0].function.arguments.contains("ls"));
     }
 }
 

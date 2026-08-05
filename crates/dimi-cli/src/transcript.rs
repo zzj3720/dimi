@@ -173,6 +173,12 @@ impl TranscriptContainer {
         &self.entries
     }
 
+    /// Mutable live entries — the engine backend attaches tool results to
+    /// already-pushed tool-call cards in place (P1 cross-batch fix).
+    pub fn entries_mut(&mut self) -> &mut [TranscriptEntry] {
+        &mut self.entries
+    }
+
     /// Replace the welcome panel rendered while the transcript is empty.
     pub fn set_welcome_state(&mut self, state: Option<WelcomeState>) {
         self.welcome = state;
