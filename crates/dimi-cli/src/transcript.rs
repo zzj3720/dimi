@@ -17,6 +17,7 @@ use std::path::Path;
 
 use dimi_tui::chrome::{WelcomeComponent, WelcomeState};
 use dimi_tui::component::Component;
+use dimi_tui::components::messages::tool_renderers::ToolCallData;
 use dimi_tui::keys::matches_key;
 use dimi_tui::theme::ColorToken;
 use dimi_tui::wire_transcript::{
@@ -47,6 +48,44 @@ pub fn user_entry(content: &str, bullet: Option<String>) -> TranscriptEntry {
         content: content.to_owned(),
         bullet,
         tool_call: None,
+        tool_result: None,
+        status_color: None,
+    }
+}
+
+/// Build an `Assistant` transcript entry from streaming assistant text.
+pub fn assistant_entry(content: &str) -> TranscriptEntry {
+    TranscriptEntry {
+        kind: TranscriptEntryKind::Assistant,
+        content: content.to_owned(),
+        bullet: None,
+        tool_call: None,
+        tool_result: None,
+        status_color: None,
+    }
+}
+
+/// Build a `ToolCall` transcript entry (engine `tool.call.started` →
+/// `ToolCallData`; `args` is parsed into the object map the renderer reads).
+pub fn tool_call_entry(
+    tool_call_id: &str,
+    name: &str,
+    args: Option<&serde_json::Value>,
+) -> TranscriptEntry {
+    let map = match args.and_then(|v| v.as_object()) {
+        Some(map) => map.clone(),
+        None => serde_json::Map::new(),
+    };
+    TranscriptEntry {
+        kind: TranscriptEntryKind::ToolCall,
+        content: String::new(),
+        bullet: None,
+        tool_call: Some(ToolCallData {
+            id: tool_call_id.to_owned(),
+            name: name.to_owned(),
+            args: map,
+            truncated: false,
+        }),
         tool_result: None,
         status_color: None,
     }

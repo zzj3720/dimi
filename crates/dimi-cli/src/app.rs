@@ -14,12 +14,19 @@ use std::io::Read;
 use std::path::Path;
 use std::rc::Rc;
 
+use dimi_engine::engine::Engine;
+use dimi_engine::events::EngineEvent;
+use dimi_engine::llm::{LlmClient, OpenAiCompatibleClient};
+use dimi_engine::permission::{PermissionMode, PolicyConfig};
+use dimi_engine::tool::{BashTool, ToolRegistry};
+use dimi_engine::types::{EngineTool, EngineTurnInput, LlmMessage, ProviderConfig};
 use dimi_tui::chrome::WelcomeState;
 use dimi_tui::commands::{
     DispatchAction, SlashCommand, builtin_slash_commands, dispatch_input,
     find_builtin_slash_command,
 };
 use dimi_tui::component::{Component, SharedComponent};
+use dimi_tui::components::messages::tool_renderers::ToolResultData;
 use dimi_tui::custom_editor::{CustomEditor, CustomEditorCallbacks, InputMode};
 use dimi_tui::editor::EditorOptions;
 use dimi_tui::footer::{FooterComponent, FooterState};
@@ -29,17 +36,315 @@ use dimi_tui::session::{BusyInputMode, SessionBackend, SessionError, SessionMana
 use dimi_tui::terminal::Terminal;
 use dimi_tui::theme::ColorToken;
 use dimi_tui::tui::Tui;
+use dimi_tui::wire_transcript::{TranscriptEntry, TranscriptEntryKind};
 
 use crate::config::Config;
-use crate::transcript::{TranscriptContainer, status_entry, user_entry};
+use crate::transcript::{
+    TranscriptContainer, assistant_entry, status_entry, tool_call_entry, user_entry,
+};
 
 /// Child index of the editor in the mounted TUI tree (transcript=0, footer=1,
 /// editor=2).
 const EDITOR_CHILD_INDEX: usize = 2;
 
-/// Status shown whenever a normal prompt would reach the engine — the engine
-/// is not wired in this slice (dimi-engine direct connection is slice 6+).
-pub const ENGINE_NOT_WIRED_MSG: &str = "引擎未接线（dimi-engine 直连为后续切片）";
+/// Status shown whenever a normal prompt would reach the engine but the
+/// provider is not configured — a clear nudge to fill in `config.toml`.
+pub const ENGINE_NOT_CONFIGURED_MSG: &str =
+    "未配置 provider：请在 config.toml 设置 model / base_url / api_key 后重试";
+
+/// The Bash tool definition advertised to the LLM (matches `BashTool`'s
+/// schema: `command` required, `cwd`/`timeout`/`description` optional).
+fn bash_tool_def() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "Bash",
+            "description": "Run a shell command in the working directory and return its output. Use for file system, git, build and any terminal work.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "The shell command to run" },
+                    "cwd": { "type": "string", "description": "Working directory (optional, defaults to the session cwd)" },
+                    "timeout": { "type": "integer", "description": "Timeout in seconds (default 60, max 300)" },
+                    "description": { "type": "string", "description": "A short note on what the command does (optional)" }
+                },
+                "required": ["command"],
+                "additionalProperties": false
+            }
+        }
+    })
+}
+
+/// The engine tool list handed to the LLM each turn (slice 6a: Bash only).
+fn engine_tools() -> Vec<EngineTool> {
+    vec![EngineTool {
+        name: "Bash".to_string(),
+        description: "Run a shell command in the working directory and return its output."
+            .to_string(),
+        args_schema: bash_tool_def()["function"]["parameters"].clone(),
+    }]
+}
+
+/// Assemble the OpenAI-shaped conversation from the transcript entries
+/// (user/assistant text only — tool/thinking/status entries are display-only
+/// and skipped). Minimal context assembly: no system prompt, no compaction
+/// (slice 6a leftover).
+fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
+    entries
+        .iter()
+        .filter_map(|e| match e.kind {
+            TranscriptEntryKind::User => Some(LlmMessage {
+                role: "user".to_string(),
+                content: serde_json::Value::String(e.content.clone()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            }),
+            TranscriptEntryKind::Assistant => Some(LlmMessage {
+                role: "assistant".to_string(),
+                content: serde_json::Value::String(e.content.clone()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning: None,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The engine backend behind [`SessionManager`] (slice 6a: real engine
+/// dialogue). Each dispatched prompt spawns a real `Engine::run_turn` on the
+/// app's tokio runtime; the turn's [`EngineEvent`]s stream back through an
+/// mpsc channel that [`DimiApp::pump_engine_turns`] drains into the
+/// transcript, so the synchronous event loop never blocks on the engine.
+pub struct EngineBackend {
+    handle: tokio::runtime::Handle,
+    llm: std::sync::Arc<dyn LlmClient>,
+    tools: std::sync::Arc<ToolRegistry>,
+    transcript: Rc<RefCell<TranscriptContainer>>,
+    /// Engine events from in-flight turns, drained by the app (non-blocking).
+    rx: tokio::sync::mpsc::UnboundedReceiver<EngineEvent>,
+    /// Sender cloned into each spawned turn task.
+    tx: tokio::sync::mpsc::UnboundedSender<EngineEvent>,
+    /// The current turn's task handle (used by `wait_for_turn` for
+    /// deterministic tests / replay).
+    current_turn: Option<tokio::task::JoinHandle<()>>,
+    /// Set when a drained batch contained `turn.ended`: the app resets the
+    /// session's streaming flag so the next idle flush can dispatch.
+    turn_idle: bool,
+    /// Provider config (`None` = not configured → clear error status).
+    provider: Option<ProviderConfig>,
+    policy: PolicyConfig,
+    /// Working directory handed to tool execution.
+    work_dir: Option<String>,
+    next_turn_id: i64,
+    next_session_id: i64,
+}
+
+impl EngineBackend {
+    pub fn new(
+        handle: tokio::runtime::Handle,
+        llm: std::sync::Arc<dyn LlmClient>,
+        tools: std::sync::Arc<ToolRegistry>,
+        transcript: Rc<RefCell<TranscriptContainer>>,
+        provider: Option<ProviderConfig>,
+        work_dir: Option<String>,
+    ) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        EngineBackend {
+            handle,
+            llm,
+            tools,
+            transcript,
+            rx,
+            tx,
+            current_turn: None,
+            turn_idle: false,
+            provider,
+            policy: PolicyConfig {
+                mode: PermissionMode::Auto,
+                rules: vec![],
+                session_approved_patterns: vec![],
+            },
+            work_dir,
+            next_turn_id: 1,
+            next_session_id: 1,
+        }
+    }
+
+    /// Spawn one engine turn for `text` (used by both prompt and `!` bash
+    /// lines — slice 6a routes bash through the model). Returns whether a
+    /// turn started (always true once the provider is configured).
+    fn start_turn(&mut self, _text: &str) -> bool {
+        let Some(provider) = self.provider.clone() else {
+            self.transcript.borrow_mut().push(status_entry(
+                ENGINE_NOT_CONFIGURED_MSG,
+                Some(ColorToken::Error),
+            ));
+            return false;
+        };
+
+        let transcript = self.transcript.borrow();
+        let messages = transcript_messages(transcript.entries());
+        drop(transcript);
+        let input = EngineTurnInput {
+            turn_id: self.next_turn_id,
+            messages,
+            tools: engine_tools(),
+            active_tools: None,
+            provider,
+            max_steps_per_turn: None,
+            max_retries_per_step: None,
+            cwd: self.work_dir.clone(),
+            shell: None,
+            context_window: None,
+            max_context_tokens: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            completion_review: None,
+            origin: dimi_wire::model::TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        self.next_turn_id += 1;
+
+        let engine = Engine::default();
+        let llm = self.llm.clone();
+        let tools = self.tools.clone();
+        let policy = self.policy.clone();
+        let tx = self.tx.clone();
+        let handle = self.handle.spawn(async move {
+            let mut on_event = move |event: EngineEvent| {
+                let _ = tx.send(event);
+            };
+            let _ = engine
+                .run_turn(&input, llm.as_ref(), tools.as_ref(), &policy, &mut on_event)
+                .await;
+        });
+        self.current_turn = Some(handle);
+        true
+    }
+
+    /// Drain every buffered engine event (non-blocking) into transcript
+    /// entries. Returns whether anything changed (the caller re-renders).
+    fn drain_events(&mut self) -> bool {
+        let mut batch: Vec<EngineEvent> = Vec::new();
+        while let Ok(event) = self.rx.try_recv() {
+            batch.push(event);
+        }
+        if batch.is_empty() {
+            return false;
+        }
+        self.apply_engine_events(&batch);
+        true
+    }
+
+    /// Map a batch of engine events to transcript entries (minimal slice 6a
+    /// mapping: assistant text + tool calls/results + turn-end status).
+    fn apply_engine_events(&mut self, events: &[EngineEvent]) {
+        let mut pending_assistant = String::new();
+        let mut entries: Vec<TranscriptEntry> = Vec::new();
+        let mut turn_ended = false;
+        for event in events {
+            match event {
+                EngineEvent::AssistantDelta { delta, .. } => pending_assistant.push_str(delta),
+                EngineEvent::ToolCallStarted {
+                    tool_call_id,
+                    name,
+                    args,
+                    ..
+                } => {
+                    flush_assistant(&mut entries, &mut pending_assistant);
+                    entries.push(tool_call_entry(tool_call_id, name, args.as_ref()));
+                }
+                EngineEvent::ToolResult {
+                    tool_call_id,
+                    output,
+                    is_error,
+                    ..
+                } => {
+                    if let Some(entry) = entries
+                        .iter_mut()
+                        .rev()
+                        .find(|e| e.tool_call.as_ref().is_some_and(|c| c.id == *tool_call_id))
+                    {
+                        entry.tool_result = Some(ToolResultData {
+                            tool_call_id: tool_call_id.clone(),
+                            output: output.clone(),
+                            is_error: is_error.unwrap_or(false),
+                        });
+                    }
+                }
+                EngineEvent::TurnEnded { reason, error, .. } => {
+                    flush_assistant(&mut entries, &mut pending_assistant);
+                    if reason == "completed" {
+                        entries.push(status_entry("✓ turn 完成", None));
+                    } else {
+                        let message = error
+                            .as_ref()
+                            .and_then(|e| e.get("message"))
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("engine turn failed");
+                        entries.push(status_entry(
+                            &format!("✗ turn {reason}: {message}"),
+                            Some(ColorToken::Error),
+                        ));
+                    }
+                    turn_ended = true;
+                }
+                _ => {}
+            }
+        }
+        flush_assistant(&mut entries, &mut pending_assistant);
+        if !entries.is_empty() {
+            let mut transcript = self.transcript.borrow_mut();
+            for entry in entries {
+                transcript.push(entry);
+            }
+        }
+        if turn_ended {
+            // The session's busy flag must drop so the next idle flush can
+            // dispatch new input (TS `streamingPhase` idle parity).
+            self.turn_idle = true;
+        }
+    }
+}
+
+/// Push the accumulated assistant text as one entry (empty → no-op).
+fn flush_assistant(entries: &mut Vec<TranscriptEntry>, pending: &mut String) {
+    if pending.is_empty() {
+        return;
+    }
+    entries.push(assistant_entry(pending));
+    pending.clear();
+}
+
+impl SessionBackend for EngineBackend {
+    fn create_session(&mut self) -> Result<String, SessionError> {
+        let id = format!("session-{}", self.next_session_id);
+        self.next_session_id += 1;
+        Ok(id)
+    }
+    fn resume_session(&mut self, session_id: &str) -> Result<String, SessionError> {
+        Ok(session_id.to_owned())
+    }
+    fn switch_session(&mut self, session_id: &str) -> Result<String, SessionError> {
+        Ok(session_id.to_owned())
+    }
+    fn send_bash_line(&mut self, text: &str) -> bool {
+        // Slice 6a simplification: `!` shell lines also run through the
+        // engine turn (real dimi-exec dispatch is a later slice).
+        self.start_turn(text)
+    }
+    fn send_prompt(&mut self, text: &str) -> bool {
+        self.start_turn(text)
+    }
+}
 
 /// Shares the [`ProcessTerminal`] between the `Tui` (as its `Terminal`) and
 /// the event loop (which drives stdin through the buffer).
@@ -95,43 +400,6 @@ impl Terminal for SharedTerminal {
     }
 }
 
-/// The engine stub behind [`SessionManager`]: every dispatch echoes a status
-/// row back into the transcript and reports the agent as *not* busy, so the
-/// state machine stays idle between inputs.
-pub struct EchoBackend {
-    transcript: Rc<RefCell<TranscriptContainer>>,
-}
-
-impl EchoBackend {
-    pub fn new(transcript: Rc<RefCell<TranscriptContainer>>) -> Self {
-        EchoBackend { transcript }
-    }
-}
-
-impl SessionBackend for EchoBackend {
-    fn create_session(&mut self) -> Result<String, SessionError> {
-        Ok("echo-session".to_owned())
-    }
-    fn resume_session(&mut self, session_id: &str) -> Result<String, SessionError> {
-        Ok(session_id.to_owned())
-    }
-    fn switch_session(&mut self, session_id: &str) -> Result<String, SessionError> {
-        Ok(session_id.to_owned())
-    }
-    fn send_bash_line(&mut self, text: &str) -> bool {
-        self.transcript
-            .borrow_mut()
-            .push(status_entry(&format!("$ {text}（引擎未接线）"), None));
-        false
-    }
-    fn send_prompt(&mut self, _text: &str) -> bool {
-        self.transcript
-            .borrow_mut()
-            .push(status_entry(ENGINE_NOT_WIRED_MSG, None));
-        false
-    }
-}
-
 /// The app's slash-command list: the full builtin registry plus the slice-6
 /// `/wire` replay command (a dev affordance, not part of the TS registry).
 fn app_slash_commands() -> &'static [SlashCommand] {
@@ -152,7 +420,13 @@ pub struct DimiApp {
     pub footer: Rc<RefCell<FooterComponent>>,
     pub editor: Rc<RefCell<CustomEditor>>,
     pub session: SessionManager,
-    backend: EchoBackend,
+    backend: EngineBackend,
+    /// The tokio runtime that runs engine turns in the background (the
+    /// synchronous event loop never blocks on it — results arrive via the
+    /// backend's mpsc channel). Read by [`DimiApp::wait_for_turn`] (the
+    /// deterministic test/replay path).
+    #[allow(dead_code)]
+    runtime: tokio::runtime::Runtime,
     pub config: Config,
     /// Enter-submit texts produced by the editor's `on_submit`, drained by
     /// the event loop after each stdin chunk (decouples the callback from the
@@ -164,6 +438,27 @@ pub struct DimiApp {
 
 impl DimiApp {
     pub fn new(config: Config) -> Self {
+        // The production client is the OpenAI-compatible HTTP transport; when
+        // the provider is not configured the backend surfaces a clear status
+        // before ever calling it (the client is inert in that case).
+        let llm: std::sync::Arc<dyn LlmClient> = match config.provider_config() {
+            Some(p) => std::sync::Arc::new(OpenAiCompatibleClient {
+                base_url: p.base_url.clone(),
+                api_key: p.api_key.clone(),
+                model: p.model.clone(),
+            }),
+            None => std::sync::Arc::new(OpenAiCompatibleClient {
+                base_url: String::new(),
+                api_key: String::new(),
+                model: config.model.clone().unwrap_or_default(),
+            }),
+        };
+        Self::with_llm(config, llm)
+    }
+
+    /// Build the app with a caller-supplied LLM client — tests inject a
+    /// `ScriptedLlmClient` for deterministic, network-free turns.
+    pub fn with_llm(config: Config, llm: std::sync::Arc<dyn LlmClient>) -> Self {
         let transcript = Rc::new(RefCell::new(TranscriptContainer::new()));
         let footer = Rc::new(RefCell::new(FooterComponent::new(FooterState::new())));
         let submit_inbox: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -196,7 +491,25 @@ impl DimiApp {
             }));
         }
 
-        let mut backend = EchoBackend::new(transcript.clone());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("failed to build the engine tokio runtime");
+        let handle = runtime.handle().clone();
+
+        let mut tools = ToolRegistry::new();
+        tools.register_with_def("Bash", Box::new(BashTool::default()), Some(bash_tool_def()));
+
+        let provider = config.provider_config();
+        let mut backend = EngineBackend::new(
+            handle,
+            llm,
+            std::sync::Arc::new(tools),
+            transcript.clone(),
+            provider,
+            config.work_dir.clone(),
+        );
         let mut session = SessionManager::new(BusyInputMode::default());
         // The TS app creates a session during startup; do the same so queued
         // messages flush immediately instead of waiting on a session gate.
@@ -208,6 +521,7 @@ impl DimiApp {
             editor,
             session,
             backend,
+            runtime,
             config,
             submit_inbox,
             exit_flag,
@@ -276,6 +590,33 @@ impl DimiApp {
         out
     }
 
+    /// Drain buffered engine events into the transcript (non-blocking; called
+    /// every event-loop iteration and after submits). Returns whether anything
+    /// changed so the caller can skip redundant re-renders.
+    pub fn pump_engine_turns(&mut self) -> bool {
+        let mut changed = false;
+        if self.backend.drain_events() {
+            changed = true;
+        }
+        if self.backend.turn_idle {
+            self.backend.turn_idle = false;
+            self.session.set_streaming(false);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Block until the current turn's spawned task completes, then drain its
+    /// events into the transcript. Test / replay affordance — the live event
+    /// loop uses the non-blocking [`DimiApp::pump_engine_turns`] instead.
+    #[allow(dead_code)]
+    pub fn wait_for_turn(&mut self) {
+        if let Some(mut handle) = self.backend.current_turn.take() {
+            let _ = self.runtime.block_on(&mut handle);
+            self.pump_engine_turns();
+        }
+    }
+
     /// Start the terminal + TUI and run the event loop (see
     /// `crates/dimi-tui/examples/shell.rs` for the wiring this is based on).
     /// Blocks until EOF, Esc, Ctrl-C, or Ctrl-D.
@@ -308,9 +649,36 @@ impl DimiApp {
         self.editor.borrow_mut().inner_mut().set_focused(true);
         tui.start();
 
-        let mut stdin = std::io::stdin();
-        let mut buf = [0u8; 4096];
+        // A dedicated reader thread feeds raw stdin bytes into a channel; the
+        // main loop polls it with a short timeout so it can pump engine turn
+        // events and re-render while a turn streams (the TUI loop must never
+        // block on stdin while the assistant is typing).
+        let (stdin_tx, stdin_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut stdin = std::io::stdin();
+            let mut buf = [0u8; 4096];
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) => {
+                        let _ = stdin_tx.send(None);
+                        break;
+                    }
+                    Ok(n) => {
+                        if stdin_tx.send(Some(buf[..n].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => {
+                        let _ = stdin_tx.send(None);
+                        break;
+                    }
+                }
+            }
+        });
+
         loop {
+            let progress = self.pump_engine_turns();
             if self.exit_flag.get()
                 || sigint.load(std::sync::atomic::Ordering::Relaxed)
                 || sigterm.load(std::sync::atomic::Ordering::Relaxed)
@@ -323,10 +691,9 @@ impl DimiApp {
                 self.apply_layout(width, rows);
                 tui.request_render();
             }
-            match stdin.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+            match stdin_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(Some(bytes)) => {
+                    let chunk = String::from_utf8_lossy(&bytes).into_owned();
                     // Route complete sequences (after Kitty negotiation +
                     // buffer splitting) into the TUI input handler.
                     let mut on_input = |data: &str| {
@@ -363,7 +730,14 @@ impl DimiApp {
                         break;
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Ok(None) => break, // stdin EOF
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // No input this tick — re-render only when the engine
+                    // turn made progress (streaming assistant output).
+                    if progress {
+                        tui.request_render();
+                    }
+                }
                 Err(_) => break,
             }
         }
@@ -530,20 +904,21 @@ mod tests {
     }
 
     #[test]
-    fn handle_submit_normal_message_appends_user_and_status() {
+    fn handle_submit_normal_message_appends_user_and_not_configured_status() {
         set_palette(DARK_COLORS);
         let mut app = DimiApp::new(Config::default());
         app.handle_submit("hello");
         let e = entries(&app);
-        assert_eq!(e.len(), 2, "user + engine-not-wired status: {e:#?}");
+        assert_eq!(e.len(), 2, "user + provider-not-configured status: {e:#?}");
         assert_eq!(e[0].kind, TranscriptEntryKind::User);
         assert_eq!(e[0].content, "hello");
         assert_eq!(e[1].kind, TranscriptEntryKind::Status);
         assert!(
-            e[1].content.contains("引擎未接线"),
+            e[1].content.contains("未配置 provider"),
             "content: {}",
             e[1].content
         );
+        assert_eq!(e[1].status_color, Some(ColorToken::Error));
     }
 
     #[test]
@@ -620,13 +995,18 @@ mod tests {
         assert_eq!(app.editor.borrow().input_mode, InputMode::Bash);
         app.handle_submit("ls -la");
         let e = entries(&app);
-        // user echo (bullet suppressed) + bash status.
+        // user echo (bullet suppressed) + provider-not-configured status
+        // (bash lines route through the engine turn in slice 6a).
         assert_eq!(e.len(), 2, "bash echo + status: {e:#?}");
         assert_eq!(e[0].kind, TranscriptEntryKind::User);
         assert_eq!(e[0].content, "ls -la");
         assert_eq!(e[0].bullet.as_deref(), Some(""));
         assert_eq!(e[1].kind, TranscriptEntryKind::Status);
-        assert!(e[1].content.contains("ls -la"));
+        assert!(
+            e[1].content.contains("未配置 provider"),
+            "content: {}",
+            e[1].content
+        );
         // Editor returns to prompt mode and is cleared.
         assert_eq!(app.editor.borrow().input_mode, InputMode::Prompt);
         assert!(app.editor.borrow().inner().get_text().is_empty());
@@ -746,6 +1126,208 @@ mod tests {
         assert_eq!(lines.len(), 8, "frame fills the terminal");
         let joined = lines.join("\n");
         assert!(joined.contains("msg 49"), "tail visible: {joined}");
+    }
+}
+
+/// Slice-6a engine-dialogue tests: real `Engine::run_turn` against the
+/// network-free `ScriptedLlmClient`, driving the transcript through the same
+/// `handle_submit` → backend → mpsc channel → `pump_engine_turns` path the
+/// live event loop uses.
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+    use dimi_engine::llm::{
+        AssistantTurn, ChatRequest, LlmStreamEvent, ScriptedLlmClient, StreamedTurn,
+    };
+    use dimi_tui::theme::{DARK_COLORS, set_palette};
+
+    fn entries(app: &DimiApp) -> Vec<dimi_tui::wire_transcript::TranscriptEntry> {
+        app.transcript.borrow().entries().to_vec()
+    }
+
+    fn scripted_app(events: Vec<LlmStreamEvent>) -> DimiApp {
+        set_palette(DARK_COLORS);
+        let config = Config {
+            model: Some("test-model".to_string()),
+            work_dir: Some("/tmp".to_string()),
+            base_url: Some("http://localhost:1/v1".to_string()),
+            api_key: Some("test-key".to_string()),
+            ..Config::default()
+        };
+        let llm: std::sync::Arc<dyn LlmClient> =
+            std::sync::Arc::new(ScriptedLlmClient::once(events));
+        DimiApp::with_llm(config, llm)
+    }
+
+    /// A client that records the request it saw and returns an empty turn —
+    /// proves the assembled conversation (messages) reaches the LLM boundary.
+    struct RecordingClient {
+        requests: std::sync::Mutex<Vec<ChatRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmClient for RecordingClient {
+        async fn stream_chat(
+            &self,
+            request: &ChatRequest,
+        ) -> Result<StreamedTurn, dimi_engine::llm::LlmError> {
+            self.requests.lock().unwrap().push(request.clone());
+            Ok(StreamedTurn {
+                events: vec![LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                }],
+                assistant: AssistantTurn {
+                    tool_calls: vec![],
+                    text: String::new(),
+                    thinking: String::new(),
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn handle_submit_runs_engine_turn_and_appends_assistant_text() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "Hello, ".to_string(),
+            },
+            LlmStreamEvent::Text {
+                delta: "world!".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        app.handle_submit("hello");
+        assert!(
+            app.session.streaming(),
+            "a turn started → the agent is busy"
+        );
+        app.wait_for_turn();
+        let e = entries(&app);
+        assert!(
+            !app.session.streaming(),
+            "turn ended → the agent is idle again"
+        );
+        assert_eq!(e.len(), 3, "user + assistant + turn-end status: {e:#?}");
+        assert_eq!(e[0].kind, TranscriptEntryKind::User);
+        assert_eq!(e[0].content, "hello");
+        assert_eq!(e[1].kind, TranscriptEntryKind::Assistant);
+        assert_eq!(e[1].content, "Hello, world!");
+        assert_eq!(e[2].kind, TranscriptEntryKind::Status);
+        assert!(e[2].content.contains("完成"), "status: {}", e[2].content);
+    }
+
+    #[test]
+    fn engine_turn_carries_conversation_history_to_the_llm() {
+        set_palette(DARK_COLORS);
+        let recorder = std::sync::Arc::new(RecordingClient {
+            requests: std::sync::Mutex::new(Vec::new()),
+        });
+        let config = Config {
+            model: Some("test-model".to_string()),
+            base_url: Some("http://localhost:1/v1".to_string()),
+            api_key: Some("test-key".to_string()),
+            ..Config::default()
+        };
+        let mut app = DimiApp::with_llm(config, recorder.clone());
+        // Turn 2: dispatch "follow up" on top of the existing history.
+        app.transcript.borrow_mut().push(user_entry("hi", None));
+        app.transcript.borrow_mut().push(assistant_entry("yo"));
+        app.handle_submit("follow up");
+        app.wait_for_turn();
+        let requests = recorder.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "one turn ran");
+        let request_messages = &requests[0].messages;
+        assert_eq!(
+            request_messages.len(),
+            3,
+            "history + new prompt: {request_messages:#?}"
+        );
+        assert_eq!(request_messages[0].content, serde_json::json!("hi"));
+        assert_eq!(request_messages[1].content, serde_json::json!("yo"));
+        assert_eq!(request_messages[2].role, "user");
+        assert_eq!(request_messages[2].content, serde_json::json!("follow up"));
+    }
+
+    #[test]
+    fn transcript_messages_skips_non_conversation_entries() {
+        let entries = vec![
+            user_entry("a question", None),
+            assistant_entry("an answer"),
+            status_entry("some status", None),
+        ];
+        let messages = transcript_messages(&entries);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, serde_json::json!("a question"));
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[1].content, serde_json::json!("an answer"));
+    }
+
+    #[test]
+    fn handle_submit_bash_mode_runs_engine_turn() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "ran it".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        app.editor.borrow_mut().handle_input("!");
+        assert_eq!(app.editor.borrow().input_mode, InputMode::Bash);
+        app.handle_submit("ls -la");
+        app.wait_for_turn();
+        let e = entries(&app);
+        assert_eq!(e.len(), 3, "bash echo + assistant + status: {e:#?}");
+        assert_eq!(e[0].kind, TranscriptEntryKind::User);
+        assert_eq!(e[0].content, "ls -la");
+        assert_eq!(e[0].bullet.as_deref(), Some(""));
+        assert_eq!(e[1].kind, TranscriptEntryKind::Assistant);
+        assert_eq!(e[1].content, "ran it");
+        // Editor returns to prompt mode and is cleared.
+        assert_eq!(app.editor.borrow().input_mode, InputMode::Prompt);
+        assert!(app.editor.borrow().inner().get_text().is_empty());
+    }
+
+    #[test]
+    fn handle_submit_executes_bash_tool_and_attaches_result() {
+        // The model asks to run `echo hi`; the engine's ToolRegistry (BashTool
+        // registered by `with_llm`) executes it and the transcript shows the
+        // tool card with the result attached.
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_1".to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: None,
+            },
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_1".to_string(),
+                name: None,
+                arguments_part: Some("{\"command\":\"echo hi\"}".to_string()),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("tool_calls".to_string()),
+            },
+        ]);
+        app.handle_submit("run something");
+        app.wait_for_turn();
+        let e = entries(&app);
+        assert_eq!(e.len(), 3, "user + tool card + status: {e:#?}");
+        assert_eq!(e[0].kind, TranscriptEntryKind::User);
+        assert_eq!(e[1].kind, TranscriptEntryKind::ToolCall);
+        let call = e[1].tool_call.as_ref().expect("tool call data");
+        assert_eq!(call.name, "Bash");
+        assert_eq!(
+            call.args.get("command").and_then(|v| v.as_str()),
+            Some("echo hi")
+        );
+        let result = e[1].tool_result.as_ref().expect("tool result attached");
+        assert_eq!(result.output.trim(), "hi");
+        assert!(!result.is_error);
+        assert_eq!(e[2].kind, TranscriptEntryKind::Status);
+        assert!(e[2].content.contains("完成"), "status: {}", e[2].content);
     }
 }
 

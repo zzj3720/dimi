@@ -3,10 +3,12 @@
 //! Replaces the TS `apps/dimi/src/tui` entry's final shape: parses
 //! `--wire` / `--config`, checks the TTY, installs the dark palette, and
 //! runs the `DimiApp` coordinator (raw terminal + differential `Tui` +
-//! transcript/footer/editor + the echo backend).
+//! transcript/footer/editor + the engine-backed session backend).
 //!
-//! Engine wiring is a later slice, so this runnable shell cold-builds its
-//! transcript from `wire.jsonl` and echoes interactive input as status rows:
+//! Engine wiring lands in slice 6a: normal prompts and `!` bash lines run a
+//! real `dimi-engine` `Engine::run_turn` against the provider configured in
+//! `config.toml` (`model` / `base_url` / `api_key`), streaming events into
+//! the transcript.
 //!
 //! ```text
 //! cargo run -p dimi-cli -- --wire crates/dimi-tui/testdata/sample-wire.jsonl

@@ -17,6 +17,7 @@ tokio = { version = "1", features = ["rt", "macros"] }
 async-trait = "0.1.91"
 base64 = "0.23.0"
 uuid = { version = "1", features = ["v4"] }
+ureq = "2"
 
 [dev-dependencies]
 tempfile = "3"
