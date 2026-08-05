@@ -566,6 +566,7 @@ pub fn plugin_remove_confirm_component(
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -601,6 +602,7 @@ trust the source."
         current_value: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 

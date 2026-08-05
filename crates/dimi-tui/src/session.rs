@@ -194,15 +194,16 @@ impl SessionManager {
     /// Dispatch queued messages to the backend (port of `flushQueuedMessages`,
     /// driven by the replay renderer / shell completion / compaction
     /// completion). No-op unless the agent is idle, not compacting, and a
-    /// session is active. The policy:
+    /// session is active. The policy (mirrors the TS `flushQueuedMessages`
+    /// while-loop — it drains the **entire** queue in one pass):
     ///
     /// 1. **Drain bash-queued messages all at once** — every `!` line in the
     ///    queue (in order) is dispatched through `SessionBackend::send_bash_line`.
-    /// 2. **Send the first prompt message (if any)** through
-    ///    `SessionBackend::send_prompt`.
-    /// 3. **If still busy after that, stop** — dispatching a prompt starts a
-    ///    turn, so any remaining prompt messages wait for the next idle cycle
-    ///    (the host calls this again after the next `set_streaming(false)`).
+    /// 2. **Send every remaining prompt message** through
+    ///    `SessionBackend::send_prompt` (the TS flush is invoked when the
+    ///    agent is already idle, so it does not stop after the first prompt).
+    ///    If a backend reports busy, `streaming` is set so the host does not
+    ///    re-enter flush until the next idle cycle.
     pub fn flush_queued_messages(&mut self, backend: &mut dyn SessionBackend) {
         if self.streaming || self.compacting || self.current_session_id.is_none() {
             return;
@@ -219,8 +220,8 @@ impl SessionManager {
             }
         }
 
-        // 2. Send the first prompt message, then stop if the agent is busy.
-        if let Some(idx) = self
+        // 2. Send every remaining prompt message (TS drains the whole queue).
+        while let Some(idx) = self
             .queued_messages
             .iter()
             .position(|m| m.mode != Some("bash"))
@@ -362,12 +363,12 @@ mod tests {
         assert!(b.prompts.is_empty());
         assert_eq!(m.queued_messages().len(), 2);
 
-        // Idle: flush dispatches exactly one prompt and marks the agent busy.
+        // Idle: flush dispatches every prompt and marks the agent busy.
         m.set_streaming(false);
         m.flush_queued_messages(&mut b);
-        assert_eq!(b.prompts, vec!["one"]);
+        assert_eq!(b.prompts, vec!["one", "two"]);
         assert!(m.streaming());
-        assert_eq!(m.queued_messages().len(), 1);
+        assert!(m.queued_messages().is_empty());
     }
 
     #[test]
@@ -388,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_queue_flushes_one_at_a_time_across_idle_cycles() {
+    fn prompt_queue_flushes_all_in_one_pass() {
         let mut m = SessionManager::new(BusyInputMode::Queue);
         let mut b = MockBackend::default();
         m.create_session(&mut b).unwrap();
@@ -396,19 +397,9 @@ mod tests {
         m.enqueue_message("p2", None);
         m.enqueue_message("p3", None);
 
-        m.flush_queued_messages(&mut b); // idle → first prompt
-        assert_eq!(b.prompts, vec!["p1"]);
-        assert!(m.streaming());
-        assert_eq!(m.queued_messages().len(), 2);
-
-        m.set_streaming(false);
-        m.flush_queued_messages(&mut b); // next idle → second prompt
-        assert_eq!(b.prompts, vec!["p1", "p2"]);
-        assert_eq!(m.queued_messages().len(), 1);
-
-        m.set_streaming(false);
-        m.flush_queued_messages(&mut b); // next idle → third prompt
+        m.flush_queued_messages(&mut b); // idle → all prompts (TS while-loop)
         assert_eq!(b.prompts, vec!["p1", "p2", "p3"]);
+        assert!(m.streaming());
         assert!(m.queued_messages().is_empty());
     }
 
@@ -421,10 +412,11 @@ mod tests {
         m.enqueue_message("ls", Some("bash"));
         m.enqueue_message("prompt-b", None);
         m.flush_queued_messages(&mut b);
-        // Bash messages drain as one batch first, then the first prompt.
+        // Bash messages drain as one batch first, then every prompt (TS
+        // while-loop drains the whole queue).
         assert_eq!(b.bash_lines, vec!["ls"]);
-        assert_eq!(b.prompts, vec!["prompt-a"]);
-        assert_eq!(m.queued_messages().len(), 1); // prompt-b waits for next idle
+        assert_eq!(b.prompts, vec!["prompt-a", "prompt-b"]);
+        assert!(m.queued_messages().is_empty());
         assert!(m.streaming());
     }
 

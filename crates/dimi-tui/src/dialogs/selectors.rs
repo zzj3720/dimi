@@ -84,6 +84,7 @@ pub fn theme_selector_component(opts: ThemeSelectorOptions) -> ChoicePickerCompo
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -137,6 +138,7 @@ pub fn context_size_selector_component(opts: ContextSizeSelectorOptions) -> Choi
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -185,6 +187,7 @@ pub fn permission_selector_component(opts: PermissionSelectorOptions) -> ChoiceP
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -222,6 +225,7 @@ pub fn editor_selector_component(opts: EditorSelectorOptions) -> ChoicePickerCom
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -265,6 +269,7 @@ pub fn busy_input_mode_selector_component(
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -304,6 +309,7 @@ pub fn update_preference_selector_component(
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 

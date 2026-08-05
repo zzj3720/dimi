@@ -120,6 +120,7 @@ pub fn settings_selector_component() -> ChoicePickerComponent {
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 

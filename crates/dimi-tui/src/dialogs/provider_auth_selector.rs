@@ -114,6 +114,7 @@ pub fn provider_auth_selector_component(
         notice_tone: None,
         searchable: true,
         page_size: None,
+        has_session_only: false,
     })
 }
 
@@ -179,6 +180,7 @@ pub fn auth_type_selector_component(opts: AuthTypeSelectorOptions) -> ChoicePick
         notice_tone: None,
         searchable: false,
         page_size: None,
+        has_session_only: false,
     })
 }
 

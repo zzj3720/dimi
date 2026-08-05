@@ -654,6 +654,9 @@ pub struct ChoicePickerOptions {
     pub searchable: bool,
     /// Items per page; defaults to 8.
     pub page_size: Option<usize>,
+    /// Mirrors `onSessionOnlySelect !== undefined` in TS: when true the
+    /// picker advertises and handles Alt+S (session-only select).
+    pub has_session_only: bool,
 }
 
 /// Action a host should react to after `handle_input` (ported from the TS
@@ -900,6 +903,9 @@ impl Component for ChoicePickerComponent {
             nav_parts.push("←→ page".to_owned());
         }
         nav_parts.push("Enter select".to_owned());
+        if self.opts.has_session_only {
+            nav_parts.push("Alt+S session-only".to_owned());
+        }
         nav_parts.push("Esc cancel".to_owned());
         let hint = self
             .opts
@@ -1158,6 +1164,7 @@ mod tests {
                 notice_tone: None,
                 searchable: false,
                 page_size: None,
+                has_session_only: false,
             })),
             other => panic!("unknown fixture {other}"),
         }
