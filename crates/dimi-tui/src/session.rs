@@ -89,6 +89,13 @@ pub struct SessionManager {
     compacting: bool,
     queued_messages: Vec<QueuedMessage>,
     busy_input_mode: BusyInputMode,
+    /// Session title (`/title`), port of `appState.sessionTitle`.
+    title: Option<String>,
+    /// Permission mode (`/permission` / `/yolo` / `/auto`), port of
+    /// `appState.permissionMode`. `None` = unset; the TS default is `manual`.
+    permission_mode: Option<String>,
+    /// Plan mode (`/plan`), port of `appState.planMode`.
+    plan_mode: bool,
 }
 
 impl SessionManager {
@@ -99,6 +106,9 @@ impl SessionManager {
             compacting: false,
             queued_messages: Vec::new(),
             busy_input_mode,
+            title: None,
+            permission_mode: None,
+            plan_mode: false,
         }
     }
 
@@ -135,6 +145,37 @@ impl SessionManager {
     /// Reflect whether a compaction is in progress (`isCompacting`).
     pub fn set_compacting(&mut self, compacting: bool) {
         self.compacting = compacting;
+    }
+
+    /// The session title, if one was set via `/title` (`appState.sessionTitle`).
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Set the session title (`/title <text>`); `None` clears it.
+    pub fn set_title(&mut self, title: Option<String>) {
+        self.title = title;
+    }
+
+    /// The permission mode (`appState.permissionMode`): `"manual"` / `"yolo"` /
+    /// `"auto"`, or `None` when never set (the TS default is `manual`).
+    pub fn permission_mode(&self) -> Option<&str> {
+        self.permission_mode.as_deref()
+    }
+
+    /// Set the permission mode (`/permission` / `/yolo` / `/auto`).
+    pub fn set_permission_mode(&mut self, mode: Option<String>) {
+        self.permission_mode = mode;
+    }
+
+    /// Whether plan mode is enabled (`appState.planMode`).
+    pub fn plan_mode(&self) -> bool {
+        self.plan_mode
+    }
+
+    /// Enable/disable plan mode (`/plan [on|off]`).
+    pub fn set_plan_mode(&mut self, plan_mode: bool) {
+        self.plan_mode = plan_mode;
     }
 
     /// Append a queued message (port of `enqueueMessage`). `mode` is
@@ -185,10 +226,17 @@ impl SessionManager {
 
     /// Clear the queue and return to an idle, non-compacting runtime — port of
     /// the queue-relevant parts of `resetSessionRuntime` in `dimi-tui.ts`.
+    ///
+    /// The session-scoped `title` and `plan_mode` reset with the runtime (a
+    /// fresh session starts untitled and out of plan mode, mirroring TS
+    /// `setSession`); `permission_mode` is app-level state and survives — a
+    /// new session applies the current default permission mode.
     fn reset_runtime(&mut self) {
         self.queued_messages.clear();
         self.streaming = false;
         self.compacting = false;
+        self.title = None;
+        self.plan_mode = false;
     }
 
     /// Dispatch queued messages to the backend (port of `flushQueuedMessages`,
@@ -553,5 +601,46 @@ mod tests {
         assert_eq!(b.prompts, vec!["p1"]);
         // Backend reported no turn started → machine is not marked busy.
         assert!(!m.streaming());
+    }
+
+    #[test]
+    fn title_permission_plan_mode_setters() {
+        let mut m = SessionManager::new(BusyInputMode::Queue);
+        assert_eq!(m.title(), None);
+        assert_eq!(m.permission_mode(), None);
+        assert!(!m.plan_mode());
+
+        m.set_title(Some("my session".to_owned()));
+        assert_eq!(m.title(), Some("my session"));
+        m.set_title(None);
+        assert_eq!(m.title(), None);
+
+        m.set_permission_mode(Some("yolo".to_owned()));
+        assert_eq!(m.permission_mode(), Some("yolo"));
+        m.set_permission_mode(None);
+        assert_eq!(m.permission_mode(), None);
+
+        m.set_plan_mode(true);
+        assert!(m.plan_mode());
+        m.set_plan_mode(false);
+        assert!(!m.plan_mode());
+    }
+
+    #[test]
+    fn session_switch_resets_title_and_plan_but_keeps_permission() {
+        let mut m = SessionManager::new(BusyInputMode::Queue);
+        let mut b = MockBackend::default();
+        m.create_session(&mut b).unwrap();
+
+        // App-level state persists, session-scoped state is set.
+        m.set_permission_mode(Some("auto".to_owned()));
+        m.set_title(Some("titled".to_owned()));
+        m.set_plan_mode(true);
+
+        // Switching to another session resets the session-scoped fields.
+        m.switch_session(&mut b, "target-9").unwrap();
+        assert_eq!(m.permission_mode(), Some("auto"), "app-level mode survives");
+        assert_eq!(m.title(), None, "title is per-session");
+        assert!(!m.plan_mode(), "plan mode is per-session");
     }
 }

@@ -11,7 +11,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use dimi_engine::engine::Engine;
@@ -34,7 +34,7 @@ use dimi_tui::keys::matches_key;
 use dimi_tui::process_terminal::ProcessTerminal;
 use dimi_tui::session::{BusyInputMode, SessionBackend, SessionError, SessionManager};
 use dimi_tui::terminal::Terminal;
-use dimi_tui::theme::ColorToken;
+use dimi_tui::theme::{ColorToken, DARK_COLORS, LIGHT_COLORS, invalidate_components, set_palette};
 use dimi_tui::tui::Tui;
 use dimi_tui::wire_transcript::{TranscriptEntry, TranscriptEntryKind};
 
@@ -230,6 +230,22 @@ impl EngineBackend {
         true
     }
 
+    /// Point the next turn at a different model (`/model <name>`). The engine
+    /// snapshots the provider per turn, so the change takes effect from the
+    /// next prompt without touching the in-flight one. No-op while the
+    /// provider is not configured (the unconfigured status path stays).
+    pub fn set_model(&mut self, model: &str) {
+        if let Some(provider) = &mut self.provider {
+            provider.model = model.to_string();
+        }
+    }
+
+    /// Change the permission mode used for the next turn's tool-call policy
+    /// (`/permission` / `/yolo` / `/auto`).
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.policy.mode = mode;
+    }
+
     /// Drain every buffered engine event (non-blocking) into transcript
     /// entries. Returns whether anything changed (the caller re-renders).
     fn drain_events(&mut self) -> bool {
@@ -322,6 +338,136 @@ fn flush_assistant(entries: &mut Vec<TranscriptEntry>, pending: &mut String) {
     }
     entries.push(assistant_entry(pending));
     pending.clear();
+}
+
+/// Clipboard copy strategy for `/copy` — injectable so tests never touch a
+/// real clipboard tool.
+type Clipboard = Box<dyn Fn(&str) -> Result<(), String>>;
+
+/// The production clipboard: `pbcopy` on macOS, `xclip -selection clipboard`
+/// on Linux, an error elsewhere (the TS clipboard helper's native path).
+fn default_clipboard() -> Clipboard {
+    Box::new(copy_via_clipboard_tool)
+}
+
+/// Spawn the platform clipboard tool and pipe `text` into its stdin.
+fn copy_via_clipboard_tool(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let (cmd, args): (&str, &[&str]) = ("pbcopy", &[]);
+    #[cfg(target_os = "linux")]
+    let (cmd, args): (&str, &[&str]) = ("xclip", &["-selection", "clipboard"]);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    return Err("剪贴板工具不可用（需要 pbcopy 或 xclip）".to_string());
+
+    use std::io::Write;
+    let mut child = std::process::Command::new(cmd)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("启动 {cmd} 失败：{e}"))?;
+    child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "无法写入剪贴板子进程".to_string())?
+        .write_all(text.as_bytes())
+        .map_err(|e| format!("写入剪贴板失败：{e}"))?;
+    let status = child.wait().map_err(|e| format!("等待 {cmd} 失败：{e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{cmd} 退出码：{status}"))
+    }
+}
+
+/// Render the transcript as a Markdown document (port of the TS
+/// `buildExportMarkdown` as a flat, human-readable export — the TS version
+/// carries structured history from the session context).
+fn transcript_to_markdown(
+    entries: &[TranscriptEntry],
+    session_id: Option<&str>,
+    work_dir: Option<&str>,
+) -> String {
+    let mut md = String::from("# Dimi 会话导出\n\n");
+    if let Some(id) = session_id {
+        md.push_str(&format!("- Session: `{id}`\n"));
+    }
+    if let Some(dir) = work_dir {
+        md.push_str(&format!("- Workdir: `{dir}`\n"));
+    }
+    md.push('\n');
+    for entry in entries {
+        match entry.kind {
+            TranscriptEntryKind::User => {
+                md.push_str("## User\n\n");
+                md.push_str(entry.content.trim());
+                md.push_str("\n\n");
+            }
+            TranscriptEntryKind::Assistant => {
+                md.push_str("## Assistant\n\n");
+                md.push_str(entry.content.trim());
+                md.push_str("\n\n");
+            }
+            TranscriptEntryKind::Thinking => {
+                md.push_str("## Thinking\n\n");
+                md.push_str(entry.content.trim());
+                md.push_str("\n\n");
+            }
+            TranscriptEntryKind::Status => {
+                md.push_str(&format!("> {}\n\n", entry.content.trim()));
+            }
+            TranscriptEntryKind::ToolCall => {
+                let name = entry
+                    .tool_call
+                    .as_ref()
+                    .map(|c| c.name.as_str())
+                    .unwrap_or("tool");
+                let args = entry
+                    .tool_call
+                    .as_ref()
+                    .and_then(|c| serde_json::to_string(&c.args).ok())
+                    .unwrap_or_default();
+                md.push_str(&format!("### Tool: {name}\n\n```json\n{args}\n```\n\n"));
+            }
+        }
+    }
+    md
+}
+
+/// Write the exported Markdown to `path`, creating the parent directory.
+fn write_markdown_export(path: &Path, md: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("无法创建目录 {}：{e}", parent.display()))?;
+    }
+    std::fs::write(path, md).map_err(|e| format!("写入 {} 失败：{e}", path.display()))
+}
+
+/// Map a permission-mode string to the engine's [`PermissionMode`].
+fn parse_permission_mode(mode: &str) -> PermissionMode {
+    match mode {
+        "yolo" => PermissionMode::Yolo,
+        "auto" => PermissionMode::Auto,
+        _ => PermissionMode::Manual,
+    }
+}
+
+/// Parse `/undo`'s optional count (`[1-9][0-9]*`), defaulting to 1 (port of
+/// `parseUndoCount`).
+fn parse_undo_count(args: &str) -> Option<usize> {
+    let value = args.trim();
+    if value.is_empty() {
+        return Some(1);
+    }
+    if value.chars().all(|c| c.is_ascii_digit()) {
+        let n: usize = value.parse().ok()?;
+        if n > 0 { Some(n) } else { None }
+    } else {
+        None
+    }
 }
 
 impl SessionBackend for EngineBackend {
@@ -434,6 +580,8 @@ pub struct DimiApp {
     submit_inbox: Rc<RefCell<Vec<String>>>,
     /// Set by Esc / Ctrl-C / Ctrl-D to break the event loop cleanly.
     exit_flag: Rc<Cell<bool>>,
+    /// Clipboard copy strategy for `/copy` (injectable in tests).
+    clipboard: Clipboard,
 }
 
 impl DimiApp {
@@ -525,6 +673,7 @@ impl DimiApp {
             config,
             submit_inbox,
             exit_flag,
+            clipboard: default_clipboard(),
         };
         app.apply_config();
         app
@@ -544,14 +693,7 @@ impl DimiApp {
             .borrow_mut()
             .set_welcome_state(Some(welcome));
 
-        let mut footer_state = FooterState::new();
-        if let Some(model) = &self.config.model {
-            footer_state.model = model.clone();
-        }
-        if let Some(work_dir) = &self.config.work_dir {
-            footer_state.work_dir = work_dir.clone();
-        }
-        self.footer.borrow_mut().update(footer_state);
+        self.refresh_footer();
 
         if let Some(wire) = &self.config.wire {
             let _ = self.transcript.borrow_mut().load_wire(Path::new(wire));
@@ -778,7 +920,9 @@ impl DimiApp {
         self.session.flush_queued_messages(&mut self.backend);
     }
 
-    /// Apply a [`DispatchAction`] from slash-command resolution.
+    /// Apply a [`DispatchAction`] from slash-command resolution. Builtin
+    /// command bodies live in the per-command `handle_*` methods below, keeping
+    /// this router readable.
     fn dispatch_action(&mut self, action: DispatchAction) {
         match action {
             DispatchAction::SendNormal(msg) => {
@@ -786,24 +930,7 @@ impl DimiApp {
                 self.push_user(&msg, None);
                 self.session.flush_queued_messages(&mut self.backend);
             }
-            DispatchAction::RunBuiltin { name, args } => match name.as_str() {
-                "help" => self.handle_help(),
-                // `/clear` resolves to the registry `/new` via alias.
-                "new" => self.handle_clear(),
-                "wire" => self.handle_wire(args.trim()),
-                // `/exit` / `/quit` leave the TUI (restores the terminal via
-                // the event loop's `tui.stop()` on the exit flag).
-                "exit" | "quit" => self.exit_flag.set(true),
-                other if find_builtin_slash_command(other).is_some() => {
-                    self.push_status(
-                        &format!("/{other} 未实现（本切片仅实现 /help /new /wire /exit）"),
-                        None,
-                    );
-                }
-                other => {
-                    self.push_status(&format!("未知命令：/{other}"), Some(ColorToken::Error));
-                }
-            },
+            DispatchAction::RunBuiltin { name, args } => self.handle_builtin(&name, &args),
             DispatchAction::RunSkill { skill_name, .. } => {
                 self.push_status(&format!("skill 命令未接线：{skill_name}"), None);
             }
@@ -816,23 +943,96 @@ impl DimiApp {
         }
     }
 
+    /// Route one builtin slash command to its handler. `name` is always the
+    /// canonical registry name — `dispatch_input` resolves aliases, so
+    /// `/clear` arrives as `new`, `/quit` as `exit`, `/?` as `help`, …
+    fn handle_builtin(&mut self, name: &str, args: &str) {
+        match name {
+            // ── A. Pure / local-state commands ──
+            "help" => self.handle_help(),
+            "new" => self.handle_new(),
+            "version" => self.handle_version(),
+            "status" => self.handle_status(),
+            "usage" => self.handle_usage(),
+            "title" => self.handle_title(args.trim()),
+            "theme" => self.handle_theme(args.trim()),
+            "effort" => self.handle_effort(args.trim()),
+            "permission" => self.handle_permission(args.trim()),
+            "yolo" => self.handle_yolo(args.trim()),
+            "auto" => self.handle_auto(args.trim()),
+            "plan" => self.handle_plan(args.trim()),
+            "copy" => self.handle_copy(),
+            "export-md" => self.handle_export_md(args.trim()),
+            "model" => self.handle_model(args.trim()),
+            // ── B. Engine/session-dependent ──
+            "compact" => self.handle_compact(args.trim()),
+            "undo" => self.handle_undo(args.trim()),
+            "sessions" => self.handle_sessions(),
+            "tasks" => self.handle_tasks(),
+            "wire" => self.handle_wire(args.trim()),
+            // `/exit` / `/quit` leave the TUI (the event loop's `tui.stop()`
+            // restores the terminal when the exit flag is set).
+            "exit" => self.handle_exit(),
+            // ── Not wired in slice 6b: SDK / panel / engine dependencies ──
+            "mcp" => self.handle_unwired("mcp", "SDK 依赖：MCP server 状态未接入"),
+            "plugins" => self.handle_unwired("plugins", "SDK 依赖：插件系统未接入"),
+            "add-dir" => self.handle_unwired("add-dir", "SDK 依赖：工作区目录管理未接入"),
+            "experiments" => self.handle_unwired("experiments", "SDK/面板依赖：实验特性面板未实现"),
+            "reload" => self.handle_unwired("reload", "SDK 依赖：配置热重载未接入"),
+            "reload-tui" => self.handle_unwired("reload-tui", "SDK 依赖：tui.toml 热重载未接入"),
+            "editor" => self.handle_unwired("editor", "配置/面板依赖：外部编辑器选择面板未实现"),
+            "provider" => self.handle_unwired("provider", "SDK 依赖：provider 管理未接入"),
+            "secondary_model" => self.handle_unwired(
+                "secondary_model",
+                "引擎/SDK 依赖：secondary model 配置未接入",
+            ),
+            "settings" => self.handle_unwired("settings", "面板依赖：settings 面板未实现"),
+            "feedback" => self.handle_unwired("feedback", "SDK/面板依赖：feedback 提交未接入"),
+            "btw" => self.handle_unwired("btw", "面板依赖：BTW 面板未实现"),
+            "swarm" => self.handle_unwired("swarm", "引擎/SDK 依赖：swarm 模式未接入"),
+            "init" => self.handle_unwired("init", "引擎/SDK 依赖：AGENTS.md 分析未接入"),
+            "fork" => self.handle_unwired("fork", "引擎/SDK 依赖：session fork 未接入"),
+            "export-debug-zip" => {
+                self.handle_unwired("export-debug-zip", "SDK 依赖：debug ZIP 导出未接入")
+            }
+            "login" => self.handle_unwired("login", "SDK 依赖：auth 流程未接入"),
+            "logout" => self.handle_unwired("logout", "SDK 依赖：auth 流程未接入"),
+            "web" => self.handle_unwired("web", "SDK/面板依赖：Web UI 启动未接入"),
+            // Safety net: every registry command is matched above; this branch
+            // only fires for a hypothetical registry addition.
+            other if find_builtin_slash_command(other).is_some() => {
+                self.push_status(&format!("/{other} 未实现"), None);
+            }
+            other => {
+                self.push_status(&format!("未知命令：/{other}"), Some(ColorToken::Error));
+            }
+        }
+    }
+
     /// `/help` — append a status row listing the implemented commands and the
-    /// full builtin registry.
+    /// full builtin registry (39 commands + aliases).
     fn handle_help(&mut self) {
         let names: Vec<&str> = builtin_slash_commands()
             .iter()
             .map(|c| c.name.as_str())
             .collect();
         let help = format!(
-            "Dimi TUI（Rust，slice 6）· 已实现：/help /new(/clear) /wire <path>\n内置命令：{}",
+            "Dimi TUI（Rust，slice 6b）· 已实现：/version /status /usage /title /theme /effort \
+             /permission /yolo /auto /plan /copy /export-md /model /undo /sessions /tasks /new \
+             /help /wire /exit\n内置命令（{}）：{}",
+            names.len(),
             names.join(" ")
         );
         self.push_status(&help, None);
     }
 
-    /// `/new` / `/clear` — clear the transcript.
-    fn handle_clear(&mut self) {
+    /// `/new` / `/clear` — start a fresh session: clear the transcript and
+    /// reset the session runtime (queue / streaming / title / plan mode).
+    fn handle_new(&mut self) {
         self.transcript.borrow_mut().clear();
+        if self.session.current_session_id().is_some() {
+            let _ = self.session.create_session(&mut self.backend);
+        }
     }
 
     /// `/wire <path>` — cold-rebuild the transcript from a wire.jsonl file.
@@ -841,6 +1041,511 @@ impl DimiApp {
         if let Err(e) = result {
             self.push_status(&format!("wire 加载失败：{e}"), Some(ColorToken::Error));
         }
+    }
+
+    /// `/exit` / `/quit` — arm the exit flag (the event loop breaks and
+    /// restores the terminal).
+    fn handle_exit(&mut self) {
+        self.exit_flag.set(true);
+    }
+
+    /// `/version` — `Dimi v{version}` (port of the TS `version` case:
+    /// `host.showStatus(Dimi v${version})`).
+    fn handle_version(&mut self) {
+        self.push_status(&format!("Dimi v{}", env!("CARGO_PKG_VERSION")), None);
+    }
+
+    /// `/status` — one-line runtime status (port of `showStatusReport`, which
+    /// renders a panel in the TS; the panel is a later slice, so this is a
+    /// Status row).
+    fn handle_status(&mut self) {
+        let model = self
+            .config
+            .model
+            .clone()
+            .unwrap_or_else(|| "(未设置)".to_string());
+        let work_dir = self
+            .config
+            .work_dir
+            .clone()
+            .unwrap_or_else(|| "(未设置)".to_string());
+        let session_id = self.session.current_session_id().unwrap_or("(无)");
+        let title = self.session.title().unwrap_or("(未设置)");
+        let streaming = if self.session.streaming() {
+            "streaming"
+        } else {
+            "idle"
+        };
+        let theme = self
+            .config
+            .theme
+            .clone()
+            .unwrap_or_else(|| "dark".to_string());
+        let permission = self.session.permission_mode().unwrap_or("manual");
+        let plan = if self.session.plan_mode() {
+            "on"
+        } else {
+            "off"
+        };
+        let effort = self
+            .config
+            .thinking_effort
+            .clone()
+            .unwrap_or_else(|| "off".to_string());
+        self.push_status(
+            &format!(
+                "status · model: {model} · work_dir: {work_dir} · session: {session_id} · \
+                 title: {title} · streaming: {streaming} · theme: {theme} · permission: \
+                 {permission} · plan: {plan} · effort: {effort}"
+            ),
+            None,
+        );
+    }
+
+    /// `/usage` — token usage. EngineBackend does not track token counts yet
+    /// (slice 6a/6b), so both values report "N/A" (port of `showUsage`).
+    fn handle_usage(&mut self) {
+        self.push_status(
+            "usage · context_tokens: N/A · max_context_tokens: N/A",
+            None,
+        );
+    }
+
+    /// `/title <text>` — set (or show) the session title (port of
+    /// `handleTitleCommand`). Stored on the [`SessionManager`].
+    fn handle_title(&mut self, title: &str) {
+        if title.is_empty() {
+            match self.session.title() {
+                Some(t) if !t.is_empty() => {
+                    self.push_status(&format!("Session title: {t}"), None);
+                }
+                _ => {
+                    let id = self.session.current_session_id().unwrap_or("(无)");
+                    self.push_status(&format!("Session title: (not set) — id: {id}"), None);
+                }
+            }
+            return;
+        }
+        let new_title: String = title.chars().take(200).collect();
+        self.session.set_title(Some(new_title.clone()));
+        self.push_status(&format!("Session title set to: {new_title}"), None);
+    }
+
+    /// `/theme <dark|light>` — switch the global palette (port of
+    /// `handleThemeCommand`'s apply step; the TS theme picker for an empty
+    /// argument is a later slice).
+    fn handle_theme(&mut self, theme: &str) {
+        let palette = match theme {
+            "dark" => Some(DARK_COLORS),
+            "light" => Some(LIGHT_COLORS),
+            _ => None,
+        };
+        let Some(palette) = palette else {
+            if theme.is_empty() {
+                self.push_status("Usage: /theme <dark|light>", Some(ColorToken::Error));
+            } else {
+                self.push_status(&format!("Unknown theme: {theme}"), Some(ColorToken::Error));
+            }
+            return;
+        };
+        set_palette(palette);
+        self.config.theme = Some(theme.to_string());
+        self.invalidate_chrome();
+        self.push_status(&format!("Theme set to \"{theme}\"."), None);
+    }
+
+    /// `/effort <off|low|high|max>` — set the thinking effort (port of
+    /// `handleEffortCommand`'s apply step; persisted to config so the next
+    /// engine turn forwards it to the provider).
+    fn handle_effort(&mut self, effort: &str) {
+        if effort.is_empty() {
+            self.push_status("Usage: /effort <off|low|high|max>", Some(ColorToken::Error));
+            return;
+        }
+        match effort {
+            "off" | "low" | "high" | "max" => {
+                self.config.thinking_effort = Some(effort.to_string());
+                self.refresh_footer();
+                self.push_status(&format!("Thinking effort set to {effort}."), None);
+            }
+            other => self.push_status(
+                &format!("Unsupported thinking effort \"{other}\". Available: off, low, high, max"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/permission <manual|yolo|auto>` — set the permission mode (port of
+    /// `applyPermissionModeWithDefault` minus config persistence). Applies to
+    /// the session state and the backend's next-turn policy.
+    fn handle_permission(&mut self, mode: &str) {
+        if mode.is_empty() {
+            self.push_status(
+                "Usage: /permission <manual|yolo|auto>",
+                Some(ColorToken::Error),
+            );
+            return;
+        }
+        match mode {
+            "manual" | "yolo" | "auto" => {
+                self.set_permission(mode);
+                self.push_status(&format!("Permission mode set to {mode}."), None);
+            }
+            other => self.push_status(
+                &format!("Unknown permission mode: {other}. Available: manual, yolo, auto"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/yolo [on|off]` — toggle YOLO permission mode (port of
+    /// `handleYoloCommand`).
+    fn handle_yolo(&mut self, args: &str) {
+        let sub = args.trim().to_lowercase();
+        let current = self.session.permission_mode().unwrap_or("manual");
+        match sub.as_str() {
+            "" => {
+                if current == "yolo" {
+                    self.set_permission("manual");
+                    self.push_status("YOLO mode: OFF", None);
+                } else {
+                    self.set_permission("yolo");
+                    self.push_status("YOLO mode: ON", None);
+                }
+            }
+            "on" => {
+                if current == "yolo" {
+                    self.push_status("YOLO mode is already on", None);
+                } else {
+                    self.set_permission("yolo");
+                    self.push_status("YOLO mode: ON", None);
+                }
+            }
+            "off" => {
+                if current != "yolo" {
+                    self.push_status("YOLO mode is already off", None);
+                } else {
+                    self.set_permission("manual");
+                    self.push_status("YOLO mode: OFF", None);
+                }
+            }
+            other => self.push_status(
+                &format!("Unknown yolo subcommand: {other}"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/auto [on|off]` — toggle Auto permission mode (port of
+    /// `handleAutoCommand`).
+    fn handle_auto(&mut self, args: &str) {
+        let sub = args.trim().to_lowercase();
+        let current = self.session.permission_mode().unwrap_or("manual");
+        match sub.as_str() {
+            "" => {
+                if current == "auto" {
+                    self.set_permission("manual");
+                    self.push_status("Auto mode: OFF", None);
+                } else {
+                    self.set_permission("auto");
+                    self.push_status("Auto mode: ON", None);
+                }
+            }
+            "on" => {
+                if current == "auto" {
+                    self.push_status("Auto mode is already on", None);
+                } else {
+                    self.set_permission("auto");
+                    self.push_status("Auto mode: ON", None);
+                }
+            }
+            "off" => {
+                if current != "auto" {
+                    self.push_status("Auto mode is already off", None);
+                } else {
+                    self.set_permission("manual");
+                    self.push_status("Auto mode: OFF", None);
+                }
+            }
+            other => self.push_status(
+                &format!("Unknown auto subcommand: {other}"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/plan [on|off|clear]` — toggle plan mode (port of `handlePlanCommand`;
+    /// no session plan file path yet, so `clear` just turns it off).
+    fn handle_plan(&mut self, args: &str) {
+        let sub = args.trim().to_lowercase();
+        match sub.as_str() {
+            "clear" => {
+                self.session.set_plan_mode(false);
+                self.refresh_footer();
+                self.push_status("Plan cleared", None);
+            }
+            "on" => {
+                self.session.set_plan_mode(true);
+                self.refresh_footer();
+                self.push_status("Plan mode: ON", None);
+            }
+            "off" => {
+                self.session.set_plan_mode(false);
+                self.refresh_footer();
+                self.push_status("Plan mode: OFF", None);
+            }
+            "" => {
+                let enabled = !self.session.plan_mode();
+                self.session.set_plan_mode(enabled);
+                self.refresh_footer();
+                self.push_status(
+                    if enabled {
+                        "Plan mode: ON"
+                    } else {
+                        "Plan mode: OFF"
+                    },
+                    None,
+                );
+            }
+            other => self.push_status(
+                &format!("Unknown plan subcommand: {other}"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/copy` — copy the last assistant reply to the clipboard (port of
+    /// `handleCopyCommand`; the TS native/terminal-escape methods collapse to
+    /// a `pbcopy`/`xclip` subprocess here).
+    fn handle_copy(&mut self) {
+        let text = self.last_assistant_text();
+        if text.is_empty() {
+            self.push_status("No assistant message to copy.", Some(ColorToken::Warning));
+            return;
+        }
+        match (self.clipboard)(&text) {
+            Ok(()) => {
+                let count = text.chars().count();
+                self.push_status(&format!("Copied to clipboard ({count} characters)."), None);
+            }
+            Err(msg) => self.push_status(
+                &format!("Failed to copy to clipboard: {msg}"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/export-md [path]` — export the transcript as Markdown (port of
+    /// `handleExportMdCommand`). Default path: `{work_dir}/dimi-export-{short
+    /// session id}.md`.
+    fn handle_export_md(&mut self, args: &str) {
+        let entries = self.transcript.borrow().entries().to_vec();
+        if entries.is_empty() {
+            self.push_status("No messages to export.", Some(ColorToken::Error));
+            return;
+        }
+        let default_name = match self.session.current_session_id() {
+            Some(id) => format!("dimi-export-{}.md", id.chars().take(8).collect::<String>()),
+            None => "dimi-export.md".to_string(),
+        };
+        let path = if args.is_empty() {
+            let base = self
+                .config
+                .work_dir
+                .clone()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            base.join(default_name)
+        } else {
+            PathBuf::from(args)
+        };
+        let md = transcript_to_markdown(
+            &entries,
+            self.session.current_session_id(),
+            self.config.work_dir.as_deref(),
+        );
+        match write_markdown_export(&path, &md) {
+            Ok(()) => self.push_status(
+                &format!("Exported {} messages to {}", entries.len(), path.display()),
+                None,
+            ),
+            Err(msg) => self.push_status(
+                &format!("Failed to export session: {msg}"),
+                Some(ColorToken::Error),
+            ),
+        }
+    }
+
+    /// `/model <name>` — switch the active model (port of `handleModelCommand`
+    /// with a literal reference; the TS picker + provider catalog are later
+    /// slices). Applied to config + backend so the next turn uses it.
+    fn handle_model(&mut self, reference: &str) {
+        if reference.is_empty() {
+            let current = self
+                .config
+                .model
+                .clone()
+                .unwrap_or_else(|| "(未设置)".to_string());
+            self.push_status(&format!("当前模型：{current}（/model <name> 切换）"), None);
+            return;
+        }
+        self.config.model = Some(reference.to_string());
+        self.backend.set_model(reference);
+        self.refresh_footer();
+        self.push_status(&format!("Switched to {reference}."), None);
+    }
+
+    /// `/compact [instruction]` — EngineBackend has no compaction surface yet
+    /// (slice 6a/6b), so this reports the unwired status instead of starting
+    /// one.
+    fn handle_compact(&mut self, _args: &str) {
+        self.push_status("命令未接线：/compact（引擎 compaction 未接入）", None);
+    }
+
+    /// `/undo [count]` — withdraw the last prompt(s) and everything that
+    /// followed from the transcript (port of `handleUndoCommand`'s count path;
+    /// the TS undo selector is a later slice).
+    fn handle_undo(&mut self, args: &str) {
+        let count = match parse_undo_count(args) {
+            Some(c) => c,
+            None => {
+                self.push_status(
+                    "Usage: /undo [count], where count is a positive integer.",
+                    Some(ColorToken::Error),
+                );
+                return;
+            }
+        };
+        let (anchor, len) = {
+            let entries = self.transcript.borrow();
+            let entries = entries.entries();
+            let mut found = 0;
+            let mut anchor = None;
+            // Anchors are user prompts (TS `isUndoAnchorEntry`), newest first;
+            // undoing `count` prompts truncates from the `count`-th last user
+            // entry onwards (the prompt + its whole response).
+            for (i, e) in entries.iter().enumerate().rev() {
+                if e.kind == TranscriptEntryKind::User {
+                    found += 1;
+                    if found == count {
+                        anchor = Some(i);
+                        break;
+                    }
+                }
+            }
+            if anchor.is_none() {
+                // Assistant-only tail (e.g. a wire replay with no user anchor):
+                // a single undo withdraws the last assistant reply.
+                if count == 1 {
+                    anchor = entries
+                        .iter()
+                        .rposition(|e| e.kind == TranscriptEntryKind::Assistant);
+                }
+            }
+            (anchor, entries.len())
+        };
+        let Some(idx) = anchor else {
+            self.push_status("Nothing to undo.", None);
+            return;
+        };
+        let removed = len - idx;
+        self.transcript.borrow_mut().truncate(idx);
+        self.push_status(
+            &format!("已撤销最后 {count} 条 prompt（移除 {removed} 条条目）"),
+            None,
+        );
+    }
+
+    /// `/sessions` — report the current session (port of `showSessionPicker`
+    /// minus the picker UI, which is slice 6c).
+    fn handle_sessions(&mut self) {
+        match self.session.current_session_id() {
+            Some(id) => {
+                let title = self.session.title().unwrap_or("(未设置)");
+                let streaming = if self.session.streaming() {
+                    "streaming"
+                } else {
+                    "idle"
+                };
+                self.push_status(
+                    &format!("当前会话：{id} · title: {title} · streaming: {streaming}"),
+                    None,
+                );
+            }
+            None => self.push_status("无活跃会话", Some(ColorToken::Warning)),
+        }
+    }
+
+    /// `/tasks` — report background tasks. dimi-cli tracks no background tasks
+    /// in slice 6b, so the count is always 0 (the TS tasks browser is a later
+    /// slice).
+    fn handle_tasks(&mut self) {
+        self.push_status("后台任务：0", None);
+    }
+
+    /// Status for a builtin whose body depends on an SDK / panel / engine
+    /// capability that a later slice wires up.
+    fn handle_unwired(&mut self, name: &str, reason: &str) {
+        self.push_status(&format!("命令未接线：/{name}（{reason}）"), None);
+    }
+
+    /// Apply a permission mode to the session state, the backend's next-turn
+    /// policy, and the footer badge.
+    fn set_permission(&mut self, mode: &str) {
+        self.session.set_permission_mode(Some(mode.to_string()));
+        self.backend
+            .set_permission_mode(parse_permission_mode(mode));
+        self.refresh_footer();
+    }
+
+    /// The visible text of the last assistant reply, newest first (port of
+    /// `findLastAssistantText`; dimi-cli has no `modelText` flag, so any
+    /// non-empty assistant entry counts).
+    fn last_assistant_text(&self) -> String {
+        self.transcript
+            .borrow()
+            .entries()
+            .iter()
+            .rev()
+            .find(|e| e.kind == TranscriptEntryKind::Assistant && !e.content.trim().is_empty())
+            .map(|e| e.content.clone())
+            .unwrap_or_default()
+    }
+
+    /// Rebuild the footer state from config + session (model / work_dir /
+    /// permission / plan / effort). Called after any command that mutates
+    /// those.
+    fn refresh_footer(&mut self) {
+        let mut footer_state = FooterState::new();
+        if let Some(model) = &self.config.model {
+            footer_state.model = model.clone();
+        }
+        if let Some(work_dir) = &self.config.work_dir {
+            footer_state.work_dir = work_dir.clone();
+        }
+        footer_state.permission_mode = self
+            .session
+            .permission_mode()
+            .unwrap_or("manual")
+            .to_string();
+        footer_state.plan_mode = self.session.plan_mode();
+        if let Some(effort) = &self.config.thinking_effort {
+            footer_state.thinking_effort = effort.clone();
+        }
+        self.footer.borrow_mut().update(footer_state);
+    }
+
+    /// Force every mounted component to rebuild cached ANSI after a theme
+    /// switch (the TS `applyTheme` invalidation step).
+    fn invalidate_chrome(&mut self) {
+        let mut transcript = self.transcript.borrow_mut();
+        let mut footer = self.footer.borrow_mut();
+        let mut editor = self.editor.borrow_mut();
+        invalidate_components([
+            &mut *transcript as &mut dyn Component,
+            &mut *footer as &mut dyn Component,
+            &mut *editor as &mut dyn Component,
+        ]);
     }
 
     fn push_status(&mut self, content: &str, color: Option<ColorToken>) {
@@ -866,7 +1571,7 @@ impl DimiApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dimi_tui::theme::{DARK_COLORS, set_palette};
+    use dimi_tui::theme::{DARK_COLORS, current_theme, set_palette};
     use dimi_tui::wire_transcript::TranscriptEntryKind;
 
     fn wire_fixture() -> String {
@@ -963,15 +1668,17 @@ mod tests {
     }
 
     #[test]
-    fn handle_submit_unimplemented_builtin_appends_not_implemented() {
+    fn handle_submit_unwired_builtin_appends_not_wired() {
         set_palette(DARK_COLORS);
         let mut app = DimiApp::new(Config::default());
-        app.handle_submit("/theme");
+        // `/mcp` is a registry command whose body depends on the SDK MCP
+        // surface (a later slice) → "命令未接线" status with the reason.
+        app.handle_submit("/mcp");
         let e = entries(&app);
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].kind, TranscriptEntryKind::Status);
-        assert!(e[0].content.contains("未实现"), "content: {}", e[0].content);
-        assert!(e[0].content.contains("/theme"));
+        assert!(e[0].content.contains("未接线"), "content: {}", e[0].content);
+        assert!(e[0].content.contains("/mcp"));
     }
 
     #[test]
@@ -984,6 +1691,411 @@ mod tests {
         assert_eq!(e.len(), 2, "message + status: {e:#?}");
         assert_eq!(e[0].kind, TranscriptEntryKind::User);
         assert_eq!(e[0].content, "/does-not-exist");
+    }
+
+    #[test]
+    fn handle_submit_version_appends_version_status() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/version");
+        let e = entries(&app);
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].kind, TranscriptEntryKind::Status);
+        assert!(
+            e[0].content
+                .contains(&format!("Dimi v{}", env!("CARGO_PKG_VERSION"))),
+            "content: {}",
+            e[0].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_theme_light_switches_palette() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/theme light");
+        assert_eq!(current_theme().color(ColorToken::Primary), "#1565C0");
+        assert_eq!(app.config.theme.as_deref(), Some("light"));
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("Theme set to \"light\""),
+            "{}",
+            e[0].content
+        );
+        // Restore the global palette so other tests start from dark.
+        set_palette(DARK_COLORS);
+    }
+
+    #[test]
+    fn handle_submit_theme_unknown_errors() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/theme neon");
+        let e = entries(&app);
+        assert_eq!(e[0].status_color, Some(ColorToken::Error));
+        assert!(e[0].content.contains("Unknown theme"), "{}", e[0].content);
+    }
+
+    #[test]
+    fn handle_submit_title_sets_session_title() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/title my project");
+        assert_eq!(app.session.title(), Some("my project"));
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("Session title set to: my project"),
+            "{}",
+            e[0].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_title_without_args_shows_current() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/title");
+        let e = entries(&app);
+        assert!(e[0].content.contains("(not set)"), "{}", e[0].content);
+        // Setting then querying shows the stored title.
+        app.handle_submit("/title foo");
+        app.handle_submit("/title");
+        let e = entries(&app);
+        assert!(
+            e.last().unwrap().content.contains("Session title: foo"),
+            "{}",
+            e.last().unwrap().content
+        );
+    }
+
+    #[test]
+    fn handle_submit_permission_yolo_updates_session_and_footer() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/permission yolo");
+        assert_eq!(app.session.permission_mode(), Some("yolo"));
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("Permission mode set to yolo"),
+            "{}",
+            e[0].content
+        );
+        let footer = app.footer.borrow();
+        assert_eq!(footer.state.permission_mode, "yolo");
+    }
+
+    #[test]
+    fn handle_submit_yolo_auto_shortcuts_toggle() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/yolo");
+        assert_eq!(app.session.permission_mode(), Some("yolo"));
+        app.handle_submit("/yolo off");
+        assert_eq!(app.session.permission_mode(), Some("manual"));
+        app.handle_submit("/auto");
+        assert_eq!(app.session.permission_mode(), Some("auto"));
+        // `on` when already active is a no-op status.
+        app.handle_submit("/auto on");
+        assert_eq!(app.session.permission_mode(), Some("auto"));
+        let e = entries(&app);
+        assert!(
+            e.last().unwrap().content.contains("already on"),
+            "{}",
+            e.last().unwrap().content
+        );
+    }
+
+    #[test]
+    fn handle_submit_effort_updates_config() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/effort high");
+        assert_eq!(app.config.thinking_effort.as_deref(), Some("high"));
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("Thinking effort set to high"),
+            "{}",
+            e[0].content
+        );
+        // Invalid effort errors.
+        app.handle_submit("/effort extreme");
+        let e = entries(&app);
+        assert_eq!(e[1].status_color, Some(ColorToken::Error));
+        assert!(
+            e[1].content.contains("Unsupported thinking effort"),
+            "{}",
+            e[1].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_plan_toggles() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        assert!(!app.session.plan_mode());
+        app.handle_submit("/plan");
+        assert!(app.session.plan_mode());
+        app.handle_submit("/plan off");
+        assert!(!app.session.plan_mode());
+        app.handle_submit("/plan on");
+        assert!(app.session.plan_mode());
+        app.handle_submit("/plan clear");
+        assert!(!app.session.plan_mode());
+    }
+
+    #[test]
+    fn handle_submit_model_updates_config_and_backend() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/model gpt-5");
+        assert_eq!(app.config.model.as_deref(), Some("gpt-5"));
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("Switched to gpt-5"),
+            "{}",
+            e[0].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_compact_shows_unwired() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/compact");
+        let e = entries(&app);
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].kind, TranscriptEntryKind::Status);
+        assert!(e[0].content.contains("未接线"), "{}", e[0].content);
+        assert!(e[0].content.contains("/compact"));
+    }
+
+    #[test]
+    fn handle_submit_undo_removes_last_turn() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.transcript.borrow_mut().push(user_entry("q1", None));
+        app.transcript.borrow_mut().push(assistant_entry("a1"));
+        app.transcript.borrow_mut().push(status_entry("s1", None));
+        app.transcript.borrow_mut().push(user_entry("q2", None));
+        app.transcript.borrow_mut().push(assistant_entry("a2"));
+        app.handle_submit("/undo");
+        let e = entries(&app);
+        // q2 + its response a2 are withdrawn; the undo status is appended.
+        assert_eq!(e.len(), 4, "q1 + a1 + s1 + undo status: {e:#?}");
+        assert_eq!(e[0].content, "q1");
+        assert_eq!(e[1].content, "a1");
+        assert_eq!(e[2].content, "s1");
+        assert_eq!(e[3].kind, TranscriptEntryKind::Status);
+        assert!(e[3].content.contains("已撤销"), "{}", e[3].content);
+    }
+
+    #[test]
+    fn handle_submit_undo_nothing_when_empty() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/undo");
+        let e = entries(&app);
+        assert!(e[0].content.contains("Nothing to undo"), "{}", e[0].content);
+    }
+
+    #[test]
+    fn handle_submit_export_md_writes_file() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.transcript
+            .borrow_mut()
+            .push(user_entry("a question", None));
+        app.transcript
+            .borrow_mut()
+            .push(assistant_entry("an answer"));
+        let dir = std::env::temp_dir().join(format!("dimi_cli_export_md_{}", std::process::id()));
+        let path = dir.join("export.md");
+        std::fs::remove_dir_all(&dir).ok();
+        app.handle_submit(&format!("/export-md {}", path.display()));
+        let content = std::fs::read_to_string(&path).expect("export file exists");
+        assert!(content.contains("a question"), "content: {content}");
+        assert!(content.contains("an answer"), "content: {content}");
+        let e = entries(&app);
+        assert!(
+            e.last().unwrap().content.contains("Exported 2 messages"),
+            "status: {}",
+            e.last().unwrap().content
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn handle_submit_export_md_empty_transcript_errors() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/export-md /tmp/never-written.md");
+        let e = entries(&app);
+        assert_eq!(e[0].status_color, Some(ColorToken::Error));
+        assert!(
+            e[0].content.contains("No messages to export"),
+            "{}",
+            e[0].content
+        );
+        assert!(!Path::new("/tmp/never-written.md").exists());
+    }
+
+    #[test]
+    fn handle_submit_copy_no_assistant_shows_warning() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/copy");
+        let e = entries(&app);
+        assert_eq!(e[0].status_color, Some(ColorToken::Warning));
+        assert!(
+            e[0].content.contains("No assistant message"),
+            "{}",
+            e[0].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_copy_copies_last_assistant() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.transcript.borrow_mut().push(user_entry("hi", None));
+        app.transcript
+            .borrow_mut()
+            .push(assistant_entry("hello world"));
+        app.transcript
+            .borrow_mut()
+            .push(status_entry("ignored", None));
+        let captured: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let probe = captured.clone();
+        app.clipboard = Box::new(move |text: &str| {
+            *probe.borrow_mut() = Some(text.to_owned());
+            Ok(())
+        });
+        app.handle_submit("/copy");
+        assert_eq!(captured.borrow().as_deref(), Some("hello world"));
+        let e = entries(&app);
+        assert!(
+            e.last().unwrap().content.contains("Copied to clipboard"),
+            "{}",
+            e.last().unwrap().content
+        );
+    }
+
+    #[test]
+    fn handle_submit_status_reports_fields() {
+        set_palette(DARK_COLORS);
+        let config = Config {
+            model: Some("gpt-5".to_string()),
+            work_dir: Some("/tmp/proj".to_string()),
+            theme: Some("dark".to_string()),
+            ..Config::default()
+        };
+        let mut app = DimiApp::new(config);
+        app.session.set_title(Some("titled".to_string()));
+        app.handle_submit("/status");
+        let e = entries(&app);
+        let content = &e[0].content;
+        assert!(content.contains("model: gpt-5"), "{content}");
+        assert!(content.contains("work_dir: /tmp/proj"), "{content}");
+        assert!(content.contains("session: session-1"), "{content}");
+        assert!(content.contains("title: titled"), "{content}");
+        assert!(content.contains("theme: dark"), "{content}");
+        assert!(content.contains("streaming: idle"), "{content}");
+    }
+
+    #[test]
+    fn handle_submit_usage_reports_na() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/usage");
+        let e = entries(&app);
+        assert!(
+            e[0].content.contains("context_tokens: N/A"),
+            "{}",
+            e[0].content
+        );
+        assert!(
+            e[0].content.contains("max_context_tokens: N/A"),
+            "{}",
+            e[0].content
+        );
+    }
+
+    #[test]
+    fn handle_submit_help_lists_all_builtins() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/help");
+        let e = entries(&app);
+        let content = &e[0].content;
+        for command in builtin_slash_commands() {
+            assert!(
+                content.contains(&command.name),
+                "/{} missing from help: {content}",
+                command.name
+            );
+        }
+        assert!(content.contains("/wire"));
+    }
+
+    #[test]
+    fn handle_submit_sessions_reports_current() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/sessions");
+        let e = entries(&app);
+        assert!(e[0].content.contains("当前会话"), "{}", e[0].content);
+        assert!(e[0].content.contains("session-1"), "{}", e[0].content);
+    }
+
+    #[test]
+    fn handle_submit_tasks_reports_zero() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/tasks");
+        let e = entries(&app);
+        assert!(e[0].content.contains("0"), "{}", e[0].content);
+    }
+
+    #[test]
+    fn handle_submit_all_unwired_commands_report_reason() {
+        set_palette(DARK_COLORS);
+        for name in [
+            "plugins",
+            "add-dir",
+            "experiments",
+            "reload",
+            "reload-tui",
+            "editor",
+            "provider",
+            "secondary_model",
+            "settings",
+            "feedback",
+            "btw",
+            "swarm",
+            "init",
+            "fork",
+            "export-debug-zip",
+            "login",
+            "logout",
+            "web",
+            "mcp",
+        ] {
+            let mut app = DimiApp::new(Config::default());
+            app.handle_submit(&format!("/{name}"));
+            let e = entries(&app);
+            assert_eq!(e.len(), 1, "/{name} should push one status");
+            assert_eq!(e[0].kind, TranscriptEntryKind::Status);
+            assert!(
+                e[0].content.contains("命令未接线"),
+                "/{name} content: {}",
+                e[0].content
+            );
+            assert!(
+                e[0].content.contains(&format!("/{name}")),
+                "/{name} should name itself: {}",
+                e[0].content
+            );
+        }
     }
 
     #[test]

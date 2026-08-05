@@ -128,6 +128,14 @@ impl TranscriptContainer {
         self.scroll_offset = 0;
     }
 
+    /// Truncate the transcript to the first `len` entries (port of the
+    /// `/undo` structural removal in `undo.ts`: drop the last prompt and
+    /// everything that followed it). Clamped to `[0, entries.len()]`.
+    pub fn truncate(&mut self, len: usize) {
+        self.entries.truncate(len);
+        self.scroll_offset = 0;
+    }
+
     // `max_lines` / `scroll_offset` / `entries` are the headless test + app
     // introspection surface of a binary crate; `cargo build` (without test
     // cfg) flags them as unused, hence `#[allow(dead_code)]`.
@@ -291,6 +299,23 @@ mod tests {
         assert!(t.entries().is_empty());
         assert_eq!(t.scroll_offset(), 0);
         assert!(t.render_transcript_lines(80).is_empty());
+    }
+
+    #[test]
+    fn truncate_keeps_prefix_and_resets_scroll() {
+        set_palette(DARK_COLORS);
+        let mut t = TranscriptContainer::new();
+        push_statuses(&mut t, 5);
+        t.handle_input("\x1b[A"); // up
+        assert_eq!(t.scroll_offset(), 1);
+        t.truncate(2);
+        assert_eq!(t.entries().len(), 2);
+        assert_eq!(t.entries()[0].content, "msg 0");
+        assert_eq!(t.entries()[1].content, "msg 1");
+        assert_eq!(t.scroll_offset(), 0);
+        // Over-long len clamps to the entry count.
+        t.truncate(100);
+        assert_eq!(t.entries().len(), 2);
     }
 
     #[test]
