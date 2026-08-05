@@ -28,6 +28,8 @@
   "files": [
     "dist",
     "!dist/dimi_bridge.node",
+    "!dist/dimi-cli",
+    "!dist/dimi-cli.exe",
     "dist-web",
     "native",
     "README.md"
@@ -45,8 +47,9 @@
     "provenance": true
   },
   "scripts": {
-    "build": "pnpm -C ../dimi-web run build && tsdown && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
+    "build": "pnpm -C ../dimi-web run build && tsdown && node scripts/build-dimi-cli.mjs --best-effort && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "build:cli": "node scripts/build-dimi-cli.mjs",
     "build:native:js": "node scripts/native/01-bundle.mjs",
     "build:native:sea": "node scripts/native/build.mjs --profile=local",
     "build:native:release": "node scripts/native/build.mjs --profile=release",
