@@ -850,7 +850,7 @@ pub fn agent_swarm_description_from_args(args: &Args) -> String {
     args.get("description")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
-        .unwrap_or_else(|| "Agent swarm".to_owned())
+        .unwrap_or_default()
 }
 
 /// `AgentSwarmResultStatus['status']` — the per-member outcome parsed from a

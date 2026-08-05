@@ -411,14 +411,19 @@ fn mcp_server_description(server: &PluginMcpServerInfo) -> String {
     } else {
         String::new()
     };
-    let command = format!("{}{}", server.command.clone().unwrap_or_default(), args);
+    // TS: `${server.command ?? ''}${args}`.trim() — command and runtimeName
+    // are alternatives (`command || server.runtimeName`), not concatenated.
+    let command = format!("{}{}", server.command.clone().unwrap_or_default(), args)
+        .trim()
+        .to_owned();
     let cwd = server
         .cwd
         .as_deref()
         .map(|c| format!(" · cwd {c}"))
         .unwrap_or_default();
     let runtime = server.runtime_name.clone().unwrap_or_default();
-    format!("{action} · stdio · {command}{runtime}{cwd}")
+    let command = if command.is_empty() { runtime } else { command };
+    format!("{action} · stdio · {command}{cwd}")
 }
 
 fn server_name_of(item: &PluginsOverviewItem) -> Option<String> {
@@ -845,7 +850,7 @@ impl PluginsPanelComponent {
             lines.push(theme.fg(ColorToken::TextMuted, "  No plugins found."));
         } else {
             for (i, entry) in entries.iter().enumerate() {
-                lines.extend(self.render_marketplace_row(entry, i + index_offset, width));
+                lines.extend(self.render_marketplace_row(entry, i + index_offset, width, false));
             }
         }
         let installed_count = entries
@@ -867,6 +872,7 @@ impl PluginsPanelComponent {
         entry: &PluginMarketplaceEntry,
         index: usize,
         width: usize,
+        pinned: bool,
     ) -> Vec<String> {
         let theme = current_theme();
         let selected = index == self.selected_index;
@@ -884,7 +890,7 @@ impl PluginsPanelComponent {
             },
             &format!("  {pointer} "),
         );
-        let status = if entry.id == web_bridge_entry().id && entry.source == WEB_BRIDGE_URL {
+        let status = if pinned {
             "open in browser".to_owned()
         } else {
             marketplace_entry_status(entry, &self.opts.installed_versions)
@@ -1050,7 +1056,15 @@ impl PluginsPanelComponent {
             let Some(entry) = entries.get(self.selected_index) else {
                 return;
             };
-            if entry.id == web_bridge_entry().id && entry.source == WEB_BRIDGE_URL {
+            // The Web Bridge pinned row only leads the Official tab (TS
+            // `isPinnedWebBridgeEntry` reference-checks the pinned constant
+            // rendered there); a catalog entry on another tab that happens to
+            // reuse the id installs normally instead of being hijacked.
+            let is_official_tab = self.active_tab().0 == PluginsPanelTabId::Official;
+            if is_official_tab
+                && entry.id == web_bridge_entry().id
+                && entry.source == WEB_BRIDGE_URL
+            {
                 self.action = Some(PluginsPanelAction::Select(PluginsPanelSelection::OpenUrl {
                     url: WEB_BRIDGE_URL.to_owned(),
                     label: entry.display_name.clone(),
@@ -1145,7 +1159,7 @@ impl Component for PluginsPanelComponent {
         match tab {
             PluginsPanelTabId::Installed => self.render_installed(&mut lines, width),
             PluginsPanelTabId::Official => {
-                lines.extend(self.render_marketplace_row(&web_bridge_entry(), 0, width));
+                lines.extend(self.render_marketplace_row(&web_bridge_entry(), 0, width, true));
                 self.render_marketplace_tab(&mut lines, width, &self.official_catalog_entries(), 1);
             }
             PluginsPanelTabId::ThirdParty => {

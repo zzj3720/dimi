@@ -143,6 +143,7 @@ impl ClipboardImageHintController {
         generation: u64,
         model_supports_image: bool,
         has_image: bool,
+        platform: Platform,
     ) -> HintAction {
         if !self.focused {
             return HintAction::None;
@@ -178,7 +179,7 @@ impl ClipboardImageHintController {
 
         let hint_text = format!(
             "Image in clipboard · {} to paste",
-            paste_image_shortcut(Platform::Other)
+            paste_image_shortcut(platform)
         );
         // TODO(legacy): clearClearHintTimer(); footer.setTransientHint(hintText)
         self.last_hint_text = Some(hint_text.clone());
@@ -216,7 +217,10 @@ mod tests {
         let mut c = ClipboardImageHintController::new();
         c.establish_initial_baseline(true);
         let gen_id = c.schedule_check();
-        assert_eq!(c.run_check(gen_id, true, false), HintAction::None);
+        assert_eq!(
+            c.run_check(gen_id, true, false, Platform::Other),
+            HintAction::None
+        );
         assert!(c.is_armed());
     }
 
@@ -227,7 +231,7 @@ mod tests {
         assert!(c.is_armed());
 
         let gen_id = c.schedule_check();
-        let action = c.run_check(gen_id, true, true);
+        let action = c.run_check(gen_id, true, true, Platform::Other);
         match action {
             HintAction::ShowHint(text) => {
                 assert!(text.contains("Image in clipboard"));
@@ -239,7 +243,10 @@ mod tests {
 
         // Same lingering image → quiet.
         let gen_id = c.schedule_check();
-        assert_eq!(c.run_check(gen_id, true, true), HintAction::None);
+        assert_eq!(
+            c.run_check(gen_id, true, true, Platform::Other),
+            HintAction::None
+        );
     }
 
     #[test]
@@ -249,7 +256,10 @@ mod tests {
         let gen_id = c.schedule_check();
         c.handle_input(false, true);
         assert!(!c.is_focused());
-        assert_eq!(c.run_check(gen_id, true, true), HintAction::None);
+        assert_eq!(
+            c.run_check(gen_id, true, true, Platform::Other),
+            HintAction::None
+        );
     }
 
     #[test]
@@ -257,7 +267,10 @@ mod tests {
         let mut c = ClipboardImageHintController::new();
         c.establish_initial_baseline(false);
         let gen_id = c.schedule_check();
-        assert_eq!(c.run_check(gen_id, false, true), HintAction::None);
+        assert_eq!(
+            c.run_check(gen_id, false, true, Platform::Other),
+            HintAction::None
+        );
     }
 
     #[test]
@@ -265,7 +278,7 @@ mod tests {
         let mut c = ClipboardImageHintController::new();
         c.establish_initial_baseline(false);
         let gen_id = c.schedule_check();
-        c.run_check(gen_id, true, true);
+        c.run_check(gen_id, true, true, Platform::Other);
         assert!(!c.is_armed());
         c.stop();
         assert!(!c.is_initialized());
@@ -279,7 +292,10 @@ mod tests {
         c.establish_initial_baseline(false);
         let gen_id = c.schedule_check();
         c.schedule_check(); // newer generation supersedes
-        assert_eq!(c.run_check(gen_id, true, true), HintAction::None);
+        assert_eq!(
+            c.run_check(gen_id, true, true, Platform::Other),
+            HintAction::None
+        );
     }
 
     #[test]
