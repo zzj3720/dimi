@@ -187,7 +187,8 @@ pub fn permission_selector_component(opts: PermissionSelectorOptions) -> ChoiceP
         notice_tone: None,
         searchable: false,
         page_size: None,
-        has_session_only: false,
+        // TS `showPermissionPicker` always passes `onSessionOnlySelect`.
+        has_session_only: true,
     })
 }
 

@@ -123,7 +123,10 @@ pub enum PluginsPanelAction {
 #[derive(Debug, Clone)]
 pub struct PluginsPanelOptions {
     pub installed: Vec<PluginSummary>,
-    pub installed_ids: std::collections::HashSet<String>,
+    /// id → installed version (None when unknown). Used for the marketplace
+    /// update status; a plain id set would compare the marketplace version
+    /// against itself and never report an update.
+    pub installed_versions: std::collections::HashMap<String, Option<String>>,
     pub initial_tab: Option<PluginsPanelTabId>,
     pub selected_id: Option<String>,
     pub plugin_hint: Option<(String, String)>,
@@ -708,7 +711,7 @@ impl PluginsPanelComponent {
         match &self.market {
             MarketState::Loaded { entries, .. } => {
                 let mut sorted = entries.clone();
-                sorted.sort_by_key(|e| !self.opts.installed_ids.contains(&e.id));
+                sorted.sort_by_key(|e| !self.opts.installed_versions.contains_key(&e.id));
                 sorted
             }
             _ => Vec::new(),
@@ -847,7 +850,7 @@ impl PluginsPanelComponent {
         }
         let installed_count = entries
             .iter()
-            .filter(|e| self.opts.installed_ids.contains(&e.id))
+            .filter(|e| self.opts.installed_versions.contains_key(&e.id))
             .count();
         lines.push(String::new());
         lines.push(muted_hint_line(&format!(
@@ -884,7 +887,7 @@ impl PluginsPanelComponent {
         let status = if entry.id == web_bridge_entry().id && entry.source == WEB_BRIDGE_URL {
             "open in browser".to_owned()
         } else {
-            marketplace_entry_status(entry, &self.opts.installed_ids)
+            marketplace_entry_status(entry, &self.opts.installed_versions)
         };
         let line = format!("{prefix}{label}  {}", marketplace_status_style(&status));
         let desc_width = (width.saturating_sub(4)).max(1);
@@ -1097,18 +1100,11 @@ fn marketplace_entry_description(entry: &PluginMarketplaceEntry) -> String {
 
 fn marketplace_entry_status(
     entry: &PluginMarketplaceEntry,
-    installed_ids: &std::collections::HashSet<String>,
+    installed_versions: &std::collections::HashMap<String, Option<String>>,
 ) -> String {
-    let installed = installed_ids.contains(&entry.id);
-    let status = compute_update_status(
-        entry.version.as_deref(),
-        if installed {
-            entry.version.as_deref()
-        } else {
-            None
-        },
-        installed,
-    );
+    let installed = installed_versions.contains_key(&entry.id);
+    let local = installed_versions.get(&entry.id).and_then(|v| v.as_deref());
+    let status = compute_update_status(entry.version.as_deref(), local, installed);
     match status {
         crate::dialogs::plugin_types::PluginUpdateStatus::Update { local, latest } => {
             format!("update {local} → {latest}")
@@ -1346,7 +1342,7 @@ mod tests {
         set_palette(DARK_COLORS);
         let opts = PluginsPanelOptions {
             installed: vec![summary("alpha", true), summary("beta", false)],
-            installed_ids: std::collections::HashSet::new(),
+            installed_versions: std::collections::HashMap::new(),
             initial_tab: Some(PluginsPanelTabId::Installed),
             selected_id: None,
             plugin_hint: None,
@@ -1365,7 +1361,7 @@ mod tests {
         set_palette(DARK_COLORS);
         let opts = PluginsPanelOptions {
             installed: vec![],
-            installed_ids: std::collections::HashSet::new(),
+            installed_versions: std::collections::HashMap::new(),
             initial_tab: Some(PluginsPanelTabId::Installed),
             selected_id: None,
             plugin_hint: None,

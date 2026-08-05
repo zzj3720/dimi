@@ -431,10 +431,15 @@ impl QuestionDialogComponent {
     }
 
     fn emit_answers(&mut self, method: &str) {
+        // TS `emitAnswers` writes `out[i] = answer` into a sparse array, so
+        // unanswered questions keep their index (the adapter aligns answers
+        // to questions by position). Rust `Vec<String>` cannot hold holes, so
+        // keep the full length and use "" for unanswered slots — the adapter
+        // skips empty answers.
         let out: Vec<String> = self
             .answers
             .iter()
-            .filter_map(|a| a.clone().filter(|s| !s.is_empty()))
+            .map(|a| a.clone().unwrap_or_default())
             .collect();
         let method = self
             .last_answer_method

@@ -209,27 +209,19 @@ impl SessionManager {
             return;
         }
 
-        // 1. Bash-mode messages flush as a single batch, in queue order.
-        let mut i = 0;
-        while i < self.queued_messages.len() {
-            if self.queued_messages[i].mode == Some("bash") {
-                let msg = self.queued_messages.remove(i);
+        // Strict FIFO drain, mirroring the TS `flushQueuedMessages` while-loop
+        // (`shiftQueuedMessage` one at a time): bash lines go through
+        // `send_bash_line`, prompts through `send_prompt`, preserving the
+        // original queue order (a bash/prompt interleave stays interleaved).
+        while let Some(msg) = self.queued_messages.first().cloned() {
+            self.queued_messages.remove(0);
+            if msg.mode == Some("bash") {
                 backend.send_bash_line(&msg.text);
             } else {
-                i += 1;
-            }
-        }
-
-        // 2. Send every remaining prompt message (TS drains the whole queue).
-        while let Some(idx) = self
-            .queued_messages
-            .iter()
-            .position(|m| m.mode != Some("bash"))
-        {
-            let msg = self.queued_messages.remove(idx);
-            let busy = backend.send_prompt(&msg.text);
-            if busy {
-                self.streaming = true;
+                let busy = backend.send_prompt(&msg.text);
+                if busy {
+                    self.streaming = true;
+                }
             }
         }
     }
@@ -297,6 +289,7 @@ mod tests {
         switch_calls: Vec<String>,
         bash_lines: Vec<String>,
         prompts: Vec<String>,
+        dispatch_log: Vec<String>,
         prompt_busy: bool,
         fail_create: bool,
         next_id: usize,
@@ -310,6 +303,7 @@ mod tests {
                 switch_calls: Vec::new(),
                 bash_lines: Vec::new(),
                 prompts: Vec::new(),
+                dispatch_log: Vec::new(),
                 prompt_busy: true,
                 fail_create: false,
                 next_id: 0,
@@ -339,11 +333,13 @@ mod tests {
 
         fn send_bash_line(&mut self, text: &str) -> bool {
             self.bash_lines.push(text.to_owned());
+            self.dispatch_log.push(format!("bash:{text}"));
             false
         }
 
         fn send_prompt(&mut self, text: &str) -> bool {
             self.prompts.push(text.to_owned());
+            self.dispatch_log.push(format!("prompt:{text}"));
             self.prompt_busy
         }
     }
@@ -404,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn flush_batches_bash_before_first_prompt() {
+    fn flush_preserves_fifo_order() {
         let mut m = SessionManager::new(BusyInputMode::Queue);
         let mut b = MockBackend::default();
         m.create_session(&mut b).unwrap();
@@ -412,10 +408,12 @@ mod tests {
         m.enqueue_message("ls", Some("bash"));
         m.enqueue_message("prompt-b", None);
         m.flush_queued_messages(&mut b);
-        // Bash messages drain as one batch first, then every prompt (TS
-        // while-loop drains the whole queue).
-        assert_eq!(b.bash_lines, vec!["ls"]);
-        assert_eq!(b.prompts, vec!["prompt-a", "prompt-b"]);
+        // Strict FIFO: the interleaved queue order is preserved (TS
+        // `flushQueuedMessages` shiftQueuedMessage one at a time).
+        assert_eq!(
+            b.dispatch_log,
+            vec!["prompt:prompt-a", "bash:ls", "prompt:prompt-b"]
+        );
         assert!(m.queued_messages().is_empty());
         assert!(m.streaming());
     }

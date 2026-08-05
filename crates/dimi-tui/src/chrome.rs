@@ -1014,7 +1014,7 @@ impl Component for ChoicePickerComponent {
             self.action = Some(PickerAction::Cancel);
             return;
         }
-        if matches_key(data, "alt+s") {
+        if matches_key(data, "alt+s") && self.opts.has_session_only {
             if let Some(chosen) = self.list.selected() {
                 self.action = Some(PickerAction::SessionOnly);
                 let _ = chosen;

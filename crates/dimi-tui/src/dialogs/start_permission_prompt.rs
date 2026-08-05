@@ -254,7 +254,8 @@ impl<T: Clone> Component for StartPermissionPromptComponent<T> {
             return;
         }
         if matches_key(data, "down") {
-            self.selected_index = (self.selected_index + 1).min(self.opts.options.len() - 1);
+            self.selected_index =
+                (self.selected_index + 1).min(self.opts.options.len().saturating_sub(1));
             return;
         }
         if matches_key(data, "enter") || matches_key(data, "space") {
