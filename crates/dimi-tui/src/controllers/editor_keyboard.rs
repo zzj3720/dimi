@@ -31,9 +31,15 @@ pub enum ExitKind {
 }
 
 /// One unit of Ctrl-S steer input (`SteerInputItem`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SteerInputItem {
     pub text: String,
+    /// `parts` — the prompt parts extracted at submit/paste time (`PromptPart[]`),
+    /// carried so images/video tags survive the steer path.
+    pub parts: Option<Vec<serde_json::Value>>,
+    /// `imageAttachmentIds` — the image-attachment ids captured at
+    /// submit/paste time.
+    pub image_attachment_ids: Option<Vec<String>>,
 }
 
 /// A snapshot of everything the keyboard decision trees read.
@@ -72,7 +78,7 @@ impl EditorContext {
 
 /// The outcome of a keyboard decision — the host maps these onto its own
 /// callbacks (`stop()`, `session.cancel()`, `openUndoSelector()`, …).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EditorAction {
     /// Host `cancelInFlight` was consumed.
     CancelInFlight,
@@ -322,6 +328,10 @@ impl EditorKeyboardController {
 
 /// `computeSteerItems` — the Ctrl-S queue projection: steerable (non-bash)
 /// queued messages plus the editor draft, leaving only bash messages queued.
+/// Queued items carry the media parts / image-attachment ids extracted when
+/// they were submitted (TS preserves `m.parts` / `m.imageAttachmentIds`); the
+/// editor draft's media extraction is a host/image-store concern, so it is
+/// projected without attachments.
 pub fn compute_steer_items(
     queue: &[QueuedMessage],
     editor_text: &str,
@@ -338,6 +348,8 @@ pub fn compute_steer_items(
         }
         items.push(SteerInputItem {
             text: trimmed.to_owned(),
+            parts: m.parts.clone(),
+            image_attachment_ids: m.image_attachment_ids.clone(),
         });
     }
     if !editor_is_bash {
@@ -345,6 +357,8 @@ pub fn compute_steer_items(
         if !trimmed.is_empty() {
             items.push(SteerInputItem {
                 text: trimmed.to_owned(),
+                parts: None,
+                image_attachment_ids: None,
             });
         }
     }
@@ -530,18 +544,53 @@ mod tests {
             items,
             vec![
                 SteerInputItem {
-                    text: "first".to_owned()
+                    text: "first".to_owned(),
+                    parts: None,
+                    image_attachment_ids: None,
                 },
                 SteerInputItem {
-                    text: "second".to_owned()
+                    text: "second".to_owned(),
+                    parts: None,
+                    image_attachment_ids: None,
                 },
                 SteerInputItem {
-                    text: "editor draft".to_owned()
+                    text: "editor draft".to_owned(),
+                    parts: None,
+                    image_attachment_ids: None,
                 },
             ]
         );
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().all(|m| m.mode == MessageMode::Bash));
+    }
+
+    #[test]
+    fn compute_steer_items_preserves_media_attachments() {
+        let mut with_parts = QueuedMessage::prompt("paste image");
+        with_parts.parts = Some(vec![
+            serde_json::json!({"type": "text", "text": "paste image"}),
+            serde_json::json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}}),
+        ]);
+        with_parts.image_attachment_ids = Some(vec!["att-1".to_owned()]);
+        let queue = vec![with_parts, QueuedMessage::bash("! ls")];
+        let (items, remaining) = compute_steer_items(&queue, "editor draft", false);
+        assert_eq!(items.len(), 2); // queued image message + editor draft
+        assert_eq!(items[0].text, "paste image");
+        // Media attachments survive the steer projection (TS preserves
+        // `parts` / `imageAttachmentIds` from the queued message).
+        assert_eq!(items[0].parts.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            items[0].image_attachment_ids.as_deref(),
+            Some(&["att-1".to_owned()][..])
+        );
+        // The editor draft carries no attachments (media extraction from the
+        // editor text is a host/image-store concern).
+        assert_eq!(items[1].text, "editor draft");
+        assert_eq!(items[1].parts, None);
+        assert_eq!(items[1].image_attachment_ids, None);
+        // The bash command stays queued.
+        assert_eq!(remaining.len(), 1);
+        assert!(remaining[0].mode == MessageMode::Bash);
     }
 
     #[test]

@@ -153,6 +153,7 @@ pub enum Event {
         origin: Option<PromptOrigin>,
     },
     TurnEnded {
+        agent_id: Option<String>,
         turn_id: String,
         reason: TurnEndReason,
         error: Option<ErrorPayload>,
@@ -180,6 +181,7 @@ pub enum Event {
 
     // ── tool / shell streaming ──
     ToolProgress {
+        agent_id: Option<String>,
         tool_call_id: String,
         update: ToolProgressUpdate,
     },
@@ -390,10 +392,12 @@ impl Event {
             Event::AssistantDelta { agent_id, .. }
             | Event::ThinkingDelta { agent_id, .. }
             | Event::HookResult { agent_id, .. }
+            | Event::ToolProgress { agent_id, .. }
             | Event::ToolCallStarted { agent_id, .. }
             | Event::ToolCallDelta { agent_id, .. }
             | Event::ToolResult { agent_id, .. }
-            | Event::AgentStatusUpdated { agent_id, .. } => agent_id.as_deref(),
+            | Event::AgentStatusUpdated { agent_id, .. }
+            | Event::TurnEnded { agent_id, .. } => agent_id.as_deref(),
             _ => None,
         }
     }
@@ -422,6 +426,7 @@ mod tests {
                 origin: None,
             },
             Event::TurnEnded {
+                agent_id: None,
                 turn_id: "1".to_owned(),
                 reason: TurnEndReason::Completed,
                 error: None,
@@ -446,6 +451,7 @@ mod tests {
             },
             Event::TurnStepRetrying,
             Event::ToolProgress {
+                agent_id: None,
                 tool_call_id: "t".to_owned(),
                 update: ToolProgressUpdate {
                     kind: ToolProgressKind::Status,

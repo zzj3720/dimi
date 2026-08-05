@@ -12,6 +12,8 @@
 
 use std::collections::BTreeMap;
 
+use regex::Regex;
+
 use crate::controllers::btw::BtwPanelController;
 use crate::controllers::event_handler::{
     BackgroundAgentExtras, UiState, format_background_agent_transcript,
@@ -100,9 +102,10 @@ impl SwarmProgress {
     }
 
     /// `applyResult` — true when the result output parses as the structured
-    /// swarm result; false means the swarm failed to produce one.
+    /// swarm result (XML `<subagent … outcome=…>` tags, or the legacy
+    /// `[agent N]` block form); false means the swarm failed to produce one.
     pub fn apply_result(&mut self, output: &str) -> bool {
-        serde_json::from_str::<serde_json::Value>(output).is_ok()
+        !parse_agent_swarm_result_statuses(output).is_empty()
     }
 
     /// `updateArgs`.
@@ -850,6 +853,120 @@ pub fn agent_swarm_description_from_args(args: &Args) -> String {
         .unwrap_or_else(|| "Agent swarm".to_owned())
 }
 
+/// `AgentSwarmResultStatus['status']` — the per-member outcome parsed from a
+/// swarm tool result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwarmResultStatus {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// One parsed swarm result row (`AgentSwarmResultStatus`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwarmResultEntry {
+    pub index: u32,
+    pub status: SwarmResultStatus,
+}
+
+/// `parseAgentSwarmResultStatuses` — try the XML `<subagent>` form first,
+/// then fall back to the legacy `[agent N]` block form (port of the TS
+/// helper in `agent-swarm-progress.ts`).
+pub fn parse_agent_swarm_result_statuses(output: &str) -> Vec<SwarmResultEntry> {
+    let xml = parse_agent_swarm_xml_result_statuses(output);
+    if !xml.is_empty() {
+        return xml;
+    }
+    parse_agent_swarm_legacy_result_statuses(output)
+}
+
+/// `forEachSubagentTag` + `parseAgentSwarmXmlResultStatuses` — collect every
+/// `<subagent … outcome="completed|failed|aborted|cancelled">` row. The body
+/// between the open and close tags is ignored here (it is rendered by the
+/// legacy component); the decision is which statuses are present.
+fn parse_agent_swarm_xml_result_statuses(output: &str) -> Vec<SwarmResultEntry> {
+    let tag_re = Regex::new(r#"<subagent\b([^>]*)>"#).expect("valid subagent tag regex");
+    let mut entries = Vec::new();
+    let mut search_from = 0usize;
+    let mut tag_index = 0u32;
+    while let Some(cap) = tag_re.captures(&output[search_from..]) {
+        let whole = cap.get(0).expect("whole match");
+        let attrs = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        let open_end = search_from + whole.end();
+        let Some(close_rel) = output[open_end..].find("</subagent>") else {
+            break;
+        };
+        let close_end = open_end + close_rel + "</subagent>".len();
+        tag_index += 1;
+        let status = xml_attribute(attrs, "outcome").and_then(|o| swarm_status_from_outcome(&o));
+        if let Some(status) = status {
+            let explicit_index = xml_attribute(attrs, "index")
+                .and_then(|s| s.parse::<u32>().ok())
+                .filter(|i| *i > 0);
+            entries.push(SwarmResultEntry {
+                index: explicit_index.unwrap_or(tag_index),
+                status,
+            });
+        }
+        search_from = close_end;
+    }
+    entries
+}
+
+/// `xmlAttribute` — read a quoted attribute from a tag's attribute string.
+fn xml_attribute(attrs: &str, name: &str) -> Option<String> {
+    let pattern = format!(r#"\b{name}="([^"]*)""#);
+    let re = Regex::new(&pattern).ok()?;
+    re.captures(attrs)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_owned())
+}
+
+/// `forEachAgentBlock` + `parseAgentSwarmLegacyResultStatuses` — the
+/// pre-XML `[agent N]\nstatus: …` block form.
+fn parse_agent_swarm_legacy_result_statuses(output: &str) -> Vec<SwarmResultEntry> {
+    let block_re = Regex::new(r"(?m)^\[agent (\d+)\]$").expect("valid agent-block regex");
+    let status_re = Regex::new(r"(?m)^status: (completed|failed|aborted|cancelled)$")
+        .expect("valid status regex");
+    let blocks: Vec<(usize, u32)> = block_re
+        .captures_iter(output)
+        .filter_map(|cap| {
+            let start = cap.get(0)?.start();
+            let index = cap.get(1)?.as_str().parse::<u32>().ok()?;
+            Some((start, index))
+        })
+        .collect();
+    let mut entries = Vec::new();
+    for (i, (block_start, index)) in blocks.iter().enumerate() {
+        let block_end = blocks
+            .get(i + 1)
+            .map(|(start, _)| *start)
+            .unwrap_or(output.len());
+        let block = &output[*block_start..block_end];
+        if let Some(status_cap) = status_re.captures(block) {
+            let outcome = status_cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            if let Some(status) = swarm_status_from_outcome(outcome) {
+                entries.push(SwarmResultEntry {
+                    index: *index,
+                    status,
+                });
+            }
+        }
+    }
+    entries
+}
+
+/// Map the XML/legacy `outcome`/`status` value to a [`SwarmResultStatus`];
+/// `aborted`/`cancelled` both collapse to `cancelled` (matching TS).
+fn swarm_status_from_outcome(outcome: &str) -> Option<SwarmResultStatus> {
+    match outcome {
+        "completed" => Some(SwarmResultStatus::Completed),
+        "failed" => Some(SwarmResultStatus::Failed),
+        "aborted" | "cancelled" => Some(SwarmResultStatus::Cancelled),
+        _ => None,
+    }
+}
+
 /// `findAgentTaskId` — agent-id match first, description fallback (ambiguous
 /// descriptions resolve to `None`).
 pub fn find_agent_task_id(
@@ -1154,12 +1271,16 @@ mod tests {
         let progress = h.subagent.swarm_progress("swarm").unwrap();
         assert_eq!(progress.subagents.get("s1").unwrap().text, "hello");
 
-        // Tool result ends the swarm tool call.
+        // Tool result ends the swarm tool call. A structured swarm XML result
+        // parses (TS `applyResult`) — the non-error path does not mark the
+        // swarm failed regardless, but the output shape is the real one.
         h.handle_event(
             Event::ToolResult {
                 agent_id: None,
                 tool_call_id: "swarm".to_owned(),
-                output: json!("{\"outcome\": \"completed\"}"),
+                output: json!(
+                    "<agent_swarm_result><subagent index=\"1\" outcome=\"completed\">done</subagent></agent_swarm_result>"
+                ),
                 is_error: false,
                 synthetic: false,
             },
@@ -1168,6 +1289,198 @@ mod tests {
         let progress = h.subagent.swarm_progress("swarm").unwrap();
         assert!(!progress.is_tool_call_active());
         assert!(!progress.failed);
+    }
+
+    #[test]
+    fn swarm_structured_xml_error_result_is_parsed_not_failed() {
+        let mut h = handler();
+        // The AgentSwarm tool call starts first — that creates the panel.
+        h.handle_event(
+            Event::ToolCallStarted {
+                agent_id: None,
+                tool_call_id: "swarm".to_owned(),
+                name: "AgentSwarm".to_owned(),
+                args: crate::controllers::args_json(json!({"description": "batch"})),
+                description: Some("batch".to_owned()),
+            },
+            1000,
+        );
+        assert!(h.subagent.has_agent_swarm_progress("swarm"));
+
+        // An ERROR result that still carries a structured swarm XML result
+        // parses (per TS `applyResult`): the swarm is NOT marked failed — the
+        // per-member statuses in the XML carry the failure, not the swarm.
+        h.handle_event(
+            Event::ToolResult {
+                agent_id: None,
+                tool_call_id: "swarm".to_owned(),
+                output: json!(
+                    "<agent_swarm_result><subagent index=\"1\" outcome=\"completed\">done</subagent><subagent index=\"2\" outcome=\"failed\">boom</subagent></agent_swarm_result>"
+                ),
+                is_error: true,
+                synthetic: false,
+            },
+            1300,
+        );
+        let progress = h.subagent.swarm_progress("swarm").unwrap();
+        assert!(!progress.is_tool_call_active());
+        assert!(!progress.failed);
+    }
+
+    #[test]
+    fn swarm_unparseable_error_result_marks_swarm_failed() {
+        let mut h = handler();
+        h.handle_event(
+            Event::ToolCallStarted {
+                agent_id: None,
+                tool_call_id: "swarm".to_owned(),
+                name: "AgentSwarm".to_owned(),
+                args: crate::controllers::args_json(json!({"description": "batch"})),
+                description: Some("batch".to_owned()),
+            },
+            1000,
+        );
+        // An error result with no parseable swarm statuses → swarm failed.
+        h.handle_event(
+            Event::ToolResult {
+                agent_id: None,
+                tool_call_id: "swarm".to_owned(),
+                output: json!("crashed without a structured result"),
+                is_error: true,
+                synthetic: false,
+            },
+            1300,
+        );
+        let progress = h.subagent.swarm_progress("swarm").unwrap();
+        assert!(!progress.is_tool_call_active());
+        assert!(progress.failed);
+    }
+
+    #[test]
+    fn child_tool_progress_routes_to_child_card() {
+        let mut h = handler();
+        h.handle_event(
+            Event::SubagentSpawned {
+                subagent_id: "child".to_owned(),
+                parent_tool_call_id: "card".to_owned(),
+                subagent_name: "coder".to_owned(),
+                run_in_background: false,
+                swarm_index: None,
+                description: None,
+            },
+            1000,
+        );
+        // A child-agent tool.progress carries an agent id, so the subagent
+        // routing consumes it (TS: appendSubToolLiveOutput to the child card)
+        // instead of the main handler treating it as a main-agent output.
+        h.handle_event(
+            Event::ToolProgress {
+                agent_id: Some("child".to_owned()),
+                tool_call_id: "sub-tool".to_owned(),
+                update: crate::controllers::events::ToolProgressUpdate {
+                    kind: crate::controllers::events::ToolProgressKind::Stdout,
+                    text: Some("subagent output".to_owned()),
+                },
+            },
+            1100,
+        );
+        // Consumed by the child routing → never reached the main live-output
+        // map.
+        assert!(h.state.tool_live_outputs.is_empty());
+    }
+
+    #[test]
+    fn main_tool_progress_without_agent_id_reaches_main_handler() {
+        let mut h = handler();
+        // A main-agent tool component exists; a no-agent-id tool.progress is
+        // NOT routed to a child card and lands in the main live-output map.
+        h.handle_event(
+            Event::ToolCallStarted {
+                agent_id: None,
+                tool_call_id: "t1".to_owned(),
+                name: "Bash".to_owned(),
+                args: Args::new(),
+                description: None,
+            },
+            1000,
+        );
+        h.handle_event(
+            Event::ToolProgress {
+                agent_id: None,
+                tool_call_id: "t1".to_owned(),
+                update: crate::controllers::events::ToolProgressUpdate {
+                    kind: crate::controllers::events::ToolProgressKind::Status,
+                    text: Some("running".to_owned()),
+                },
+            },
+            1100,
+        );
+        assert_eq!(h.state.tool_live_outputs.get("t1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn turn_ended_with_agent_id_completes_btw_panel() {
+        let mut h = handler();
+        h.btw.open("child", "hello");
+        assert!(h.btw.active().unwrap().running);
+        // The child's turn.ended carries its agent id, so the subagent
+        // routing delivers it to the BTW panel (TS btw-panel routeEvent uses
+        // event.agentId), which transitions running → done.
+        h.handle_event(
+            Event::TurnEnded {
+                agent_id: Some("child".to_owned()),
+                turn_id: "1".to_owned(),
+                reason: TurnEndReason::Completed,
+                error: None,
+            },
+            1000,
+        );
+        let panel = h.btw.active().unwrap();
+        assert!(panel.done);
+        assert!(!panel.running);
+    }
+
+    #[test]
+    fn turn_ended_with_agent_id_fails_btw_panel() {
+        let mut h = handler();
+        h.btw.open("child", "hello");
+        h.handle_event(
+            Event::TurnEnded {
+                agent_id: Some("child".to_owned()),
+                turn_id: "1".to_owned(),
+                reason: TurnEndReason::Failed,
+                error: Some(crate::controllers::events::ErrorPayload {
+                    code: "boom".to_owned(),
+                    message: "it broke".to_owned(),
+                    details: None,
+                }),
+            },
+            1000,
+        );
+        let panel = h.btw.active().unwrap();
+        assert!(panel.failed_message.is_some());
+        assert!(!panel.running);
+    }
+
+    #[test]
+    fn main_turn_ended_not_routed_to_btw() {
+        let mut h = handler();
+        h.btw.open("child", "hello");
+        // The MAIN agent's turn end (agent id "main") is not a child event:
+        // routing must NOT deliver it to the BTW panel (it falls through to
+        // the main turn handler).
+        h.handle_event(
+            Event::TurnEnded {
+                agent_id: Some(MAIN_AGENT_ID.to_owned()),
+                turn_id: "1".to_owned(),
+                reason: TurnEndReason::Completed,
+                error: None,
+            },
+            1000,
+        );
+        let panel = h.btw.active().unwrap();
+        assert!(!panel.done);
+        assert!(panel.running);
     }
 
     #[test]
@@ -1196,6 +1509,7 @@ mod tests {
         );
         h.handle_event(
             Event::TurnEnded {
+                agent_id: None,
                 turn_id: "1".to_owned(),
                 reason: TurnEndReason::Cancelled,
                 error: None,

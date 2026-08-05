@@ -403,6 +403,14 @@ pub fn replay_background_projection(
     out
 }
 
+/// `parseAgentIdFromResult` — the `agent_id: agent-N` line in an Agent tool's
+/// spawn-success result (`ToolCallComponent.getSubagentAgentId`).
+fn parse_agent_id_from_result(output: &str) -> Option<String> {
+    let re = Regex::new(r"(?m)^agent_id:\s*(agent-[A-Za-z0-9_-]+)$").ok()?;
+    let cap = re.captures(output)?;
+    cap.get(1).map(|m| m.as_str().to_owned())
+}
+
 // ---------------------------------------------------------------------------
 // Formatters the renderer leans on (`hook-result-format.ts`, `shell-output.ts`)
 // ---------------------------------------------------------------------------
@@ -585,6 +593,7 @@ impl SessionReplayRenderer {
             Some(agent) => {
                 self.hydrate_snapshot(state, agent);
                 self.render_records(state, agent);
+                self.apply_terminal_background_agent_statuses(state, agent);
                 ReplayOutcome::Ok
             }
         };
@@ -648,6 +657,34 @@ impl SessionReplayRenderer {
         }
         let (bash, agent) = count_active_background_tasks(&state.background_tasks);
         state.background_badge = (bash, agent);
+    }
+
+    /// `applyTerminalBackgroundAgentStatuses` — push the real terminal status
+    /// into each replayed `Agent` card whose backing background task is
+    /// already terminal. Runs AFTER `render_records` because the card views
+    /// only exist once the replay has mounted the tool calls. Without this,
+    /// terminated bg agents keep the spawn-success `✓ Completed` default.
+    fn apply_terminal_background_agent_statuses(
+        &self,
+        state: &mut UiState,
+        agent: &ResumedAgentState,
+    ) {
+        for info in &agent.tasks {
+            if info.kind != BackgroundTaskKind::Agent {
+                continue;
+            }
+            if !info.status.is_terminal() {
+                continue;
+            }
+            state.streaming.apply_background_task_terminal_status(
+                &crate::controllers::streaming::ApplyTerminalStatusArgs {
+                    agent_id: info.agent_id.clone(),
+                    description: info.description.clone().unwrap_or_default(),
+                    status: info.status,
+                    error_text: None,
+                },
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -907,6 +944,21 @@ impl SessionReplayRenderer {
             state
                 .streaming
                 .on_tool_call_start(&mut state.effects, &tool_call);
+            if tool_call.name == "Agent" {
+                // Replays carry no `subagent.*` lifecycle events, so the
+                // subagent card view must be synthesized from the Agent tool
+                // call itself (mirrors `getAgentToolDescription`); the
+                // `agent_id` is filled in when the spawn-success result
+                // renders.
+                let description = tool_call
+                    .args
+                    .get("description")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                state
+                    .streaming
+                    .set_tool_call_subagent_meta(&tool_call.id, "", description);
+            }
         }
     }
 
@@ -928,6 +980,27 @@ impl SessionReplayRenderer {
             is_error: message.is_error,
             synthetic: false,
         };
+        // The Agent spawn-success result carries `agent_id: agent-N`; parse it
+        // so the terminal-status search (`applyBackgroundTaskTerminalStatus`)
+        // can match the replayed card by agent id (mirrors
+        // `ToolCallComponent.getSubagentAgentId`).
+        let matched_name = context
+            .tool_calls
+            .get(tool_call_id)
+            .map(|tc| tc.name.as_str());
+        if matched_name == Some("Agent") {
+            if let Some(agent_id) = parse_agent_id_from_result(&result.output) {
+                let description = context
+                    .tool_calls
+                    .get(tool_call_id)
+                    .and_then(|tc| tc.args.get("description"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                state
+                    .streaming
+                    .set_tool_call_subagent_meta(tool_call_id, &agent_id, description);
+            }
+        }
         self.apply_step_context(state, context);
         state
             .streaming
@@ -1807,6 +1880,54 @@ mod tests {
         assert!(h.state.transcript[0].content.contains("$ ls"));
         assert_eq!(h.state.transcript[0].bullet.as_deref(), Some(""));
         assert_eq!(h.state.transcript[0].kind, TranscriptEntryKind::User);
+    }
+
+    #[test]
+    fn hydrate_replay_applies_terminal_status_to_agent_cards() {
+        let mut h = SessionEventHandler::new();
+        let renderer = SessionReplayRenderer::new();
+        let mut task = BackgroundTaskInfo::new(
+            "task-1",
+            BackgroundTaskKind::Agent,
+            BackgroundTaskStatus::Completed,
+        );
+        task.agent_id = Some("agent-1".to_owned());
+        task.description = Some("background task".to_owned());
+        let records = vec![
+            ReplayRecord::Message(ContextMessage {
+                role: MessageRole::Assistant,
+                content: Vec::new(),
+                tool_calls: vec![ReplayToolCall {
+                    id: "t1".to_owned(),
+                    name: "Agent".to_owned(),
+                    arguments: Some(r#"{"description":"background task"}"#.to_owned()),
+                }],
+                tool_call_id: None,
+                origin: None,
+                is_error: false,
+            }),
+            ReplayRecord::Message(ContextMessage {
+                role: MessageRole::Tool,
+                content: vec![ContentPart::Text(
+                    "task_id: task-1\nstatus: running\nagent_id: agent-1\nactual_subagent_type: worker".to_owned(),
+                )],
+                tool_calls: Vec::new(),
+                tool_call_id: Some("t1".to_owned()),
+                origin: None,
+                is_error: false,
+            }),
+        ];
+        renderer.hydrate_replay(&mut h.state, Some(&agent(records, vec![task])));
+        // The replayed Agent card carries the parsed agent id …
+        let view = h
+            .state
+            .streaming
+            .tool_call_subagent_view("t1")
+            .expect("card view");
+        assert_eq!(view.agent_id.as_deref(), Some("agent-1"));
+        // … and the terminal background status was pushed onto the card
+        // (TS `applyTerminalBackgroundAgentStatuses` after `renderRecords`).
+        assert_eq!(view.terminal_status, Some(BackgroundTaskStatus::Completed));
     }
 
     #[test]

@@ -273,6 +273,7 @@ impl SessionEventHandler {
                 turn_id,
                 reason,
                 error,
+                ..
             } => self.handle_turn_end(&turn_id, reason, error.as_ref(), now_ms),
             Event::TurnStepStarted { turn_id, step } => {
                 self.handle_step_begin(&turn_id, step, now_ms);
@@ -303,6 +304,7 @@ impl SessionEventHandler {
             Event::ToolProgress {
                 tool_call_id,
                 update,
+                ..
             } => {
                 self.handle_tool_progress(&tool_call_id, update.kind, update.text);
             }
@@ -959,6 +961,12 @@ impl SessionEventHandler {
         if let Some(v) = plan_mode {
             self.state.app.plan_mode = v;
         }
+        // Snapshot the pre-patch swarm mode BEFORE `app.swarm_mode` is set to
+        // `false` below — TS computes `shouldRenderSwarmEnded` from
+        // `appState.swarmMode` before applying the patch.
+        let should_render_swarm_ended = swarm_mode == Some(false)
+            && self.state.app.swarm_mode
+            && self.state.swarm_mode_entry == Some(SwarmModeEntry::Task);
         if let Some(v) = swarm_mode {
             self.state.app.swarm_mode = v;
         }
@@ -972,11 +980,18 @@ impl SessionEventHandler {
             self.state.app.thinking_effort = v.to_owned();
         }
         if swarm_mode == Some(false) {
-            let should_render_swarm_ended = self.state.app.swarm_mode
-                && self.state.swarm_mode_entry == Some(SwarmModeEntry::Task);
             self.state.swarm_mode_entry = None;
             if should_render_swarm_ended {
-                // TODO(legacy): renderSwarmModeMarker('ended') — append a marker.
+                // `renderSwarmModeMarker('ended')` — a "Swarm ended" marker.
+                let turn_id = self.state.streaming.get_turn_context().0.map(str::to_owned);
+                let entry = TranscriptEntry::new(
+                    self.state.next_entry_id(),
+                    TranscriptEntryKind::Status,
+                    turn_id,
+                    RenderMode::Plain,
+                    "Swarm ended",
+                );
+                self.state.transcript.push(entry);
             }
         }
     }
@@ -1747,6 +1762,7 @@ mod tests {
             .append_assistant_delta(&mut h.state.effects, "hi");
         h.handle_event(
             Event::TurnEnded {
+                agent_id: None,
                 turn_id: "1".to_owned(),
                 reason: TurnEndReason::Completed,
                 error: None,
@@ -2212,6 +2228,41 @@ mod tests {
     }
 
     #[test]
+    fn routing_swarm_ended_marker_uses_pre_patch_swarm_mode() {
+        let mut h = handler();
+        // A swarm task is active: swarm mode on + the task-mode entry.
+        h.state.app.swarm_mode = true;
+        h.state.swarm_mode_entry = Some(SwarmModeEntry::Task);
+        h.handle_event(
+            Event::AgentStatusUpdated {
+                agent_id: None,
+                context_usage: None,
+                context_tokens: None,
+                max_context_tokens: None,
+                usage: None,
+                plan_mode: None,
+                swarm_mode: Some(false),
+                permission: None,
+                model: None,
+                thinking_effort: None,
+            },
+            0,
+        );
+        assert!(!h.state.app.swarm_mode);
+        assert!(h.state.swarm_mode_entry.is_none());
+        // The "Swarm ended" marker is rendered — the decision reads the
+        // PRE-patch swarm mode (TS snapshots `appState.swarmMode` before
+        // applying the patch), not the value just set to false.
+        assert!(
+            h.state
+                .transcript
+                .iter()
+                .any(|e| e.content == "Swarm ended"),
+            "swarm-ended marker should be emitted when a swarm task ends"
+        );
+    }
+
+    #[test]
     fn routing_agent_status_update_patches_app_state() {
         let mut h = handler();
         h.handle_event(
@@ -2269,6 +2320,7 @@ mod tests {
         h.handle_event(turn_started("1"), 1000);
         h.handle_event(
             Event::ToolProgress {
+                agent_id: None,
                 tool_call_id: "t1".to_owned(),
                 update: ToolProgressUpdate {
                     kind: ToolProgressKind::Stdout,
@@ -2292,6 +2344,7 @@ mod tests {
         );
         h.handle_event(
             Event::ToolProgress {
+                agent_id: None,
                 tool_call_id: "t1".to_owned(),
                 update: ToolProgressUpdate {
                     kind: ToolProgressKind::Status,
@@ -2334,6 +2387,7 @@ mod tests {
         h.state.app.streaming_phase = StreamingPhase::Composing;
         h.handle_event(
             Event::TurnEnded {
+                agent_id: None,
                 turn_id: "1".to_owned(),
                 reason: TurnEndReason::Completed,
                 error: None,

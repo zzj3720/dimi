@@ -127,10 +127,16 @@ impl MessageMode {
 }
 
 /// A message waiting in the send queue (`QueuedMessage`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QueuedMessage {
     pub text: String,
     pub mode: MessageMode,
+    /// `parts` — the prompt parts extracted at submit time (`PromptPart[]`),
+    /// preserved through the Ctrl-S steer path.
+    pub parts: Option<Vec<Value>>,
+    /// `imageAttachmentIds` — the image-attachment ids captured at submit
+    /// time, preserved through the Ctrl-S steer path.
+    pub image_attachment_ids: Option<Vec<String>>,
 }
 
 impl QueuedMessage {
@@ -138,6 +144,8 @@ impl QueuedMessage {
         QueuedMessage {
             text: text.into(),
             mode: MessageMode::Prompt,
+            parts: None,
+            image_attachment_ids: None,
         }
     }
 
@@ -145,6 +153,8 @@ impl QueuedMessage {
         QueuedMessage {
             text: text.into(),
             mode: MessageMode::Bash,
+            parts: None,
+            image_attachment_ids: None,
         }
     }
 }

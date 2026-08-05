@@ -12,12 +12,41 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-/// A provider model entry (`{ provider, id }` — the `auth.models()` rows the
-/// TUI reads).
+/// A provider model entry (the `auth.models()` rows the TUI reads).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderModel {
     pub provider: String,
     pub id: String,
+    /// `name` — display name (`Model.name`).
+    pub name: Option<String>,
+    /// `contextWindow` → `ModelAlias.maxContextSize` (read by
+    /// `refreshConfigAfterLogin`).
+    pub context_window: Option<u64>,
+    /// `maxTokens` → `ModelAlias.maxOutputSize`.
+    pub max_tokens: Option<u64>,
+    /// `input` capability tokens (e.g. `["text", "image"]`) — `image` yields
+    /// the `image_in` capability.
+    pub input: Vec<String>,
+    /// `reasoning` — thinking capability.
+    pub reasoning: bool,
+    /// `thinkingLevelMap` — level → value (map value `None` = explicit `null`).
+    pub thinking_level_map: BTreeMap<String, Option<Value>>,
+    /// `defaultThinkingLevel` — the default effort when supported.
+    pub default_thinking_level: Option<String>,
+}
+
+/// `ModelAlias` — the projected model alias the TUI stores in
+/// `availableModels` (`providerModelToAlias` in `provider-model.ts`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelAlias {
+    pub provider: String,
+    pub model: String,
+    pub display_name: Option<String>,
+    pub max_context_size: Option<u64>,
+    pub max_output_size: Option<u64>,
+    pub capabilities: Vec<String>,
+    pub support_efforts: Vec<String>,
+    pub default_effort: Option<String>,
 }
 
 /// A provider identity (`auth.providers()` row).
@@ -159,15 +188,66 @@ pub fn compute_provider_model_diff(
     }
 }
 
+/// `providerModelToAlias` — project a [`ProviderModel`] into its
+/// [`ModelAlias`] (port of `provider-model.ts`).
+pub fn provider_model_to_alias(model: &ProviderModel) -> ModelAlias {
+    let support_efforts: Vec<String> = model
+        .thinking_level_map
+        .iter()
+        .filter(|(level, value)| level.as_str() != "off" && value.is_some())
+        .map(|(level, _)| level.clone())
+        .collect();
+    let default_effort = if support_efforts
+        .iter()
+        .any(|e| Some(e.as_str()) == model.default_thinking_level.as_deref())
+    {
+        model.default_thinking_level.clone()
+    } else {
+        support_efforts.get(support_efforts.len() / 2).cloned()
+    };
+    let mut capabilities: Vec<String> = Vec::new();
+    if model.input.iter().any(|i| i == "image") {
+        capabilities.push("image_in".to_owned());
+    }
+    if model.reasoning {
+        // `always_thinking` when `thinkingLevelMap['off']` is explicitly null.
+        let always_thinking = model
+            .thinking_level_map
+            .get("off")
+            .is_some_and(|value| value.is_none());
+        capabilities.push(if always_thinking {
+            "always_thinking".to_owned()
+        } else {
+            "thinking".to_owned()
+        });
+    }
+    capabilities.push("tool_use".to_owned());
+    ModelAlias {
+        provider: model.provider.clone(),
+        model: model.id.clone(),
+        display_name: model.name.clone(),
+        max_context_size: model.context_window,
+        max_output_size: model.max_tokens,
+        capabilities,
+        support_efforts,
+        default_effort,
+    }
+}
+
 /// Build the model map + provider map from raw lists
 /// (`refreshAvailableModels`).
 pub fn build_available_maps(
     models: &[ProviderModel],
     providers: &[ProviderInfo],
-) -> (BTreeMap<String, String>, BTreeMap<String, Value>) {
-    let available_models: BTreeMap<String, String> = models
+) -> (BTreeMap<String, ModelAlias>, BTreeMap<String, Value>) {
+    let available_models: BTreeMap<String, ModelAlias> = models
         .iter()
-        .map(|m| (model_alias_key(&m.provider, &m.id), m.id.clone()))
+        .map(|m| {
+            (
+                model_alias_key(&m.provider, &m.id),
+                provider_model_to_alias(m),
+            )
+        })
         .collect();
     let available_providers: BTreeMap<String, Value> = providers
         .iter()
@@ -207,20 +287,18 @@ mod tests {
 
     #[test]
     fn group_model_ids_builds_per_provider_sets() {
-        let models = vec![
-            ProviderModel {
-                provider: "p1".to_owned(),
-                id: "a".to_owned(),
-            },
-            ProviderModel {
-                provider: "p1".to_owned(),
-                id: "b".to_owned(),
-            },
-            ProviderModel {
-                provider: "p2".to_owned(),
-                id: "c".to_owned(),
-            },
-        ];
+        let model = |provider: &str, id: &str| ProviderModel {
+            provider: provider.to_owned(),
+            id: id.to_owned(),
+            name: None,
+            context_window: None,
+            max_tokens: None,
+            input: Vec::new(),
+            reasoning: false,
+            thinking_level_map: BTreeMap::new(),
+            default_thinking_level: None,
+        };
+        let models = vec![model("p1", "a"), model("p1", "b"), model("p2", "c")];
         let included: BTreeSet<String> = ["p1".to_owned()].into_iter().collect();
         let grouped = group_model_ids(&models, &included);
         assert_eq!(
@@ -266,21 +344,66 @@ mod tests {
     }
 
     #[test]
+    fn provider_model_projection_keeps_max_context_and_capabilities() {
+        let model = ProviderModel {
+            provider: "anthropic".to_owned(),
+            id: "claude".to_owned(),
+            name: Some("Claude".to_owned()),
+            context_window: Some(200_000),
+            max_tokens: Some(64_000),
+            input: vec!["text".to_owned(), "image".to_owned()],
+            reasoning: true,
+            thinking_level_map: BTreeMap::from([
+                ("off".to_owned(), Some(Value::String("off".to_owned()))),
+                ("low".to_owned(), Some(Value::String("low".to_owned()))),
+                ("high".to_owned(), Some(Value::String("high".to_owned()))),
+            ]),
+            default_thinking_level: Some("high".to_owned()),
+        };
+        let providers = vec![ProviderInfo {
+            id: "anthropic".to_owned(),
+            name: "Anthropic".to_owned(),
+        }];
+        let (available_models, available_providers) =
+            build_available_maps(std::slice::from_ref(&model), &providers);
+        let alias = available_models.get("anthropic/claude").unwrap();
+        assert_eq!(alias.provider, "anthropic");
+        assert_eq!(alias.model, "claude");
+        assert_eq!(alias.display_name.as_deref(), Some("Claude"));
+        // `selected.maxContextSize` in `refreshConfigAfterLogin` reads this.
+        assert_eq!(alias.max_context_size, Some(200_000));
+        assert_eq!(alias.max_output_size, Some(64_000));
+        // image in input + reasoning (off is a value → "thinking") + tool_use.
+        assert_eq!(alias.capabilities, vec!["image_in", "thinking", "tool_use"]);
+        // BTreeMap iteration is sorted; "off" is excluded from efforts.
+        assert_eq!(alias.support_efforts, vec!["high", "low"]);
+        assert_eq!(alias.default_effort.as_deref(), Some("high"));
+        assert!(available_providers.contains_key("anthropic"));
+    }
+
+    #[test]
     fn model_alias_key_and_maps() {
         assert_eq!(model_alias_key("anthropic", "claude"), "anthropic/claude");
         let models = vec![ProviderModel {
             provider: "anthropic".to_owned(),
             id: "claude".to_owned(),
+            name: Some("Claude".to_owned()),
+            context_window: Some(200_000),
+            max_tokens: None,
+            input: vec!["text".to_owned()],
+            reasoning: false,
+            thinking_level_map: BTreeMap::new(),
+            default_thinking_level: None,
         }];
         let providers = vec![ProviderInfo {
             id: "anthropic".to_owned(),
             name: "Anthropic".to_owned(),
         }];
         let (available_models, available_providers) = build_available_maps(&models, &providers);
-        assert_eq!(
-            available_models.get("anthropic/claude").map(String::as_str),
-            Some("claude")
-        );
+        let alias = available_models.get("anthropic/claude").unwrap();
+        assert_eq!(alias.model, "claude");
+        assert_eq!(alias.max_context_size, Some(200_000));
+        assert!(alias.capabilities.contains(&"tool_use".to_owned()));
         assert!(available_providers.contains_key("anthropic"));
     }
 }

@@ -143,20 +143,10 @@ impl BtwPanelController {
     /// `routeEvent` — route a child-agent event to the matching panel.
     /// Returns true when consumed.
     pub fn route_event(&mut self, event: &Event) -> bool {
-        // Turn-ended events on the wire carry the agent id; the Rust event
-        // model does not attach one to `Event::TurnEnded`, so fall back to
-        // the single active panel (the BTW panel is one-at-a-time).
-        let agent_id = match event.agent_id() {
-            Some(id) => Some(id.to_owned()),
-            None => {
-                if matches!(event, Event::TurnEnded { .. }) {
-                    self.active.as_ref().map(|p| p.agent_id.clone())
-                } else {
-                    None
-                }
-            }
-        };
-        let Some(agent_id) = agent_id else {
+        // `event.agentId` (child-agent attribution) keys the panel lookup; the
+        // wire `turn.ended` carries the agent id, so no active-panel fallback
+        // is needed.
+        let Some(agent_id) = event.agent_id().map(str::to_owned) else {
             return false;
         };
         if !self.panels_by_agent_id.contains(&agent_id) {
@@ -299,6 +289,7 @@ mod tests {
 
         // Turn end completes the panel.
         assert!(btw.route_event(&Event::TurnEnded {
+            agent_id: Some("child".to_owned()),
             turn_id: "1".to_owned(),
             reason: TurnEndReason::Completed,
             error: None,
@@ -319,6 +310,7 @@ mod tests {
 
         // Complete the turn, then the next input submits.
         btw.route_event(&Event::TurnEnded {
+            agent_id: Some("child".to_owned()),
             turn_id: "1".to_owned(),
             reason: TurnEndReason::Completed,
             error: None,
@@ -339,6 +331,7 @@ mod tests {
         // A completed panel closes without a pending cancel.
         btw.open("child", "start");
         btw.route_event(&Event::TurnEnded {
+            agent_id: Some("child".to_owned()),
             turn_id: "1".to_owned(),
             reason: TurnEndReason::Completed,
             error: None,
@@ -353,6 +346,7 @@ mod tests {
         assert!(btw.cancel_running());
         // After the turn ends it is no longer running.
         btw.route_event(&Event::TurnEnded {
+            agent_id: Some("child".to_owned()),
             turn_id: "1".to_owned(),
             reason: TurnEndReason::Failed,
             error: Some(ErrorPayload {

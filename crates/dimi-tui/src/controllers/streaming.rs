@@ -1074,7 +1074,14 @@ impl StreamingUiController {
     ) {
         // TODO(legacy): host.collapseTrailingToolCalls()
         if self.active_compaction_block.is_some() {
-            // The previous block was never finalized — mark it done.
+            // The previous block was never finalized — mark it done (TS:
+            // `block.markDone()` with no token counts) before starting the
+            // new one, so the transcript sees a CompactionEnd for it.
+            effects.push(StreamingEffect::CompactionEnd {
+                tokens_before: 0,
+                tokens_after: 0,
+                summary: None,
+            });
             self.active_compaction_block = None;
         }
         self.active_compaction_block = Some(CompactionBlock {
@@ -1788,6 +1795,38 @@ mod tests {
         c.tool_call_subagent_completed("card2");
         assert!(!c.mark_subagent_backgrounded("agent-2"));
         assert!(!c.tool_call_subagents.get("card2").unwrap().backgrounded);
+    }
+
+    #[test]
+    fn begin_compaction_finalizes_unfinished_previous_block() {
+        let mut c = controller();
+        let mut fx = Vec::new();
+        c.begin_compaction(&mut fx, Some("first".to_owned()));
+        assert!(fx.iter().any(|e| matches!(e, StreamingEffect::CompactionBegin { instruction } if instruction.as_deref() == Some("first"))));
+        assert!(c.active_compaction_block().is_some());
+
+        // A second beginCompaction without an endCompaction in between must
+        // finalize the prior unfinished block (TS: `markDone()` then start the
+        // new block) — not silently drop it without a CompactionEnd.
+        let mut fx2 = Vec::new();
+        c.begin_compaction(&mut fx2, Some("second".to_owned()));
+        assert!(fx2.iter().any(|e| matches!(e, StreamingEffect::CompactionBegin { instruction } if instruction.as_deref() == Some("second"))));
+        assert!(
+            fx2.iter().any(|e| matches!(
+                e,
+                StreamingEffect::CompactionEnd {
+                    tokens_before: 0,
+                    tokens_after: 0,
+                    summary: None
+                }
+            )),
+            "prior unfinished block must emit a CompactionEnd"
+        );
+        assert!(c.active_compaction_block().is_some());
+        assert_eq!(
+            c.active_compaction_block().unwrap().instruction.as_deref(),
+            Some("second")
+        );
     }
 
     #[test]
