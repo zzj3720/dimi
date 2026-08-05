@@ -437,6 +437,70 @@ export const modelPicker = css({
   zIndex: 60,
 });
 
+// Anchor wrapper around the model pill: the picker opens above it,
+// right-aligned to the pill (codex anchors the menu to the trigger). The
+// wrapper shrinks to the pill width (inline-flex avoids parent stretch).
+export const modelPickerAnchor = css({
+  position: 'relative',
+  display: 'inline-flex',
+});
+
+// ---- codex model picker two-level view (CDP-measured 2026-08-05) ----
+// Simple view (default, menu 80px): current-model summary row (40px) +
+// control row (36px) with 高级/用量更多 toggles. Clicking 高级 slides the
+// ViewTrack to the advanced view (menu 134px): model × effort options.
+export const modelPickerSimple = css({
+  height: 40,
+  padding: '0 0 8px',
+  display: 'flex',
+  alignItems: 'flex-end',
+});
+
+export const modelPickerSimpleText = css({
+  fontSize: font.xs,
+  lineHeight: '16px',
+  color: colors.text,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+});
+
+export const modelPickerControls = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 36,
+  padding: '0 8px',
+});
+
+export const modelPickerCtlBtn = css({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 32,
+  padding: 4,
+  borderRadius: 8,
+  border: 'none',
+  background: 'transparent',
+  color: colors.textMuted, // rgba(255,255,255,0.498)
+  fontSize: font.sm,
+  lineHeight: '18.5714px',
+  cursor: 'default',
+  '&:hover': { background: colors.hover, color: colors.text },
+});
+
+export const modelPickerCtlBtnActive = css({
+  color: colors.text,
+  background: colors.hover,
+});
+
+export const modelPickerAdvanced = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  padding: '0 0 4px',
+});
+
 export const modelPickerList = css({
   display: 'flex',
   flexDirection: 'column',
@@ -448,13 +512,14 @@ export const modelPickerItem = css({
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 12,
-  padding: '6px 10px',
+  height: 29, // Codex model option row (CDP-measured 29px / 5px 8px / 12.5)
+  padding: '5px 8px',
   borderRadius: 12.5, // Radix menu item radius
   border: 'none',
   background: 'transparent',
   color: colors.text,
   fontSize: font.sm,
-  lineHeight: '18px',
+  lineHeight: '18.5714px',
   cursor: 'default',
   textAlign: 'left',
   '&:hover': { background: colors.hover },

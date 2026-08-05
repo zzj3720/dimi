@@ -17,7 +17,7 @@ import {
   composerBtn, modelPill, modelPillName, modelPillMode, input, inputSingle, sendBtn,
   composerToolbar, hint, queuedCount, attachmentChip, attachmentChipName, attachmentChipRemove,
   completion, completionItem, completionPointer, completionValue, completionDesc, completionSelected,
-  modelPicker, modelPickerList, modelPickerGroup, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
+  modelPicker, modelPickerAnchor, modelPickerSimple, modelPickerSimpleText, modelPickerControls, modelPickerCtlBtn, modelPickerCtlBtnActive, modelPickerAdvanced, modelPickerGroup, modelPickerItem, modelPickerItemName, modelPickerItemEffort, modelPickerItemSelected,
   btn, btnGhost,
 } from './Composer.styles';
 
@@ -41,8 +41,22 @@ const EFFORT_ORDER: { value: string; label: string }[] = [
   { value: 'off', label: '无思考' },
 ];
 const modelPickerOpen = ref(false);
+// Codex model picker is two-level: simple view (model summary + controls)
+// slides to the advanced view (model × effort options) via the 高级 toggle.
+const modelPickerAdvanced = ref(false);
 const models = ref<{ value: string; label: string; provider: string }[]>([]);
 let modelsLoaded = false;
+
+const modelSummary = computed(() => {
+  const m = models.value.find((x) => x.value === state.modelName);
+  const name = m?.label ?? shortModelName.value;
+  const effort = EFFORT_LABEL[state.effort] ?? '';
+  return effort ? `${name} ${effort}` : name;
+});
+
+function comingSoon(name: string): void {
+  state.statusMsg = `${name}（暂未实现）`;
+}
 
 async function loadModels(): Promise<void> {
   if (modelsLoaded) return;
@@ -73,7 +87,10 @@ const modelGroups = computed(() => {
 
 function toggleModelPicker(): void {
   modelPickerOpen.value = !modelPickerOpen.value;
-  if (modelPickerOpen.value) void loadModels();
+  if (modelPickerOpen.value) {
+    modelPickerAdvanced.value = false; // reopen on the simple view (codex)
+    void loadModels();
+  }
 }
 
 function onModelPickerSelect(refName: string, effort: string): void {
@@ -480,18 +497,86 @@ function steerMode(mode: 'steer' | 'queue'): void {
                    so the pill stays right-aligned and truncates at max-w-48.
                    Single-line packs the pill directly into the shrink-0 row. -->
               <div v-if="layout === 'multiline'" :class="composerExpanding">
-                <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
-                  <span :class="modelPillName">{{ shortModelName }}</span>
-                  <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
-                  <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
-                </button>
+                <div :class="modelPickerAnchor">
+                  <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
+                    <span :class="modelPillName">{{ shortModelName }}</span>
+                    <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
+                    <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                  </button>
+                  <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
+                    <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
+                      <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
+                    </div>
+                    <div :class="modelPickerControls">
+                      <button
+                        type="button"
+                        :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
+                        :aria-pressed="modelPickerAdvanced"
+                        @click="modelPickerAdvanced = !modelPickerAdvanced"
+                      >高级</button>
+                      <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
+                    </div>
+                    <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
+                      <template v-for="[provider, list] in modelGroups" :key="provider">
+                        <div :class="modelPickerGroup">{{ provider }}</div>
+                        <template v-for="m in list" :key="m.value">
+                          <button
+                            v-for="ef in EFFORT_ORDER"
+                            :key="m.value + ef.value"
+                            type="button"
+                            :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+                            @click="onModelPickerSelect(m.value, ef.value)"
+                          >
+                            <span :class="modelPickerItemName">{{ m.label }}</span>
+                            <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+                          </button>
+                        </template>
+                      </template>
+                      <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <template v-else>
-                <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
-                  <span :class="modelPillName">{{ shortModelName }}</span>
-                  <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
-                  <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
-                </button>
+                <div :class="modelPickerAnchor">
+                  <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
+                    <span :class="modelPillName">{{ shortModelName }}</span>
+                    <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
+                    <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                  </button>
+                  <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
+                    <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
+                      <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
+                    </div>
+                    <div :class="modelPickerControls">
+                      <button
+                        type="button"
+                        :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
+                        :aria-pressed="modelPickerAdvanced"
+                        @click="modelPickerAdvanced = !modelPickerAdvanced"
+                      >高级</button>
+                      <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
+                    </div>
+                    <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
+                      <template v-for="[provider, list] in modelGroups" :key="provider">
+                        <div :class="modelPickerGroup">{{ provider }}</div>
+                        <template v-for="m in list" :key="m.value">
+                          <button
+                            v-for="ef in EFFORT_ORDER"
+                            :key="m.value + ef.value"
+                            type="button"
+                            :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+                            @click="onModelPickerSelect(m.value, ef.value)"
+                          >
+                            <span :class="modelPickerItemName">{{ m.label }}</span>
+                            <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+                          </button>
+                        </template>
+                      </template>
+                      <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
+                    </div>
+                  </div>
+                </div>
               </template>
               <!-- Codex FooterActions: gap-2 (听写 ↔ 发送 8px) -->
               <div :class="composerActions">
@@ -526,34 +611,9 @@ function steerMode(mode: 'steer' | 'queue'): void {
           </div>
         </div>
       </div>
-
-      <!-- Codex Work model picker panel: opens above the capsule (bottom
-           anchored), listing model × strength options like the codex
-           _ModelPickerTriggerLabel_ rows (04-composer §5). The dimi server
-           exposes a full catalog, so the list is grouped by provider. -->
-      <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
-        <div :class="modelPickerList">
-          <template v-for="[provider, list] in modelGroups" :key="provider">
-            <div :class="modelPickerGroup">{{ provider }}</div>
-            <template v-for="m in list" :key="m.value">
-              <button
-                v-for="ef in EFFORT_ORDER"
-                :key="m.value + ef.value"
-                type="button"
-                :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
-                @click="onModelPickerSelect(m.value, ef.value)"
-              >
-                <span :class="modelPickerItemName">{{ m.label }}</span>
-                <span :class="modelPickerItemEffort">{{ ef.label }}</span>
-              </button>
-            </template>
-          </template>
-          <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
-        </div>
       </div>
-    </div>
 
-    <!-- Codex keeps model/mode info inside the capsule pill, no extra row -->
+      <!-- Codex keeps model/mode info inside the capsule pill, no extra row -->
 
     <!-- dimi TUI leftover (codex has no such toolbar): busy-state controls -->
     <div v-if="state.busy || state.statusMsg || state.queued.length > 0" :class="composerToolbar">
