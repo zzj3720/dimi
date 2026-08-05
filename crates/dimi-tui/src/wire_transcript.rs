@@ -15,6 +15,7 @@ use dimi_wire::record::HistoryMessage;
 
 use crate::component::Component;
 use crate::components::messages::tool_renderers::{ToolCallData, ToolResultData};
+use crate::theme::ColorToken;
 
 /// Transcript entry kinds rendered by slice 2 components.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,11 @@ pub struct TranscriptEntry {
     pub tool_call: Option<ToolCallData>,
     /// Tool result payload (attached when the matching `tool` message lands).
     pub tool_result: Option<ToolResultData>,
+    /// Optional color for `Status` entries. `render_transcript` honors it for
+    /// the status tone (e.g. error-colored errors); `None` renders the default
+    /// dim status tone. Slice-6 addition so hosts can surface `ShowError`
+    /// statuses in the error color.
+    pub status_color: Option<ColorToken>,
 }
 
 impl TranscriptEntry {
@@ -48,6 +54,7 @@ impl TranscriptEntry {
             bullet,
             tool_call: None,
             tool_result: None,
+            status_color: None,
         }
     }
     fn assistant(content: &str) -> Self {
@@ -57,6 +64,7 @@ impl TranscriptEntry {
             bullet: None,
             tool_call: None,
             tool_result: None,
+            status_color: None,
         }
     }
     fn thinking(content: &str) -> Self {
@@ -66,6 +74,7 @@ impl TranscriptEntry {
             bullet: None,
             tool_call: None,
             tool_result: None,
+            status_color: None,
         }
     }
     fn tool(call: ToolCallData) -> Self {
@@ -75,6 +84,7 @@ impl TranscriptEntry {
             bullet: None,
             tool_call: Some(call),
             tool_result: None,
+            status_color: None,
         }
     }
     fn status(content: &str) -> Self {
@@ -84,6 +94,7 @@ impl TranscriptEntry {
             bullet: None,
             tool_call: None,
             tool_result: None,
+            status_color: None,
         }
     }
 }
@@ -340,7 +351,7 @@ pub fn render_transcript(entries: &[TranscriptEntry], width: usize) -> Vec<Strin
                 let mut c =
                     crate::components::messages::status_message::StatusMessageComponent::new(
                         &entry.content,
-                        None,
+                        entry.status_color,
                     );
                 lines.extend(c.render(width));
             }
