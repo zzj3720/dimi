@@ -396,6 +396,16 @@ impl EngineBackend {
         &self.tasks
     }
 
+    /// Abort the in-flight turn (if any) — used when closing the BTW panel
+    /// (Esc) so the side-agent's output stops streaming instead of leaking
+    /// into the transcript. No-op when idle.
+    pub fn cancel_current_turn(&mut self) {
+        if let Some(handle) = self.current_turn.take() {
+            handle.abort();
+        }
+        self.turn_idle = false;
+    }
+
     /// Point the next turn at a different model (`/model <name>`). The engine
     /// snapshots the provider per turn, so the change takes effect from the
     /// next prompt without touching the in-flight one. No-op while the
@@ -403,6 +413,15 @@ impl EngineBackend {
     pub fn set_model(&mut self, model: &str) {
         if let Some(provider) = &mut self.provider {
             provider.model = model.to_string();
+        }
+    }
+
+    /// Point the next turn at a different thinking effort (`/effort`). The
+    /// engine snapshots the provider per turn, so the change takes effect
+    /// from the next prompt. No-op while the provider is not configured.
+    pub fn set_thinking_effort(&mut self, effort: &str) {
+        if let Some(provider) = &mut self.provider {
+            provider.thinking_effort = Some(effort.to_string());
         }
     }
 
@@ -1023,6 +1042,25 @@ impl DimiApp {
     /// Apply the loaded config to the chrome (welcome + footer) and cold-build
     /// the transcript from `config.wire` if set.
     fn apply_config(&mut self) {
+        // Apply the configured theme at startup so `/theme light` survives a
+        // restart (the palette is process-global; invalidate re-colors all
+        // mounted chrome on the next render).
+        match self.config.theme.as_deref() {
+            Some("light") => {
+                set_palette(LIGHT_COLORS);
+                self.invalidate_chrome();
+            }
+            Some("dark") | None => {
+                set_palette(DARK_COLORS);
+                self.invalidate_chrome();
+            }
+            Some(other) => {
+                eprintln!("dimi-cli: unknown theme {other:?} (expected dark|light); using dark");
+                set_palette(DARK_COLORS);
+                self.invalidate_chrome();
+            }
+        }
+
         let mut welcome = WelcomeState::new();
         if let Some(model) = &self.config.model {
             welcome.model = model.clone();
@@ -1237,6 +1275,11 @@ impl DimiApp {
                             if btw_open {
                                 self.btw_controller.borrow_mut().close_or_cancel();
                                 self.btw_panel.borrow_mut().close();
+                                // Cancel the side-agent turn so its output
+                                // stops streaming (it would otherwise leak
+                                // into the transcript as a stray turn).
+                                self.backend.cancel_current_turn();
+                                self.backend.btw_turn_ids.clear();
                                 self.btw_turn_id = None;
                             }
                             return;
@@ -1622,9 +1665,13 @@ impl DimiApp {
             self.push_status("Usage: /effort <off|low|high|max>", Some(ColorToken::Error));
             return;
         }
-        match effort {
+        let effort = effort.to_lowercase();
+        match effort.as_str() {
             "off" | "low" | "high" | "max" => {
-                self.config.thinking_effort = Some(effort.to_string());
+                self.config.thinking_effort = Some(effort.clone());
+                // The engine snapshots the provider per turn — update the
+                // backend so the next prompt actually forwards the effort.
+                self.backend.set_thinking_effort(&effort);
                 self.refresh_footer();
                 self.push_status(&format!("Thinking effort set to {effort}."), None);
             }
@@ -1646,9 +1693,10 @@ impl DimiApp {
             );
             return;
         }
-        match mode {
+        let mode = mode.to_lowercase();
+        match mode.as_str() {
             "manual" | "yolo" | "auto" => {
-                self.set_permission(mode);
+                self.set_permission(&mode);
                 self.push_status(&format!("Permission mode set to {mode}."), None);
             }
             other => self.push_status(
@@ -1805,7 +1853,16 @@ impl DimiApp {
             return;
         }
         let default_name = match self.session.current_session_id() {
-            Some(id) => format!("dimi-export-{}.md", id.chars().take(8).collect::<String>()),
+            Some(id) => {
+                // TS `session.ts`: `dimi-export-<shortId>-<timestamp>.md` —
+                // the timestamp keeps repeated exports from overwriting.
+                let short_id = id.chars().take(8).collect::<String>();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                format!("dimi-export-{short_id}-{now}.md")
+            }
             None => "dimi-export.md".to_string(),
         };
         let path = if args.is_empty() {
@@ -1905,7 +1962,26 @@ impl DimiApp {
             (anchor, entries.len())
         };
         let Some(idx) = anchor else {
-            self.push_status("Nothing to undo.", None);
+            // Distinguish "nothing to undo" from "requested more than
+            // available" (TS `formatUndoLimitMessage`): if there is at least
+            // one user prompt, a count that found no anchor means over-limit.
+            let user_count = self
+                .transcript
+                .borrow()
+                .entries()
+                .iter()
+                .filter(|e| e.kind == TranscriptEntryKind::User)
+                .count();
+            if user_count > 0 && count > 1 {
+                self.push_status(
+                    &format!(
+                        "Cannot undo {count} prompts; only {user_count} can be undone in the active context."
+                    ),
+                    Some(ColorToken::Warning),
+                );
+            } else {
+                self.push_status("Nothing to undo.", None);
+            }
             return;
         };
         let removed = len - idx;
@@ -2488,11 +2564,23 @@ mod tests {
     }
 
     #[test]
-    fn handle_submit_effort_updates_config() {
+    fn handle_submit_effort_updates_config_and_backend() {
         set_palette(DARK_COLORS);
-        let mut app = DimiApp::new(Config::default());
+        let mut config = Config::default();
+        config.model = Some("m".to_owned());
+        config.base_url = Some("http://example.test/v1".to_owned());
+        config.api_key = Some("k".to_owned());
+        let mut app = DimiApp::new(config);
         app.handle_submit("/effort high");
         assert_eq!(app.config.thinking_effort.as_deref(), Some("high"));
+        assert_eq!(
+            app.backend
+                .provider
+                .as_ref()
+                .and_then(|p| p.thinking_effort.as_deref()),
+            Some("high"),
+            "/effort must reach the backend provider so the next turn forwards it"
+        );
         let e = entries(&app);
         assert!(
             e[0].content.contains("Thinking effort set to high"),
@@ -3996,5 +4084,29 @@ mod scroll_tests {
         dimi_tui::component::Component::handle_input(&mut *t, "\x1b[A");
         drop(t);
         assert_eq!(app.transcript.borrow().scroll_offset(), 1);
+    }
+}
+
+#[cfg(test)]
+mod undo_limit_tests {
+    use super::*;
+    use dimi_tui::theme::{DARK_COLORS, set_palette};
+
+    #[test]
+    fn undo_over_limit_reports_available_count() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.transcript.borrow_mut().push(user_entry("q1", None));
+        app.transcript.borrow_mut().push(assistant_entry("a1"));
+        app.handle_submit("/undo 5");
+        let e = app.transcript.borrow().entries().to_vec();
+        assert!(
+            e.last()
+                .unwrap()
+                .content
+                .contains("Cannot undo 5 prompts; only 1 can be undone"),
+            "over-limit undo must match TS copy: {}",
+            e.last().unwrap().content
+        );
     }
 }

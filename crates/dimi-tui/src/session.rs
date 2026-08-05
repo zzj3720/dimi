@@ -264,7 +264,13 @@ impl SessionManager {
         while let Some(msg) = self.queued_messages.first().cloned() {
             self.queued_messages.remove(0);
             if msg.mode == Some("bash") {
-                backend.send_bash_line(&msg.text);
+                // A bash line that starts a turn must also mark the machine
+                // busy (the `!` shell turn drives the activity spinner and
+                // gates the next prompt), mirroring the prompt branch.
+                let busy = backend.send_bash_line(&msg.text);
+                if busy {
+                    self.streaming = true;
+                }
             } else {
                 let busy = backend.send_prompt(&msg.text);
                 if busy {
@@ -339,6 +345,7 @@ mod tests {
         prompts: Vec<String>,
         dispatch_log: Vec<String>,
         prompt_busy: bool,
+        bash_busy: bool,
         fail_create: bool,
         next_id: usize,
     }
@@ -353,6 +360,7 @@ mod tests {
                 prompts: Vec::new(),
                 dispatch_log: Vec::new(),
                 prompt_busy: true,
+                bash_busy: false,
                 fail_create: false,
                 next_id: 0,
             }
@@ -382,7 +390,7 @@ mod tests {
         fn send_bash_line(&mut self, text: &str) -> bool {
             self.bash_lines.push(text.to_owned());
             self.dispatch_log.push(format!("bash:{text}"));
-            false
+            self.bash_busy
         }
 
         fn send_prompt(&mut self, text: &str) -> bool {
@@ -427,9 +435,15 @@ mod tests {
         assert_eq!(b.bash_lines, vec!["ls", "echo hi", "pwd"]);
         assert!(b.prompts.is_empty());
         assert!(m.queued_messages().is_empty());
-        // Bash dispatch alone does not flip the machine to busy — the host
-        // reflects the shell phase via set_streaming.
+        // A bash line that starts a turn marks the machine busy (the `!`
+        // shell turn drives the activity spinner and gates the next prompt).
         assert!(!m.streaming());
+        // When the backend reports busy, streaming is set (bash turn running).
+        b.bash_busy = true;
+        m.set_streaming(false);
+        m.enqueue_message("ls2", Some("bash"));
+        m.flush_queued_messages(&mut b);
+        assert!(m.streaming());
     }
 
     #[test]
