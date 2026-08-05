@@ -8,24 +8,31 @@ export const dialogRoot = css({
   pointerEvents: 'none',
 });
 
-// codex-dialog-overlay (05-design §2.2): very light dim, no blur.
+// Radix DialogOverlay — the dim layer. Portaled to body, so it carries its
+// own z-index now (was inside dialogRoot's z-100 context). codex-dialog-overlay
+// (05-design §2.2): very light dim, no blur. Content self-centers (fixed +
+// inset + margin auto), so no flex centering here anymore.
 export const dialogBackdrop = css({
   position: 'absolute',
   inset: 0,
+  zIndex: 100,
   background: 'rgba(0, 0, 0, 0.133)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
   pointerEvents: 'auto',
 });
 
 // Shared modal shell (codex-dialog §2.1): rgb(45,45,45) @ 90% + backdrop
 // blur(24px), rounded-3xl = 1.25rem × 1.25 scale = 25px, NO border — a 0.5px
 // ring (token border 0.084) + shadow-lg combined in one box-shadow. The close
-// button is absolutely positioned, so the shell is position: relative and
-// hides overflow (matches codex `overflow-hidden`).
+// button is absolutely positioned, so the shell anchors it (fixed elements are
+// containing blocks for absolute children); it hides overflow (matches codex
+// `overflow-hidden`). Radix DialogContent — positioned fixed and centered via
+// inset 0 + margin auto (no transform, so the picker enter animation's
+// scale transform stays free); z-110 sits above the overlay.
 const modalShell = {
-  position: 'relative',
+  position: 'fixed',
+  inset: 0,
+  margin: 'auto',
+  zIndex: 110,
   background: 'rgba(45, 45, 45, 0.9)',
   backdropFilter: 'blur(24px)',
   WebkitBackdropFilter: 'blur(24px)',
@@ -79,7 +86,10 @@ const pickerEnter = keyframes({
 });
 
 export const dialogPicker = css({
-  position: 'relative',
+  position: 'fixed',
+  inset: 0,
+  margin: 'auto',
+  zIndex: 110,
   width: 440,
   maxWidth: '92vw',
   maxHeight: '80%',

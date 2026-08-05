@@ -143,6 +143,14 @@ function onWindowKeydown(evt: KeyboardEvent): void {
       // Element-level handlers (composer / dialogs) preventDefault on Esc;
       // skip so one keypress doesn't reach the reducer twice.
       if (evt.defaultPrevented) return;
+      // Radix overlays (popovers / dropdown menus / dialogs) close on Escape
+      // themselves. This window handler is registered BEFORE their keydown
+      // listeners, so dispatching Msg.Escape() here would double-fire (e.g.
+      // cancel a running turn while a popover is open) and its preventDefault
+      // would even block the overlay's own dismissal. Yield to the overlay:
+      // it closes via its own Escape path (popovers/menus dismiss directly;
+      // dialogs dispatch their reducer close from @escape-key-down).
+      if (document.querySelector('[data-state="open"][role="dialog"], [data-state="open"][role="menu"]')) return;
       evt.preventDefault();
       dispatch(Msg.Escape());
       return;

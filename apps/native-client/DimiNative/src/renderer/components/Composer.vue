@@ -5,7 +5,13 @@
 // Auto single-line/multiline switch follows the codex bvs/Tvs measurement
 // logic (hidden measure span + 32px buffer); empty drafts keep the send
 // button enabled (codex), the submit guard lives in submitDraft().
-import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
+import { ref, watch, nextTick, computed, onMounted } from 'vue';
+import {
+  PopoverRoot,
+  PopoverTrigger,
+  PopoverPortal,
+  PopoverContent,
+} from 'radix-vue';
 import { state, Msg, findSlashCommand, APPROVAL_CHOICES } from '../store';
 import { dispatch, maybeUpdateAtMention, pickModel } from '../api';
 import { icons } from '../icons';
@@ -47,6 +53,18 @@ const modelPickerAdvanced = ref(false);
 const models = ref<{ value: string; label: string; provider: string }[]>([]);
 let modelsLoaded = false;
 
+// Radix Popover owns open state / outside-click / Escape / portal-to-body —
+// the picker previously lived inside the capsule's backdrop-filter stacking
+// context (z-60 trapped below the header's z-30), which is how it got covered.
+// Escape closes it via radix (App.vue's window handler yields to open radix
+// overlays so no Msg.Escape() side effects fire).
+watch(modelPickerOpen, (open) => {
+  if (open) {
+    modelPickerAdvanced.value = false; // reopen on the simple view (codex)
+    void loadModels();
+  }
+});
+
 const modelSummary = computed(() => {
   const m = models.value.find((x) => x.value === state.modelName);
   const name = m?.label ?? shortModelName.value;
@@ -84,14 +102,6 @@ const modelGroups = computed(() => {
   }
   return [...map.entries()];
 });
-
-function toggleModelPicker(): void {
-  modelPickerOpen.value = !modelPickerOpen.value;
-  if (modelPickerOpen.value) {
-    modelPickerAdvanced.value = false; // reopen on the simple view (codex)
-    void loadModels();
-  }
-}
 
 function onModelPickerSelect(refName: string, effort: string): void {
   modelPickerOpen.value = false;
@@ -364,27 +374,11 @@ watch(
   },
 );
 
-// Model picker closes on outside click / Escape (codex DropdownMenu behavior).
-function onPickerGlobalDown(): void {
-  if (modelPickerOpen.value) modelPickerOpen.value = false;
-}
-
-function onPickerGlobalEsc(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && modelPickerOpen.value) {
-    modelPickerOpen.value = false;
-    e.stopPropagation();
-  }
-}
+// Model picker open/close is owned by the Radix Popover (outside click /
+// Escape close it); no document-level listeners needed anymore.
 
 onMounted(() => {
   void nextTick(() => inputEl.value?.focus());
-  document.addEventListener('mousedown', onPickerGlobalDown);
-  document.addEventListener('keydown', onPickerGlobalEsc);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('mousedown', onPickerGlobalDown);
-  document.removeEventListener('keydown', onPickerGlobalEsc);
 });
 
 function acceptCompletion(): void {
@@ -498,84 +492,96 @@ function steerMode(mode: 'steer' | 'queue'): void {
                    Single-line packs the pill directly into the shrink-0 row. -->
               <div v-if="layout === 'multiline'" :class="composerExpanding">
                 <div :class="modelPickerAnchor">
-                  <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
-                    <span :class="modelPillName">{{ shortModelName }}</span>
-                    <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
-                    <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
-                  </button>
-                  <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
-                    <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
-                      <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
-                    </div>
-                    <div :class="modelPickerControls">
-                      <button
-                        type="button"
-                        :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
-                        :aria-pressed="modelPickerAdvanced"
-                        @click="modelPickerAdvanced = !modelPickerAdvanced"
-                      >高级</button>
-                      <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
-                    </div>
-                    <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
-                      <template v-for="[provider, list] in modelGroups" :key="provider">
-                        <div :class="modelPickerGroup">{{ provider }}</div>
-                        <template v-for="m in list" :key="m.value">
+                  <PopoverRoot v-model:open="modelPickerOpen">
+                    <PopoverTrigger as-child>
+                      <button type="button" :class="modelPill">
+                        <span :class="modelPillName">{{ shortModelName }}</span>
+                        <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
+                        <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverPortal>
+                      <PopoverContent :class="modelPicker" side="top" :side-offset="8" align="end">
+                        <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
+                          <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
+                        </div>
+                        <div :class="modelPickerControls">
                           <button
-                            v-for="ef in EFFORT_ORDER"
-                            :key="m.value + ef.value"
                             type="button"
-                            :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
-                            @click="onModelPickerSelect(m.value, ef.value)"
-                          >
-                            <span :class="modelPickerItemName">{{ m.label }}</span>
-                            <span :class="modelPickerItemEffort">{{ ef.label }}</span>
-                          </button>
-                        </template>
-                      </template>
-                      <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
-                    </div>
-                  </div>
+                            :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
+                            :aria-pressed="modelPickerAdvanced"
+                            @click="modelPickerAdvanced = !modelPickerAdvanced"
+                          >高级</button>
+                          <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
+                        </div>
+                        <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
+                          <template v-for="[provider, list] in modelGroups" :key="provider">
+                            <div :class="modelPickerGroup">{{ provider }}</div>
+                            <template v-for="m in list" :key="m.value">
+                              <button
+                                v-for="ef in EFFORT_ORDER"
+                                :key="m.value + ef.value"
+                                type="button"
+                                :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+                                @click="onModelPickerSelect(m.value, ef.value)"
+                              >
+                                <span :class="modelPickerItemName">{{ m.label }}</span>
+                                <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+                              </button>
+                            </template>
+                          </template>
+                          <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
+                        </div>
+                      </PopoverContent>
+                    </PopoverPortal>
+                  </PopoverRoot>
                 </div>
               </div>
               <template v-else>
                 <div :class="modelPickerAnchor">
-                  <button type="button" :class="modelPill" :aria-expanded="modelPickerOpen" @click="toggleModelPicker">
-                    <span :class="modelPillName">{{ shortModelName }}</span>
-                    <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
-                    <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
-                  </button>
-                  <div v-if="modelPickerOpen" :class="modelPicker" @mousedown.stop>
-                    <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
-                      <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
-                    </div>
-                    <div :class="modelPickerControls">
-                      <button
-                        type="button"
-                        :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
-                        :aria-pressed="modelPickerAdvanced"
-                        @click="modelPickerAdvanced = !modelPickerAdvanced"
-                      >高级</button>
-                      <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
-                    </div>
-                    <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
-                      <template v-for="[provider, list] in modelGroups" :key="provider">
-                        <div :class="modelPickerGroup">{{ provider }}</div>
-                        <template v-for="m in list" :key="m.value">
+                  <PopoverRoot v-model:open="modelPickerOpen">
+                    <PopoverTrigger as-child>
+                      <button type="button" :class="modelPill">
+                        <span :class="modelPillName">{{ shortModelName }}</span>
+                        <span :class="modelPillMode">{{ EFFORT_LABEL[state.effort] ?? '轻度' }}</span>
+                        <svg :viewBox="chevronIcon.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in chevronIcon.paths" :key="i" :d="p" /></svg>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverPortal>
+                      <PopoverContent :class="modelPicker" side="top" :side-offset="8" align="end">
+                        <div v-if="!modelPickerAdvanced" :class="modelPickerSimple">
+                          <span :class="modelPickerSimpleText">{{ modelSummary }}</span>
+                        </div>
+                        <div :class="modelPickerControls">
                           <button
-                            v-for="ef in EFFORT_ORDER"
-                            :key="m.value + ef.value"
                             type="button"
-                            :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
-                            @click="onModelPickerSelect(m.value, ef.value)"
-                          >
-                            <span :class="modelPickerItemName">{{ m.label }}</span>
-                            <span :class="modelPickerItemEffort">{{ ef.label }}</span>
-                          </button>
-                        </template>
-                      </template>
-                      <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
-                    </div>
-                  </div>
+                            :class="[modelPickerCtlBtn, { [modelPickerCtlBtnActive]: modelPickerAdvanced }]"
+                            :aria-pressed="modelPickerAdvanced"
+                            @click="modelPickerAdvanced = !modelPickerAdvanced"
+                          >高级</button>
+                          <button type="button" :class="modelPickerCtlBtn" @click="comingSoon('用量更多')">用量更多</button>
+                        </div>
+                        <div v-if="modelPickerAdvanced" :class="modelPickerAdvanced">
+                          <template v-for="[provider, list] in modelGroups" :key="provider">
+                            <div :class="modelPickerGroup">{{ provider }}</div>
+                            <template v-for="m in list" :key="m.value">
+                              <button
+                                v-for="ef in EFFORT_ORDER"
+                                :key="m.value + ef.value"
+                                type="button"
+                                :class="[modelPickerItem, { [modelPickerItemSelected]: state.modelName === m.value && state.effort === ef.value }]"
+                                @click="onModelPickerSelect(m.value, ef.value)"
+                              >
+                                <span :class="modelPickerItemName">{{ m.label }}</span>
+                                <span :class="modelPickerItemEffort">{{ ef.label }}</span>
+                              </button>
+                            </template>
+                          </template>
+                          <div v-if="models.length === 0" :class="hint" style="padding: 8px 12px">loading…</div>
+                        </div>
+                      </PopoverContent>
+                    </PopoverPortal>
+                  </PopoverRoot>
                 </div>
               </template>
               <!-- Codex FooterActions: gap-2 (听写 ↔ 发送 8px) -->

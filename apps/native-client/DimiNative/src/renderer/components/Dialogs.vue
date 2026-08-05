@@ -1,6 +1,18 @@
 <script setup lang="ts">
 // Modal dialogs: session picker, settings, help, BTW, approval, question.
+// All of them are Radix Dialog (radix-vue) — portal to body, proper overlay /
+// focus handling — matching codex's own Radix dialog stack. The reducer stays
+// the single owner of Escape semantics (query-clear-then-close, approval
+// reject, feedback-mode exit …): DialogContent blocks radix's own Escape
+// dismissal (@escape-key-down) and dispatches Msg.Escape instead.
 import { computed, nextTick, ref, onMounted, onUnmounted } from 'vue';
+import {
+  DialogRoot,
+  DialogPortal,
+  DialogOverlay,
+  DialogContent,
+  DialogTitle,
+} from 'radix-vue';
 import { state, Msg, filteredSessions, slashCommands, APPROVAL_CHOICES } from '../store';
 import type { PermissionMode, Question } from '../store';
 import { api, dispatch, loadSessions, loadMoreSessions, sendBtw } from '../api';
@@ -21,6 +33,45 @@ function onWindowBlur(): void {
 
 onMounted(() => window.addEventListener('blur', onWindowBlur));
 onUnmounted(() => window.removeEventListener('blur', onWindowBlur));
+
+// Radix Dialog dismisses on Escape by default; the reducer's `escape` case
+// owns the exact close semantics per dialog (clear query first, exit approval
+// feedback mode, reject …), so block radix's dismissal here and dispatch
+// Msg.Escape — the native event is stopped so the window handler doesn't
+// double-dispatch, and defaultPrevented keeps radix mounted until the reducer
+// actually closes the state (no close/reopen flicker). App.vue's window
+// Escape handler yields to open radix overlays, so Msg.Escape fires exactly
+// once (from here), never from the window handler too.
+function onDialogEsc(e: KeyboardEvent): void {
+  if (e.defaultPrevented) return; // an inner handler (picker input) owned this Esc
+  e.preventDefault();
+  e.stopPropagation();
+  dispatch(Msg.Escape());
+}
+
+// Backdrop clicks (pointerdown outside the content) close via radix's dismiss;
+// map each dialog back onto its reducer close so the semantics match the old
+// hand-rolled backdrops.
+function onPickerUpdate(o: boolean): void {
+  if (!o) dispatch(Msg.PickerClose());
+}
+function onSettingsUpdate(o: boolean): void {
+  if (!o) dispatch(Msg.SettingsClose());
+}
+function onHelpUpdate(o: boolean): void {
+  if (!o) dispatch(Msg.Escape());
+}
+function onBtwUpdate(o: boolean): void {
+  if (!o) state.btwOpen = false; // keep the draft (old backdrop behavior)
+}
+function onApprovalUpdate(o: boolean): void {
+  // Approval must not dismiss on outside interaction (.prevent on
+  // pointer-down-outside); this is only a safety net for exotic paths.
+  if (!o && !state.approvalRejectRequested) dispatch(Msg.Escape());
+}
+function onQuestionUpdate(o: boolean): void {
+  if (!o) dispatch(Msg.QuestionDismiss());
+}
 
 // ---- session picker
 const pickerList = computed(() => filteredSessions(state));
@@ -165,35 +216,40 @@ function btwSend(): void {
 <template>
   <div :class="dialogRoot">
     <!-- Session picker: compact command menu -->
-    <div v-if="state.pickerOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.PickerClose())">
-      <div :class="dialogPicker">
-        <input :class="menuSearchInput" placeholder="Search sessions…" :value="state.pickerQuery" @focus="pickerArrowChain = false" @input="onPickerInput" @keydown="pickerKeydown" />
-        <div style="overflow-y: auto; max-height: 250px; margin-top: 6px">
-          <div
-            v-for="(s, i) in pickerList"
-            :key="s.id"
-            :class="[listItem, 'group', { selected: i === state.pickerSelectedIndex, [listItemSelected]: i === state.pickerSelectedIndex }]"
-            @mousedown.prevent="dispatch(Msg.PickerSelect())"
-          >
-            <span :class="[listItemIcon, iconXs]">
-              <svg v-if="i === state.pickerSelectedIndex" :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path :d="icons.check.paths[0]" /></svg>
-            </span>
-            <span :class="listItemTitle">{{ s.title || '(untitled)' }}</span>
-            <span :class="listItemHint">{{ s.last_prompt || s.cwd || '' }}</span>
+    <DialogRoot :open="state.pickerOpen" @update:open="onPickerUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialogPicker" aria-label="切换会话" @escape-key-down="onDialogEsc">
+          <input :class="menuSearchInput" placeholder="Search sessions…" :value="state.pickerQuery" @focus="pickerArrowChain = false" @input="onPickerInput" @keydown="pickerKeydown" />
+          <div style="overflow-y: auto; max-height: 250px; margin-top: 6px">
+            <div
+              v-for="(s, i) in pickerList"
+              :key="s.id"
+              :class="[listItem, 'group', { selected: i === state.pickerSelectedIndex, [listItemSelected]: i === state.pickerSelectedIndex }]"
+              @mousedown.prevent="dispatch(Msg.PickerSelect())"
+            >
+              <span :class="[listItemIcon, iconXs]">
+                <svg v-if="i === state.pickerSelectedIndex" :viewBox="icons.check.vb" fill="currentColor" aria-hidden="true"><path :d="icons.check.paths[0]" /></svg>
+              </span>
+              <span :class="listItemTitle">{{ s.title || '(untitled)' }}</span>
+              <span :class="listItemHint">{{ s.last_prompt || s.cwd || '' }}</span>
+            </div>
+            <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
           </div>
-          <div v-if="pickerList.length === 0" :class="[listItem, listItemSub]">{{ state.sessionsLoading ? 'Loading…' : 'No sessions found.' }}</div>
-        </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <!-- Settings -->
-    <div v-if="state.settingsDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.SettingsClose())">
-      <div :class="dialog" @click="openSettings">
-        <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.SettingsClose())">
-          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
-        </button>
-        <div :class="dialogBody">
-          <div :class="dialogTitle" style="margin-bottom: 16px">Settings</div>
+    <DialogRoot :open="state.settingsDialogOpen" @update:open="onSettingsUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialog" @click="openSettings" @escape-key-down="onDialogEsc">
+          <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.SettingsClose())">
+            <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          </button>
+          <div :class="dialogBody">
+          <DialogTitle :class="dialogTitle" style="margin-bottom: 16px">Settings</DialogTitle>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
             <span :class="listItemSub" style="min-width: 110px">Default model</span>
             <select :class="searchInput" :value="state.modelName" @change="setDefaultModel(($event.target as HTMLSelectElement).value)">
@@ -217,57 +273,66 @@ function btwSend(): void {
             <button :class="[btn, btnGhost, btnBlock]" @click="dispatch(Msg.SettingsClose())">Close</button>
           </div>
         </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <!-- Help -->
-    <div v-if="state.helpDialogOpen" :class="dialogBackdrop" @mousedown.self="dispatch(Msg.Escape())">
-      <div :class="dialog">
-        <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
-          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
-        </button>
-        <div :class="dialogBody" style="max-height: 420px">
-          <div :class="dialogTitle" style="margin-bottom: 12px">Help</div>
-          <div v-for="c in slashCommands" :key="c.name" :class="listItem">
-            <span :class="toolName">{{ '/' + c.name }}</span>
-            <span :class="listItemSub" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.hint }} — {{ c.desc }}</span>
+    <DialogRoot :open="state.helpDialogOpen" @update:open="onHelpUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialog" @escape-key-down="onDialogEsc">
+          <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
+            <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          </button>
+          <div :class="dialogBody" style="max-height: 420px">
+            <DialogTitle :class="dialogTitle" style="margin-bottom: 12px">Help</DialogTitle>
+            <div v-for="c in slashCommands" :key="c.name" :class="listItem">
+              <span :class="toolName">{{ '/' + c.name }}</span>
+              <span :class="listItemSub" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.hint }} — {{ c.desc }}</span>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px">
+              <button :class="[btn, btnGhost, btnBlock]" @click="dispatch(Msg.Escape())">Close</button>
+            </div>
           </div>
-          <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px">
-            <button :class="[btn, btnGhost, btnBlock]" @click="dispatch(Msg.Escape())">Close</button>
-          </div>
-        </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <!-- BTW -->
-    <div v-if="state.btwOpen" :class="dialogBackdrop" @mousedown.self="state.btwOpen = false">
-      <div :class="dialog">
-        <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
-          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
-        </button>
-        <div :class="dialogBody">
-          <div :class="dialogTitle" style="margin-bottom: 12px">BTW</div>
-          <div v-if="state.btwPrompt" :class="listItem">
-            <div :class="bodyText">{{ state.btwPrompt }}</div>
+    <DialogRoot :open="state.btwOpen" @update:open="onBtwUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialog" @escape-key-down="onDialogEsc">
+          <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.Escape())">
+            <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          </button>
+          <div :class="dialogBody">
+            <DialogTitle :class="dialogTitle" style="margin-bottom: 12px">BTW</DialogTitle>
+            <div v-if="state.btwPrompt" :class="listItem">
+              <div :class="bodyText">{{ state.btwPrompt }}</div>
+            </div>
+            <div v-if="state.btwAnswer" :class="listItem">
+              <div :class="bodyText">{{ state.btwAnswer }}</div>
+            </div>
+            <div v-else-if="state.btwBusy" :class="listItemSub">…</div>
+            <input :class="searchInput" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc.prevent="dispatch(Msg.Escape())" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
+            <div :class="listItemSub" style="margin-top: 8px">Enter to ask · Esc to close</div>
           </div>
-          <div v-if="state.btwAnswer" :class="listItem">
-            <div :class="bodyText">{{ state.btwAnswer }}</div>
-          </div>
-          <div v-else-if="state.btwBusy" :class="listItemSub">…</div>
-          <input :class="searchInput" placeholder="Ask by the way…" :value="state.btwDraft" @keydown.enter="btwSend" @keydown.esc.prevent="dispatch(Msg.Escape())" @input="state.btwDraft = ($event.target as HTMLInputElement).value" />
-          <div :class="listItemSub" style="margin-top: 8px">Enter to ask · Esc to close</div>
-        </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <!-- Approval: permission prompt card -->
-    <div v-if="state.currentApproval" :class="dialogBackdrop">
-      <div :class="dialogApproval">
-        <button :class="dialogClose" aria-label="Reject" @click="dispatch(Msg.Escape())">
-          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
-        </button>
-        <div :class="dialogBody">
-          <div :class="dialogTitle" style="margin-bottom: 12px">{{ state.currentApproval.toolName || 'Approval required' }}</div>
+    <DialogRoot :open="!!state.currentApproval" @update:open="onApprovalUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialogApproval" @escape-key-down="onDialogEsc" @pointer-down-outside.prevent>
+          <button :class="dialogClose" aria-label="Reject" @click="dispatch(Msg.Escape())">
+            <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          </button>
+          <div :class="dialogBody">
+          <DialogTitle :class="dialogTitle" style="margin-bottom: 12px">{{ state.currentApproval.toolName || 'Approval required' }}</DialogTitle>
           <div :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace">{{ state.currentApproval.action }}</div>
           <pre v-if="state.currentApproval.command" :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 72px; overflow: auto">{{ state.currentApproval.command }}</pre>
           <pre v-if="state.approvalPreview && state.currentApproval.command" :class="bodyText" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #141414; padding: 6px 8px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; max-height: 320px; overflow: auto">{{ state.currentApproval.command }}</pre>
@@ -290,17 +355,20 @@ function btwSend(): void {
           />
           <div :class="listItemSub" style="margin-top: 8px">↑↓ navigate · Enter confirm · 1-4 select · Esc reject</div>
         </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
 
     <!-- Question -->
-    <div v-if="state.currentQuestion" :class="dialogBackdrop">
-      <div :class="dialog">
-        <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.QuestionDismiss())">
-          <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
-        </button>
-        <div :class="dialogBody">
-          <div :class="dialogTitle" style="margin-bottom: 12px">Question</div>
+    <DialogRoot :open="!!state.currentQuestion" @update:open="onQuestionUpdate">
+      <DialogPortal>
+        <DialogOverlay :class="dialogBackdrop" />
+        <DialogContent :class="dialog" @escape-key-down="onDialogEsc" @pointer-down-outside.prevent>
+          <button :class="dialogClose" aria-label="Close" @click="dispatch(Msg.QuestionDismiss())">
+            <svg :class="iconXs" :viewBox="icons.close.vb" fill="currentColor" aria-hidden="true"><path :d="icons.close.paths[0]" /></svg>
+          </button>
+          <div :class="dialogBody">
+          <DialogTitle :class="dialogTitle" style="margin-bottom: 12px">Question</DialogTitle>
           <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px">
             <span
               v-for="(qq, i) in (state.currentQuestion.allQuestions ?? [state.currentQuestion])"
@@ -330,7 +398,8 @@ function btwSend(): void {
             <button :class="[btn, btnPrimary, btnBlock]" @click="dispatch(Msg.QuestionConfirm())">Submit</button>
           </div>
         </div>
-      </div>
-    </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
   </div>
 </template>

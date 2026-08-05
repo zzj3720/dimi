@@ -74,7 +74,9 @@ export const headerMain = css({
 
 // Codex col1 env icon: 28×28 ghost button (project popover trigger), folder
 // glyph 16px — `aria-label="项目：{cwd}"` (CDP-measured 2026-08-05). This is
-// the element that pushes the session title to x≈311 in codex.
+// the element that pushes the session title to x≈311 in codex. pointerEvents /
+// no-drag are mandatory like every header button: the header itself is
+// pointer-events:none + app-region:drag (S17), children opt back in.
 export const projectBtn = css({
   display: 'flex',
   alignItems: 'center',
@@ -88,21 +90,25 @@ export const projectBtn = css({
   background: 'transparent',
   color: colors.textTertiary,
   cursor: 'default',
+  pointerEvents: 'auto',
+  WebkitAppRegion: 'no-drag',
   '& svg': { width: 16, height: 16, color: colors.text },
   '&:hover': { background: colors.hover },
   '&:active': { background: colors.hoverStrong },
 });
 
-// Project picker popover (below the header, left-aligned to the main zone).
-// absolute — the header is position:fixed, so this anchors to the header's
-// padding box; `top: calc(100% + 4px)` then means just below the 46px bar.
-// Surface follows the Radix dropdown tokens (CDP-measured 2026-08-05).
+// Project picker popover (Radix PopoverContent — positioned by floating-ui,
+// portaled to body so it escapes the header's fixed z-30 stacking context).
+// The class only carries the surface look: NO position/inset (radix injects
+// them; a stale `position: absolute` here breaks its measurement, see the
+// dropdown menu fix in Sidebar). NO margin either — codex's project popover
+// surface sits flush (CDP-measured: wrapper at trigger.left/trigger.bottom+6,
+// surface margin 0 — unlike the DropdownMenu surfaces which carry m-px).
+// Surface: rgba(45,45,45,0.9) + blur(8px) + radius 15 + z-50 (CDP-measured).
 export const projectPicker = css({
-  position: 'absolute',
   zIndex: 80,
   minWidth: 240,
   maxWidth: 420,
-  margin: 1, // Codex m-px
   padding: 4,
   background: 'rgba(45, 45, 45, 0.9)',
   backdropFilter: 'blur(8px)', // Codex backdrop-blur-sm

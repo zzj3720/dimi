@@ -16,6 +16,7 @@
     "dompurify": "^3.4.13",
     "katex": "^0.17.0",
     "marked": "^18.0.9",
+    "radix-vue": "^1.9.17",
     "vue": "^3.5.35"
   },
   "devDependencies": {

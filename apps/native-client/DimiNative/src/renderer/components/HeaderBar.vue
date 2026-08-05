@@ -4,6 +4,12 @@
 // summary + toggle-sidebar. No segmented control and no status badges —
 // Codex keeps the header clean; status lives in the composer area.
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
+import {
+  PopoverRoot,
+  PopoverTrigger,
+  PopoverPortal,
+  PopoverContent,
+} from 'radix-vue';
 import { state } from '../store';
 import { api, dispatch, createSession } from '../api';
 import { icons } from '../icons';
@@ -161,7 +167,6 @@ function headerExport(): void {
 
 function onHeaderMenuDown(): void {
   if (headerMenu.value) headerMenu.value = null;
-  if (projectPickerOpen.value) projectPickerOpen.value = false;
 }
 
 function onHeaderMenuEsc(e: KeyboardEvent): void {
@@ -169,15 +174,13 @@ function onHeaderMenuEsc(e: KeyboardEvent): void {
     headerMenu.value = null;
     e.stopPropagation();
   }
-  if (e.key === 'Escape' && projectPickerOpen.value) {
-    projectPickerOpen.value = false;
-    e.stopPropagation();
-  }
 }
 
 // ---- project button (codex col1 env icon: `项目：{cwd}` popover trigger) ----
 // Clicking the 28px folder button opens a project list; selecting one starts
-// a new session in that cwd (createSession supports a cwd override).
+// a new session in that cwd (createSession supports a cwd override). Radix
+// Popover owns open state / outside-click / Escape / portal-to-body, matching
+// codex's Radix popover.
 const projectPickerOpen = ref(false);
 const projects = computed(() => {
   const seen = new Map<string, string>();
@@ -192,10 +195,6 @@ const currentProject = computed(() => {
   const cwd = state.currentCwd || current.value?.metadata?.cwd || '';
   return cwd.split('/').filter(Boolean).pop() || cwd || '';
 });
-
-function toggleProjectPicker(): void {
-  projectPickerOpen.value = !projectPickerOpen.value;
-}
 
 function pickProject(cwd: string): void {
   projectPickerOpen.value = false;
@@ -256,9 +255,22 @@ function openHelp(): void {
     </div>
     <!-- Main zone: project button + session title (inline rename) + More -->
     <div :class="headerMain">
-      <button :class="projectBtn" type="button" :aria-label="`项目：${currentProject}`" :aria-expanded="projectPickerOpen" data-tooltip="切换项目" @click="toggleProjectPicker">
-        <svg :viewBox="icons.folder.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.folder.paths" :key="i" :d="p" /></svg>
-      </button>
+      <PopoverRoot v-model:open="projectPickerOpen">
+        <PopoverTrigger as-child>
+          <button :class="projectBtn" type="button" :aria-label="`项目：${currentProject}`" data-tooltip="切换项目">
+            <svg :viewBox="icons.folder.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.folder.paths" :key="i" :d="p" /></svg>
+          </button>
+        </PopoverTrigger>
+        <PopoverPortal>
+          <PopoverContent :class="projectPicker" :side-offset="6" align="start">
+            <button v-for="p in projects" :key="p" :class="[projectPickerItem, { [projectPickerItemActive]: p === (current?.metadata?.cwd ?? state.currentCwd) }]" type="button" role="menuitem" @click="pickProject(p)">
+              <svg :viewBox="icons.folder.vb" fill="currentColor" aria-hidden="true" style="width: 14px; height: 14px; flex-shrink: 0"><path v-for="(pi, i) in icons.folder.paths" :key="i" :d="pi" /></svg>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p }}</span>
+            </button>
+            <div v-if="projects.length === 0" :class="projectPickerEmpty">无项目</div>
+          </PopoverContent>
+        </PopoverPortal>
+      </PopoverRoot>
       <input v-if="editing" ref="titleInput" v-model="draftTitle" :class="headerTitleInput"
              :style="{ width: `${editWidth}px` }" aria-label="会话标题"
              @keydown.enter.prevent="commitRename"
@@ -305,29 +317,33 @@ function openHelp(): void {
       <div v-if="projects.length === 0" :class="projectPickerEmpty">无项目</div>
     </div>
 
-    <!-- Session context menu (codex HeaderContextMenuItem subset) -->
-    <div
-      v-if="headerMenu"
-      :class="headerCtxMenu"
-      :style="{ left: Math.min(headerMenu.x, viewport.w - 200) + 'px', top: Math.min(headerMenu.y, viewport.h - 220) + 'px' }"
-      role="menu"
-      @mousedown.stop
-    >
-      <button :class="ctxMenuItem" type="button" role="menuitem" @click="startRename">
-        <span>重命名会话</span>
-      </button>
-      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyId">
-        <span>复制会话 ID</span>
-      </button>
-      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyCwd">
-        <span>复制工作目录</span>
-      </button>
-      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerFork">
-        <span>Fork 会话</span>
-      </button>
-      <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerExport">
-        <span>导出复制</span>
-      </button>
-    </div>
+    <!-- Session context menu (codex HeaderContextMenuItem subset).
+         Teleported to body so the fixed overlay escapes the header's z-30
+         stacking context (previously capped at 30 → could be covered). -->
+    <Teleport to="body">
+      <div
+        v-if="headerMenu"
+        :class="headerCtxMenu"
+        :style="{ left: Math.min(headerMenu.x, viewport.w - 200) + 'px', top: Math.min(headerMenu.y, viewport.h - 220) + 'px' }"
+        role="menu"
+        @mousedown.stop
+      >
+        <button :class="ctxMenuItem" type="button" role="menuitem" @click="startRename">
+          <span>重命名会话</span>
+        </button>
+        <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyId">
+          <span>复制会话 ID</span>
+        </button>
+        <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerCopyCwd">
+          <span>复制工作目录</span>
+        </button>
+        <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerFork">
+          <span>Fork 会话</span>
+        </button>
+        <button :class="ctxMenuItem" type="button" role="menuitem" @click="headerExport">
+          <span>导出复制</span>
+        </button>
+      </div>
+    </Teleport>
   </header>
 </template>

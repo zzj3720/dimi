@@ -632,7 +632,6 @@ export const menuAnchorGrow = css({
 });
 
 export const menu = css({
-  position: 'absolute',
   zIndex: 40,
   minWidth: 160,
   margin: 1, // Codex m-px

@@ -16,14 +16,21 @@ import { state, Msg, SIDEBAR_WIDTH_KEY, type SessionSummary } from '../store';
 import { dispatch, api } from '../api';
 import { icons, type IconDef } from '../icons';
 import {
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+} from 'radix-vue';
+import {
   sidebar, sidebarTop, sidebarTopSearch, sidebarTopScrolled,
-  brandRow, brand, brandOpen, brandActions, brandIconBtn, brandIconBtnSearch,
+  brandRow, brand, brandActions, brandIconBtn, brandIconBtnSearch,
   navItemHeader, navItemScroll, navBlockScroll, navBlockItems,
   sessions, sessionsSearch, sessionsScrolled, section, sectionTitleRow, sectionToggle, sectionTitleActions, sectionTitleBtn, emptyRow,
   folderGroup, folderRow, folderRowIcon, folderRowName, folderRowActions, folderRowBtn, sessionList,
   sessionItem, sessionItemActive,
-  resizeHandle, resizeHandleLine, sidebarBottom, userRow, userRowOpen, sidebarBottomBtn, sidebarBottomBtnOpen,
-  menuAnchor, menuAnchorGrow, menu, menuWide, menuTop, menuBottomLeft, menuBottomRight, menuItem, menuCheck, ctxMenuStyle, editInput,
+  resizeHandle, resizeHandleLine, sidebarBottom, userRow, menuAnchorGrow, sidebarBottomBtn,
+  menu, menuWide, menuItem, menuCheck, ctxMenuStyle, editInput,
   searchView, searchInputRow, searchInput, searchClear,
 } from './Sidebar.styles';
 
@@ -303,44 +310,24 @@ watch(searchOpen, (open) => {
   if (open) void nextTick(() => searchInputEl.value?.focus());
 });
 
-// ---- dropdown menus (mode / profile / help, 02-sidebar-code A5/C1/C8) ----
-// Single-open Radix-style menus; outside click / Escape closes them.
-type MenuName = 'mode' | 'profile' | 'help';
-const openMenu = ref<MenuName | null>(null);
-const modeAnchor = ref<HTMLElement | null>(null);
-const profileAnchor = ref<HTMLElement | null>(null);
-const helpAnchor = ref<HTMLElement | null>(null);
-
-function toggleMenu(name: MenuName): void {
-  openMenu.value = openMenu.value === name ? null : name;
-}
-
+// ---- dropdown menus (mode / profile / help) ----
+// Radix DropdownMenu (radix-vue) now owns open state, outside-click /
+// Escape closing, focus and portal-to-body positioning — matching codex,
+// which uses the same Radix primitives.
 function closeMenus(): void {
-  openMenu.value = null;
-}
-
-function onDocMousedown(e: MouseEvent): void {
-  if (!openMenu.value) return;
-  const t = e.target as Node;
-  const anchors = [modeAnchor.value, profileAnchor.value, helpAnchor.value];
-  if (anchors.some((a) => a?.contains(t))) return;
-  closeMenus();
+  // legacy helper (unused with radix-vue; kept for search blur paths)
 }
 
 function onDocKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape') return;
-  closeMenus();
-  closeSearch();
+  if (e.key !== 'Escape') closeSearch();
 }
 
 onMounted(() => {
-  document.addEventListener('mousedown', onDocMousedown);
   document.addEventListener('keydown', onDocKeydown);
   // Restore the scroll-linked header state if the list starts scrolled.
   scrolled.value = (sessionsEl.value?.scrollTop ?? 0) > 0;
 });
 onUnmounted(() => {
-  document.removeEventListener('mousedown', onDocMousedown);
   document.removeEventListener('keydown', onDocKeydown);
 });
 
@@ -382,26 +369,22 @@ function marqueeLeave(id: string): void {
     <!-- header block: brand row + 新对话 (70px) -->
     <div :class="[sidebarTop, { [sidebarTopSearch]: searchOpen, [sidebarTopScrolled]: scrolled && !searchOpen }]">
       <div :class="brandRow">
-        <div :class="menuAnchor" ref="modeAnchor">
-          <button
-            :class="[brand, { [brandOpen]: openMenu === 'mode' }]"
-            type="button"
-            aria-label="切换模式，当前模式：Dimi"
-            aria-haspopup="menu"
-            :aria-expanded="openMenu === 'mode'"
-            @click="toggleMenu('mode')"
-          >
-            <span>Dimi</span>
-            <svg :viewBox="icons.sectionChevron.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sectionChevron.paths" :key="i" :d="p" /></svg>
-          </button>
-          <!-- Radix-style mode menu (p-1.5 / menuWide); dimi has one mode -->
-          <div v-if="openMenu === 'mode'" :class="[menu, menuWide, menuTop]" role="menu">
-            <button :class="menuItem" type="button" role="menuitemradio" aria-checked="true" @click="closeMenus">
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <button :class="brand" type="button" aria-label="切换模式，当前模式：Dimi">
+              <span>Dimi</span>
+              <svg :viewBox="icons.sectionChevron.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.sectionChevron.paths" :key="i" :d="p" /></svg>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+          <DropdownMenuContent :class="[menu, menuWide]" :side-offset="4" align="start">
+            <DropdownMenuItem :class="menuItem" :disabled="true">
               <span :class="menuCheck"><svg :viewBox="icons.radio.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.radio.paths" :key="i" :d="p" /></svg></span>
               <span>Dimi</span>
-            </button>
-          </div>
-        </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
         <div :class="brandActions">
           <button :class="[brandIconBtn, brandIconBtnSearch]" type="button" aria-label="搜索" data-tooltip="搜索" @click="toggleSearch">
             <svg :viewBox="ic('search').vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in ic('search').paths" :key="i" :d="p" /></svg>
@@ -690,43 +673,37 @@ function marqueeLeave(id: string): void {
 
     <!-- footer: user row + help (46px, hairline on top) -->
     <div :class="sidebarBottom">
-      <div :class="[menuAnchor, menuAnchorGrow]" ref="profileAnchor">
-        <button
-          :class="[userRow, { [userRowOpen]: openMenu === 'profile' }]"
-          type="button"
-          aria-label="打开个人资料菜单"
-          aria-haspopup="menu"
-          :aria-expanded="openMenu === 'profile'"
-          @click="toggleMenu('profile')"
-        >
-          <span class="sb-avatar">u</span>
-          <span class="sb-user">user</span>
-        </button>
-        <div v-if="openMenu === 'profile'" :class="[menu, menuBottomLeft]" role="menu">
-          <button :class="menuItem" type="button" role="menuitem" @click="openSettings">
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger as-child>
+          <button :class="[userRow, menuAnchorGrow]" type="button" aria-label="打开个人资料菜单">
+            <span class="sb-avatar">u</span>
+            <span class="sb-user">user</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuPortal>
+        <DropdownMenuContent :class="menu" side="top" :side-offset="8" align="start" :avoid-collisions="false" :update-position-strategy="'always'">
+          <DropdownMenuItem :class="menuItem" @select="openSettings">
             <span :class="menuCheck"></span>
             <span>设置</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger as-child>
+          <button :class="sidebarBottomBtn" type="button" aria-label="打开帮助菜单">
+            <svg :viewBox="icons.help.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.help.paths" :key="i" :d="p" /></svg>
           </button>
-        </div>
-      </div>
-      <div :class="menuAnchor" ref="helpAnchor">
-        <button
-          :class="[sidebarBottomBtn, { [sidebarBottomBtnOpen]: openMenu === 'help' }]"
-          type="button"
-          aria-label="打开帮助菜单"
-          aria-haspopup="menu"
-          :aria-expanded="openMenu === 'help'"
-          @click="toggleMenu('help')"
-        >
-          <svg :viewBox="icons.help.vb" fill="currentColor" aria-hidden="true"><path v-for="(p, i) in icons.help.paths" :key="i" :d="p" /></svg>
-        </button>
-        <div v-if="openMenu === 'help'" :class="[menu, menuBottomRight]" role="menu">
-          <button :class="menuItem" type="button" role="menuitem" @click="openHelpDialog">
+        </DropdownMenuTrigger>
+        <DropdownMenuPortal>
+        <DropdownMenuContent :class="menu" side="top" :side-offset="8" align="end" :avoid-collisions="false" :update-position-strategy="'always'">
+          <DropdownMenuItem :class="menuItem" @select="openHelpDialog">
             <span :class="menuCheck"></span>
             <span>帮助</span>
-          </button>
-        </div>
-      </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
     </div>
 
     <!-- Codex-style resize handle on the right edge -->
@@ -734,34 +711,37 @@ function marqueeLeave(id: string): void {
       <div :class="resizeHandleLine"></div>
     </div>
 
-    <!-- Session row context menu (codex Work Ztu subset) -->
-    <div
-      v-if="ctxMenu"
-      :class="ctxMenuStyle"
-      :style="{ left: Math.min(ctxMenu.x, viewport.w - 200) + 'px', top: Math.min(ctxMenu.y, viewport.h - 220) + 'px' }"
-      role="menu"
-      @mousedown.stop
-    >
-      <button :class="menuItem" type="button" role="menuitem" @click="ctxRename">
-        <span :class="menuCheck"></span>
-        <span>重命名会话</span>
-      </button>
-      <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyId">
-        <span :class="menuCheck"></span>
-        <span>复制会话 ID</span>
-      </button>
-      <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyCwd">
-        <span :class="menuCheck"></span>
-        <span>复制工作目录</span>
-      </button>
-      <button :class="menuItem" type="button" role="menuitem" @click="ctxFork">
-        <span :class="menuCheck"></span>
-        <span>Fork 会话</span>
-      </button>
-      <button :class="menuItem" type="button" role="menuitem" @click="ctxExport">
-        <span :class="menuCheck"></span>
-        <span>导出复制</span>
-      </button>
-    </div>
+    <!-- Session row context menu (codex Work Ztu subset). Teleported to body
+         so the fixed overlay escapes any ancestor stacking context. -->
+    <Teleport to="body">
+      <div
+        v-if="ctxMenu"
+        :class="ctxMenuStyle"
+        :style="{ left: Math.min(ctxMenu.x, viewport.w - 200) + 'px', top: Math.min(ctxMenu.y, viewport.h - 220) + 'px' }"
+        role="menu"
+        @mousedown.stop
+      >
+        <button :class="menuItem" type="button" role="menuitem" @click="ctxRename">
+          <span :class="menuCheck"></span>
+          <span>重命名会话</span>
+        </button>
+        <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyId">
+          <span :class="menuCheck"></span>
+          <span>复制会话 ID</span>
+        </button>
+        <button :class="menuItem" type="button" role="menuitem" @click="ctxCopyCwd">
+          <span :class="menuCheck"></span>
+          <span>复制工作目录</span>
+        </button>
+        <button :class="menuItem" type="button" role="menuitem" @click="ctxFork">
+          <span :class="menuCheck"></span>
+          <span>Fork 会话</span>
+        </button>
+        <button :class="menuItem" type="button" role="menuitem" @click="ctxExport">
+          <span :class="menuCheck"></span>
+          <span>导出复制</span>
+        </button>
+      </div>
+    </Teleport>
   </aside>
 </template>

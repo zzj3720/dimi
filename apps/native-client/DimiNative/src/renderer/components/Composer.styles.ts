@@ -418,12 +418,11 @@ export const completionSelected = css({
 });
 
 // ---- Codex Work model picker panel (04-composer §5) ----
-// Opens above the capsule (composerWrapper is position:relative), styled like
-// the codex model picker: surface panel + hover rows with model + strength.
+// Radix PopoverContent (portaled to body): floating-ui positions it above the
+// pill (side=top, offset 8, align=end — codex anchors the menu to the
+// trigger). The class only carries the surface look — NO position/bottom/right
+// (radix injects them; stale `position: absolute` breaks its measurement).
 export const modelPicker = css({
-  position: 'absolute',
-  bottom: 'calc(100% + 8px)',
-  right: 0,
   minWidth: 260,
   maxHeight: '40vh',
   overflowY: 'auto',
@@ -437,9 +436,8 @@ export const modelPicker = css({
   zIndex: 60,
 });
 
-// Anchor wrapper around the model pill: the picker opens above it,
-// right-aligned to the pill (codex anchors the menu to the trigger). The
-// wrapper shrinks to the pill width (inline-flex avoids parent stretch).
+// Anchor wrapper around the model pill: keeps the pill sized inline-flex; the
+// Radix Popover measures the pill itself (the trigger), not this wrapper.
 export const modelPickerAnchor = css({
   position: 'relative',
   display: 'inline-flex',
