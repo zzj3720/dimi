@@ -72,6 +72,10 @@ fn is_negotiation_prefix(sequence: &str) -> bool {
 
 /// Real terminal over stdin/stdout.
 pub struct ProcessTerminal {
+    /// The termios captured before raw mode was enabled; restored on stop so
+    /// the parent shell is left in its original cooked state (raw mode must
+    /// never leak past exit).
+    original_termios: Option<nix::sys::termios::Termios>,
     was_raw: bool,
     kitty_protocol_active: bool,
     modify_other_keys_active: bool,
@@ -85,6 +89,7 @@ pub struct ProcessTerminal {
 impl ProcessTerminal {
     pub fn new() -> Self {
         ProcessTerminal {
+            original_termios: None,
             was_raw: false,
             kitty_protocol_active: false,
             modify_other_keys_active: false,
@@ -301,6 +306,10 @@ impl StdinBufferSink for CollectSink {
 impl Terminal for ProcessTerminal {
     fn start(&mut self, on_input: &mut dyn FnMut(&str), on_resize: &mut dyn FnMut()) {
         self.was_raw = std::io::stdin().is_terminal();
+        if self.was_raw {
+            let stdin = std::io::stdin();
+            self.original_termios = tcgetattr(&stdin).ok();
+        }
         self.set_raw_mode(true);
         self.enable_bracketed_paste();
         let _ = on_resize;
@@ -324,7 +333,18 @@ impl Terminal for ProcessTerminal {
         }
         self.disable_modify_other_keys();
         self.stdin_buffer = None;
-        self.set_raw_mode(false);
+        if let Some(orig) = self.original_termios.take() {
+            if std::io::stdin().is_terminal() {
+                let stdin = std::io::stdin();
+                // Restore the exact termios captured before raw mode; do not
+                // go through set_raw_mode(false), which would re-read the
+                // current (raw) state and write it back unchanged.
+                if let Err(e) = tcsetattr(&stdin, SetArg::TCSANOW, &orig) {
+                    eprintln!("dimi-tui: failed to restore termios: {e}");
+                }
+            }
+        }
+        self.was_raw = false;
     }
 
     fn write(&mut self, data: &str) {

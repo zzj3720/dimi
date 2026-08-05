@@ -23,6 +23,7 @@ use dimi_tui::component::{Component, SharedComponent};
 use dimi_tui::custom_editor::{CustomEditor, CustomEditorCallbacks, InputMode};
 use dimi_tui::editor::EditorOptions;
 use dimi_tui::footer::{FooterComponent, FooterState};
+use dimi_tui::keys::matches_key;
 use dimi_tui::process_terminal::ProcessTerminal;
 use dimi_tui::session::{BusyInputMode, SessionBackend, SessionError, SessionManager};
 use dimi_tui::terminal::Terminal;
@@ -279,6 +280,14 @@ impl DimiApp {
     /// `crates/dimi-tui/examples/shell.rs` for the wiring this is based on).
     /// Blocks until EOF, Esc, Ctrl-C, or Ctrl-D.
     pub fn run(&mut self) {
+        // SIGINT/SIGTERM must restore the terminal before exiting (raw mode
+        // would otherwise be left on the shell). Register atomic flags the
+        // event loop polls — mirroring the TS signal handling.
+        let sigint = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let sigterm = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _ = signal_hook::flag::register(libc::SIGINT, sigint.clone());
+        let _ = signal_hook::flag::register(libc::SIGTERM, sigterm.clone());
+
         let term = Rc::new(RefCell::new(ProcessTerminal::new()));
         let mut tui = Tui::new(Box::new(SharedTerminal {
             inner: term.clone(),
@@ -302,7 +311,10 @@ impl DimiApp {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 4096];
         loop {
-            if self.exit_flag.get() {
+            if self.exit_flag.get()
+                || sigint.load(std::sync::atomic::Ordering::Relaxed)
+                || sigterm.load(std::sync::atomic::Ordering::Relaxed)
+            {
                 break;
             }
             if term.borrow_mut().take_resize_pending() {
@@ -318,9 +330,22 @@ impl DimiApp {
                     // Route complete sequences (after Kitty negotiation +
                     // buffer splitting) into the TUI input handler.
                     let mut on_input = |data: &str| {
-                        tui.handle_input(data);
+                        // When the editor is empty, Up/Down scroll the
+                        // transcript (mirrors the TS TUI: empty-editor arrows
+                        // navigate the history window).
+                        let editor_empty = self.editor.borrow().inner().get_text().is_empty();
+                        if editor_empty && (matches_key(data, "up") || matches_key(data, "down")) {
+                            self.transcript.borrow_mut().handle_input(data);
+                        } else {
+                            tui.handle_input(data);
+                        }
                     };
                     term.borrow_mut().process_stdin_chunk(&chunk, &mut on_input);
+                    // Flush an incomplete escape tail (e.g. a lone Esc before
+                    // the next byte arrives) so Esc works on non-Kitty
+                    // terminals; the stdin buffer would otherwise hold it
+                    // until the next read.
+                    term.borrow_mut().flush_stdin(&mut on_input);
                     // Drain Enter-submits the editor queued while handling the
                     // chunk (outside its borrow, so the transcript is writable).
                     let submits: Vec<String> = self.submit_inbox.borrow_mut().drain(..).collect();
@@ -331,6 +356,12 @@ impl DimiApp {
                     let rows = term.borrow().rows();
                     self.apply_layout(width, rows);
                     tui.request_render();
+                    // Ctrl-C / Ctrl-D / Esc set `exit_flag` while handling the
+                    // chunk; break immediately instead of blocking on the next
+                    // read (raw-mode input is a byte stream, not a signal).
+                    if self.exit_flag.get() {
+                        break;
+                    }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
@@ -386,9 +417,12 @@ impl DimiApp {
                 // `/clear` resolves to the registry `/new` via alias.
                 "new" => self.handle_clear(),
                 "wire" => self.handle_wire(args.trim()),
+                // `/exit` / `/quit` leave the TUI (restores the terminal via
+                // the event loop's `tui.stop()` on the exit flag).
+                "exit" | "quit" => self.exit_flag.set(true),
                 other if find_builtin_slash_command(other).is_some() => {
                     self.push_status(
-                        &format!("/{other} 未实现（本切片仅实现 /help /new /wire）"),
+                        &format!("/{other} 未实现（本切片仅实现 /help /new /wire /exit）"),
                         None,
                     );
                 }
@@ -712,5 +746,84 @@ mod tests {
         assert_eq!(lines.len(), 8, "frame fills the terminal");
         let joined = lines.join("\n");
         assert!(joined.contains("msg 49"), "tail visible: {joined}");
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use dimi_tui::theme::{DARK_COLORS, set_palette};
+
+    #[test]
+    fn exit_command_arms_exit_flag() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        assert!(!app.exit_flag.get());
+        app.handle_submit("/exit");
+        assert!(app.exit_flag.get(), "/exit should arm the exit flag");
+        // No transcript entry for exit itself (the loop breaks immediately).
+        assert!(app.transcript.borrow().entries().is_empty());
+    }
+
+    #[test]
+    fn quit_alias_arms_exit_flag() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/quit");
+        assert!(app.exit_flag.get(), "/quit alias should arm the exit flag");
+    }
+
+    #[test]
+    fn ctrl_c_byte_through_editor_arms_exit_flag() {
+        set_palette(DARK_COLORS);
+        let app = DimiApp::new(Config::default());
+        let mut ed = app.editor.borrow_mut();
+        Component::handle_input(&mut *ed, "\x03");
+        drop(ed);
+        assert!(app.exit_flag.get(), "ctrl-c byte should arm the exit flag");
+    }
+
+    #[test]
+    fn esc_byte_through_editor_arms_exit_flag() {
+        set_palette(DARK_COLORS);
+        let app = DimiApp::new(Config::default());
+        let mut ed = app.editor.borrow_mut();
+        Component::handle_input(&mut *ed, "\x1b");
+        drop(ed);
+        assert!(app.exit_flag.get(), "esc should arm the exit flag");
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+    use dimi_tui::theme::{DARK_COLORS, set_palette};
+
+    #[test]
+    fn empty_editor_arrow_routes_to_transcript_scroll() {
+        set_palette(DARK_COLORS);
+        let app = DimiApp::new(Config::default());
+        // Simulate the event-loop routing decision: empty editor + Up should
+        // scroll the transcript, not the editor.
+        let editor_empty = app.editor.borrow().inner().get_text().is_empty();
+        assert!(editor_empty);
+        // The transcript has no entries yet; push 3 and cap the window so
+        // scrolling has room.
+        app.transcript.borrow_mut().push(status_entry("a", None));
+        app.transcript.borrow_mut().push(status_entry("b", None));
+        app.transcript.borrow_mut().push(status_entry("c", None));
+        app.transcript.borrow_mut().set_max_lines(2);
+        // Offset 0 = showing the tail (3 entries, 2 visible).
+        let _ = app.transcript.borrow_mut().render(80);
+        assert_eq!(
+            app.transcript.borrow().scroll_offset(),
+            0,
+            "tail window starts at 0"
+        );
+        // Up scrolls back one line.
+        let mut t = app.transcript.borrow_mut();
+        dimi_tui::component::Component::handle_input(&mut *t, "\x1b[A");
+        drop(t);
+        assert_eq!(app.transcript.borrow().scroll_offset(), 1);
     }
 }

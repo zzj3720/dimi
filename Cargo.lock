@@ -568,8 +568,10 @@ dependencies = [
  "dimi-store",
  "dimi-tui",
  "dimi-wire",
+ "libc",
  "serde",
  "serde_json",
+ "signal-hook",
  "toml",
 ]
 
