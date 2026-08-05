@@ -20,14 +20,20 @@ use dimi_engine::llm::{LlmClient, OpenAiCompatibleClient};
 use dimi_engine::permission::{PermissionMode, PolicyConfig};
 use dimi_engine::tool::{BashTool, ToolRegistry};
 use dimi_engine::types::{EngineTool, EngineTurnInput, LlmMessage, ProviderConfig};
-use dimi_tui::chrome::WelcomeState;
+use dimi_tui::chrome::{QueuePaneOptions, WelcomeState};
 use dimi_tui::commands::{
     DispatchAction, SlashCommand, builtin_slash_commands, dispatch_input,
     find_builtin_slash_command,
 };
 use dimi_tui::component::{Component, SharedComponent};
 use dimi_tui::components::messages::tool_renderers::ToolResultData;
+use dimi_tui::controllers::btw::BtwPanelController;
+use dimi_tui::controllers::events::{ErrorPayload, Event, TurnEndReason};
+use dimi_tui::controllers::{BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskStatus};
 use dimi_tui::custom_editor::{CustomEditor, CustomEditorCallbacks, InputMode};
+use dimi_tui::dialogs::session_picker::{
+    SessionPickerAction, SessionPickerComponent, SessionPickerOptions, SessionRow, SessionScope,
+};
 use dimi_tui::editor::EditorOptions;
 use dimi_tui::footer::{FooterComponent, FooterState};
 use dimi_tui::keys::matches_key;
@@ -38,14 +44,22 @@ use dimi_tui::theme::{ColorToken, DARK_COLORS, LIGHT_COLORS, invalidate_componen
 use dimi_tui::tui::Tui;
 use dimi_tui::wire_transcript::{TranscriptEntry, TranscriptEntryKind};
 
+use crate::activity::{ActivityComponent, ActivityMode};
+use crate::btw_panel::BtwPanelComponent;
 use crate::config::Config;
+use crate::panels::{EditorSlotComponent, QueuePanelHost};
+use crate::tasks_panel::{TaskInfo, TaskListComponent};
 use crate::transcript::{
     TranscriptContainer, assistant_entry, status_entry, tool_call_entry, user_entry,
 };
 
-/// Child index of the editor in the mounted TUI tree (transcript=0, footer=1,
-/// editor=2).
-const EDITOR_CHILD_INDEX: usize = 2;
+/// Child indices of the mounted TUI tree (transcript=0, activity=1, btw=2,
+/// queue=3, tasks=4, footer=5, editor-slot=6).
+const EDITOR_CHILD_INDEX: usize = 6;
+
+/// The agent id `/btw` panels attach to (a dimi-cli-local subagent handle).
+/// Engine events carrying this attribution are routed to the BTW panel.
+pub const BTW_AGENT_ID: &str = "btw";
 
 /// Status shown whenever a normal prompt would reach the engine but the
 /// provider is not configured — a clear nudge to fill in `config.toml`.
@@ -139,6 +153,9 @@ pub struct EngineBackend {
     policy: PolicyConfig,
     /// Working directory handed to tool execution.
     work_dir: Option<String>,
+    /// Background tasks tracked from `task.started` / `task.settled`
+    /// (backgrounded bash / subagents — populated when the engine emits them).
+    tasks: Vec<BackgroundTaskInfo>,
     next_turn_id: i64,
     next_session_id: i64,
 }
@@ -169,28 +186,32 @@ impl EngineBackend {
                 session_approved_patterns: vec![],
             },
             work_dir,
+            tasks: Vec::new(),
             next_turn_id: 1,
             next_session_id: 1,
         }
     }
 
     /// Spawn one engine turn for `text` (used by both prompt and `!` bash
-    /// lines — slice 6a routes bash through the model). Returns whether a
-    /// turn started (always true once the provider is configured).
-    fn start_turn(&mut self, _text: &str) -> bool {
+    /// lines — slice 6a routes bash through the model — and by `/btw`).
+    /// Returns the spawned turn's id, or `None` when the provider is not
+    /// configured (a clear status was already pushed to the transcript).
+    pub fn start_turn(&mut self, _text: &str) -> Option<i64> {
         let Some(provider) = self.provider.clone() else {
             self.transcript.borrow_mut().push(status_entry(
                 ENGINE_NOT_CONFIGURED_MSG,
                 Some(ColorToken::Error),
             ));
-            return false;
+            return None;
         };
 
         let transcript = self.transcript.borrow();
         let messages = transcript_messages(transcript.entries());
         drop(transcript);
+        let turn_id = self.next_turn_id;
+        self.next_turn_id += 1;
         let input = EngineTurnInput {
-            turn_id: self.next_turn_id,
+            turn_id,
             messages,
             tools: engine_tools(),
             active_tools: None,
@@ -211,7 +232,6 @@ impl EngineBackend {
             origin: dimi_wire::model::TurnOrigin::User { payload: None },
             uses_worker_rejection_guidance: false,
         };
-        self.next_turn_id += 1;
 
         let engine = Engine::default();
         let llm = self.llm.clone();
@@ -227,7 +247,13 @@ impl EngineBackend {
                 .await;
         });
         self.current_turn = Some(handle);
-        true
+        Some(turn_id)
+    }
+
+    /// The background tasks tracked so far (from `task.started` /
+    /// `task.settled`).
+    pub fn tasks(&self) -> &[BackgroundTaskInfo] {
+        &self.tasks
     }
 
     /// Point the next turn at a different model (`/model <name>`). The engine
@@ -247,17 +273,18 @@ impl EngineBackend {
     }
 
     /// Drain every buffered engine event (non-blocking) into transcript
-    /// entries. Returns whether anything changed (the caller re-renders).
-    fn drain_events(&mut self) -> bool {
+    /// entries, and return the drained events so the app can route them to
+    /// panel controllers (e.g. the BTW panel). Empty when nothing changed.
+    fn drain_events(&mut self) -> Vec<EngineEvent> {
         let mut batch: Vec<EngineEvent> = Vec::new();
         while let Ok(event) = self.rx.try_recv() {
             batch.push(event);
         }
         if batch.is_empty() {
-            return false;
+            return batch;
         }
         self.apply_engine_events(&batch);
-        true
+        batch
     }
 
     /// Map a batch of engine events to transcript entries (minimal slice 6a
@@ -313,6 +340,46 @@ impl EngineBackend {
                     }
                     turn_ended = true;
                 }
+                EngineEvent::TaskStarted {
+                    task_id,
+                    kind,
+                    description,
+                    ..
+                } => {
+                    let task_kind = if kind == "agent" {
+                        BackgroundTaskKind::Agent
+                    } else {
+                        BackgroundTaskKind::Process
+                    };
+                    self.tasks.retain(|t| t.task_id != *task_id);
+                    self.tasks.push(BackgroundTaskInfo {
+                        task_id: task_id.clone(),
+                        kind: task_kind,
+                        status: BackgroundTaskStatus::Running,
+                        agent_id: None,
+                        description: Some(description.clone()),
+                        exit_code: None,
+                        stop_reason: None,
+                        detached: None,
+                    });
+                }
+                EngineEvent::TaskSettled {
+                    task_id,
+                    status,
+                    error,
+                    exit_code,
+                    ..
+                } => {
+                    if let Some(task) = self.tasks.iter_mut().find(|t| t.task_id == *task_id) {
+                        task.status = match status.as_str() {
+                            "completed" => BackgroundTaskStatus::Completed,
+                            "timed_out" => BackgroundTaskStatus::TimedOut,
+                            _ => BackgroundTaskStatus::Failed,
+                        };
+                        task.exit_code = exit_code.map(|c| c as i32);
+                        task.stop_reason = error.clone();
+                    }
+                }
                 _ => {}
             }
         }
@@ -338,6 +405,29 @@ fn flush_assistant(entries: &mut Vec<TranscriptEntry>, pending: &mut String) {
     }
     entries.push(assistant_entry(pending));
     pending.clear();
+}
+
+/// Human label for a [`BackgroundTaskStatus`] (displayed in the tasks panel).
+fn task_status_label(status: BackgroundTaskStatus) -> String {
+    match status {
+        BackgroundTaskStatus::Running => "running",
+        BackgroundTaskStatus::Completed => "completed",
+        BackgroundTaskStatus::Failed => "failed",
+        BackgroundTaskStatus::TimedOut => "timed out",
+        BackgroundTaskStatus::Killed => "killed",
+        BackgroundTaskStatus::Lost => "lost",
+    }
+    .to_string()
+}
+
+/// Wall-clock now in milliseconds (the same unit as `Date.now()`), used for
+/// the `/sessions` picker's relative timestamps.
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Clipboard copy strategy for `/copy` — injectable so tests never touch a
@@ -485,10 +575,10 @@ impl SessionBackend for EngineBackend {
     fn send_bash_line(&mut self, text: &str) -> bool {
         // Slice 6a simplification: `!` shell lines also run through the
         // engine turn (real dimi-exec dispatch is a later slice).
-        self.start_turn(text)
+        self.start_turn(text).is_some()
     }
     fn send_prompt(&mut self, text: &str) -> bool {
-        self.start_turn(text)
+        self.start_turn(text).is_some()
     }
 }
 
@@ -563,6 +653,25 @@ fn app_slash_commands() -> &'static [SlashCommand] {
 /// The app coordinator.
 pub struct DimiApp {
     pub transcript: Rc<RefCell<TranscriptContainer>>,
+    /// The streaming activity pane (moon spinner + working tip) below the
+    /// transcript.
+    pub activity: Rc<RefCell<ActivityComponent>>,
+    /// The BTW panel rendering component (0 lines while closed).
+    pub btw_panel: Rc<RefCell<BtwPanelComponent>>,
+    /// The BTW panel state machine (`route_event` feeds it; the rendering
+    /// component mirrors `active()`).
+    pub btw_controller: Rc<RefCell<BtwPanelController>>,
+    /// The queue pane host (renders only while the send queue has messages).
+    pub queue_pane: Rc<RefCell<QueuePanelHost>>,
+    /// The tasks panel (renders only while `/tasks` is open).
+    pub tasks_panel: Rc<RefCell<TaskListComponent>>,
+    /// The session picker, when mounted (replaces the editor while open).
+    pub session_picker: Rc<RefCell<Option<SessionPickerComponent>>>,
+    /// Turn id of the current `/btw` turn: engine events carrying this id are
+    /// routed to the BTW panel.
+    btw_turn_id: Option<i64>,
+    /// Sessions the app has created/resumed, for the `/sessions` picker.
+    known_sessions: Vec<SessionRow>,
     pub footer: Rc<RefCell<FooterComponent>>,
     pub editor: Rc<RefCell<CustomEditor>>,
     pub session: SessionManager,
@@ -665,6 +774,14 @@ impl DimiApp {
 
         let mut app = DimiApp {
             transcript,
+            activity: Rc::new(RefCell::new(ActivityComponent::new())),
+            btw_panel: Rc::new(RefCell::new(BtwPanelComponent::new())),
+            btw_controller: Rc::new(RefCell::new(BtwPanelController::new())),
+            queue_pane: Rc::new(RefCell::new(QueuePanelHost::new())),
+            tasks_panel: Rc::new(RefCell::new(TaskListComponent::new())),
+            session_picker: Rc::new(RefCell::new(None)),
+            btw_turn_id: None,
+            known_sessions: Vec::new(),
             footer,
             editor,
             session,
@@ -676,6 +793,9 @@ impl DimiApp {
             clipboard: default_clipboard(),
         };
         app.apply_config();
+        // Record the startup session so `/sessions` has at least one row.
+        app.record_current_session();
+        app.update_queue_pane();
         app
     }
 
@@ -700,35 +820,57 @@ impl DimiApp {
         }
     }
 
+    /// Render the chrome below the transcript (activity, btw, queue, tasks,
+    /// footer, editor-slot) in mount order. Returns the concatenated lines.
+    fn render_chrome(&mut self, width: usize) -> Vec<String> {
+        let mut lines = Vec::new();
+        lines.extend(self.activity.borrow_mut().render(width));
+        lines.extend(self.btw_panel.borrow_mut().render(width));
+        lines.extend(self.queue_pane.borrow_mut().render(width));
+        lines.extend(self.tasks_panel.borrow_mut().render(width));
+        lines.extend(self.footer.borrow_mut().render(width));
+        if self.session_picker.borrow().is_some() {
+            lines.extend(
+                self.session_picker
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .render(width),
+            );
+        } else {
+            lines.extend(self.editor.borrow_mut().render(width));
+        }
+        lines
+    }
+
     /// Compute the transcript's visible-line budget from the current terminal
-    /// size: `rows - footer_height - editor_height`. The footer and editor are
-    /// rendered first (at `width`) to learn their heights; the TUI mounts them
-    /// after the transcript, so the container must cap itself to this budget.
+    /// size: `rows` minus the height of every chrome section below it
+    /// (activity / btw / queue / tasks / footer / editor-slot). The chrome is
+    /// rendered first (at `width`) to learn its heights; the TUI mounts the
+    /// chrome after the transcript, so the container must cap itself to this
+    /// budget.
     fn apply_layout(&mut self, width: usize, rows: usize) {
-        let footer_height = self.footer.borrow_mut().render(width).len();
-        let editor_height = self.editor.borrow_mut().render(width).len();
-        let max_lines = rows.saturating_sub(footer_height + editor_height);
+        let chrome_height = self.render_chrome(width).len();
+        let max_lines = rows.saturating_sub(chrome_height);
         self.transcript.borrow_mut().set_max_lines(max_lines);
     }
 
     /// Pure frame render for headless tests: transcript (capped to the rows
-    /// left after footer + editor), then footer, then editor. Returns exactly
-    /// `rows` lines when the transcript fills the budget it was given.
+    /// left after the chrome below it), then the chrome (activity / btw /
+    /// queue / tasks / footer / editor-slot). Returns exactly `rows` lines
+    /// when the transcript fills the budget it was given.
     ///
     /// `#[allow(dead_code)]`: this is the headless-test render surface of a
     /// binary crate — the live app renders through `Tui::do_render` instead,
     /// so `cargo build` (without test cfg) would otherwise flag it unused.
     #[allow(dead_code)]
     pub fn render_lines(&mut self, width: usize, rows: usize) -> Vec<String> {
-        let footer_lines = self.footer.borrow_mut().render(width);
-        let editor_lines = self.editor.borrow_mut().render(width);
-        let chrome_lines = footer_lines.len() + editor_lines.len();
-        let max_lines = rows.saturating_sub(chrome_lines);
+        let chrome = self.render_chrome(width);
+        let max_lines = rows.saturating_sub(chrome.len());
         self.transcript.borrow_mut().set_max_lines(max_lines);
         let transcript_lines = self.transcript.borrow_mut().render(width);
         let mut out = transcript_lines;
-        out.extend(footer_lines);
-        out.extend(editor_lines);
+        out.extend(chrome);
         out
     }
 
@@ -737,13 +879,17 @@ impl DimiApp {
     /// changed so the caller can skip redundant re-renders.
     pub fn pump_engine_turns(&mut self) -> bool {
         let mut changed = false;
-        if self.backend.drain_events() {
+        let events = self.backend.drain_events();
+        if !events.is_empty() {
             changed = true;
+            self.route_btw_events(&events);
+            self.sync_activity_mode();
         }
         if self.backend.turn_idle {
             self.backend.turn_idle = false;
             self.session.set_streaming(false);
             changed = true;
+            self.sync_activity_mode();
         }
         changed
     }
@@ -777,8 +923,17 @@ impl DimiApp {
         }));
         tui.set_clear_on_shrink(true);
         tui.add_child(Box::new(SharedComponent::new(self.transcript.clone())));
+        tui.add_child(Box::new(SharedComponent::new(self.activity.clone())));
+        tui.add_child(Box::new(SharedComponent::new(self.btw_panel.clone())));
+        tui.add_child(Box::new(SharedComponent::new(self.queue_pane.clone())));
+        tui.add_child(Box::new(SharedComponent::new(self.tasks_panel.clone())));
         tui.add_child(Box::new(SharedComponent::new(self.footer.clone())));
-        tui.add_child(Box::new(SharedComponent::new(self.editor.clone())));
+        // The editor slot renders the session picker while it is open and the
+        // editor otherwise (TS `mountEditorReplacement` / `restoreEditor`).
+        tui.add_child(Box::new(EditorSlotComponent::new(
+            self.editor.clone(),
+            self.session_picker.clone(),
+        )));
 
         // Initial layout so the first frame caps the transcript correctly.
         let width = term.borrow().columns();
@@ -821,6 +976,9 @@ impl DimiApp {
 
         loop {
             let progress = self.pump_engine_turns();
+            // Advance the activity spinner (returns true while the pane is
+            // visible — the streaming turn's spinner animates each tick).
+            let spinner_changed = self.activity.borrow_mut().advance();
             if self.exit_flag.get()
                 || sigint.load(std::sync::atomic::Ordering::Relaxed)
                 || sigterm.load(std::sync::atomic::Ordering::Relaxed)
@@ -837,8 +995,31 @@ impl DimiApp {
                 Ok(Some(bytes)) => {
                     let chunk = String::from_utf8_lossy(&bytes).into_owned();
                     // Route complete sequences (after Kitty negotiation +
-                    // buffer splitting) into the TUI input handler.
+                    // buffer splitting) into the TUI input handler. Panel
+                    // navigation keys are routed at the app layer because the
+                    // TUI only feeds the focused (editor) child.
                     let mut on_input = |data: &str| {
+                        let picker_open = self.session_picker.borrow().is_some();
+                        let tasks_open = self.tasks_panel.borrow().is_open();
+                        let btw_open = self.btw_panel.borrow().is_open();
+                        // Esc closes an open modal panel first.
+                        if matches_key(data, "escape") && (tasks_open || btw_open) {
+                            if tasks_open {
+                                self.tasks_panel.borrow_mut().set_open(false);
+                            }
+                            if btw_open {
+                                self.btw_controller.borrow_mut().close_or_cancel();
+                                self.btw_panel.borrow_mut().close();
+                                self.btw_turn_id = None;
+                            }
+                            return;
+                        }
+                        if picker_open {
+                            // The picker replaces the editor: all input goes to
+                            // the focused editor slot (which delegates to it).
+                            tui.handle_input(data);
+                            return;
+                        }
                         // When the editor is empty, Up/Down scroll the
                         // transcript (mirrors the TS TUI: empty-editor arrows
                         // navigate the history window).
@@ -855,6 +1036,20 @@ impl DimiApp {
                     // terminals; the stdin buffer would otherwise hold it
                     // until the next read.
                     term.borrow_mut().flush_stdin(&mut on_input);
+                    // Poll the session picker for a select/cancel action (the
+                    // editor slot has consumed the key; the host applies the
+                    // outcome outside the closure's borrows).
+                    let picker_action = if self.session_picker.borrow().is_some() {
+                        self.session_picker
+                            .borrow_mut()
+                            .as_mut()
+                            .and_then(|p| p.take_action())
+                    } else {
+                        None
+                    };
+                    if let Some(action) = picker_action {
+                        self.handle_session_picker_action(action);
+                    }
                     // Drain Enter-submits the editor queued while handling the
                     // chunk (outside its borrow, so the transcript is writable).
                     let submits: Vec<String> = self.submit_inbox.borrow_mut().drain(..).collect();
@@ -875,8 +1070,9 @@ impl DimiApp {
                 Ok(None) => break, // stdin EOF
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // No input this tick — re-render only when the engine
-                    // turn made progress (streaming assistant output).
-                    if progress {
+                    // turn made progress (streaming assistant output) or the
+                    // activity spinner advanced.
+                    if progress || spinner_changed {
                         tui.request_render();
                     }
                 }
@@ -909,6 +1105,7 @@ impl DimiApp {
             self.dispatch_action(action);
         }
         self.reset_editor_after_submit();
+        self.sync_activity_mode();
     }
 
     /// `!` shell-mode submit: enqueue as a bash line, echo it into the
@@ -918,6 +1115,7 @@ impl DimiApp {
         self.session.enqueue_message(text, Some("bash"));
         self.push_user(text, Some(String::new()));
         self.session.flush_queued_messages(&mut self.backend);
+        self.update_queue_pane();
     }
 
     /// Apply a [`DispatchAction`] from slash-command resolution. Builtin
@@ -929,6 +1127,8 @@ impl DimiApp {
                 self.session.enqueue_message(&msg, None);
                 self.push_user(&msg, None);
                 self.session.flush_queued_messages(&mut self.backend);
+                self.update_queue_pane();
+                self.record_last_prompt(&msg);
             }
             DispatchAction::RunBuiltin { name, args } => self.handle_builtin(&name, &args),
             DispatchAction::RunSkill { skill_name, .. } => {
@@ -988,7 +1188,7 @@ impl DimiApp {
             ),
             "settings" => self.handle_unwired("settings", "面板依赖：settings 面板未实现"),
             "feedback" => self.handle_unwired("feedback", "SDK/面板依赖：feedback 提交未接入"),
-            "btw" => self.handle_unwired("btw", "面板依赖：BTW 面板未实现"),
+            "btw" => self.handle_btw(args),
             "swarm" => self.handle_unwired("swarm", "引擎/SDK 依赖：swarm 模式未接入"),
             "init" => self.handle_unwired("init", "引擎/SDK 依赖：AGENTS.md 分析未接入"),
             "fork" => self.handle_unwired("fork", "引擎/SDK 依赖：session fork 未接入"),
@@ -1017,8 +1217,8 @@ impl DimiApp {
             .map(|c| c.name.as_str())
             .collect();
         let help = format!(
-            "Dimi TUI（Rust，slice 6b）· 已实现：/version /status /usage /title /theme /effort \
-             /permission /yolo /auto /plan /copy /export-md /model /undo /sessions /tasks /new \
+            "Dimi TUI（Rust，slice 6c）· 已实现：/version /status /usage /title /theme /effort \
+             /permission /yolo /auto /plan /copy /export-md /model /undo /sessions /tasks /btw /new \
              /help /wire /exit\n内置命令（{}）：{}",
             names.len(),
             names.join(" ")
@@ -1032,6 +1232,8 @@ impl DimiApp {
         self.transcript.borrow_mut().clear();
         if self.session.current_session_id().is_some() {
             let _ = self.session.create_session(&mut self.backend);
+            self.record_current_session();
+            self.update_queue_pane();
         }
     }
 
@@ -1128,6 +1330,15 @@ impl DimiApp {
         }
         let new_title: String = title.chars().take(200).collect();
         self.session.set_title(Some(new_title.clone()));
+        // Mirror the title onto the `/sessions` picker row for this session.
+        let current_id = self.session.current_session_id().map(str::to_owned);
+        if let Some(row) = self
+            .known_sessions
+            .iter_mut()
+            .find(|r| Some(r.id.as_str()) == current_id.as_deref())
+        {
+            row.title = Some(new_title.clone());
+        }
         self.push_status(&format!("Session title set to: {new_title}"), None);
     }
 
@@ -1456,31 +1667,45 @@ impl DimiApp {
         );
     }
 
-    /// `/sessions` — report the current session (port of `showSessionPicker`
-    /// minus the picker UI, which is slice 6c).
+    /// `/sessions` — open the session picker (replacing the editor, port of
+    /// `showSessionPicker` + `mountEditorReplacement`).
     fn handle_sessions(&mut self) {
-        match self.session.current_session_id() {
-            Some(id) => {
-                let title = self.session.title().unwrap_or("(未设置)");
-                let streaming = if self.session.streaming() {
-                    "streaming"
-                } else {
-                    "idle"
-                };
-                self.push_status(
-                    &format!("当前会话：{id} · title: {title} · streaming: {streaming}"),
-                    None,
-                );
-            }
-            None => self.push_status("无活跃会话", Some(ColorToken::Warning)),
-        }
+        self.open_session_picker();
     }
 
-    /// `/tasks` — report background tasks. dimi-cli tracks no background tasks
-    /// in slice 6b, so the count is always 0 (the TS tasks browser is a later
-    /// slice).
+    /// `/tasks` — open the background-tasks panel populated from the engine
+    /// backend's tracked tasks (empty list when none).
     fn handle_tasks(&mut self) {
-        self.push_status("后台任务：0", None);
+        let tasks: Vec<TaskInfo> = self
+            .backend
+            .tasks()
+            .iter()
+            .map(|t| TaskInfo {
+                task_id: t.task_id.clone(),
+                status: task_status_label(t.status),
+                description: t.description.clone(),
+            })
+            .collect();
+        self.tasks_panel.borrow_mut().set_tasks(tasks);
+        self.tasks_panel.borrow_mut().set_open(true);
+    }
+
+    /// `/btw <prompt>` — open the BTW panel (controller + rendering component)
+    /// and start a side-agent turn for the prompt.
+    fn handle_btw(&mut self, prompt: &str) {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            self.push_status("Usage: /btw <prompt>", Some(ColorToken::Error));
+            return;
+        }
+        // Open the panel first: it shows the prompt + "Waiting for answer..."
+        // immediately. The controller is the state machine; the component
+        // mirrors `active()` and keeps the prompt text.
+        self.btw_controller.borrow_mut().open(BTW_AGENT_ID, prompt);
+        self.btw_panel.borrow_mut().open(prompt);
+        if let Some(turn_id) = self.backend.start_turn(prompt) {
+            self.btw_turn_id = Some(turn_id);
+        }
     }
 
     /// Status for a builtin whose body depends on an SDK / panel / engine
@@ -1538,14 +1763,212 @@ impl DimiApp {
     /// Force every mounted component to rebuild cached ANSI after a theme
     /// switch (the TS `applyTheme` invalidation step).
     fn invalidate_chrome(&mut self) {
-        let mut transcript = self.transcript.borrow_mut();
-        let mut footer = self.footer.borrow_mut();
-        let mut editor = self.editor.borrow_mut();
         invalidate_components([
-            &mut *transcript as &mut dyn Component,
-            &mut *footer as &mut dyn Component,
-            &mut *editor as &mut dyn Component,
+            &mut *self.transcript.borrow_mut() as &mut dyn Component,
+            &mut *self.activity.borrow_mut() as &mut dyn Component,
+            &mut *self.btw_panel.borrow_mut() as &mut dyn Component,
+            &mut *self.queue_pane.borrow_mut() as &mut dyn Component,
+            &mut *self.tasks_panel.borrow_mut() as &mut dyn Component,
+            &mut *self.footer.borrow_mut() as &mut dyn Component,
+            &mut *self.editor.borrow_mut() as &mut dyn Component,
         ]);
+        if let Some(picker) = self.session_picker.borrow_mut().as_mut() {
+            picker.invalidate();
+        }
+    }
+
+    /// Rebuild the queue pane from the session's queued messages (empty queue
+    /// → the pane renders 0 lines).
+    fn update_queue_pane(&mut self) {
+        let options = QueuePaneOptions {
+            messages: self.session.queued_messages().to_vec(),
+            is_compacting: self.session.compacting(),
+            is_streaming: self.session.streaming(),
+            can_steer_immediately: true,
+            enter_steers_by_default: self.session.busy_input_mode() == BusyInputMode::Steer,
+        };
+        self.queue_pane.borrow_mut().update(options);
+    }
+
+    /// Sync the activity pane from the session streaming state (turn running →
+    /// composing spinner; idle → hidden).
+    fn sync_activity_mode(&mut self) {
+        let mode = if self.session.streaming() {
+            ActivityMode::Composing
+        } else {
+            ActivityMode::Idle
+        };
+        self.activity.borrow_mut().set_mode(mode);
+    }
+
+    /// Record the current session in the `/sessions` picker list (upsert by
+    /// id; refresh work_dir + updated_at).
+    fn record_current_session(&mut self) {
+        let Some(id) = self.session.current_session_id().map(str::to_owned) else {
+            return;
+        };
+        let work_dir = self.config.work_dir.clone().unwrap_or_default();
+        let now = now_ms();
+        if let Some(row) = self.known_sessions.iter_mut().find(|r| r.id == id) {
+            row.work_dir = work_dir;
+            row.updated_at = now;
+        } else {
+            self.known_sessions.push(SessionRow {
+                id,
+                title: None,
+                last_prompt: None,
+                work_dir,
+                updated_at: now,
+            });
+        }
+    }
+
+    /// Mirror a submitted prompt onto the current session's picker row.
+    fn record_last_prompt(&mut self, text: &str) {
+        let current_id = self.session.current_session_id().map(str::to_owned);
+        if let Some(row) = self
+            .known_sessions
+            .iter_mut()
+            .find(|r| Some(r.id.as_str()) == current_id.as_deref())
+        {
+            row.last_prompt = Some(text.to_owned());
+        }
+    }
+
+    /// Open the `/sessions` picker (replacing the editor in the mount tree).
+    fn open_session_picker(&mut self) {
+        let rows = self.known_sessions.clone();
+        let current = self
+            .session
+            .current_session_id()
+            .map(str::to_owned)
+            .unwrap_or_default();
+        let options = SessionPickerOptions {
+            sessions: rows,
+            loading: false,
+            current_session_id: current.clone(),
+            scope: SessionScope::Cwd,
+            initial_selected_session_id: Some(current),
+            page_size: None,
+            max_visible_sessions: Some(4),
+            has_toggle_scope: false,
+            home: Some(std::env::var("HOME").unwrap_or_default()),
+            now_ms: Some(now_ms()),
+        };
+        // The picker replaces the editor, so drop the editor's cursor marker.
+        self.editor.borrow_mut().inner_mut().set_focused(false);
+        *self.session_picker.borrow_mut() = Some(SessionPickerComponent::new(options));
+    }
+
+    /// Close the session picker and restore the editor (port of
+    /// `hideSessionPicker` → `restoreEditor`).
+    fn close_session_picker(&mut self) {
+        *self.session_picker.borrow_mut() = None;
+        self.editor.borrow_mut().inner_mut().set_focused(true);
+    }
+
+    /// Apply a session-picker action surfaced by the component (`onSelect` /
+    /// `onCancel` / `onCtrlC` / `onCtrlD` in the TS).
+    fn handle_session_picker_action(&mut self, action: SessionPickerAction) {
+        match action {
+            SessionPickerAction::Select(row) => {
+                if self
+                    .session
+                    .switch_session(&mut self.backend, &row.id)
+                    .is_ok()
+                {
+                    self.refresh_footer();
+                    self.update_queue_pane();
+                    self.push_status(&format!("Resumed session ({}).", row.id), None);
+                } else {
+                    self.push_status(
+                        &format!("Failed to switch session: {}", row.id),
+                        Some(ColorToken::Error),
+                    );
+                }
+                self.close_session_picker();
+            }
+            SessionPickerAction::Cancel => self.close_session_picker(),
+            SessionPickerAction::CtrlC | SessionPickerAction::CtrlD => {
+                self.close_session_picker();
+                self.exit_flag.set(true);
+            }
+            SessionPickerAction::ToggleScope(_) => {
+                // dimi-cli has no cross-scope session fetch (has_toggle_scope
+                // is false), so the picker never surfaces this.
+            }
+        }
+    }
+
+    /// Route drained engine events to the BTW panel when a `/btw` turn is
+    /// active: convert the engine events (assistant/thinking deltas, turn
+    /// end) to the dimi-tui event taxonomy, feed `BtwPanelController::route_event`,
+    /// and mirror the controller state into the rendering component.
+    fn route_btw_events(&mut self, events: &[EngineEvent]) {
+        if self.btw_controller.borrow().active().is_none() {
+            return;
+        }
+        let Some(btw_turn_id) = self.btw_turn_id else {
+            return;
+        };
+        let mut consumed = false;
+        for event in events {
+            let tui_event = match event {
+                EngineEvent::AssistantDelta { turn_id, delta } if *turn_id == btw_turn_id => {
+                    Some(Event::AssistantDelta {
+                        agent_id: Some(BTW_AGENT_ID.to_owned()),
+                        delta: delta.clone(),
+                    })
+                }
+                EngineEvent::ThinkingDelta { turn_id, delta } if *turn_id == btw_turn_id => {
+                    Some(Event::ThinkingDelta {
+                        agent_id: Some(BTW_AGENT_ID.to_owned()),
+                        delta: delta.clone(),
+                    })
+                }
+                EngineEvent::TurnEnded {
+                    turn_id,
+                    reason,
+                    error,
+                    ..
+                } if *turn_id == btw_turn_id => {
+                    let reason = match reason.as_str() {
+                        "completed" => TurnEndReason::Completed,
+                        "cancelled" => TurnEndReason::Cancelled,
+                        "blocked" => TurnEndReason::Blocked,
+                        _ => TurnEndReason::Failed,
+                    };
+                    let error_payload = error.as_ref().and_then(|e| {
+                        let code = e.get("code")?.as_str()?.to_owned();
+                        let message = e
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or_default()
+                            .to_owned();
+                        Some(ErrorPayload {
+                            code,
+                            message,
+                            details: None,
+                        })
+                    });
+                    Some(Event::TurnEnded {
+                        agent_id: Some(BTW_AGENT_ID.to_owned()),
+                        turn_id: turn_id.to_string(),
+                        reason,
+                        error: error_payload,
+                    })
+                }
+                _ => None,
+            };
+            if let Some(tui_event) = tui_event
+                && self.btw_controller.borrow_mut().route_event(&tui_event)
+            {
+                consumed = true;
+            }
+        }
+        if consumed && let Some(state) = self.btw_controller.borrow().active().cloned() {
+            self.btw_panel.borrow_mut().sync(&state);
+        }
     }
 
     fn push_status(&mut self, content: &str, color: Option<ColorToken>) {
@@ -2038,22 +2461,224 @@ mod tests {
     }
 
     #[test]
-    fn handle_submit_sessions_reports_current() {
+    fn handle_submit_sessions_opens_the_picker() {
         set_palette(DARK_COLORS);
         let mut app = DimiApp::new(Config::default());
         app.handle_submit("/sessions");
-        let e = entries(&app);
-        assert!(e[0].content.contains("当前会话"), "{}", e[0].content);
-        assert!(e[0].content.contains("session-1"), "{}", e[0].content);
+        // The picker replaces the editor (no transcript status row).
+        assert!(entries(&app).is_empty());
+        let mut picker = app.session_picker.borrow_mut();
+        assert!(picker.is_some(), "/sessions should mount the picker");
+        let lines = picker.as_mut().unwrap().render(80);
+        let joined = dimi_tui::ansi::strip_ansi(&lines.join("\n"));
+        assert!(joined.contains("Sessions"), "{joined}");
+        assert!(joined.contains("session-1"), "{joined}");
     }
 
     #[test]
-    fn handle_submit_tasks_reports_zero() {
+    fn handle_submit_tasks_opens_the_panel() {
         set_palette(DARK_COLORS);
         let mut app = DimiApp::new(Config::default());
         app.handle_submit("/tasks");
+        // No transcript status row; the panel opens showing the empty list.
+        assert!(entries(&app).is_empty());
+        {
+            let mut panel = app.tasks_panel.borrow_mut();
+            assert!(panel.is_open(), "/tasks should open the tasks panel");
+            let joined = dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"));
+            assert!(joined.contains("No background tasks"), "{joined}");
+        }
+    }
+
+    #[test]
+    fn handle_tasks_renders_backend_tracked_tasks() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        // The engine backend tracks background tasks (task.started / settled);
+        // seed one directly and confirm `/tasks` renders it.
+        app.backend.tasks.push(BackgroundTaskInfo {
+            task_id: "task_1".to_owned(),
+            kind: BackgroundTaskKind::Agent,
+            status: BackgroundTaskStatus::Running,
+            agent_id: None,
+            description: Some("run tests".to_owned()),
+            exit_code: None,
+            stop_reason: None,
+            detached: None,
+        });
+        app.handle_submit("/tasks");
+        let joined = {
+            let mut panel = app.tasks_panel.borrow_mut();
+            dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"))
+        };
+        assert!(joined.contains("task_1"), "{joined}");
+        assert!(joined.contains("running"), "{joined}");
+        assert!(joined.contains("run tests"), "{joined}");
+    }
+
+    #[test]
+    fn handle_btw_opens_panel_even_without_provider() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/btw hello");
+        // The panel opens and shows the prompt + waiting state even though the
+        // engine turn cannot start (no provider → backend pushes the
+        // not-configured status).
+        let joined = {
+            let mut panel = app.btw_panel.borrow_mut();
+            assert!(panel.is_open());
+            dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"))
+        };
+        assert!(joined.contains("Q: hello"), "{joined}");
+        assert!(joined.contains("Waiting for answer"), "{joined}");
+    }
+
+    #[test]
+    fn handle_btw_without_prompt_errors() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/btw");
         let e = entries(&app);
-        assert!(e[0].content.contains("0"), "{}", e[0].content);
+        assert_eq!(e[0].status_color, Some(ColorToken::Error));
+        assert!(e[0].content.contains("Usage: /btw"), "{}", e[0].content);
+        assert!(!app.btw_panel.borrow().is_open());
+    }
+
+    #[test]
+    fn render_lines_shows_queue_when_messages_queued() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        // Streaming gates flush → the message stays in the queue pane.
+        app.session.set_streaming(true);
+        app.session.enqueue_message("queued prompt", None);
+        app.update_queue_pane();
+        let joined = app.render_lines(80, 10).join("\n");
+        assert!(joined.contains("queued prompt"), "{joined}");
+
+        // Idle flush drains the queue → the pane disappears.
+        app.session.set_streaming(false);
+        app.session.flush_queued_messages(&mut app.backend);
+        app.update_queue_pane();
+        let joined = app.render_lines(80, 10).join("\n");
+        assert!(
+            !joined.contains("queued prompt"),
+            "queue should drain: {joined}"
+        );
+    }
+
+    #[test]
+    fn render_lines_includes_open_panels() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        // A transcript entry switches the container to the capped window path
+        // (the empty-transcript welcome renders uncapped).
+        app.transcript.borrow_mut().push(status_entry("base", None));
+        // Open the btw panel and queue a message.
+        app.btw_controller.borrow_mut().open(BTW_AGENT_ID, "side q");
+        app.btw_panel.borrow_mut().open("side q");
+        app.session.enqueue_message("queued", None);
+        app.update_queue_pane();
+        let lines = app.render_lines(80, 12);
+        let joined = lines.join("\n");
+        assert!(joined.contains("Q: side q"), "{joined}");
+        assert!(joined.contains("queued"), "{joined}");
+        // The frame still fills the terminal.
+        assert_eq!(lines.len(), 12, "frame must fill the terminal");
+    }
+
+    #[test]
+    fn theme_switch_recolors_rendered_chrome() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.footer.borrow_mut().update(FooterState {
+            model: "gpt-5".to_owned(),
+            ..Default::default()
+        });
+        let dark = app.footer.borrow_mut().render(80).join("\n");
+        assert!(
+            dark.contains("224;224;224"),
+            "dark Text tone #E0E0E0: {dark:?}"
+        );
+        app.handle_submit("/theme light");
+        let light = app.footer.borrow_mut().render(80).join("\n");
+        assert!(
+            light.contains("26;26;26"),
+            "light Text tone #1A1A1A: {light:?}"
+        );
+        set_palette(DARK_COLORS);
+    }
+
+    #[test]
+    fn session_picker_enter_switches_and_esc_cancels() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        assert_eq!(app.session.current_session_id(), Some("session-1"));
+        // Create a second session so the picker has something to switch to.
+        app.handle_new();
+        assert_eq!(app.session.current_session_id(), Some("session-2"));
+        assert_eq!(app.known_sessions.len(), 2);
+
+        app.handle_submit("/sessions");
+        assert!(app.session_picker.borrow().is_some());
+
+        // Up to session-1, Enter selects → switch.
+        app.session_picker
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .handle_input("\x1b[A");
+        app.session_picker
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .handle_input("\r");
+        let action = app
+            .session_picker
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .take_action()
+            .expect("select action");
+        app.handle_session_picker_action(action);
+        assert_eq!(app.session.current_session_id(), Some("session-1"));
+        assert!(
+            app.session_picker.borrow().is_none(),
+            "picker closes after select"
+        );
+
+        // Reopen, Esc cancels → editor restored, session unchanged.
+        app.handle_submit("/sessions");
+        assert!(app.session_picker.borrow().is_some());
+        app.session_picker
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .handle_input("\x1b");
+        let action = app
+            .session_picker
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .take_action()
+            .expect("cancel action");
+        app.handle_session_picker_action(action);
+        assert!(app.session_picker.borrow().is_none());
+        assert_eq!(
+            app.session.current_session_id(),
+            Some("session-1"),
+            "cancel keeps the session"
+        );
+    }
+
+    #[test]
+    fn session_picker_title_shows_on_rows() {
+        set_palette(DARK_COLORS);
+        let mut app = DimiApp::new(Config::default());
+        app.handle_submit("/title my project");
+        app.handle_submit("/sessions");
+        let mut picker = app.session_picker.borrow_mut();
+        let joined = dimi_tui::ansi::strip_ansi(&picker.as_mut().unwrap().render(80).join("\n"));
+        assert!(joined.contains("my project"), "{joined}");
     }
 
     #[test]
@@ -2070,7 +2695,6 @@ mod tests {
             "secondary_model",
             "settings",
             "feedback",
-            "btw",
             "swarm",
             "init",
             "fork",
@@ -2440,6 +3064,71 @@ mod engine_tests {
         assert!(!result.is_error);
         assert_eq!(e[2].kind, TranscriptEntryKind::Status);
         assert!(e[2].content.contains("完成"), "status: {}", e[2].content);
+    }
+
+    #[test]
+    fn handle_submit_btw_runs_turn_and_fills_panel() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "btw answer".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        app.handle_submit("/btw hello");
+        assert!(app.btw_panel.borrow().is_open());
+        app.wait_for_turn();
+        let joined = {
+            let mut panel = app.btw_panel.borrow_mut();
+            dimi_tui::ansi::strip_ansi(&panel.render(80).join("\n"))
+        };
+        assert!(joined.contains("Q: hello"), "{joined}");
+        assert!(
+            joined.contains("btw answer"),
+            "answer routed to panel: {joined}"
+        );
+        assert_eq!(
+            app.btw_panel.borrow().phase(),
+            crate::btw_panel::BtwPhase::Done,
+            "completed turn → done phase"
+        );
+    }
+
+    #[test]
+    fn activity_pane_reflects_streaming_state() {
+        let mut app = scripted_app(vec![
+            LlmStreamEvent::Text {
+                delta: "hi".to_string(),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("stop".to_string()),
+            },
+        ]);
+        // Idle at start → the activity pane is hidden.
+        assert_eq!(app.activity.borrow().mode(), ActivityMode::Idle);
+        app.handle_submit("hello");
+        // A turn started → the composing spinner is visible.
+        assert!(app.session.streaming());
+        assert_eq!(app.activity.borrow().mode(), ActivityMode::Composing);
+        let lines = {
+            let mut a = app.activity.borrow_mut();
+            a.render(80)
+        };
+        assert_eq!(
+            lines.len(),
+            1,
+            "activity visible while streaming: {lines:?}"
+        );
+        assert!(lines.join("\n").contains('🌑'), "{lines:?}");
+
+        app.wait_for_turn();
+        assert!(!app.session.streaming());
+        let lines = {
+            let mut a = app.activity.borrow_mut();
+            a.render(80)
+        };
+        assert!(lines.is_empty(), "activity hidden after the turn ends");
     }
 }
 

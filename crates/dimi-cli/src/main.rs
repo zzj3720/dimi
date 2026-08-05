@@ -14,8 +14,12 @@
 //! cargo run -p dimi-cli -- --wire crates/dimi-tui/testdata/sample-wire.jsonl
 //! ```
 
+mod activity;
 mod app;
+mod btw_panel;
 mod config;
+mod panels;
+mod tasks_panel;
 mod transcript;
 
 use std::io::IsTerminal;
