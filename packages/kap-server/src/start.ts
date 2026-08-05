@@ -108,11 +108,9 @@ export interface ServerStartOptions {
   /** Extra scope seeds applied at bootstrap (e.g. a host-provided `ISessionModelResolver`). */
   readonly seeds?: ScopeSeed;
   /**
-   * Host product identity injected into the base system prompt: `productName`
-   * fills the `${product_name}` slot, `replyStyleGuide` replaces the
-   * `${reply_style_guide}` block. Applied to every agent the server hosts — for
-   * embedding hosts (e.g. a desktop app), not per-session use. Defaults render
-   * the CLI text.
+   * Optional reply-style guide injected into the base system prompt for every
+   * agent the server hosts. This is for embedding hosts (e.g. a desktop app),
+   * not per-session use.
    */
   readonly hostIdentity?: HostIdentityOverrides;
   /**

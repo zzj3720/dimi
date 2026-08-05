@@ -892,7 +892,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       skills,
       pluginSections,
       skillActive: this.isToolActiveForProfile(profile, "Skill"),
-      productName: this.hostIdentity.productName,
       replyStyleGuide: this.hostIdentity.replyStyleGuide,
     };
   }
