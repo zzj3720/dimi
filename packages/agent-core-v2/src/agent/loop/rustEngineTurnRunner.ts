@@ -37,6 +37,7 @@ import type {
   TaskOrigin,
 } from "#/agent/contextMemory/types";
 import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMode";
+import { IAgentPlanService } from "#/agent/plan/plan";
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
@@ -293,6 +294,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
   /** Aborts the in-flight approval wait on cancel. */
   private approvalAbort: AbortController | undefined;
 
+  /** Aborts a TS external-tool execution (notably plan review) on cancel. */
+  private externalToolAbort: AbortController | undefined;
+
   /**
    * Rust-side task registry mirror: taskId → launch facts (description /
    * startedAt / pid) recorded from `task.started`, used to build the
@@ -356,6 +360,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IConfigService private readonly config: IConfigService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
+    @IAgentPlanService private readonly planMode: IAgentPlanService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentUsageService private readonly usageService: IAgentUsageService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -479,6 +484,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // Interrupt an in-flight approval wait first (it blocks the runner's
       // resume loop), then the engine's own cancellation.
       this.approvalAbort?.abort();
+      this.externalToolAbort?.abort();
       session.cancel();
       return true;
     }
@@ -505,6 +511,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.disposed = true;
     this.waitTimeoutSubscription.dispose();
     this.approvalAbort?.abort();
+    this.externalToolAbort?.abort();
     for (const session of this.sessions) {
       session.close();
     }
@@ -667,9 +674,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         session.completeToolGate(payload.requestId, JSON.stringify(verdict));
       })();
     });
+    const externalToolAbort = new AbortController();
+    this.externalToolAbort = externalToolAbort;
     try {
-      await this.runEngineSession(session, turnId, provider["model"] as string, origin);
+      await this.runEngineSession(
+        session,
+        turnId,
+        provider["model"] as string,
+        origin,
+        externalToolAbort.signal,
+      );
     } finally {
+      externalToolAbort.abort();
+      if (this.externalToolAbort === externalToolAbort) {
+        this.externalToolAbort = undefined;
+      }
       this.activeSession = undefined;
     }
     return { turnId };
@@ -684,6 +703,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     turnId: number,
     providerModel: string,
     origin: PromptOrigin,
+    externalToolSignal: AbortSignal,
   ): Promise<void> {
     interface EngineProgress {
       progress: {
@@ -768,7 +788,21 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                   ? call.arguments
                   : (JSON.stringify(call.arguments) ?? "null"),
             }));
-            const execution = await tool.resolveExecution(payload.arguments, { toolCalls });
+            const toolCallId = payload.toolCallId ?? payload.requestId;
+            const toolCall = {
+              type: "function" as const,
+              id: toolCallId,
+              name: payload.name,
+              arguments:
+                typeof payload.arguments === "string"
+                  ? payload.arguments
+                  : (JSON.stringify(payload.arguments) ?? "null"),
+            };
+            const allToolCalls = toolCalls.length > 0 ? toolCalls : [toolCall];
+            const signal = externalToolSignal;
+            const execution = await tool.resolveExecution(payload.arguments, {
+              toolCalls: allToolCalls,
+            });
             if (execution.isError === true) {
               session.completeToolCall(
                 payload.requestId,
@@ -783,18 +817,44 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               );
               return;
             }
+            // The Rust engine owns permission policy and lifecycle events, but
+            // plan mode remains an Agent-domain constraint. Ask that domain to
+            // adjudicate before external hooks or execution so ExitPlanMode's
+            // review and the plan-file-only write guard stay identical to the
+            // TS loop without emitting duplicate tool events.
+            const planDecision = await this.planMode.adjudicateExternalTool({
+              turnId,
+              signal,
+              toolCall,
+              toolCalls: allToolCalls,
+              tool,
+              args: payload.arguments,
+              execution,
+            });
+            if (planDecision?.veto !== undefined) {
+              session.completeToolCall(
+                payload.requestId,
+                JSON.stringify({
+                  toolCallId,
+                  toolName: payload.name,
+                  output: toText(planDecision.veto.output),
+                  isError: planDecision.veto.isError === true,
+                  stopTurn: planDecision.veto.stopTurn === true,
+                  updates: [],
+                }),
+              );
+              return;
+            }
             // P1-8 (review): the Rust path bypasses the TS toolExecutor, so
             // PreToolUse external hooks (veto) never fire on their own — the
             // runner triggers them explicitly, exactly where TS does
             // (`beforeExecuteEmitter.fireBeforeExecute` after resolve,
             // before execute). A block vetoes the call.
-            const signal = new AbortController().signal;
             const hooksRunner = this.instantiation.invokeFunction(
               (accessor) =>
                 accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
             );
             const toolInput = isPlainRecord(payload.arguments) ? payload.arguments : {};
-            const toolCallId = payload.toolCallId ?? payload.requestId;
             if (hooksRunner !== undefined) {
               const block = await hooksRunner.triggerBlock("PreToolUse", {
                 matcherValue: payload.name,
@@ -824,6 +884,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             const result = await execution.execute({
               turnId: 0,
               toolCallId,
+              metadata: planDecision?.executionMetadata,
               signal,
               onUpdate: (update) => {
                 if (signal.aborted) return;

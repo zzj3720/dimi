@@ -34,6 +34,7 @@ function planService(): IAgentPlanService {
         content: '# Plan',
         path: '/tmp/dimi-plan.md',
       } satisfies NonNullable<PlanData>),
+    adjudicateExternalTool: async () => undefined,
   };
 }
 

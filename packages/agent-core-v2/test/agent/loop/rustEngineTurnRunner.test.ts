@@ -11,6 +11,8 @@ import { RustTurnSession } from '@dimi-agent/dimi-native';
 
 import { COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { PlanModel } from '#/agent/plan/planOps';
 import { IConfigService } from '#/app/config/config';
 import { LOOP_CONTROL_SECTION } from '#/agent/loop/configSection';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -33,12 +35,14 @@ import {
   agentService,
   configServices,
   createTestAgent,
+  execEnvServices,
   externalHookServices,
   InMemoryWireRecordPersistence,
   logServices,
   permissionModeServices,
   type TestAgentContext,
 } from '../../harness';
+import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 
 // The Rust engine is the default runtime (CLI `--legacy` sets DIMI_LEGACY=1
 // to keep the TS loop); these suites run against the default path.
@@ -1782,6 +1786,179 @@ describe('Rust vs legacy routing', () => {
   it('keeps the TS loop under --legacy (DIMI_LEGACY=1)', () => {
     process.env['DIMI_LEGACY'] = '1';
     expect(RustEngineTurnRunner.isEnabled()).toBe(false);
+  });
+});
+
+describe('Rust engine plan mode orchestration', () => {
+  let ctx: TestAgentContext;
+  let files: Map<string, string>;
+
+  beforeEach(() => {
+    delete process.env[DIMI_LEGACY];
+    files = new Map();
+  });
+
+  afterEach(async () => {
+    delete process.env[DIMI_LEGACY];
+    delete process.env[RUST_ENGINE_SCRIPTED];
+    try {
+      await ctx.dispose();
+    } catch {
+      // dispose may already have run
+    }
+  });
+
+  function hostFs() {
+    return createFakeHostFs({
+      mkdir: async () => {},
+      readText: async (path: string) => files.get(path) ?? '',
+      writeText: async (path: string, content: string) => {
+        files.set(path, content);
+      },
+    });
+  }
+
+  it('enforces the plan-file-only write guard on the Rust external-tool path', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_enter_plan',
+          name: 'EnterPlanMode',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_write_outside_plan',
+          name: 'Write',
+          argumentsPart: JSON.stringify({
+            path: '/tmp/rust-plan-denied.txt',
+            content: 'must not be written',
+          }),
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'plan investigation complete' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([
+      permissionModeServices('auto'),
+      execEnvServices({ hostFs: hostFs() }),
+    ]);
+    ctx.get(IAgentLoopService);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Use plan mode first' }] });
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('Plan mode is active.'),
+        ),
+      'plan-mode write denial',
+    );
+    expect(await ctx.get(IAgentPlanService).status()).not.toBeNull();
+    expect(files.has('/tmp/rust-plan-denied.txt')).toBe(false);
+  });
+
+  it('shows the plan review and exits plan mode after approval', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_exit_plan',
+          name: 'ExitPlanMode',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'approved plan continues' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent(execEnvServices({ hostFs: hostFs() }));
+    const plan = ctx.get(IAgentPlanService);
+    await plan.enter('rust-plan');
+    const status = await plan.status();
+    expect(status).not.toBeNull();
+    files.set(status!.path, '# Rust plan\n\n- Keep the contract.');
+    ctx.get(IAgentLoopService);
+
+    const approvalPromise = ctx.takeApprovalRequest();
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review this plan' }] });
+    const approval = await approvalPromise;
+    const request = approval.events.find(
+      (event) => {
+        const candidate = event as { readonly type?: unknown; readonly event?: unknown };
+        return candidate.type === '[rpc]' && candidate.event === 'requestApproval';
+      },
+    );
+    expect(request).toEqual(
+      expect.objectContaining({
+        args: expect.objectContaining({
+          display: expect.objectContaining({
+            kind: 'plan_review',
+            plan: '# Rust plan\n\n- Keep the contract.',
+          }),
+        }),
+      }),
+    );
+    approval.respond({ decision: 'approved' });
+    await promptPromise;
+
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some(
+          (message) =>
+            message.role === 'tool' &&
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('## Approved Plan:'),
+        ),
+      'approved plan result',
+    );
+    expect(await plan.status()).toBeNull();
+    expect(ctx.wire.getModel(PlanModel).current.revisionCount).toEqual({ 'rust-plan': 1 });
+  });
+
+  it('cancels a pending plan review without leaving plan mode stuck', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_cancel_plan_review',
+          name: 'ExitPlanMode',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent(execEnvServices({ hostFs: hostFs() }));
+    const plan = ctx.get(IAgentPlanService);
+    await plan.enter('rust-cancel-plan');
+    const status = await plan.status();
+    expect(status).not.toBeNull();
+    files.set(status!.path, '# Cancelled review');
+    ctx.get(IAgentLoopService);
+
+    const approvalPromise = ctx.takeApprovalRequest();
+    const turnEnded = ctx.untilTurnEnd();
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'Cancel this review' }] });
+    await approvalPromise;
+
+    expect(ctx.get(IRustEngineTurnRunner).cancel()).toBe(true);
+    await turnEnded;
+    await promptPromise;
+    expect(await plan.status()).not.toBeNull();
   });
 });
 

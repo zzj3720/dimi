@@ -39,6 +39,7 @@ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
+  BeforeExecuteDecision,
   BeforeToolExecuteEvent,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
@@ -128,38 +129,75 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
       return;
     }
 
-    if (toolName === 'Write' || toolName === 'Edit') {
-      if (writesOnlyPlanFile(event, plan.path)) {
-        event.allow();
-        return;
-      }
-      event.veto(
-        denyToolExecution(this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path))),
-      );
+    if (
+      (toolName === 'Write' || toolName === 'Edit') &&
+      writesOnlyPlanFile(event, plan.path)
+    ) {
+      event.allow();
       return;
     }
 
+    const decision = this.activePlanGuardDecision(event, plan);
+    if (decision?.veto !== undefined) {
+      event.veto(decision.veto);
+    }
+  }
+
+  async adjudicateExternalTool(
+    context: ResolvedToolExecutionHookContext,
+  ): Promise<BeforeExecuteDecision | undefined> {
+    const plan = await this.status();
+    if (context.toolCall.name === 'ExitPlanMode') {
+      if (plan !== null && this.modeService.mode !== 'auto') {
+        return this.review.requestApproval(context);
+      }
+      return undefined;
+    }
+
+    return this.activePlanGuardDecision(context, plan);
+  }
+
+  private activePlanGuardDecision(
+    event: ResolvedToolExecutionHookContext,
+    plan: PlanData,
+  ): BeforeExecuteDecision | undefined {
+    const toolName = event.toolCall.name;
+
+    if (plan === null) {
+      return undefined;
+    }
+
+    if (toolName === 'Write' || toolName === 'Edit') {
+      return writesOnlyPlanFile(event, plan.path)
+        ? undefined
+        : {
+            veto: denyToolExecution(
+              this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path)),
+            ),
+          };
+    }
+
     if (toolName === 'TaskStop') {
-      event.veto(
-        denyToolExecution(
+      return {
+        veto: denyToolExecution(
           this.toolApproval.formatDenyMessage(
             'TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task.',
           ),
         ),
-      );
-      return;
+      };
     }
 
     if (toolName === 'CronCreate' || toolName === 'CronDelete') {
-      event.veto(
-        denyToolExecution(
+      return {
+        veto: denyToolExecution(
           this.toolApproval.formatDenyMessage(
             `${toolName} is not available in plan mode because it would mutate scheduled work that runs after plan exit. Call ExitPlanMode first.`,
           ),
         ),
-      );
-      return;
+      };
     }
+
+    return undefined;
   }
 
   private get isActive(): boolean {

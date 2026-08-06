@@ -116,8 +116,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'plan mode orchestration (EnterPlanMode/ExitPlanMode)',
-    migrated: false,
-    gap: 'not implemented — separate module slice',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (Rust external-tool guard, plan review approval/cancel, revision persistence) + planGuard/plan tool tests',
   },
   {
     domain: 'turn id 0-based on the wire (TS parity)',

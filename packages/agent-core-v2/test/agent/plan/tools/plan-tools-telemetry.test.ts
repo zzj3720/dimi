@@ -84,6 +84,7 @@ function planService({
     exit: exit ?? vi.fn(),
     recordRevision: vi.fn(async () => {}),
     status: vi.fn(async () => status),
+    adjudicateExternalTool: vi.fn(async () => undefined),
   };
 }
 
