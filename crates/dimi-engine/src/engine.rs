@@ -247,6 +247,7 @@ fn close_unresolved_tool_exchanges(messages: &mut Vec<LlmMessage>) {
                     name: None,
                     tool_call_id: Some(id),
                     tool_calls: None,
+                    tools: None,
                     reasoning: None,
                     origin: None,
                 });
@@ -441,6 +442,11 @@ pub struct TurnSession {
     dedupe: DedupeState,
     /// Cooperative cancellation (RPC cancel → engine).
     cancel: std::sync::Arc<CancelSignal>,
+    /// The signal for the currently executing step. The bridge keeps the
+    /// handle so a step can be interrupted without cancelling the turn.
+    active_step_cancel: std::sync::Arc<
+        std::sync::Mutex<Option<std::sync::Arc<CancelSignal>>>,
+    >,
     /// Set once the turn has ended (every finish path): a steer racing the
     /// teardown — between the engine's final `has_pending_steer()` check and
     /// the runner clearing its session — must be refused instead of landing
@@ -471,6 +477,8 @@ pub struct PendingApproval {
     /// resumed step's `TurnStepCompleted` reports the same usage the normal
     /// path would (TS `finishStep` parity).
     pub(crate) usage: UsageAccumulator,
+    /// The step remains cancellable while the approval request is paused.
+    pub(crate) step_cancel: std::sync::Arc<CancelSignal>,
 }
 
 /// Where the turn stands after `run` / `resume`.
@@ -478,6 +486,22 @@ pub struct PendingApproval {
 pub enum TurnProgress {
     Completed(TurnOutcome),
     NeedsApproval(ApprovalRequest),
+}
+
+/// Internal control returned by a tool batch. A step cancellation continues
+/// the same turn; a turn cancellation finishes it; approval returns to the
+/// bridge so the user can resolve it.
+#[derive(Debug)]
+enum BatchControl {
+    NeedsApproval(ApprovalRequest),
+    StepCancelled,
+    TurnCancelled,
+}
+
+#[derive(Debug)]
+enum StepControl {
+    StepCancelled,
+    TurnCancelled,
 }
 
 impl TurnSession {
@@ -503,6 +527,24 @@ impl TurnSession {
         cancel: std::sync::Arc<CancelSignal>,
         finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
+        Self::with_steer_and_cancel_and_step_cancel(
+            input,
+            steer,
+            cancel,
+            finished,
+            std::sync::Arc::new(std::sync::Mutex::new(None)),
+        )
+    }
+
+    pub fn with_steer_and_cancel_and_step_cancel(
+        input: EngineTurnInput,
+        steer: Option<std::sync::Arc<std::sync::Mutex<Vec<LlmMessage>>>>,
+        cancel: std::sync::Arc<CancelSignal>,
+        finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        active_step_cancel: std::sync::Arc<
+            std::sync::Mutex<Option<std::sync::Arc<CancelSignal>>>,
+        >,
+    ) -> Self {
         Self {
             input,
             messages: Vec::new(),
@@ -514,8 +556,60 @@ impl TurnSession {
             last_compacted_tokens: None,
             dedupe: DedupeState::default(),
             cancel,
+            active_step_cancel,
             finished,
         }
+    }
+
+    /// Return the shared slot used by the bridge's synchronous `cancelStep`
+    /// method. The slot is populated only while an engine step is active.
+    pub fn active_step_cancel_handle(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<CancelSignal>>>> {
+        std::sync::Arc::clone(&self.active_step_cancel)
+    }
+
+    fn set_active_step_cancel(&self, signal: Option<std::sync::Arc<CancelSignal>>) {
+        *self
+            .active_step_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = signal;
+    }
+
+    fn clear_active_step_cancel(&self, expected: &std::sync::Arc<CancelSignal>) {
+        let mut active = self
+            .active_step_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if active
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, expected))
+        {
+            *active = None;
+        }
+    }
+
+    /// Atomically claim the active-step slot at a normal completion boundary.
+    /// A concurrent `cancelStep` either cancels the signal before this lock is
+    /// acquired (so the caller continues with an interrupted step), or sees
+    /// the slot already removed and returns `false` because the step has
+    /// completed. This closes the check/clear window around step completion.
+    fn take_active_step_cancel(&self, expected: &std::sync::Arc<CancelSignal>) -> bool {
+        let mut active = self
+            .active_step_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !active
+            .as_ref()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, expected))
+        {
+            return expected.is_cancelled();
+        }
+        let cancelled = active
+            .as_ref()
+            .is_some_and(|current| current.is_cancelled());
+        *active = None;
+        cancelled
     }
 
     /// Run until the turn completes or a tool call needs approval.
@@ -585,43 +679,53 @@ impl TurnSession {
         // not leave it open (P2-6 review — TS emits interrupted for the
         // active step on cancel).
         if self.cancel.is_cancelled() {
-            emit(
-                on_event,
-                EngineEvent::TurnStepInterrupted {
-                    turn_id: self.input.turn_id,
-                    step: pending.step as i64,
-                    step_id: None,
-                    reason: "aborted".to_string(),
-                    message: None,
-                },
-            );
+            self.clear_active_step_cancel(&pending.step_cancel);
+            self.emit_step_interrupted(pending.step, "aborted", None, on_event);
             return self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event);
+        }
+        if pending.step_cancel.is_cancelled() {
+            self.retry_attempts = 0;
+            self.clear_active_step_cancel(&pending.step_cancel);
+            self.emit_step_interrupted(pending.step, "aborted", None, on_event);
+            return self.run_loop(llm, tools, policy, on_event).await;
         }
         let pending_step = pending.step;
         let pending_usage = pending.usage.clone();
         let result = match decision {
             ApprovalDecision::Approved => {
                 let ctx = self.tool_ctx(&pending.batch);
+                emit_tool_call_started(&pending.call, self.input.turn_id, on_event);
                 tokio::select! {
-                    result = execute_tool(self.input.turn_id, pending.call.clone(), tools, &ctx, on_event) => result,
+                    result = execute_tool(
+                        pending.call.clone(),
+                        tools,
+                        &ctx,
+                        pending.step,
+                        self.input.turn_id,
+                        on_event,
+                    ) => result,
                     _ = self.cancel.cancelled() => {
                         tools.abort(&pending.call);
-                        emit(
-                            on_event,
-                            EngineEvent::TurnStepInterrupted {
-                                turn_id: self.input.turn_id,
-                                step: self.steps as i64,
-                                step_id: None,
-                                reason: "aborted".to_string(),
-                                message: None,
-                            },
-                        );
+                        let result = aborted_tool_result(&pending.call);
+                        emit_tool_result(&result, self.input.turn_id, on_event);
+                        self.messages.push(tool_result_message(&result));
+                        self.clear_active_step_cancel(&pending.step_cancel);
+                        self.emit_step_interrupted(pending.step, "aborted", None, on_event);
                         return self.finish_turn_with_error(
                             TurnEndReason::Cancelled,
                             None,
                             None,
                             on_event,
                         );
+                    }
+                    _ = pending.step_cancel.cancelled() => {
+                        tools.abort(&pending.call);
+                        let result = aborted_tool_result(&pending.call);
+                        emit_tool_result(&result, self.input.turn_id, on_event);
+                        self.messages.push(tool_result_message(&result));
+                        self.clear_active_step_cancel(&pending.step_cancel);
+                        self.emit_step_interrupted(pending.step, "aborted", None, on_event);
+                        return self.run_loop(llm, tools, policy, on_event).await;
                     }
                 }
             }
@@ -679,6 +783,9 @@ impl TurnSession {
             // synthetic skipped results (P2-7 parity), so no tool_call
             // dangles in the next request.
             self.synthesize_skipped_siblings(&pending.batch, pending.index + 1, on_event);
+            if self.interrupt_step_if_cancelled(&pending.step_cancel, pending_step, on_event) {
+                return self.run_loop(llm, tools, policy, on_event).await;
+            }
             self.dedupe.end_step();
             self.emit_step_completed(
                 pending_step,
@@ -701,10 +808,16 @@ impl TurnSession {
                 self.input.turn_id,
                 self.steps,
                 &pending_usage,
+                &pending.step_cancel,
             )
             .await
         {
             Ok(stop_turn) => {
+                if self.take_active_step_cancel(&pending.step_cancel) {
+                    self.emit_step_interrupted(pending_step, "aborted", None, on_event);
+                    return self.run_loop(llm, tools, policy, on_event).await;
+                }
+                self.dedupe.end_step();
                 if stop_turn {
                     self.emit_step_completed(
                         pending_step,
@@ -726,7 +839,18 @@ impl TurnSession {
                 );
                 self.run_loop(llm, tools, policy, on_event).await
             }
-            Err(progress) => progress,
+            Err(BatchControl::NeedsApproval(request)) => TurnProgress::NeedsApproval(request),
+            Err(BatchControl::StepCancelled) => {
+                self.retry_attempts = 0;
+                self.clear_active_step_cancel(&pending.step_cancel);
+                self.emit_step_interrupted(pending_step, "aborted", None, on_event);
+                self.run_loop(llm, tools, policy, on_event).await
+            }
+            Err(BatchControl::TurnCancelled) => {
+                self.clear_active_step_cancel(&pending.step_cancel);
+                self.emit_step_interrupted(pending_step, "aborted", None, on_event);
+                self.finish_turn_with_error(TurnEndReason::Cancelled, None, None, on_event)
+            }
         }
     }
 
@@ -751,6 +875,41 @@ impl TurnSession {
                 finish_reason: Some(finish.to_string()),
             },
         );
+    }
+
+    fn emit_step_interrupted(
+        &self,
+        step: u32,
+        reason: &str,
+        message: Option<String>,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) {
+        emit(
+            on_event,
+            EngineEvent::TurnStepInterrupted {
+                turn_id: self.input.turn_id,
+                step: step as i64,
+                step_id: None,
+                reason: reason.to_string(),
+                message,
+            },
+        );
+    }
+
+    /// Claim a step at the cancellation boundary and emit its interruption.
+    /// The active-slot claim makes a concurrent cancel either win before a
+    /// completion event or return false after the step has already ended.
+    fn interrupt_step_if_cancelled(
+        &self,
+        signal: &std::sync::Arc<CancelSignal>,
+        step: u32,
+        on_event: &mut (dyn FnMut(EngineEvent) + Send),
+    ) -> bool {
+        if !self.take_active_step_cancel(signal) {
+            return false;
+        }
+        self.emit_step_interrupted(step, "aborted", None, on_event);
+        true
     }
 
     fn tool_ctx(&self, calls: &[ToolCall]) -> ToolContext {
@@ -785,9 +944,10 @@ impl TurnSession {
     }
 
     /// Execute the tool-call batch from `start` onward (approval-resume
-    /// parity): returns `Ok(stop_turn)` when the batch finished, or
-    /// `Err(TurnProgress)` when a sibling needs approval (the caller returns
-    /// the NeedsApproval progress) or the turn was cancelled mid-batch.
+    /// parity): returns `Ok(stop_turn)` when the batch finished, or an
+    /// internal control when a sibling needs approval or the current step is
+    /// cancelled. The caller owns the corresponding step/turn lifecycle
+    /// events, so this helper never emits an interruption or ends the turn.
     ///
     /// The batch loop is shared between the initial step (start = 0) and an
     /// approval resume (start = pending.index + 1) so an approval pauses the
@@ -803,30 +963,18 @@ impl TurnSession {
         turn_id: i64,
         step_number: u32,
         usage: &UsageAccumulator,
-    ) -> Result<bool, TurnProgress> {
+        step_cancel: &std::sync::Arc<CancelSignal>,
+    ) -> Result<bool, BatchControl> {
         let mut stop_turn = false;
         for (index, call) in calls.iter().enumerate().skip(start) {
-            // P1-5 (review): a cancel arriving between siblings stops the
-            // batch instead of executing the rest or surfacing another
-            // approval request after the user already cancelled. The step is
-            // interrupted like the in-flight cancel paths (P2-6 review).
+            // A cancel arriving between siblings stops the batch instead of
+            // executing the rest or surfacing another approval request. The
+            // caller emits the matching step lifecycle event.
             if self.cancel.is_cancelled() {
-                emit(
-                    on_event,
-                    EngineEvent::TurnStepInterrupted {
-                        turn_id,
-                        step: step_number as i64,
-                        step_id: None,
-                        reason: "aborted".to_string(),
-                        message: None,
-                    },
-                );
-                return Err(self.finish_turn_with_error(
-                    TurnEndReason::Cancelled,
-                    None,
-                    None,
-                    on_event,
-                ));
+                return Err(BatchControl::TurnCancelled);
+            }
+            if step_cancel.is_cancelled() {
+                return Err(BatchControl::StepCancelled);
             }
             let input = PolicyInput {
                 mode: policy.mode,
@@ -885,26 +1033,29 @@ impl TurnSession {
                     // external tools can validate the round (e.g. the TS
                     // AllDone tool rejects a mixed batch).
                     let ctx = self.tool_ctx(calls);
+                    emit_tool_call_started(call, turn_id, on_event);
                     let result = tokio::select! {
-                        result = execute_tool(turn_id, call.clone(), tools, &ctx, on_event) => result,
+                        result = execute_tool(
+                            call.clone(),
+                            tools,
+                            &ctx,
+                            step_number,
+                            turn_id,
+                            on_event,
+                        ) => result,
                         _ = self.cancel.cancelled() => {
                             tools.abort(call);
-                            emit(
-                                on_event,
-                                EngineEvent::TurnStepInterrupted {
-                                    turn_id,
-                                    step: step_number as i64,
-                                    step_id: None,
-                                    reason: "aborted".to_string(),
-                                    message: None,
-                                },
-                            );
-                            return Err(self.finish_turn_with_error(
-                                TurnEndReason::Cancelled,
-                                None,
-                                None,
-                                on_event,
-                            ));
+                            let result = aborted_tool_result(call);
+                            emit_tool_result(&result, turn_id, on_event);
+                            self.messages.push(tool_result_message(&result));
+                            return Err(BatchControl::TurnCancelled);
+                        }
+                        _ = step_cancel.cancelled() => {
+                            tools.abort(call);
+                            let result = aborted_tool_result(call);
+                            emit_tool_result(&result, turn_id, on_event);
+                            self.messages.push(tool_result_message(&result));
+                            return Err(BatchControl::StepCancelled);
                         }
                     };
                     // Cross-step repeat reminders (TS `finalizeResult`): the
@@ -970,16 +1121,15 @@ impl TurnSession {
                         index,
                         step: step_number,
                         usage: usage.clone(),
+                        step_cancel: std::sync::Arc::clone(step_cancel),
                     });
-                    return Err(TurnProgress::NeedsApproval(request));
+                    return Err(BatchControl::NeedsApproval(request));
                 }
             }
         }
-        // TS `endStep` (onDidFinishStep): the step's batch fully resolved —
-        // fold every call of the step into the cross-step streak. Not run on
-        // the approval-pause path (this returns Err above), because the
-        // paused step continues on resume.
-        self.dedupe.end_step();
+        // The caller closes the step only after atomically claiming the
+        // active cancellation slot. A cancel that wins at the final
+        // tool-result boundary must not advance the cross-step streak.
         Ok(stop_turn)
     }
 
@@ -1015,6 +1165,7 @@ impl TurnSession {
                 name: Some(skipped.tool_name.clone()),
                 tool_call_id: Some(skipped.tool_call_id.clone()),
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             });
@@ -1065,7 +1216,7 @@ impl TurnSession {
         let tokens_before = crate::context::estimate_tokens_for_messages(&self.messages);
         let instruction = crate::compaction::compaction_instruction_message();
 
-        let mut history = self.messages.clone();
+        let mut history = crate::compaction::strip_dynamic_tool_context(&self.messages);
         // Close unresolved tool exchanges before the summarizer sees the
         // history: an assistant message whose tool_calls never got a result
         // would otherwise be sent as a dangling exchange (TS
@@ -1173,6 +1324,16 @@ impl TurnSession {
                 }
             }
 
+            self.steps += 1;
+            let step_number = self.steps;
+            // TS `onWillBeginStep` owns compaction and receives the step's
+            // signal before it runs, so a step cancel during the summary
+            // request skips this step instead of leaving the turn blocked in
+            // compaction.
+            self.dedupe.begin_step();
+            let step_cancel = std::sync::Arc::new(CancelSignal::new());
+            self.set_active_step_cancel(Some(std::sync::Arc::clone(&step_cancel)));
+
             // Full-history compaction (TS `fullCompaction` parity): when the
             // assembled request would cross the model window, run an LLM
             // summary round and replace the working messages before this
@@ -1200,16 +1361,38 @@ impl TurnSession {
                         reserved_context_size,
                     ) && !already_compacted
                     {
-                        let _ = self.compact(llm, on_event).await;
+                        let cancel = std::sync::Arc::clone(&self.cancel);
+                        let step_cancel_for_compaction = std::sync::Arc::clone(&step_cancel);
+                        let compaction = tokio::select! {
+                            result = self.compact(llm, on_event) => Some(result),
+                            _ = cancel.cancelled() => None,
+                            _ = step_cancel_for_compaction.cancelled() => Some(false),
+                        };
+                        if compaction.is_none() {
+                            self.clear_active_step_cancel(&step_cancel);
+                            self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                            return self.finish_turn_with_error(
+                                TurnEndReason::Cancelled,
+                                None,
+                                None,
+                                on_event,
+                            );
+                        }
+                        if step_cancel.is_cancelled() {
+                            self.retry_attempts = 0;
+                            self.clear_active_step_cancel(&step_cancel);
+                            self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                            continue;
+                        }
                     }
                 }
             }
 
-            self.steps += 1;
-            let step_number = self.steps;
-            // TS `onWillBeginStep` (toolDedupe beginStep): reset the per-step
-            // dedupe state; the cross-step streak survives.
-            self.dedupe.begin_step();
+            // The TS loop runs `onWillBeginStep` (including compaction) before
+            // publishing `turn.step.started`. Keep the transcript step closed
+            // while compaction rewrites the context; the active signal is
+            // already installed above, so a cancel from the started event is
+            // still observed immediately once the real step begins.
             emit(
                 on_event,
                 EngineEvent::TurnStepStarted {
@@ -1240,19 +1423,24 @@ impl TurnSession {
                 thinking_effort: self.input.provider.thinking_effort.clone(),
             };
 
-            let disposition = match tokio::select! {
-                result = execute_step(turn_id, llm, &request, &mut usage, on_event) => result,
-                _ = self.cancel.cancelled() => {
-                    emit(
-                        on_event,
-                        EngineEvent::TurnStepInterrupted {
-                            turn_id,
-                            step: step_number as i64,
-                            step_id: None,
-                            reason: "aborted".to_string(),
-                            message: None,
-                        },
-                    );
+            let step_result: Result<
+                Result<StepDisposition, crate::llm::LlmError>,
+                StepControl,
+            > = tokio::select! {
+                result = execute_step(turn_id, llm, &request, &mut usage, on_event) => Ok(result),
+                _ = self.cancel.cancelled() => Err(StepControl::TurnCancelled),
+                _ = step_cancel.cancelled() => Err(StepControl::StepCancelled),
+            };
+            let disposition = match step_result {
+                Err(StepControl::StepCancelled) => {
+                    self.retry_attempts = 0;
+                    self.clear_active_step_cancel(&step_cancel);
+                    self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                    continue;
+                }
+                Err(StepControl::TurnCancelled) => {
+                    self.clear_active_step_cancel(&step_cancel);
+                    self.emit_step_interrupted(step_number, "aborted", None, on_event);
                     return self.finish_turn_with_error(
                         TurnEndReason::Cancelled,
                         None,
@@ -1260,16 +1448,23 @@ impl TurnSession {
                         on_event,
                     );
                 }
-            } {
-                Ok(disposition) => disposition,
-                Err(error) => {
+                Ok(Ok(disposition)) => disposition,
+                Ok(Err(error)) => {
                     if self.cancel.is_cancelled() {
+                        self.clear_active_step_cancel(&step_cancel);
+                        self.emit_step_interrupted(step_number, "aborted", None, on_event);
                         return self.finish_turn_with_error(
                             TurnEndReason::Cancelled,
                             None,
                             None,
                             on_event,
                         );
+                    }
+                    if step_cancel.is_cancelled() {
+                        self.retry_attempts = 0;
+                        self.take_active_step_cancel(&step_cancel);
+                        self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                        continue;
                     }
                     // Context-overflow recovery (TS fullCompaction parity):
                     // the provider rejected the request as too large — run a
@@ -1279,8 +1474,31 @@ impl TurnSession {
                     if error.code.as_deref() == Some("CONTEXT_OVERFLOW")
                         && self.input.max_context_tokens.is_some()
                     {
-                        if self.compact(llm, on_event).await {
-                            continue;
+                        let cancel = std::sync::Arc::clone(&self.cancel);
+                        let step_cancel_for_compaction = std::sync::Arc::clone(&step_cancel);
+                        match tokio::select! {
+                            result = self.compact(llm, on_event) => Ok(result),
+                            _ = cancel.cancelled() => Err(StepControl::TurnCancelled),
+                            _ = step_cancel_for_compaction.cancelled() => Err(StepControl::StepCancelled),
+                        } {
+                            Ok(true) => continue,
+                            Ok(false) => {}
+                            Err(StepControl::TurnCancelled) => {
+                                self.clear_active_step_cancel(&step_cancel);
+                                self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                                return self.finish_turn_with_error(
+                                    TurnEndReason::Cancelled,
+                                    None,
+                                    None,
+                                    on_event,
+                                );
+                            }
+                            Err(StepControl::StepCancelled) => {
+                                self.retry_attempts = 0;
+                                self.clear_active_step_cancel(&step_cancel);
+                                self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                                continue;
+                            }
                         }
                     }
                     // Transient provider failure step-level retry (TS
@@ -1326,6 +1544,13 @@ impl TurnSession {
                             tokio::select! {
                                 _ = &mut sleep => {}
                                 _ = self.cancel.cancelled() => {
+                                    self.clear_active_step_cancel(&step_cancel);
+                                    self.emit_step_interrupted(
+                                        step_number,
+                                        "aborted",
+                                        None,
+                                        on_event,
+                                    );
                                     return self.finish_turn_with_error(
                                         TurnEndReason::Cancelled,
                                         None,
@@ -1333,14 +1558,36 @@ impl TurnSession {
                                         on_event,
                                     );
                                 }
+                                _ = step_cancel.cancelled() => {
+                                    self.retry_attempts = 0;
+                                    self.clear_active_step_cancel(&step_cancel);
+                                    self.emit_step_interrupted(
+                                        step_number,
+                                        "aborted",
+                                        None,
+                                        on_event,
+                                    );
+                                    continue;
+                                }
                             }
                             if self.cancel.is_cancelled() {
+                                self.clear_active_step_cancel(&step_cancel);
+                                self.emit_step_interrupted(step_number, "aborted", None, on_event);
                                 return self.finish_turn_with_error(
                                     TurnEndReason::Cancelled,
                                     None,
                                     None,
                                     on_event,
                                 );
+                            }
+                            if step_cancel.is_cancelled() {
+                                self.retry_attempts = 0;
+                                self.interrupt_step_if_cancelled(
+                                    &step_cancel,
+                                    step_number,
+                                    on_event,
+                                );
+                                continue;
                             }
                             continue;
                         }
@@ -1366,24 +1613,18 @@ impl TurnSession {
                 }
             };
 
+            if step_cancel.is_cancelled() {
+                self.retry_attempts = 0;
+                self.interrupt_step_if_cancelled(&step_cancel, step_number, on_event);
+                continue;
+            }
+
             match disposition {
                 StepDisposition::Complete { finish } => {
                     // A successful step resets the transient-failure retry
                     // counter (TS stepRetry `onDidFinishStep` parity).
                     self.retry_attempts = 0;
                     let step_finish = normalize_finish_reason(finish).to_string();
-                    let mut step_complete = || {
-                        emit(
-                            on_event,
-                            EngineEvent::TurnStepCompleted {
-                                turn_id,
-                                step: step_number as i64,
-                                step_id: None,
-                                usage: usage.transcript_usage(),
-                                finish_reason: Some(step_finish.clone()),
-                            },
-                        );
-                    };
                     // Completion-review injection (TS loopContinuationService
                     // parity): a tool-free step at/after the configured
                     // threshold must NOT end the turn with a plain text reply
@@ -1403,7 +1644,19 @@ impl TurnSession {
                                 | FinishReason::Length
                         );
                         if reviewable && self.steps >= config.min_steps {
-                            step_complete();
+                            if self.interrupt_step_if_cancelled(
+                                &step_cancel,
+                                step_number,
+                                on_event,
+                            ) {
+                                continue;
+                            }
+                            self.emit_step_completed(
+                                step_number,
+                                &usage,
+                                &step_finish,
+                                on_event,
+                            );
                             // P2-4 (review): wrap the reminder in
                             // `<system-reminder>` markers (TS
                             // `appendSystemReminder` parity). The wrap is
@@ -1418,6 +1671,7 @@ impl TurnSession {
                                 name: None,
                                 tool_call_id: None,
                                 tool_calls: None,
+                                tools: None,
                                 reasoning: None,
                                 origin: None,
                             });
@@ -1435,15 +1689,31 @@ impl TurnSession {
                         // A steer arrived while this step ran (async subagent
                         // finished). The step itself is complete, but the turn
                         // keeps going so the steering message reaches the LLM.
-                        step_complete();
+                        if self.interrupt_step_if_cancelled(&step_cancel, step_number, on_event) {
+                            continue;
+                        }
+                        self.emit_step_completed(
+                            step_number,
+                            &usage,
+                            &step_finish,
+                            on_event,
+                        );
                         continue;
                     }
                     // No pending steer: the turn is about to end. Mark it
                     // finished BEFORE the completion events are emitted, so a
                     // steer observed after them is refused (falls back to a
                     // new turn) instead of being dropped into a dead queue.
+                    if self.interrupt_step_if_cancelled(&step_cancel, step_number, on_event) {
+                        continue;
+                    }
                     self.mark_finished();
-                    step_complete();
+                    self.emit_step_completed(
+                        step_number,
+                        &usage,
+                        &step_finish,
+                        on_event,
+                    );
                     match finish {
                         // Provider-truncated response (length / max_tokens):
                         // the turn completes but is marked truncated (TS
@@ -1493,6 +1763,7 @@ impl TurnSession {
                                 })
                                 .collect(),
                         ),
+                        tools: None,
                         reasoning: None,
                         origin: None,
                     });
@@ -1506,19 +1777,40 @@ impl TurnSession {
                             turn_id,
                             step_number,
                             &usage,
+                            &step_cancel,
                         )
                         .await
                     {
                         Ok(stop_turn) => stop_turn,
-                        // A sibling needs approval (or the turn was cancelled
-                        // mid-batch): surface that progress to the caller.
-                        Err(progress) => return progress,
+                        Err(BatchControl::NeedsApproval(request)) => {
+                            return TurnProgress::NeedsApproval(request);
+                        }
+                        Err(BatchControl::StepCancelled) => {
+                            self.retry_attempts = 0;
+                            self.clear_active_step_cancel(&step_cancel);
+                            self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                            continue;
+                        }
+                        Err(BatchControl::TurnCancelled) => {
+                            self.clear_active_step_cancel(&step_cancel);
+                            self.emit_step_interrupted(step_number, "aborted", None, on_event);
+                            return self.finish_turn_with_error(
+                                TurnEndReason::Cancelled,
+                                None,
+                                None,
+                                on_event,
+                            );
+                        }
                     };
                     // P2-4 (review): a successful tool-call step also resets
                     // the transient-failure retry budget (TS stepRetry resets
                     // on every successful step via `onDidFinishStep`).
                     self.retry_attempts = 0;
                     if stop_turn {
+                        if self.interrupt_step_if_cancelled(&step_cancel, step_number, on_event) {
+                            continue;
+                        }
+                        self.dedupe.end_step();
                         self.mark_finished();
                         emit(
                             on_event,
@@ -1534,6 +1826,10 @@ impl TurnSession {
                         );
                         return self.finish_turn(TurnEndReason::Completed, on_event);
                     }
+                    if self.interrupt_step_if_cancelled(&step_cancel, step_number, on_event) {
+                        continue;
+                    }
+                    self.dedupe.end_step();
                     emit(
                         on_event,
                         EngineEvent::TurnStepCompleted {
@@ -1565,6 +1861,7 @@ impl TurnSession {
         &mut self,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
+        self.set_active_step_cancel(None);
         self.mark_finished();
         let outcome = TurnOutcome {
             status: TurnEndReason::Completed,
@@ -1592,6 +1889,7 @@ impl TurnSession {
         error_code: Option<String>,
         on_event: &mut (dyn FnMut(EngineEvent) + Send),
     ) -> TurnProgress {
+        self.set_active_step_cancel(None);
         self.mark_finished();
         let outcome = TurnOutcome {
             status,
@@ -1622,14 +1920,14 @@ impl TurnSession {
 }
 
 async fn execute_tool(
-    turn_id: i64,
     call: ToolCall,
     tools: &dyn ToolExecutor,
     ctx: &ToolContext,
+    step_number: u32,
+    turn_id: i64,
     on_event: &mut (dyn FnMut(EngineEvent) + Send),
 ) -> ToolResult {
-    emit_tool_call_started(&call, turn_id, on_event);
-    let result = tools.execute(&call, ctx).await;
+    let result = tools.execute_with_step(&call, ctx, step_number).await;
     for update in &result.updates {
         on_event(EngineEvent::ToolProgress {
             turn_id,
@@ -1638,6 +1936,17 @@ async fn execute_tool(
         });
     }
     result
+}
+
+fn aborted_tool_result(call: &ToolCall) -> ToolResult {
+    ToolResult {
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        output: format!("Tool \"{}\" was aborted", call.name),
+        is_error: true,
+        stop_turn: false,
+        updates: vec![],
+    }
 }
 
 /// Announce a tool call (TS `onToolCall`): the fold's `tool.result` needs
@@ -1680,6 +1989,7 @@ fn tool_result_message(result: &ToolResult) -> LlmMessage {
         name: Some(result.tool_name.clone()),
         tool_call_id: Some(result.tool_call_id.clone()),
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: None,
     }
@@ -1905,6 +2215,7 @@ mod tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -2402,6 +2713,7 @@ mod window_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -2521,6 +2833,7 @@ mod steer_tests {
                         name: None,
                         tool_call_id: None,
                         tool_calls: None,
+                        tools: None,
                         reasoning: None,
                         origin: None,
                     });
@@ -2549,6 +2862,7 @@ mod steer_tests {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             }],
@@ -2759,6 +3073,7 @@ mod completion_review_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -3044,6 +3359,7 @@ mod compaction_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -3511,6 +3827,7 @@ mod compaction_tests {
                     arguments: serde_json::json!({ "command": "sleep 1" }).to_string(),
                 },
             }]),
+            tools: None,
             reasoning: None,
             origin: None,
         });
@@ -3527,6 +3844,7 @@ mod compaction_tests {
                     arguments: serde_json::json!({ "command": "echo hi" }).to_string(),
                 },
             }]),
+            tools: None,
             reasoning: None,
             origin: None,
         });
@@ -3536,6 +3854,7 @@ mod compaction_tests {
             name: None,
             tool_call_id: Some("call_resolved".to_string()),
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         });
@@ -3778,6 +4097,7 @@ mod compaction_tests {
                     arguments: "{}".to_string(),
                 },
             }]),
+            tools: None,
             reasoning: None,
             origin: None,
         });
@@ -3788,6 +4108,7 @@ mod compaction_tests {
             name: None,
             tool_call_id: Some("call_interleaved".to_string()),
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         });
@@ -3852,7 +4173,7 @@ mod compaction_tests {
 #[cfg(test)]
 mod cancel_tests {
     use super::*;
-    use crate::llm::{LlmStreamEvent, StreamedTurn};
+    use crate::llm::{LlmStreamEvent, ScriptedLlmClient, StreamedTurn};
     use crate::types::ProviderConfig;
 
     fn msg(role: &str, text: &str) -> LlmMessage {
@@ -3862,8 +4183,41 @@ mod cancel_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
+        }
+    }
+
+    fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
+        EngineTurnInput {
+            turn_id: 1,
+            messages,
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://example.test/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(3),
+            cwd: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
         }
     }
 
@@ -3878,6 +4232,7 @@ mod cancel_tests {
                 name: None,
                 tool_call_id: Some(id.to_string()),
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             }
@@ -3901,6 +4256,7 @@ mod cancel_tests {
                         })
                         .collect(),
                 ),
+                tools: None,
                 reasoning: None,
                 origin: None,
             }
@@ -3913,6 +4269,7 @@ mod cancel_tests {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             }
@@ -4737,6 +5094,639 @@ mod cancel_tests {
         }
     }
 
+    #[tokio::test]
+    async fn step_cancel_resets_retry_budget_before_the_next_step() {
+        struct RetryThenCancelThenOk {
+            calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        }
+
+        #[async_trait::async_trait]
+        impl LlmClient for RetryThenCancelThenOk {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                match self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) {
+                    0 | 1 => Err(crate::llm::LlmError {
+                        message: "transient".to_string(),
+                        code: Some("CONNECTION_ERROR".to_string()),
+                        retry_after_ms: Some(if self.calls.load(std::sync::atomic::Ordering::Relaxed) == 1 {
+                            60_000
+                        } else {
+                            1
+                        }),
+                        retryable: true,
+                    }),
+                    _ => Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "recovered after reset".to_string(),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("stop".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "recovered after reset".to_string(),
+                            thinking: String::new(),
+                        },
+                    }),
+                }
+            }
+        }
+
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "reset retry budget")],
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(4),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: Some(1),
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let active_step = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let llm = RetryThenCancelThenOk {
+            calls: std::sync::Arc::clone(&calls),
+        };
+        let mut session = TurnSession::with_steer_and_cancel_and_step_cancel(
+            input,
+            None,
+            std::sync::Arc::new(CancelSignal::new()),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            std::sync::Arc::clone(&active_step),
+        );
+        let mut cancelled = false;
+        let mut retry_steps = Vec::new();
+        let progress = session
+            .run(&llm, &crate::tool::BashTool::default(), &crate::permission::PolicyConfig {
+                mode: crate::permission::PermissionMode::Auto,
+                rules: vec![],
+                session_approved_patterns: vec![],
+            }, &mut |event| {
+                if let EngineEvent::TurnStepRetrying { step, .. } = event {
+                    retry_steps.push(step);
+                    if !cancelled {
+                        cancelled = true;
+                        active_step
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .expect("active step signal")
+                            .cancel();
+                    }
+                }
+            })
+            .await;
+
+        assert!(matches!(progress, TurnProgress::Completed(ref outcome) if outcome.status == TurnEndReason::Completed));
+        assert_eq!(retry_steps, vec![1, 2]);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn turn_cancel_interrupts_inflight_compaction() {
+        struct BlockingCompaction {
+            started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl LlmClient for BlockingCompaction {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                if let Some(sender) = self.started.lock().await.take() {
+                    let _ = sender.send(());
+                }
+                std::future::pending::<()>().await;
+                unreachable!("compaction request is cancelled");
+            }
+        }
+
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let cancel = std::sync::Arc::new(CancelSignal::new());
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", &"large history ".repeat(500))],
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(2),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(200),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let llm = BlockingCompaction {
+            started: tokio::sync::Mutex::new(Some(started_sender)),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let mut session = TurnSession::with_steer_and_cancel(
+            input,
+            None,
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_for_run = std::sync::Arc::clone(&events);
+        let mut handle = tokio::spawn(async move {
+            session
+                .run(
+                    &llm,
+                    &crate::tool::BashTool::default(),
+                    &policy,
+                    &mut |event| events_for_run.lock().unwrap().push(event),
+                )
+                .await
+        });
+        started_receiver.await.expect("compaction request started");
+        cancel.cancel();
+        let progress = tokio::time::timeout(std::time::Duration::from_secs(1), &mut handle)
+            .await
+            .expect("turn cancellation must interrupt compaction")
+            .expect("turn task must not panic");
+        assert!(matches!(progress, TurnProgress::Completed(outcome) if outcome.status == TurnEndReason::Cancelled));
+        let events = events.lock().unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            EngineEvent::TurnStepInterrupted { step: 1, reason, .. } if reason == "aborted"
+        )));
+    }
+
+    #[tokio::test]
+    async fn turn_cancel_emits_a_result_for_an_inflight_tool() {
+        struct BlockingTool {
+            started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl ToolExecutor for BlockingTool {
+            async fn execute(&self, _call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+                if let Some(sender) = self.started.lock().await.take() {
+                    let _ = sender.send(());
+                }
+                std::future::pending::<ToolResult>().await
+            }
+        }
+
+        let llm = ScriptedLlmClient::new(vec![vec![
+            LlmStreamEvent::ToolCall {
+                tool_call_id: "call_cancelled_tool".to_string(),
+                name: Some("Bash".to_string()),
+                arguments_part: Some(r#"{"command":"sleep 5"}"#.to_string()),
+            },
+            LlmStreamEvent::Finish {
+                finish_reason: Some("tool_calls".to_string()),
+            },
+        ]]);
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let cancel = std::sync::Arc::new(CancelSignal::new());
+        let mut session = TurnSession::with_steer_and_cancel(
+            input(vec![msg("user", "cancel the tool")]),
+            None,
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let executor = BlockingTool {
+            started: tokio::sync::Mutex::new(Some(started_sender)),
+        };
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_for_run = std::sync::Arc::clone(&events);
+        let handle = tokio::spawn(async move {
+            session
+                .run(
+                    &llm,
+                    &executor,
+                    &crate::permission::PolicyConfig {
+                        mode: crate::permission::PermissionMode::Auto,
+                        rules: vec![],
+                        session_approved_patterns: vec![],
+                    },
+                    &mut |event| events_for_run.lock().unwrap().push(event),
+                )
+                .await
+        });
+        started_receiver.await.expect("tool started");
+        cancel.cancel();
+        let progress = handle
+            .await
+            .expect("turn task must not panic");
+        assert!(matches!(progress, TurnProgress::Completed(outcome) if outcome.status == TurnEndReason::Cancelled));
+        let events = events.lock().unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            EngineEvent::ToolResult { tool_call_id, is_error: Some(true), .. }
+                if tool_call_id == "call_cancelled_tool"
+        )));
+    }
+
+    #[tokio::test]
+    async fn step_cancel_during_compaction_emits_interrupted_before_continuing() {
+        struct BlockingThenSummary {
+            calls: std::sync::atomic::AtomicUsize,
+            started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl LlmClient for BlockingThenSummary {
+            async fn stream_chat(
+                &self,
+                request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                if self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                    if let Some(sender) = self.started.lock().await.take() {
+                        let _ = sender.send(());
+                    }
+                    std::future::pending::<()>().await;
+                    unreachable!("the first compaction request is cancelled");
+                }
+                let is_compaction = request
+                    .messages
+                    .iter()
+                    .any(|message| message.role == "user" && message.content.to_string().contains("summarize"));
+                if is_compaction {
+                    Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "summary after cancelled compaction".to_string(),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("stop".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "summary after cancelled compaction".to_string(),
+                            thinking: String::new(),
+                        },
+                    })
+                } else {
+                    Ok(StreamedTurn {
+                        events: vec![
+                            LlmStreamEvent::Text {
+                                delta: "completed after compaction cancellation".to_string(),
+                            },
+                            LlmStreamEvent::Finish {
+                                finish_reason: Some("stop".to_string()),
+                            },
+                        ],
+                        assistant: crate::llm::AssistantTurn {
+                            tool_calls: vec![],
+                            text: "completed after compaction cancellation".to_string(),
+                            thinking: String::new(),
+                        },
+                    })
+                }
+            }
+        }
+
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let cancel = std::sync::Arc::new(CancelSignal::new());
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", &"large history ".repeat(500))],
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(3),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: Some(200),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let mut session = TurnSession::with_steer_and_cancel(
+            input,
+            None,
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let active_step = session.active_step_cancel_handle();
+        let llm = BlockingThenSummary {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            started: tokio::sync::Mutex::new(Some(started_sender)),
+        };
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_for_run = std::sync::Arc::clone(&events);
+        let handle = tokio::spawn(async move {
+            session
+                .run(
+                    &llm,
+                    &crate::tool::BashTool::default(),
+                    &policy,
+                    &mut |event| events_for_run.lock().unwrap().push(event),
+                )
+                .await
+        });
+        started_receiver.await.expect("compaction request started");
+        active_step
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("active step signal")
+            .cancel();
+        let progress = tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .expect("step cancellation must interrupt compaction")
+            .expect("turn task must not panic");
+        assert!(matches!(progress, TurnProgress::Completed(outcome) if outcome.status == TurnEndReason::Completed));
+        let events = events.lock().unwrap();
+        let interrupted = events
+            .iter()
+            .position(|event| matches!(event, EngineEvent::TurnStepInterrupted { step: 1, .. }))
+            .expect("cancelled compaction step must be interrupted");
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::TurnStepStarted { step: 1, .. })),
+            "compaction happens before step.started"
+        );
+        assert!(
+            events
+                .iter()
+                .position(|event| matches!(event, EngineEvent::TurnStepStarted { step: 2, .. }))
+                .is_some_and(|started| interrupted < started),
+            "step 1 interruption must precede the next step: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn step_cancel_wins_when_a_tool_completes_at_the_boundary() {
+        // Reproduce a cancellation racing the last tool result: the cancel
+        // arrives before the batch returns, so the step must be interrupted
+        // and the same turn must continue with the next scripted request.
+        struct CancelDuringTool {
+            active_step: std::sync::Arc<
+                std::sync::Mutex<Option<std::sync::Arc<CancelSignal>>>,
+            >,
+        }
+
+        #[async_trait::async_trait]
+        impl ToolExecutor for CancelDuringTool {
+            async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+                let signal = self
+                    .active_step
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .expect("step signal must be installed before tool execution");
+                signal.cancel();
+                ToolResult {
+                    tool_call_id: call.id.clone(),
+                    tool_name: call.name.clone(),
+                    output: "cancelled at the boundary".to_string(),
+                    is_error: false,
+                    stop_turn: false,
+                    updates: vec![],
+                }
+            }
+        }
+
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "cancel this step")],
+            tools: vec![crate::types::EngineTool {
+                name: "Probe".to_string(),
+                description: "probe".to_string(),
+                args_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {},
+                }),
+            }],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(3),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let llm = ScriptedLlmClient::new(vec![
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: "call_boundary".to_string(),
+                    name: Some("Probe".to_string()),
+                    arguments_part: Some("{}".to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ],
+            vec![
+                LlmStreamEvent::Text {
+                    delta: "continued".to_string(),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("stop".to_string()),
+                },
+            ],
+        ]);
+        let mut session = TurnSession::new(input);
+        let active_step = session.active_step_cancel_handle();
+        let executor = CancelDuringTool { active_step };
+        let mut events = Vec::new();
+        let progress = session
+            .run(&llm, &executor, &crate::permission::PolicyConfig {
+                mode: crate::permission::PermissionMode::Auto,
+                rules: vec![],
+                session_approved_patterns: vec![],
+            }, &mut |event| events.push(event))
+            .await;
+
+        assert!(matches!(progress, TurnProgress::Completed(ref outcome) if outcome.status == TurnEndReason::Completed));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            EngineEvent::TurnStepInterrupted { step: 1, reason, .. } if reason == "aborted"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            EngineEvent::AssistantDelta { delta, .. } if delta == "continued"
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            EngineEvent::TurnStepCompleted { step: 1, .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn step_cancel_interrupts_inflight_llm_and_continues() {
+        struct CancelableClient {
+            calls: std::sync::atomic::AtomicUsize,
+            started: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl LlmClient for CancelableClient {
+            async fn stream_chat(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<StreamedTurn, crate::llm::LlmError> {
+                if self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                    if let Some(sender) = self.started.lock().await.take() {
+                        let _ = sender.send(());
+                    }
+                    std::future::pending::<()>().await;
+                    unreachable!("the first request is cancelled");
+                }
+                Ok(StreamedTurn {
+                    events: vec![
+                        LlmStreamEvent::Text {
+                            delta: "continued after llm cancellation".to_string(),
+                        },
+                        LlmStreamEvent::Finish {
+                            finish_reason: Some("stop".to_string()),
+                        },
+                    ],
+                    assistant: crate::llm::AssistantTurn {
+                        tool_calls: vec![],
+                        text: "continued after llm cancellation".to_string(),
+                        thinking: String::new(),
+                    },
+                })
+            }
+        }
+
+        let input = EngineTurnInput {
+            turn_id: 1,
+            messages: vec![msg("user", "cancel the request")],
+            tools: vec![],
+            active_tools: None,
+            provider: ProviderConfig {
+                base_url: "http://x".to_string(),
+                api_key: "k".to_string(),
+                model: "m".to_string(),
+                thinking_effort: None,
+            },
+            max_steps_per_turn: Some(3),
+            cwd: Some("/tmp".to_string()),
+            shell: Some("/bin/sh".to_string()),
+            context_window: None,
+            max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
+            next_agent_id: None,
+            kill_grace_ms: None,
+            subagent_model: None,
+            subagent_allowlist: None,
+            subagent_timeout_ms: None,
+            max_running_tasks: None,
+            max_retries_per_step: None,
+            completion_review: None,
+            origin: TurnOrigin::User { payload: None },
+            uses_worker_rejection_guidance: false,
+        };
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let client = CancelableClient {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            started: tokio::sync::Mutex::new(Some(started_sender)),
+        };
+        let mut session = TurnSession::new(input);
+        let active_step = session.active_step_cancel_handle();
+        let policy = crate::permission::PolicyConfig {
+            mode: crate::permission::PermissionMode::Auto,
+            rules: vec![],
+            session_approved_patterns: vec![],
+        };
+        let handle = tokio::spawn(async move {
+            session
+                .run(&client, &crate::tool::BashTool::default(), &policy, &mut |_| {})
+                .await
+        });
+        started_receiver.await.expect("first request started");
+        active_step
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("active step signal")
+            .cancel();
+        let progress = handle.await.expect("run completes");
+        let TurnProgress::Completed(outcome) = progress else {
+            panic!("step cancellation must not pause for approval: {progress:?}");
+        };
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+    }
+
     #[test]
     fn cancel_signal_records_the_stop_reason() {
         // F3.5: the per-task cancel signal carries the TaskStop reason so the
@@ -4788,6 +5778,7 @@ mod approval_batch_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -5760,6 +6751,7 @@ mod dedupe_tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -5852,6 +6844,33 @@ mod dedupe_tests {
             .iter()
             .filter(|event| matches!(event, EngineEvent::ToolCallStarted { .. }))
             .collect()
+    }
+
+    struct CancelFirstExecutor {
+        active_step: Arc<Mutex<Option<Arc<CancelSignal>>>>,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for CancelFirstExecutor {
+        async fn execute(&self, call: &ToolCall, _ctx: &ToolContext) -> ToolResult {
+            if self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                self.active_step
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .expect("active step signal")
+                    .cancel();
+            }
+            ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("result-{}", call.id),
+                is_error: false,
+                stop_turn: false,
+                updates: vec![],
+            }
+        }
     }
 
     #[tokio::test]
@@ -6073,5 +7092,52 @@ mod dedupe_tests {
         assert_eq!(values[0]["output"], "executed-call_a");
         assert_eq!(values[1]["output"], "executed-call_b");
         assert_ne!(values[0]["output"], values[1]["output"]);
+    }
+
+    #[tokio::test]
+    async fn cancelled_tool_step_does_not_advance_the_cross_step_dedupe_streak() {
+        let repeated = |id: &str| {
+            vec![
+                LlmStreamEvent::ToolCall {
+                    tool_call_id: id.to_string(),
+                    name: Some("Bash".to_string()),
+                    arguments_part: Some(r#"{"command":"echo same"}"#.to_string()),
+                },
+                LlmStreamEvent::Finish {
+                    finish_reason: Some("tool_calls".to_string()),
+                },
+            ]
+        };
+        let llm = ScriptedLlmClient::new(vec![
+            repeated("cancelled"),
+            repeated("second"),
+            repeated("third"),
+            text_segment("done"),
+        ]);
+        let mut session = TurnSession::new(input(vec![user_message("go")]));
+        let active_step = session.active_step_cancel_handle();
+        let tools = CancelFirstExecutor {
+            active_step,
+            calls: AtomicUsize::new(0),
+        };
+        let mut events = Vec::new();
+        let outcome = session
+            .run(&llm, &tools, &policy_auto(), &mut |event| events.push(event))
+            .await;
+
+        let TurnProgress::Completed(outcome) = outcome else {
+            panic!("turn must complete: {outcome:?}");
+        };
+        assert_eq!(outcome.status, TurnEndReason::Completed);
+        let results = tool_results(&events);
+        assert_eq!(results.len(), 3);
+        let third_output = serde_json::to_value(results[2]).unwrap()["output"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            !third_output.contains(REMINDER_TEXT_1),
+            "the interrupted first step must not count toward the streak: {events:?}"
+        );
     }
 }

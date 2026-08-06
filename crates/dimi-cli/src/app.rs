@@ -113,6 +113,7 @@ fn user_llm_message(content: &str) -> LlmMessage {
         name: None,
         tool_call_id: None,
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: None,
     }
@@ -133,6 +134,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             }),
@@ -142,6 +144,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             }),
@@ -164,6 +167,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                                     .unwrap_or_else(|_| "{}".to_string()),
                             },
                         }]),
+                        tools: None,
                         reasoning: None,
                         origin: None,
                     });
@@ -177,6 +181,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                         name: None,
                         tool_call_id: Some(result.tool_call_id.clone()),
                         tool_calls: None,
+                        tools: None,
                         reasoning: None,
                         origin: None,
                     });

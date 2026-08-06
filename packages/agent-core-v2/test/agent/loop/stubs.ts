@@ -163,6 +163,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
       active.cancel(reason);
       return true;
     },
+    cancelStep: () => false,
     tryAcquireQuiescence: () => toDisposable(() => {}),
     hasPendingRequests: () => queue.hasPendingRequests(),
     registerLoopErrorHandler: errorHandlers.register,

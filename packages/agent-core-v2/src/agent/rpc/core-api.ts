@@ -142,6 +142,8 @@ export interface SteerPayload {
 }
 export interface CancelPayload {
   readonly turnId?: number;
+  /** Cancel only the active step and continue the same turn. */
+  readonly step?: boolean;
 }
 export interface SetThinkingPayload {
   readonly level: string;

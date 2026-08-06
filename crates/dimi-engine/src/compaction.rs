@@ -143,6 +143,7 @@ pub fn compaction_instruction_message() -> LlmMessage {
         name: None,
         tool_call_id: None,
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: None,
     }
@@ -154,6 +155,7 @@ pub fn compaction_instruction_message() -> LlmMessage {
 /// `buildContextCompactionShape`.
 /// Returns `(messages, tokens_after)`.
 pub fn compacted_shape(messages: &[LlmMessage], summary: &str) -> (Vec<LlmMessage>, u64) {
+    let messages = strip_dynamic_tool_context(messages);
     let mut kept: Vec<LlmMessage> = Vec::new();
     if let Some(system) = messages.iter().find(|m| m.role == "system") {
         kept.push(system.clone());
@@ -177,11 +179,66 @@ pub fn compacted_shape(messages: &[LlmMessage], summary: &str) -> (Vec<LlmMessag
         name: None,
         tool_call_id: None,
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: Some(serde_json::json!({ "kind": "compaction_summary" })),
     });
     let tokens_after = crate::context::estimate_tokens_for_messages(&kept);
     (kept, tokens_after)
+}
+
+/// Remove progressive tool-disclosure protocol messages from the history sent
+/// to the compaction model. The TS `toolSelect` service keeps these messages in
+/// context so the loaded-tool ledger can be rebuilt, but they are protocol
+/// bookkeeping rather than conversation and must not consume summary input.
+pub fn strip_dynamic_tool_context(messages: &[LlmMessage]) -> Vec<LlmMessage> {
+    messages
+        .iter()
+        .filter_map(|message| {
+            if is_loadable_tools_announcement(message) {
+                return None;
+            }
+            if is_dynamic_tool_schema_message(message)
+                && content_is_empty(&message.content)
+                && message
+                    .tool_calls
+                    .as_ref()
+                    .is_none_or(|tool_calls| tool_calls.is_empty())
+            {
+                return None;
+            }
+            if is_dynamic_tool_schema_message(message) {
+                let mut message = message.clone();
+                message.tools = None;
+                return Some(message);
+            }
+            Some(message.clone())
+        })
+        .collect()
+}
+
+fn is_dynamic_tool_schema_message(message: &LlmMessage) -> bool {
+    message
+        .tools
+        .as_ref()
+        .is_some_and(|tools| !tools.is_empty())
+}
+
+fn is_loadable_tools_announcement(message: &LlmMessage) -> bool {
+    let Some(origin) = message.origin.as_ref().and_then(Value::as_object) else {
+        return false;
+    };
+    origin.get("kind").and_then(Value::as_str) == Some("system_trigger")
+        && origin.get("name").and_then(Value::as_str) == Some("loadable-tools")
+}
+
+fn content_is_empty(content: &Value) -> bool {
+    match content {
+        Value::Null => true,
+        Value::String(text) => text.is_empty(),
+        Value::Array(parts) => parts.is_empty(),
+        Value::Object(_) | Value::Bool(_) | Value::Number(_) => false,
+    }
 }
 
 #[derive(Debug, Default)]
@@ -227,22 +284,39 @@ fn select_user_messages(messages: &[LlmMessage]) -> UserMessageSelection {
     let mut tail = Vec::new();
     let mut remaining = tail_budget;
     let mut head_end = messages.len();
+    let mut tail_boundary_dropped_prefix: Option<LlmMessage> = None;
     for index in (0..messages.len()).rev() {
-        let tokens = crate::context::estimate_tokens_for_message(&messages[index]);
+        let message = &messages[index];
+        let tokens = crate::context::estimate_tokens_for_message(message);
         if tokens > remaining {
+            let full_text = extract_text(&message.content);
+            let kept_suffix = truncate_text_from_end(&full_text, remaining);
+            tail.push(replace_message_text(message, &kept_suffix));
+            let dropped_prefix_len = full_text.len().saturating_sub(kept_suffix.len());
+            if dropped_prefix_len > 0 {
+                tail_boundary_dropped_prefix = Some(replace_message_text(
+                    message,
+                    &full_text[..dropped_prefix_len],
+                ));
+            }
             head_end = index;
             break;
         }
-        tail.push(messages[index].clone());
+        tail.push(message.clone());
         remaining -= tokens;
     }
     tail.reverse();
 
     let mut head = Vec::new();
     remaining = head_budget;
-    for message in &messages[..head_end] {
+    let mut head_candidates = messages[..head_end].to_vec();
+    if let Some(message) = tail_boundary_dropped_prefix {
+        head_candidates.push(message);
+    }
+    for message in &head_candidates {
         let tokens = crate::context::estimate_tokens_for_message(message);
         if tokens > remaining {
+            head.push(truncate_user_message(message, remaining));
             break;
         }
         head.push(message.clone());
@@ -259,6 +333,77 @@ fn select_user_messages(messages: &[LlmMessage]) -> UserMessageSelection {
     }
 }
 
+fn extract_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                let object = part.as_object()?;
+                if object.get("type").and_then(Value::as_str) != Some("text") {
+                    return None;
+                }
+                object.get("text").and_then(Value::as_str)
+            })
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+fn truncate_user_message(message: &LlmMessage, max_tokens: u64) -> LlmMessage {
+    let text = extract_text(&message.content);
+    replace_message_text(message, &truncate_text(&text, max_tokens))
+}
+
+fn replace_message_text(message: &LlmMessage, text: &str) -> LlmMessage {
+    let mut replaced = message.clone();
+    replaced.content = Value::String(text.to_string());
+    replaced.tool_calls = None;
+    replaced
+}
+
+fn truncate_text(text: &str, max_tokens: u64) -> String {
+    if max_tokens == 0 {
+        return String::new();
+    }
+    let mut ascii_count = 0u64;
+    let mut non_ascii_count = 0u64;
+    let mut end = 0;
+    for (index, character) in text.char_indices() {
+        if character.is_ascii() {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+        if ascii_count.div_ceil(4) + non_ascii_count > max_tokens {
+            break;
+        }
+        end = index + character.len_utf8();
+    }
+    text[..end].to_string()
+}
+
+fn truncate_text_from_end(text: &str, max_tokens: u64) -> String {
+    if max_tokens == 0 {
+        return String::new();
+    }
+    let mut ascii_count = 0u64;
+    let mut non_ascii_count = 0u64;
+    let mut start = text.len();
+    for (index, character) in text.char_indices().rev() {
+        if character.is_ascii() {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+        if ascii_count.div_ceil(4) + non_ascii_count > max_tokens {
+            break;
+        }
+        start = index;
+    }
+    text[start..].to_string()
+}
+
 fn compaction_elision_message(omitted_tokens: u64) -> LlmMessage {
     LlmMessage {
         role: "user".to_string(),
@@ -268,6 +413,7 @@ fn compaction_elision_message(omitted_tokens: u64) -> LlmMessage {
         name: None,
         tool_call_id: None,
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: Some(serde_json::json!({
             "kind": "injection",
@@ -287,6 +433,7 @@ mod tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -338,16 +485,16 @@ mod tests {
             messages.push(text_message("user", &"x".repeat(10_000)));
         }
         let (shape, _) = compacted_shape(&messages, "sum");
-        // The engine keeps whole messages within the 2k-token head and
-        // 18k-token tail budgets, with an explicit elision marker between
-        // them. Partial-message truncation remains a later parity slice.
+        // The engine keeps a truncated head boundary and a truncated tail
+        // boundary within the 2k/18k budgets, with an explicit elision marker
+        // between them.
         let kept_users = shape
             .iter()
             .take(shape.len() - 1)
             .filter(|m| m.role == "user")
             .count();
-        assert_eq!(kept_users, 8); // elision + 7 tail (summary excluded above)
-        assert_eq!(shape.len(), 9); // elision + tail + summary
+        assert_eq!(kept_users, 10); // head + elision + 8 tail (summary excluded above)
+        assert_eq!(shape.len(), 11); // head + elision + tail + summary
         assert!(shape.iter().any(|message| {
             message.content.as_str().is_some_and(|text| {
                 text.contains("Some of this conversation's user messages were omitted")
@@ -370,5 +517,81 @@ mod tests {
             .collect();
         assert!(texts.contains(&"kept"));
         assert!(!texts.contains(&"internal"));
+    }
+
+    #[test]
+    fn dynamic_tool_context_is_removed_from_summary_history() {
+        let mut schema = text_message("system", "");
+        schema.origin = Some(serde_json::json!({
+            "kind": "injection",
+            "variant": "dynamic_tool_schema"
+        }));
+        schema.tools = Some(vec![serde_json::json!({ "name": "McpTool" })]);
+        let mut announcement = text_message("system", "<tools_added>\nMcpTool\n</tools_added>");
+        announcement.origin = Some(serde_json::json!({
+            "kind": "system_trigger",
+            "name": "loadable-tools"
+        }));
+
+        let stripped = strip_dynamic_tool_context(&[
+            schema,
+            announcement,
+            text_message("user", "keep this"),
+        ]);
+        assert_eq!(stripped.len(), 1);
+        assert_eq!(stripped[0].content, Value::String("keep this".to_string()));
+    }
+
+    #[test]
+    fn dynamic_tool_context_keeps_content_but_strips_tool_definitions() {
+        let mut message = text_message("system", "loaded tool context");
+        message.tools = Some(vec![serde_json::json!({ "name": "McpTool" })]);
+
+        let stripped = strip_dynamic_tool_context(&[message]);
+
+        assert_eq!(stripped.len(), 1);
+        assert_eq!(
+            stripped[0].content,
+            Value::String("loaded tool context".to_string())
+        );
+        assert_eq!(stripped[0].tools, None);
+    }
+
+    #[test]
+    fn dynamic_tool_origin_without_tools_is_kept() {
+        let mut message = text_message("system", "");
+        message.origin = Some(serde_json::json!({
+            "kind": "injection",
+            "variant": "dynamic_tool_schema"
+        }));
+
+        let stripped = strip_dynamic_tool_context(&[message]);
+
+        assert_eq!(stripped.len(), 1);
+        assert_eq!(stripped[0].content, Value::String(String::new()));
+    }
+
+    #[test]
+    fn compacted_shape_truncates_a_user_message_at_both_boundaries() {
+        let huge = "x".repeat(100_000);
+        let (shape, _) = compacted_shape(
+            &[
+                text_message("user", &huge),
+                text_message("user", "recent user input"),
+            ],
+            "sum",
+        );
+        let user_texts: Vec<&str> = shape
+            .iter()
+            .filter(|message| message.role == "user")
+            .filter_map(|message| message.content.as_str())
+            .filter(|text| *text != "recent user input")
+            .filter(|text| !text.starts_with(COMPACTION_SUMMARY_PREFIX))
+            .filter(|text| !text.starts_with("<system-reminder>"))
+            .collect();
+
+        assert_eq!(user_texts.len(), 2);
+        assert!(user_texts.iter().any(|text| text.len() < huge.len() && text.starts_with('x')));
+        assert!(user_texts.iter().any(|text| text.len() < huge.len() && text.ends_with('x')));
     }
 }

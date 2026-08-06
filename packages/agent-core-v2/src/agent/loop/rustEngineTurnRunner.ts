@@ -17,8 +17,10 @@
  *     `tool.call` / `tool.result` / `step.end` + the assistant message) so
  *     the next turn's history is intact.
  *
- * Slice-1 scope: single turn, no queue/cancellation/undo (those land with
- * later slices). The runner is a parallel path — `loopService` is untouched.
+ * Queueing, turn/step cancellation, approvals, and external-tool callbacks
+ * are handled here. Context assembly and undo remain TS-owned, while
+ * `loopService` selects this runner for Rust-enabled agents and keeps the
+ * legacy loop available as a fallback.
  */
 
 import { randomUUID } from "node:crypto";
@@ -122,6 +124,8 @@ export interface IRustEngineTurnRunner {
    * a queued turn. Returns whether something was cancelled.
    */
   cancel(turnId?: number): boolean;
+  /** Cancel only the active Rust step and continue the same turn. */
+  cancelStep(): boolean;
 }
 
 /** Render an engine event/tool value as text (strings pass through). */
@@ -296,6 +300,13 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
   /** Aborts a TS external-tool execution (notably plan review) on cancel. */
   private externalToolAbort: AbortController | undefined;
+
+  /** Aborts the TS external-tool execution for the active Rust step. */
+  private externalStepAbort: AbortController | undefined;
+
+  /** Step-numbered controllers let delayed bridge callbacks keep the signal
+   *  belonging to their Rust step even when event and tool TSFNs interleave. */
+  private readonly externalStepAborts = new Map<number, AbortController>();
 
   /**
    * Rust-side task registry mirror: taskId → launch facts (description /
@@ -485,6 +496,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       // resume loop), then the engine's own cancellation.
       this.approvalAbort?.abort();
       this.externalToolAbort?.abort();
+      this.externalStepAbort?.abort();
+      for (const controller of this.externalStepAborts.values()) controller.abort();
       session.cancel();
       return true;
     }
@@ -497,6 +510,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       }
     }
     return cancelled;
+  }
+
+  cancelStep(): boolean {
+    if (!this.turnRunning || this.activeSession === undefined) return false;
+    const cancelled = this.activeSession.cancelStep();
+    if (!cancelled) return false;
+    // Abort the TS-side execution immediately so external tools observe the
+    // same per-step signal as the Rust engine. An approval wait is part of the
+    // active step too; aborting it lets `resume` observe the step signal and
+    // continue without executing the pending call.
+    this.externalStepAbort?.abort();
+    for (const controller of this.externalStepAborts.values()) controller.abort();
+    this.approvalAbort?.abort();
+    return true;
   }
 
   /**
@@ -512,6 +539,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.waitTimeoutSubscription.dispose();
     this.approvalAbort?.abort();
     this.externalToolAbort?.abort();
+    this.externalStepAbort?.abort();
+    for (const controller of this.externalStepAborts.values()) controller.abort();
     for (const session of this.sessions) {
       session.close();
     }
@@ -634,6 +663,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     );
     this.sessions.add(session);
     this.activeSession = session;
+    const externalToolAbort = new AbortController();
+    const externalStepAbort = new AbortController();
+    this.externalToolAbort = externalToolAbort;
+    this.externalStepAbort = externalStepAbort;
+    this.externalStepAborts.clear();
+    // The first step is always numbered 1. Seeding this entry means an
+    // external callback that reaches JS before the `turn.step.started` event
+    // handler still receives the correct first-step signal.
+    this.externalStepAborts.set(1, externalStepAbort);
     // A2 (review): native tools (Bash/Agent/…) execute inside the engine,
     // bypassing the TS toolExecutor — register the PreToolUse gate so
     // user-configured veto hooks apply to them too. External tools answer
@@ -644,6 +682,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           requestId: string;
           toolName: string;
           arguments: unknown;
+          step?: number;
         };
         let verdict: { decision: "allow" } | { decision: "block"; reason: string } = {
           decision: "allow",
@@ -654,9 +693,20 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               accessor.get(IExternalHooksRunnerService) as IExternalHooksRunnerService | undefined,
           );
           if (hooksRunner !== undefined && ENGINE_NATIVE_TOOLS.has(payload.toolName)) {
+            let stepController: AbortController | undefined;
+            if (typeof payload.step === 'number') {
+              stepController = this.externalStepAborts.get(payload.step);
+              if (stepController === undefined) {
+                stepController = new AbortController();
+                this.externalStepAborts.set(payload.step, stepController);
+              }
+            }
             const block = await hooksRunner.triggerBlock("PreToolUse", {
               matcherValue: payload.toolName,
-              signal: new AbortController().signal,
+              signal: AbortSignal.any([
+                externalToolAbort.signal,
+                (stepController ?? externalStepAbort).signal,
+              ]),
               sessionId: this.sessionContext.sessionId,
               inputData: {
                 toolName: payload.toolName,
@@ -674,8 +724,6 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         session.completeToolGate(payload.requestId, JSON.stringify(verdict));
       })();
     });
-    const externalToolAbort = new AbortController();
-    this.externalToolAbort = externalToolAbort;
     try {
       await this.runEngineSession(
         session,
@@ -686,9 +734,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       );
     } finally {
       externalToolAbort.abort();
+      externalStepAbort.abort();
+      this.externalStepAbort?.abort();
+      for (const controller of this.externalStepAborts.values()) controller.abort();
+      this.externalStepAborts.clear();
       if (this.externalToolAbort === externalToolAbort) {
         this.externalToolAbort = undefined;
       }
+      this.externalStepAbort = undefined;
       this.activeSession = undefined;
     }
     return { turnId };
@@ -768,6 +821,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const payload = JSON.parse(payloadJson) as {
             requestId: string;
             toolCallId?: string;
+            step?: number;
             name: string;
             arguments: unknown;
             toolCalls?: Array<{ id?: string; name: string; arguments: unknown }>;
@@ -799,10 +853,44 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                   : (JSON.stringify(payload.arguments) ?? "null"),
             };
             const allToolCalls = toolCalls.length > 0 ? toolCalls : [toolCall];
-            const signal = externalToolSignal;
-            const execution = await tool.resolveExecution(payload.arguments, {
-              toolCalls: allToolCalls,
-            });
+            let stepController: AbortController | undefined;
+            if (typeof payload.step === 'number') {
+              stepController = this.externalStepAborts.get(payload.step);
+              if (stepController === undefined) {
+                stepController = new AbortController();
+                this.externalStepAborts.set(payload.step, stepController);
+              }
+            }
+            const stepSignal =
+              stepController?.signal ?? this.externalStepAbort?.signal ?? externalToolSignal;
+            const signal = AbortSignal.any([externalToolSignal, stepSignal]);
+            const completeAborted = (): void => {
+              session.completeToolCall(
+                payload.requestId,
+                JSON.stringify({
+                  toolCallId,
+                  toolName: payload.name,
+                  output: `Tool "${payload.name}" was aborted`,
+                  isError: true,
+                  stopTurn: false,
+                  updates: [],
+                }),
+              );
+            };
+            // Resolution can itself be asynchronous. The Rust waiter is
+            // already gone when a step cancel wins, so race this phase with
+            // the step signal and never enter adjudication or execution after
+            // cancellation.
+            const execution = await Promise.race([
+              tool.resolveExecution(payload.arguments, {
+                toolCalls: allToolCalls,
+              }),
+              abortOnSignal(signal).then(() => undefined),
+            ]);
+            if (execution === undefined || signal.aborted) {
+              completeAborted();
+              return;
+            }
             if (execution.isError === true) {
               session.completeToolCall(
                 payload.requestId,
@@ -831,6 +919,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
               args: payload.arguments,
               execution,
             });
+            if (signal.aborted) {
+              completeAborted();
+              return;
+            }
             if (planDecision?.veto !== undefined) {
               session.completeToolCall(
                 payload.requestId,
@@ -881,6 +973,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                 return;
               }
             }
+            if (signal.aborted) {
+              completeAborted();
+              return;
+            }
             const result = await execution.execute({
               turnId: 0,
               toolCallId,
@@ -898,6 +994,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                 } as never);
               },
             });
+            if (signal.aborted) {
+              completeAborted();
+              return;
+            }
             // P1-7 (review): truncate oversized tool results for the model
             // (TS toolResultTruncation parity). The engine feeds the raw
             // output text into the next request, so a multi-MB result must
@@ -921,6 +1021,10 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
                 // Keep the full output (fail soft).
               }
             }
+            if (signal.aborted) {
+              completeAborted();
+              return;
+            }
             session.completeToolCall(
               payload.requestId,
               JSON.stringify({
@@ -934,7 +1038,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
             );
             // P1-8 (review): PostToolUse fire-and-forget (TS
             // `notifyPostToolUse` parity — informational, never blocks).
-            if (hooksRunner !== undefined) {
+            if (hooksRunner !== undefined && !signal.aborted) {
               const outputText = toText(finalResult.output);
               const isError = finalResult.isError === true;
               void hooksRunner.fireAndForgetTrigger(
@@ -1013,6 +1117,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     //    assistant + tool messages, so the runner never appends messages by
     //    hand (that produced duplicated/placeholder history).
     let stepUuid: string | undefined;
+    let currentStepNumber = 0;
     // Streamed parts are recorded in arrival order (TS `appendResponseContent`
     // iterates the provider message content in stream order): consecutive
     // deltas of the same type merge into one part, a type change opens a new
@@ -1154,6 +1259,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       switch (event["type"]) {
         case "turn.step.started": {
           const stepNumber = Number(event["step"] ?? 1);
+          currentStepNumber = stepNumber;
+          let stepController = this.externalStepAborts.get(stepNumber);
+          if (stepController === undefined) {
+            this.externalStepAbort?.abort();
+            stepController = new AbortController();
+            this.externalStepAborts.set(stepNumber, stepController);
+          }
+          this.externalStepAbort = stepController;
           stepUuid = randomUUID();
           stepSawToolCall = false;
           this.context.appendLoopEvent({
@@ -1268,20 +1381,27 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           break;
         }
         case "turn.step.interrupted": {
+          const stepNumber = Number(event["step"] ?? 1);
+          this.externalStepAborts.get(stepNumber)?.abort();
           // TS `appendResponseContent` lands the step's text the moment its
           // LLM response completes (before tools run). A step interrupted
           // mid-tool has a completed response (tool calls were seen) → flush
           // the buffered parts so the text survives a cancel; a step
           // interrupted mid-LLM-stream (no tool calls yet) drops the partial
-          // text — the response never completed, matching TS.
+          // text — the response never completed, matching TS. Clear it
+          // explicitly so the next step cannot append to the abandoned
+          // segment before its eventual flush.
           if (stepSawToolCall) {
             flushParts(turnId, Number(event["step"] ?? 1));
+          } else {
+            segments.splice(0);
           }
           break;
         }
         case "turn.step.completed": {
           const stepFinish = toText(event["finishReason"] ?? "end_turn");
           const stepNumber = Number(event["step"] ?? 1);
+          this.externalStepAborts.get(stepNumber)?.abort();
           flushParts(turnId, stepNumber);
           // Engine usage (inputTokens/outputTokens/cachedTokens/cacheWriteTokens) → the TS
           // four-component TokenUsage + wire usage.record. Per-step parity:
@@ -1367,12 +1487,23 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         // ThreadsafeFunction is fire-and-forget) — surface it instead of
         // dropping the failure silently.
         this.log.error("[rustEngineTurnRunner] failed to process engine event", { error });
+      } finally {
+        session.acknowledgeEvent();
       }
     });
 
     let progress: EngineProgress = JSON.parse(await session.run()) as EngineProgress;
+    await session.waitForEvents();
     // Approval loop: surface the request, wait for the user, resume.
     while (progress.progress.status === "needsApproval") {
+      // The Rust engine returns after the LLM response has completed but
+      // before it announces/executes the approval-gated tool. TS appends the
+      // completed response content at that boundary; flush it before the
+      // approval wait so cancelling the step cannot discard the assistant's
+      // already-generated text.
+      if (stepUuid !== undefined && currentStepNumber > 0) {
+        flushParts(turnId, currentStepNumber);
+      }
       const approval = progress.progress.approval!;
       const approvalRequest = {
         sessionId: this.sessionContext.sessionId,
@@ -1387,13 +1518,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           detail: approval.toolInput,
         },
       } as Parameters<ISessionApprovalService["request"]>[0];
-      this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
-      let response: ApprovalResponse = { decision: "approved" };
       // The approval wait is cancellable: `cancel()` aborts it so the turn
       // resolves as cancelled without waiting for the user (TS abortable
-      // parity).
+      // parity). Install the controller BEFORE publishing the requested event:
+      // event subscribers may cancel the active step synchronously.
       const approvalController = new AbortController();
       this.approvalAbort = approvalController;
+      this.eventBus.publish({ type: "permission.approval.requested", ...approvalRequest } as never);
+      let response: ApprovalResponse = { decision: "approved" };
       try {
         const approvalService = this.instantiation.invokeFunction(
           (accessor) => accessor.get(ISessionApprovalService) as ISessionApprovalService | undefined,
@@ -1438,6 +1570,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         session.addSessionApproval(approvalRequest.toolName);
       }
       progress = JSON.parse(await session.resume(JSON.stringify(response))) as typeof progress;
+      await session.waitForEvents();
     }
   }
 
@@ -1866,6 +1999,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       ...(message.role === "tool" && message.toolCallId !== undefined
         ? { toolCallId: message.toolCallId }
         : {}),
+      ...(message.tools !== undefined ? { tools: message.tools } : {}),
       ...(message.origin !== undefined ? { origin: message.origin } : {}),
     };
   }

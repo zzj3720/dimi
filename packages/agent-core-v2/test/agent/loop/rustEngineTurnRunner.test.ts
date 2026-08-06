@@ -685,6 +685,18 @@ describe('Rust engine turn runner (default)', () => {
       (messages) => messages.some((message) => message.origin?.kind === 'compaction_summary'),
       'compaction summary message',
     );
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('answer after compaction'),
+        ),
+      'post-compaction step answer',
+    );
     const context = ctx.get(IAgentContextMemoryService).get();
     // The compaction summary message carries the prefix; tool blobs are gone.
     const summaryMessage = context.find((message) => message.origin?.kind === 'compaction_summary');
@@ -1771,6 +1783,328 @@ describe('Rust engine turn runner (default)', () => {
     const turnEnded = await ended;
     expect(turnEnded.reason).toBe('cancelled');
   });
+
+  it('can cancel immediately from the step.started event', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_cancel_on_start',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo should-not-run"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'continued after immediate cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+    const canceled = new Promise<boolean>((resolve) => {
+      const disposable = ctx.get(IEventBus).subscribe((event) => {
+        if (
+          (event as { type?: string; step?: number }).type === 'turn.step.started' &&
+          (event as { step?: number }).step === 1
+        ) {
+          disposable.dispose();
+          resolve(ctx.get(IRustEngineTurnRunner).cancelStep());
+        }
+      });
+    });
+
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel at step start' }] });
+    expect(await canceled).toBe(true);
+    await promptPromise;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('continued after immediate cancellation'),
+        ),
+      'next Rust step after immediate cancellation',
+    );
+  });
+
+  it('cancels only the active step and continues the Rust turn', async () => {
+    let resolveStarted!: () => void;
+    let resolveAborted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const aborted = new Promise<void>((resolve) => {
+      resolveAborted = resolve;
+    });
+    const abortableTool: ExecutableTool = {
+      name: 'AbortableExternal',
+      description: 'waits until its step is cancelled',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async ({ signal }) => {
+          resolveStarted();
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) {
+              resolve();
+              return;
+            }
+            signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+          resolveAborted();
+          return { output: 'step was cancelled', isError: true };
+        },
+      }),
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_step_abort',
+          name: 'AbortableExternal',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'continued after step cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(abortableTool);
+    ctx.get(IAgentLoopService);
+    const interrupted: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'turn.step.interrupted') {
+        interrupted.push(event as Record<string, unknown>);
+      }
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel this step' }] });
+    await started;
+    expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(true);
+    await aborted;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('continued after step cancellation'),
+        ),
+      'the next Rust step after cancellation',
+    );
+    expect(interrupted).toContainEqual(
+      expect.objectContaining({ turnId: 0, step: 1, reason: 'aborted' }),
+    );
+  });
+
+  it('routes step cancellation through the Agent RPC control surface', async () => {
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const abortableTool: ExecutableTool = {
+      name: 'AbortableExternal',
+      description: 'waits until its step is cancelled',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async ({ signal }) => {
+          resolveStarted();
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) {
+              resolve();
+              return;
+            }
+            signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+          return { output: 'step was cancelled', isError: true };
+        },
+      }),
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_rpc_step_cancel',
+          name: 'AbortableExternal',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'rpc step cancellation continued' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(abortableTool);
+    ctx.get(IAgentLoopService);
+    let resolveInterrupted!: () => void;
+    const interrupted = new Promise<void>((resolve) => {
+      resolveInterrupted = resolve;
+    });
+    const subscription = ctx.get(IEventBus).subscribe((event) => {
+      const typed = event as { type?: string; step?: number };
+      if (typed.type === 'turn.step.interrupted' && typed.step === 1) {
+        resolveInterrupted();
+      }
+    });
+    try {
+      const prompt = ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel one RPC step' }] });
+      await started;
+      await ctx.rpc.cancel({ step: true });
+      await interrupted;
+      await prompt;
+    } finally {
+      subscription.dispose();
+    }
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('rpc step cancellation continued'),
+        ),
+      'the RPC-cancelled step to continue the turn',
+    );
+  }, 15000);
+
+  it('does not poison the TS step signal when Rust rejects a step cancellation', async () => {
+    const originalCancelStep = RustTurnSession.prototype.cancelStep;
+    RustTurnSession.prototype.cancelStep = () => false;
+    let executed = false;
+    const signalStates: boolean[] = [];
+    const probeTool: ExecutableTool = {
+      name: 'ProbeSignal',
+      description: 'records the signal used for execution',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: () => ({
+        isError: false,
+        approvalRule: 'allow',
+        execute: async ({ signal }) => {
+          executed = true;
+          signalStates.push(signal.aborted);
+          return { output: 'probe completed', isError: false };
+        },
+      }),
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_rejected_step_cancel',
+          name: 'ProbeSignal',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after rejected step cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(probeTool);
+    ctx.get(IAgentLoopService);
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const subscription = ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string; step?: number }).type === 'turn.step.started') resolveStarted();
+    });
+    try {
+      const prompt = ctx.rpc.prompt({ input: [{ type: 'text', text: 'reject one step cancel' }] });
+      await started;
+      expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(false);
+      await prompt;
+      await waitForContext(
+        ctx,
+        (messages) =>
+          messages.some((message) =>
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('after rejected step cancellation'),
+          ),
+        'turn after rejected step cancellation',
+      );
+      expect(executed).toBe(true);
+      expect(signalStates).toEqual([false]);
+    } finally {
+      subscription.dispose();
+      RustTurnSession.prototype.cancelStep = originalCancelStep;
+    }
+  });
+
+  it('does not execute an external tool after cancellation wins during resolution', async () => {
+    let resolveStarted!: () => void;
+    let releaseResolution!: () => void;
+    const resolutionStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const resolution = new Promise<void>((resolve) => {
+      releaseResolution = resolve;
+    });
+    let executed = false;
+    const resolvingTool: ExecutableTool = {
+      name: 'ResolvingExternal',
+      description: 'resolves asynchronously before executing',
+      parameters: { type: 'object', properties: {} },
+      resolveExecution: async () => {
+        resolveStarted();
+        await resolution;
+        return {
+          isError: false,
+          approvalRule: 'allow',
+          execute: async () => {
+            executed = true;
+            return { output: 'must not execute after cancellation', isError: false };
+          },
+        };
+      },
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_cancel_during_resolution',
+          name: 'ResolvingExternal',
+          argumentsPart: '{}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'continued after resolution cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentToolRegistryService).register(resolvingTool);
+    ctx.get(IAgentLoopService);
+
+    try {
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel while resolving' }] });
+      await resolutionStarted;
+      expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(true);
+      releaseResolution();
+      await waitForContext(
+        ctx,
+        (messages) =>
+          messages.some((message) =>
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('continued after resolution cancellation'),
+          ),
+        'next Rust step after resolution cancellation',
+      );
+      expect(executed).toBe(false);
+    } finally {
+      releaseResolution();
+    }
+  });
 });
 
 describe('Rust vs legacy routing', () => {
@@ -2014,6 +2348,159 @@ describe('Rust engine approval flow (manual mode)', () => {
       .map((part) => (part as { text?: string }).text ?? '')
       .join('');
     expect(toolText).toContain('ask-ok');
+  });
+
+  it('cancels a pending approval as a step and continues the same turn', async () => {
+    ctx = createTestAgent(); // manual mode by default
+    ctx.get(IAgentLoopService);
+    const interrupted: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if ((event as { type?: string }).type === 'turn.step.interrupted') {
+        interrupted.push(event as Record<string, unknown>);
+      }
+    });
+
+    const approvalPromise = ctx.takeApprovalRequest();
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel approval step' }] });
+    await approvalPromise;
+
+    expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(true);
+    await promptPromise;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('approved run done'),
+        ),
+      'the next Rust step after cancelling approval',
+    );
+    expect(interrupted).toContainEqual(
+      expect.objectContaining({ turnId: 0, step: 1, reason: 'aborted' }),
+    );
+    expect(ctx.get(IAgentContextMemoryService).get().some((message) => message.role === 'tool')).toBe(
+      false,
+    );
+  });
+
+  it('cancels approval from the requested event before the wait is installed', async () => {
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const canceled = new Promise<boolean>((resolve) => {
+      const disposable = ctx.get(IEventBus).subscribe((event) => {
+        if ((event as { type?: string }).type === 'permission.approval.requested') {
+          disposable.dispose();
+          resolve(ctx.get(IRustEngineTurnRunner).cancelStep());
+        }
+      });
+    });
+
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel before approval wait' }] });
+    expect(await canceled).toBe(true);
+    await promptPromise;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('approved run done'),
+        ),
+      'next Rust step after early approval cancellation',
+    );
+  });
+
+  it('keeps assistant text generated before an approval cancellation', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'text before approval' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_text_before_approval',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo approval"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after approval cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent();
+    ctx.get(IAgentLoopService);
+    const approvalPromise = ctx.takeApprovalRequest();
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'keep response text' }] });
+    await approvalPromise;
+    expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(true);
+    await promptPromise;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.role === 'assistant' &&
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('text before approval'),
+        ),
+      'assistant text emitted before approval cancellation',
+    );
+  });
+
+  it('keeps approval text when engine events are observed after the approval progress', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        { type: 'text', delta: 'text before delayed approval' },
+        {
+          type: 'tool_call',
+          toolCallId: 'call_delayed_approval_text',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo delayed-approval"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after delayed approval cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    const originalSetOnEvent = RustTurnSession.prototype.setOnEvent;
+    let releaseDelayedEvents = false;
+    RustTurnSession.prototype.setOnEvent = function (callback) {
+      originalSetOnEvent.call(this, (eventJson) => {
+        const type = (JSON.parse(eventJson) as { type?: string }).type;
+        if (!releaseDelayedEvents && type !== 'turn.step.interrupted') {
+          setTimeout(() => callback(eventJson), 50);
+          return;
+        }
+        if (type === 'turn.step.interrupted') releaseDelayedEvents = true;
+        callback(eventJson);
+      });
+    };
+    try {
+      ctx = createTestAgent();
+      ctx.get(IAgentLoopService);
+      const approvalPromise = ctx.takeApprovalRequest();
+      const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'delayed approval text' }] });
+      await approvalPromise;
+      expect(ctx.get(IRustEngineTurnRunner).cancelStep()).toBe(true);
+      await promptPromise;
+      await waitForContext(
+        ctx,
+        (messages) =>
+          messages.some((message) =>
+            message.content
+              .filter((part) => part.type === 'text')
+              .map((part) => (part as { text?: string }).text ?? '')
+              .join('')
+              .includes('text before delayed approval'),
+          ),
+        'assistant text emitted before delayed approval cancellation',
+      );
+    } finally {
+      RustTurnSession.prototype.setOnEvent = originalSetOnEvent;
+    }
   });
 
   it('auto-approves the same tool later in the turn after a session-scope approval', async () => {
@@ -2842,6 +3329,119 @@ describe('Rust engine approval flow (manual mode)', () => {
     // PostToolUse is fire-and-forget: allow a beat for the async trigger.
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(calls).toContainEqual({ event: 'PostToolUse', toolName: 'Bash' });
+  });
+
+  it('aborts a native PreToolUse hook when its Rust step is cancelled', async () => {
+    let resolveHookStarted!: () => void;
+    let resolveHookAborted!: () => void;
+    const hookStarted = new Promise<void>((resolve) => {
+      resolveHookStarted = resolve;
+    });
+    const hookAborted = new Promise<void>((resolve) => {
+      resolveHookAborted = resolve;
+    });
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async (
+        event: string,
+        args: { signal: AbortSignal; matcherValue?: string },
+      ) => {
+        if (event !== 'PreToolUse' || args.matcherValue !== 'Bash') return undefined;
+        resolveHookStarted();
+        await new Promise<void>((resolve) => {
+          if (args.signal.aborted) {
+            resolve();
+            return;
+          }
+          args.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        resolveHookAborted();
+        return undefined;
+      },
+      fireAndForgetTrigger: async () => [],
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_native_gate_cancel',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo should-not-run"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after native gate cancellation' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto'), externalHookServices(hookRunner)]);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'cancel native gate' }] });
+    await hookStarted;
+    await ctx.rpc.cancel({ step: true });
+    await hookAborted;
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after native gate cancellation'),
+        ),
+      'turn continuation after native gate cancellation',
+    );
+  });
+
+  it('binds native PreToolUse hooks to the current Rust step before its start event is observed', async () => {
+    const signalStates: boolean[] = [];
+    const hookRunner = {
+      trigger: async () => [],
+      triggerBlock: async (
+        event: string,
+        args: { signal: AbortSignal; matcherValue?: string },
+      ) => {
+        if (event === 'PreToolUse' && args.matcherValue === 'Bash') signalStates.push(args.signal.aborted);
+        return undefined;
+      },
+      fireAndForgetTrigger: async () => [],
+    };
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_native_gate_step_one',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo step-one"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_native_gate_step_two',
+          name: 'Bash',
+          argumentsPart: '{"command":"echo step-two"}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [{ type: 'text', delta: 'after native gate steps' }, { type: 'finish', finishReason: 'stop' }],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto'), externalHookServices(hookRunner)]);
+    ctx.get(IAgentLoopService);
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'run two native tools' }] });
+    await waitForContext(
+      ctx,
+      (messages) =>
+        messages.some((message) =>
+          message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => (part as { text?: string }).text ?? '')
+            .join('')
+            .includes('after native gate steps'),
+        ),
+      'reply after two native gate steps',
+    );
+    expect(signalStates).toEqual([false, false]);
   });
 
   it('publishes turn.step.completed with TS four-component usage on the bus (P0-1)', async () => {

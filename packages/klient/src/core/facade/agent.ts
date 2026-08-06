@@ -35,7 +35,7 @@ export interface AgentFacade {
     disabledTools?: readonly string[];
   }): Promise<PromptLaunchResult>;
   steer(input: { input: readonly ContentPart[] }): Promise<PromptLaunchResult>;
-  cancel(input?: { turnId?: number }): Promise<void>;
+  cancel(input?: { turnId?: number; step?: boolean }): Promise<void>;
   runShellCommand(input: { command: string; commandId?: string }): Promise<ShellCommandResult>;
   cancelShellCommand(input: { commandId: string }): Promise<void>;
   getModel(): Promise<string>;

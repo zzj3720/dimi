@@ -62,6 +62,20 @@ const SUMMARY = {
 };
 
 describe("facade routing", () => {
+  it("preserves step cancellation through the public agent facade", async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+
+    await klient.session("s1").agent("main").cancel({ step: true });
+
+    expect(channel.calls[0]).toMatchObject({
+      scope: { sessionId: "s1", agentId: "main" },
+      service: "agentRPCService",
+      method: "cancel",
+      args: [{ step: true }],
+    });
+  });
+
   it("reshapes single-object params into positional wire args", async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);

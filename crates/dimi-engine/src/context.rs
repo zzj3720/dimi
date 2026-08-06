@@ -98,6 +98,7 @@ mod tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -132,6 +133,7 @@ mod tests {
                     arguments: "{\"command\":\"ls\"}".to_string(),
                 },
             }]),
+            tools: None,
             reasoning: None,
             origin: None,
         };
@@ -152,6 +154,7 @@ mod tests {
             name: None,
             tool_call_id: None,
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         };
@@ -184,6 +187,7 @@ mod tests {
             name: Some("Bash".to_string()),
             tool_call_id: Some(tool_call_id.to_string()),
             tool_calls: None,
+            tools: None,
             reasoning: None,
             origin: None,
         }
@@ -207,6 +211,7 @@ mod tests {
                     })
                     .collect(),
             ),
+            tools: None,
             reasoning: None,
             origin: None,
         }

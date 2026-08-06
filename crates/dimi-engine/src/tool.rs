@@ -80,6 +80,19 @@ pub trait ToolExecutor: Send + Sync {
     /// (subagents), MCP servers and other long-running work.
     async fn execute(&self, call: &ToolCall, ctx: &ToolContext) -> ToolResult;
 
+    /// Execute one call with its owning engine step number. Most executors do
+    /// not need the number, so the default preserves the ordinary boundary;
+    /// bridge executors use it to bind callbacks to the correct per-step
+    /// AbortSignal even when event and tool callback queues are independent.
+    async fn execute_with_step(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolContext,
+        _step_number: u32,
+    ) -> ToolResult {
+        self.execute(call, ctx).await
+    }
+
     /// Best-effort cancellation of an in-flight call (turn cancel). The
     /// default is a no-op; tools that own processes kill them here.
     fn abort(&self, _call: &ToolCall) {}
@@ -2029,6 +2042,25 @@ impl ToolExecutor for ToolRegistry {
         }
     }
 
+    async fn execute_with_step(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolContext,
+        step_number: u32,
+    ) -> ToolResult {
+        match self.tools.get(&call.name) {
+            Some(tool) => tool.execute_with_step(call, ctx, step_number).await,
+            None => ToolResult {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                output: format!("Tool \"{}\" not found", call.name),
+                is_error: true,
+                stop_turn: false,
+                updates: vec![],
+            },
+        }
+    }
+
     /// Forward cancellation to the registered executor (P1-2 review): the
     /// engine cancels through the registry (bridge path), so a no-op here
     /// would orphan a running Bash command when the turn is cancelled.
@@ -2306,6 +2338,7 @@ async fn run_nested_turn(
         name: None,
         tool_call_id: None,
         tool_calls: None,
+        tools: None,
         reasoning: None,
         origin: None,
     });
@@ -2447,6 +2480,7 @@ impl ToolExecutor for AsyncAgentTool {
                                 name: None,
                                 tool_call_id: None,
                                 tool_calls: None,
+                                tools: None,
                                 reasoning: None,
                                 origin: None,
                             })
@@ -4390,9 +4424,10 @@ mod async_agent_tests {
                     role: "user".to_string(),
                     content: serde_json::Value::String("old".to_string()),
                     name: None,
-                    tool_call_id: None,
-                    tool_calls: None,
-                    reasoning: None,
+            tool_call_id: None,
+            tool_calls: None,
+            tools: None,
+            reasoning: None,
                     origin: None,
                 }],
                 started_at: 1,

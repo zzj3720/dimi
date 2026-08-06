@@ -226,6 +226,11 @@ struct EngineEventChannel {
     /// `run`/`resume` promise continuation — the ordering the old
     /// direct-push path had. Guarded by `queue`.
     delivered: std::sync::atomic::AtomicU64,
+    /// Events whose JS callback has finished handling the event. The
+    /// forwarder only knows that an event was queued into the TSFN; the
+    /// runner acknowledges after `handleEngineEvent` returns so approval
+    /// progress cannot overtake context mirroring.
+    observed: std::sync::atomic::AtomicU64,
     closed: std::sync::atomic::AtomicBool,
 }
 
@@ -239,6 +244,7 @@ impl EngineEventChannel {
             caught_up: std::sync::Condvar::new(),
             pushed: std::sync::atomic::AtomicU64::new(0),
             delivered: std::sync::atomic::AtomicU64::new(0),
+            observed: std::sync::atomic::AtomicU64::new(0),
             closed: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -253,6 +259,10 @@ impl EngineEventChannel {
 
     fn delivered_count(&self) -> u64 {
         self.delivered.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn observed_count(&self) -> u64 {
+        self.observed.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Push one event, blocking until there is room (or the channel is
@@ -329,6 +339,28 @@ impl EngineEventChannel {
         }
     }
 
+    /// Mark one event as fully handled by the JS callback and wake an
+    /// in-flight `wait_for_events` call.
+    fn mark_observed(&self) {
+        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        self.observed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.caught_up.notify_all();
+    }
+
+    /// Block until all events that existed when the caller captured `target`
+    /// have finished running on the JS side. Closing releases the waiter
+    /// during agent teardown, where the callbacks are intentionally ignored.
+    fn wait_observed(&self, target: u64) {
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        while self.observed_count() < target && !self.is_closed() {
+            queue = self
+                .caught_up
+                .wait(queue)
+                .unwrap_or_else(|p| p.into_inner());
+        }
+    }
+
     /// Stop the channel: wakes every blocked sender and the forwarder; they
     /// observe `closed` and exit. Called from session `close()` / `Drop`.
     ///
@@ -348,9 +380,85 @@ impl EngineEventChannel {
 
 /// A TS-registered tool: the engine calls the napi callback, the TS side
 /// executes the tool and completes the call via `completeToolCall`.
+#[derive(Default)]
+struct ExternalCallStore {
+    /// Results received while the Rust waiter is still alive.
+    pending: std::collections::HashMap<String, String>,
+    /// Requests whose waiter is still alive. Completions for unknown request
+    /// ids are ignored, which makes a callback that arrives after a dropped
+    /// step harmless without retaining unbounded tombstones.
+    active: std::collections::HashSet<String>,
+}
+
+impl ExternalCallStore {
+    fn begin(&mut self, request_id: &str) {
+        self.active.insert(request_id.to_string());
+    }
+
+    fn complete(&mut self, request_id: &str, result_json: String) {
+        if self.active.contains(request_id) {
+            self.pending.insert(request_id.to_string(), result_json);
+        }
+    }
+
+    fn take(&mut self, request_id: &str) -> Option<String> {
+        self.pending.remove(request_id)
+    }
+
+    fn abandon(&mut self, request_id: &str) {
+        self.active.remove(request_id);
+        self.pending.remove(request_id);
+    }
+}
+
+struct ExternalCallGuard {
+    store: std::sync::Arc<std::sync::Mutex<ExternalCallStore>>,
+    request_id: String,
+    armed: bool,
+}
+
+impl ExternalCallGuard {
+    fn new(
+        store: std::sync::Arc<std::sync::Mutex<ExternalCallStore>>,
+        request_id: String,
+    ) -> Self {
+        store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .begin(&request_id);
+        Self {
+            store,
+            request_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        self.store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .abandon(&self.request_id);
+    }
+}
+
+impl Drop for ExternalCallGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.store
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .abandon(&self.request_id);
+        }
+    }
+}
+
 struct BridgeExternalTool {
     callback: ToolCallback,
-    pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    pending: std::sync::Arc<std::sync::Mutex<ExternalCallStore>>,
     next_request_id: std::sync::atomic::AtomicU64,
 }
 
@@ -361,17 +469,21 @@ struct BridgeExternalTool {
 /// turn forever.
 const EXTERNAL_TOOL_DEADLINE_S: u64 = 120;
 
-#[async_trait::async_trait]
-impl ToolExecutor for BridgeExternalTool {
-    async fn execute(
+impl BridgeExternalTool {
+    async fn execute_inner(
         &self,
         call: &dimi_engine::tool::ToolCall,
         ctx: &dimi_engine::tool::ToolContext,
+        step_number: Option<u32>,
     ) -> dimi_engine::tool::ToolResult {
         let request_id = format!(
             "ext-{}",
             self.next_request_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let mut guard = ExternalCallGuard::new(
+            std::sync::Arc::clone(&self.pending),
+            request_id.clone(),
         );
         let payload = serde_json::to_string(&serde_json::json!({
             "requestId": request_id,
@@ -381,6 +493,7 @@ impl ToolExecutor for BridgeExternalTool {
             "toolCallId": call.id,
             "name": call.name,
             "arguments": call.arguments,
+            "step": step_number,
             // The full assistant-message batch this call is part of: the TS
             // side builds `ToolResolutionContext.toolCalls` from it, so
             // external tools see their same-round siblings (AllDone's
@@ -398,9 +511,13 @@ impl ToolExecutor for BridgeExternalTool {
         // Poll for the TS side's completion.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(EXTERNAL_TOOL_DEADLINE_S);
         loop {
-            {
-                let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
-                if let Some(result_json) = pending.remove(&request_id) {
+            let result_json = self
+                .pending
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take(&request_id);
+            if let Some(result_json) = result_json {
+                    guard.disarm();
                     let mut parsed: dimi_engine::tool::ToolResult =
                         serde_json::from_str(&result_json).unwrap_or_else(|_| {
                             dimi_engine::tool::ToolResult {
@@ -417,7 +534,6 @@ impl ToolExecutor for BridgeExternalTool {
                     // The wire tool.result must reference the LLM's call id.
                     parsed.tool_call_id = call.id.clone();
                     return parsed;
-                }
             }
             if std::time::Instant::now() >= deadline {
                 return dimi_engine::tool::ToolResult {
@@ -434,6 +550,26 @@ impl ToolExecutor for BridgeExternalTool {
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for BridgeExternalTool {
+    async fn execute(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        ctx: &dimi_engine::tool::ToolContext,
+    ) -> dimi_engine::tool::ToolResult {
+        self.execute_inner(call, ctx, None).await
+    }
+
+    async fn execute_with_step(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        ctx: &dimi_engine::tool::ToolContext,
+        step_number: u32,
+    ) -> dimi_engine::tool::ToolResult {
+        self.execute_inner(call, ctx, Some(step_number)).await
     }
 }
 
@@ -456,13 +592,20 @@ pub struct RustTurnSession {
     /// bypasses.
     tool_gate: std::sync::Arc<ToolGate>,
     /// TS tool call completions keyed by request id.
-    pending_external: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    pending_external: std::sync::Arc<std::sync::Mutex<ExternalCallStore>>,
     /// Subagent steering queues keyed by agent id.
     steer_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>>>>,
     /// This turn's own steering queue (drained into the next request).
     steer_queue: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::LlmMessage>>>,
     /// Cooperative cancellation (TS RPC cancel).
     cancel: std::sync::Arc<dimi_engine::engine::CancelSignal>,
+    /// The currently active engine step's cancellation signal. The TS
+    /// runner uses this to cancel one step while keeping the turn alive.
+    active_step_cancel: std::sync::Arc<
+        std::sync::Mutex<
+            Option<std::sync::Arc<dimi_engine::engine::CancelSignal>>,
+        >,
+    >,
     /// Set by the engine when the turn ends (every finish path): `steer`
     /// refuses to queue into a dead turn, so the TS runner falls back to
     /// starting a new turn instead of silently dropping the steer.
@@ -544,6 +687,35 @@ impl ToolGate {
     }
 }
 
+struct ToolGateRequestGuard {
+    gate: std::sync::Arc<ToolGate>,
+    request_id: String,
+}
+
+impl ToolGateRequestGuard {
+    fn new(
+        gate: std::sync::Arc<ToolGate>,
+        request_id: String,
+        sender: tokio::sync::oneshot::Sender<String>,
+    ) -> Self {
+        gate.pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(request_id.clone(), sender);
+        Self { gate, request_id }
+    }
+}
+
+impl Drop for ToolGateRequestGuard {
+    fn drop(&mut self) {
+        self.gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.request_id);
+    }
+}
+
 /// Mutex-wrapped registry implementing ToolExecutor, with the native-tool
 /// PreToolUse gate (A2).
 struct LockedRegistry {
@@ -564,18 +736,20 @@ impl LockedRegistry {
     async fn pre_gate(
         &self,
         call: &dimi_engine::tool::ToolCall,
+        step_number: Option<u32>,
     ) -> Option<dimi_engine::tool::ToolResult> {
         let request_id = self.gate.request_id();
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.gate
-            .pending
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(request_id.clone(), tx);
+        let _request_guard = ToolGateRequestGuard::new(
+            std::sync::Arc::clone(&self.gate),
+            request_id.clone(),
+            tx,
+        );
         let payload = serde_json::json!({
             "requestId": request_id,
             "toolName": call.name,
             "arguments": call.arguments,
+            "step": step_number,
         });
         // The TSFN is not Clone — call while holding the guard (Blocking mode
         // blocks only until the callback is scheduled, not until it runs).
@@ -586,7 +760,10 @@ impl LockedRegistry {
             let Some(callback) = guard.as_ref() else {
                 return None;
             };
-            let _ = callback.call(payload.to_string(), ThreadsafeFunctionCallMode::Blocking);
+            let status = callback.call(payload.to_string(), ThreadsafeFunctionCallMode::Blocking);
+            if status == Status::Closing || status == Status::Unknown {
+                return None;
+            }
         }
         match rx.await {
             Ok(verdict_json) => {
@@ -625,11 +802,26 @@ impl ToolExecutor for LockedRegistry {
     ) -> dimi_engine::tool::ToolResult {
         // A2: PreToolUse veto for native tools (the runner answers allow for
         // external tools, which gate themselves inside their callback).
-        if let Some(blocked) = self.pre_gate(call).await {
+        if let Some(blocked) = self.pre_gate(call, None).await {
             return blocked;
         }
         let registry = self.registry.lock().await;
         registry.execute(call, ctx).await
+    }
+
+    async fn execute_with_step(
+        &self,
+        call: &dimi_engine::tool::ToolCall,
+        ctx: &dimi_engine::tool::ToolContext,
+        step_number: u32,
+    ) -> dimi_engine::tool::ToolResult {
+        // Keep the native PreToolUse gate on the same path while preserving
+        // the step number for bridge external tools.
+        if let Some(blocked) = self.pre_gate(call, Some(step_number)).await {
+            return blocked;
+        }
+        let registry = self.registry.lock().await;
+        registry.execute_with_step(call, ctx, step_number).await
     }
 
     /// Forward cancellation through the registry (P1-2 review): the engine's
@@ -879,26 +1071,27 @@ impl RustTurnSession {
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let cancel = std::sync::Arc::new(dimi_engine::engine::CancelSignal::new());
         let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let inner = dimi_engine::engine::TurnSession::with_steer_and_cancel(
+            input,
+            Some(std::sync::Arc::clone(&steer_queue)),
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::clone(&finished),
+        );
+        let active_step_cancel = inner.active_step_cancel_handle();
         Ok(Self {
-            inner: napi::tokio::sync::Mutex::new(
-                dimi_engine::engine::TurnSession::with_steer_and_cancel(
-                    input,
-                    Some(std::sync::Arc::clone(&steer_queue)),
-                    std::sync::Arc::clone(&cancel),
-                    std::sync::Arc::clone(&finished),
-                ),
-            ),
+            inner: napi::tokio::sync::Mutex::new(inner),
             llm,
             tools,
             active_tools,
             policy,
             tool_gate,
             pending_external: std::sync::Arc::new(std::sync::Mutex::new(
-                std::collections::HashMap::new(),
+                ExternalCallStore::default(),
             )),
             steer_map,
             steer_queue,
             cancel,
+            active_step_cancel,
             finished,
             event_channel: std::sync::Arc::new(EngineEventChannel::new(EVENT_QUEUE_CAP)),
             forwarder_started: std::sync::atomic::AtomicBool::new(false),
@@ -913,6 +1106,25 @@ impl RustTurnSession {
     #[napi]
     pub fn cancel(&self) {
         self.cancel.cancel();
+    }
+
+    /// Cancel only the currently active step. The engine emits
+    /// `turn.step.interrupted` and continues the same turn with the next
+    /// step; `false` means the session is between steps or already finished.
+    #[napi]
+    pub fn cancel_step(&self) -> bool {
+        let active = self
+            .active_step_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(signal) = active.as_ref() else {
+            return false;
+        };
+        if signal.is_cancelled() {
+            return false;
+        }
+        signal.cancel();
+        true
     }
 
     /// Record a session-scope approval (P1-6 review): the engine's policy is
@@ -1029,8 +1241,30 @@ impl RustTurnSession {
         let sink_callback: std::sync::Arc<dyn Fn(EngineEvent) + Send + Sync> =
             std::sync::Arc::new(move |event| {
                 let _ = sink_channel.send(event);
-            });
+        });
         self.event_sink.set(sink_callback);
+    }
+
+    /// Acknowledge one event after the TS callback has finished projecting it
+    /// into the bus and context. `wait_for_events` uses these acknowledgements
+    /// to make approval progress observe the same ordering as the old direct
+    /// callback path.
+    #[napi]
+    pub fn acknowledge_event(&self) {
+        self.event_channel.mark_observed();
+    }
+
+    /// Wait until every event emitted before this call has finished running
+    /// on the JS side. The wait is offloaded because the callback must remain
+    /// able to execute on the Node event loop and call `acknowledge_event`.
+    #[napi]
+    pub async fn wait_for_events(&self) -> napi::Result<()> {
+        let channel = std::sync::Arc::clone(&self.event_channel);
+        let target = channel.pushed_count();
+        napi::tokio::task::spawn_blocking(move || channel.wait_observed(target))
+            .await
+            .map_err(|error| napi::Error::from_reason(error.to_string()))?;
+        Ok(())
     }
 
     /// Steer the running turn: the message is queued and drained into the
@@ -1052,6 +1286,7 @@ impl RustTurnSession {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             });
@@ -1200,6 +1435,7 @@ impl RustTurnSession {
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
+                tools: None,
                 reasoning: None,
                 origin: None,
             },
@@ -1213,7 +1449,7 @@ impl RustTurnSession {
         self.pending_external
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(request_id, result_json);
+            .complete(&request_id, result_json);
     }
 
     /// Resume after the user's approval decision
@@ -1265,6 +1501,86 @@ impl RustTurnSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_call_store_ignores_completion_after_waiter_is_dropped() {
+        let store = std::sync::Arc::new(std::sync::Mutex::new(ExternalCallStore::default()));
+        {
+            let _guard = ExternalCallGuard::new(std::sync::Arc::clone(&store), "request-1".into());
+        }
+        store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .complete("request-1", "late result".to_string());
+        assert_eq!(
+            store
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take("request-1"),
+            None
+        );
+
+        let mut store = ExternalCallStore::default();
+        store.begin("request-2");
+        store.complete("request-2", "live result".to_string());
+        assert_eq!(store.take("request-2"), Some("live result".to_string()));
+    }
+
+    #[test]
+    fn disarm_clears_a_completion_that_arrives_after_the_waiter_takes_one() {
+        let store = std::sync::Arc::new(std::sync::Mutex::new(ExternalCallStore::default()));
+        let mut guard = ExternalCallGuard::new(std::sync::Arc::clone(&store), "request-race".into());
+        store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .complete("request-race", "first result".to_string());
+        assert_eq!(
+            store
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take("request-race"),
+            Some("first result".to_string())
+        );
+        // A duplicate/late completion can arrive in the small window before
+        // the normal waiter disarms its guard. It must not survive disarm.
+        store
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .complete("request-race", "late result".to_string());
+        guard.disarm();
+        assert_eq!(
+            store
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take("request-race"),
+            None
+        );
+    }
+
+    #[test]
+    fn pre_gate_drops_a_request_when_the_callback_is_unavailable() {
+        let gate = std::sync::Arc::new(ToolGate::default());
+        let locked = LockedRegistry::with_gate(
+            std::sync::Arc::new(napi::tokio::sync::Mutex::new(ToolRegistry::default())),
+            std::sync::Arc::clone(&gate),
+        );
+        let call = dimi_engine::tool::ToolCall {
+            id: "call-1".to_string(),
+            name: "Bash".to_string(),
+            arguments: serde_json::json!({}),
+        };
+
+        napi::tokio::runtime::Runtime::new()
+            .expect("tokio runtime")
+            .block_on(async {
+                assert!(locked.pre_gate(&call, Some(3)).await.is_none());
+            });
+        assert!(gate
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty());
+    }
 
     fn task_started(i: i64) -> EngineEvent {
         EngineEvent::TaskStarted {
@@ -1361,6 +1677,34 @@ mod tests {
             // Drain so the queue never fills across iterations.
             assert!(channel.recv().is_some());
         }
+    }
+
+    #[test]
+    fn wait_observed_requires_js_callback_acknowledgement() {
+        let channel = std::sync::Arc::new(EngineEventChannel::new(2));
+        assert!(channel.send(task_started(0)));
+        channel.mark_delivered();
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn({
+            let channel = std::sync::Arc::clone(&channel);
+            move || {
+                channel.wait_observed(1);
+                done_tx.send(()).expect("waiter reports completion");
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert!(
+            done_rx.try_recv().is_err(),
+            "delivery to the TSFN queue must not count as JS observation"
+        );
+
+        channel.mark_observed();
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("JS acknowledgement releases the waiter");
+        waiter.join().expect("waiter completes");
+        assert_eq!(channel.observed_count(), 1);
     }
 
     #[test]

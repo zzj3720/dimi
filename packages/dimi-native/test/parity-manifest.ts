@@ -98,8 +98,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'step-level cancel (per-step AbortController)',
-    migrated: false,
-    gap: 'not implemented — only whole-turn cancel exists',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (cancels an external tool step and continues the same Rust turn) + RustTurnSession.cancelStep bridge path',
   },
   {
     domain: 'WaitFor user-wait parking / notification wake-up',
@@ -112,7 +113,8 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
     migrated: false,
     gap:
       'reserved-space trigger, origin filtering, and head/tail message selection are implemented; ' +
-      'dynamic-tool stripping, observed-window calibration, media degradation, and partial-message truncation remain',
+      'dynamic-tool stripping and partial-message truncation are now implemented; ' +
+      'observed-window calibration and media degradation remain',
   },
   {
     domain: 'plan mode orchestration (EnterPlanMode/ExitPlanMode)',

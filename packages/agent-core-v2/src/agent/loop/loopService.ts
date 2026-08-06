@@ -268,6 +268,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     );
   }
 
+  cancelStep(reason?: unknown): boolean {
+    const active = this.activeTurnJob;
+    if (active === undefined) return false;
+    const cancellation = reason ?? userCancellationReason();
+    const step = [...active.steps.values()].find((candidate) => candidate.state === "running");
+    return step?.cancel(cancellation) ?? false;
+  }
+
   tryAcquireQuiescence(): IDisposable | undefined {
     if (this.disposing) throw abortError("Agent loop disposed");
     if (this.activeTurnJob !== undefined || this.hasPendingRequests()) return undefined;
@@ -437,14 +445,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       result,
       controller,
       resultControl: result,
-      cancel: (reason) => this.cancelStep(job, step, request, reason),
+      cancel: (reason) => this.cancelStepForRequest(job, step, request, reason),
     };
     job.steps.set(step.id, step);
     job.queue.enqueue(request, options?.at ?? "tail");
     return step;
   }
 
-  private cancelStep(
+  private cancelStepForRequest(
     job: TurnJob,
     step: MutableStep,
     request: StepRequest,

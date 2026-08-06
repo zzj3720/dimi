@@ -653,6 +653,16 @@ export class RustTurnSession {
     this.#inner.setOnEvent(callback);
   }
 
+  /** Acknowledge an event after the JS callback has finished handling it. */
+  acknowledgeEvent(): void {
+    this.#inner.acknowledgeEvent();
+  }
+
+  /** Wait until all events emitted before this call have been handled. */
+  async waitForEvents(): Promise<void> {
+    await this.#inner.waitForEvents();
+  }
+
   async run(): Promise<string> {
     return this.#inner.run();
   }
@@ -719,6 +729,11 @@ export class RustTurnSession {
     this.#inner.cancel();
   }
 
+  /** Cancel only the active step; the Rust turn continues with its next step. */
+  cancelStep(): boolean {
+    return this.#inner.cancelStep();
+  }
+
   /** Cancel a background task (TaskStop parity): the engine kills the
    *  subagent nested turn / backgrounded bash command and settles "killed",
    *  carrying the stop reason on the wire. */
@@ -754,6 +769,8 @@ export interface RustDropTaskRegistry {
 
 export interface RustTurnSessionHandle {
   setOnEvent(callback: (eventJson: string) => void): void;
+  acknowledgeEvent(): void;
+  waitForEvents(): Promise<void>;
   run(): Promise<string>;
   resume(decisionJson: string): Promise<string>;
   addSessionApproval(pattern: string): void;
@@ -769,6 +786,7 @@ export interface RustTurnSessionHandle {
   steer(message: string): boolean;
   steerSubagent(agentId: string, message: string): void;
   cancel(): void;
+  cancelStep(): boolean;
   cancelTask(taskId: string, reason?: string): void;
   close(): void;
   completeToolCall(requestId: string, resultJson: string): void;

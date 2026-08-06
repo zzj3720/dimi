@@ -145,11 +145,19 @@ export class AgentRPCService implements IAgentRPCService {
     return turn === undefined ? undefined : { turn_id: turn.id };
   }
 
-  cancel({ turnId }: CancelPayload): void {
+  cancel({ turnId, step }: CancelPayload): void {
     if (RustEngineTurnRunner.isEnabled()) {
+      if (step === true) {
+        this.rustEngineTurnRunner.cancelStep();
+        return;
+      }
       // The Rust engine owns the running turn: cancel it directly (queued
       // turns are cancelled by id).
       this.rustEngineTurnRunner.cancel(turnId);
+      return;
+    }
+    if (step === true) {
+      this.loop.cancelStep();
       return;
     }
     if (this.loop.status().state === 'running') {

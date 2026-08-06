@@ -61,6 +61,7 @@ export const promptLaunchResultSchema = z.object({
 
 export const cancelPayloadSchema = z.object({
   turnId: z.number().optional(),
+  step: z.boolean().optional(),
 });
 
 export const runShellCommandPayloadSchema = z.object({

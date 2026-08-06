@@ -30,6 +30,11 @@ pub struct LlmMessage {
     pub tool_call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<LlmToolCall>>,
+    /// Dynamic tool definitions attached to tool-select protocol messages.
+    /// They are context metadata, not part of the provider's message body;
+    /// compaction uses their presence to match TS `message.tools` semantics.
+    #[serde(default, skip_serializing)]
+    pub tools: Option<Vec<serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<serde_json::Value>,
     /// Context-memory origin retained across the TS↔Rust boundary so the
@@ -319,5 +324,24 @@ mod ts_boundary_tests {
         );
         assert_eq!(input.reserved_context_size, Some(50_000));
         assert_eq!(input.compaction_trigger_ratio, Some(0.8));
+    }
+
+    #[test]
+    fn dynamic_tool_metadata_crosses_into_compaction_but_not_provider_messages() {
+        let input: EngineTurnInput = serde_json::from_str(
+            r#"{
+                "turnId": 3,
+                "messages": [{
+                    "role": "system",
+                    "content": "",
+                    "tools": [{ "name": "McpTool", "parameters": {} }]
+                }],
+                "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(input.messages[0].tools.as_ref().map(Vec::len), Some(1));
+        let serialized = serde_json::to_value(&input.messages[0]).unwrap();
+        assert!(serialized.get("tools").is_none());
     }
 }

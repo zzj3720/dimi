@@ -148,6 +148,9 @@ export interface IAgentLoopService {
 
   cancel(turnId?: number, reason?: unknown): boolean;
 
+  /** Cancel the active step while keeping its turn alive for the next step. */
+  cancelStep(reason?: unknown): boolean;
+
   tryAcquireQuiescence(): IDisposable | undefined;
 
   /** Resolves once no turn is active and none are queued — the disposal drain
