@@ -106,6 +106,7 @@ pub(crate) struct UsageAccumulator {
     prompt_tokens: u64,
     completion_tokens: u64,
     cached_tokens: u64,
+    cache_write_tokens: u64,
     reasoning_tokens: u64,
 }
 
@@ -123,6 +124,7 @@ impl UsageAccumulator {
             self.completion_tokens += completion_tokens.unwrap_or(0);
             if let Some(details) = prompt_tokens_details {
                 self.cached_tokens += details.cached_tokens.unwrap_or(0);
+                self.cache_write_tokens += details.cache_write_tokens.unwrap_or(0);
                 self.reasoning_tokens += details.reasoning_tokens.unwrap_or(0);
             }
             if let Some(details) = completion_tokens_details {
@@ -132,15 +134,22 @@ impl UsageAccumulator {
     }
 
     fn transcript_usage(&self) -> Option<TranscriptUsage> {
-        if self.prompt_tokens == 0 && self.completion_tokens == 0 {
+        if self.prompt_tokens == 0
+            && self.completion_tokens == 0
+            && self.cached_tokens == 0
+            && self.cache_write_tokens == 0
+        {
             return None;
         }
         Some(TranscriptUsage {
-            // aimux's input_tokens.total already includes cache-read tokens;
-            // adding cached_tokens here would count them twice.
+            // aimux's input_tokens.total already includes cache-read and
+            // cache-write tokens; adding either breakdown would count them
+            // twice.
             input_tokens: Some(self.prompt_tokens as i64),
             output_tokens: Some(self.completion_tokens as i64),
             cached_tokens: Some(self.cached_tokens as i64),
+            cache_write_tokens: (self.cache_write_tokens > 0)
+                .then_some(self.cache_write_tokens as i64),
             cost: None,
         })
     }
@@ -1840,6 +1849,7 @@ mod tests {
             total_tokens: Some(107),
             prompt_tokens_details: Some(crate::llm::UsageDetails {
                 cached_tokens: Some(20),
+                cache_write_tokens: Some(7),
                 reasoning_tokens: None,
             }),
             completion_tokens_details: None,
@@ -1848,6 +1858,7 @@ mod tests {
         let transcript = usage.transcript_usage().expect("usage is present");
         assert_eq!(transcript.input_tokens, Some(100));
         assert_eq!(transcript.cached_tokens, Some(20));
+        assert_eq!(transcript.cache_write_tokens, Some(7));
         assert_eq!(transcript.output_tokens, Some(7));
     }
 

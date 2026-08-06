@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::id::TaskId;
 
-/// `transcriptUsageSchema` — per-turn aggregate usage (`schema.ts` 52–57).
+/// `transcriptUsageSchema` — per-turn aggregate usage (`schema.ts` 52–58).
 ///
 /// Token counts are `i64`: the engine only ever emits integers for them.
 /// `cost` may be fractional (USD) and is kept as [`serde_json::Number`] so
@@ -31,6 +31,12 @@ pub struct TranscriptUsage {
         deserialize_with = "crate::de::strict_option"
     )]
     pub cached_tokens: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::de::strict_option"
+    )]
+    pub cache_write_tokens: Option<i64>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

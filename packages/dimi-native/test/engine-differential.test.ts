@@ -232,7 +232,7 @@ describe('RustEngine minimal closed loop', () => {
           promptTokens: 10,
           completionTokens: 5,
           totalTokens: 15,
-          promptTokensDetails: { cachedTokens: 2 },
+          promptTokensDetails: { cachedTokens: 2, cacheWriteTokens: 3 },
           completionTokensDetails: { reasoningTokens: 1 },
         },
         { type: 'finish', finishReason: 'stop' },
@@ -241,9 +241,10 @@ describe('RustEngine minimal closed loop', () => {
 
     const stepCompleted = batch.events.find((event) => event['type'] === 'turn.step.completed');
     expect(stepCompleted?.['usage']).toEqual({
-      inputTokens: 12,
+      inputTokens: 10,
       outputTokens: 5,
       cachedTokens: 2,
+      cacheWriteTokens: 3,
     });
   });
 

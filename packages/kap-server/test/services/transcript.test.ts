@@ -572,7 +572,12 @@ describe('AgentTranscriptProjector', () => {
     const turn = turnOps('t1', tx.getItems());
     expect(turn.durationMs).toBe(4200);
     // inputTokens = inputOther + inputCacheCreation, summed across the steps.
-    expect(turn.usage).toEqual({ inputTokens: 375, cachedTokens: 5, outputTokens: 30 });
+    expect(turn.usage).toEqual({
+      inputTokens: 375,
+      cachedTokens: 5,
+      cacheWriteTokens: 75,
+      outputTokens: 30,
+    });
 
     // A turn whose steps reported no usage gets no usage; a failed turn
     // carries the error message.

@@ -75,6 +75,25 @@ fn llm_error_from_aimux(error: &AiMuxError) -> LlmError {
     }
 }
 
+/// Preserve aimux's four input-token buckets at the engine boundary. The
+/// unified total already includes cache reads and writes; the TS runner
+/// later derives the ordinary-input bucket by subtracting both components.
+fn aimux_usage_event(usage: &aimux_core::types::Usage) -> LlmStreamEvent {
+    LlmStreamEvent::Usage {
+        prompt_tokens: usage.input_tokens.total.map(u64::from),
+        completion_tokens: usage.output_tokens.total.map(u64::from),
+        total_tokens: None,
+        prompt_tokens_details: Some(crate::llm::UsageDetails {
+            cached_tokens: usage.input_tokens.cache_read.map(u64::from),
+            cache_write_tokens: usage.input_tokens.cache_write.map(u64::from),
+            reasoning_tokens: None,
+        }),
+        completion_tokens_details: Some(crate::llm::CompletionUsageDetails {
+            reasoning_tokens: usage.output_tokens.reasoning.map(u64::from),
+        }),
+    }
+}
+
 
 /// Production LLM client: wraps one aimux `LanguageModel`.
 pub struct AimuxLlmClient {
@@ -148,23 +167,7 @@ impl LlmClient for AimuxLlmClient {
                     usage,
                     ..
                 } => {
-                    let (prompt_tokens, cached_tokens, reasoning_tokens) = (
-                        usage.input_tokens.total,
-                        usage.input_tokens.cache_read,
-                        usage.output_tokens.reasoning,
-                    );
-                    events.push(LlmStreamEvent::Usage {
-                        prompt_tokens: prompt_tokens.map(u64::from),
-                        completion_tokens: usage.output_tokens.total.map(u64::from),
-                        total_tokens: None,
-                        prompt_tokens_details: Some(crate::llm::UsageDetails {
-                            cached_tokens: cached_tokens.map(u64::from),
-                            reasoning_tokens: None,
-                        }),
-                        completion_tokens_details: Some(crate::llm::CompletionUsageDetails {
-                            reasoning_tokens: reasoning_tokens.map(u64::from),
-                        }),
-                    });
+                    events.push(aimux_usage_event(&usage));
                     events.push(LlmStreamEvent::Finish {
                         finish_reason: Some(
                             match finish_reason.unified {
@@ -348,5 +351,46 @@ fn parse_data_url(url: &str) -> Option<(String, Vec<u8>)> {
             .map(|bytes| (media_type, bytes))
     } else {
         Some((media_type, data.as_bytes().to_vec()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::aimux_usage_event;
+    use crate::llm::{CompletionUsageDetails, LlmStreamEvent, UsageDetails};
+    use aimux_core::types::{TokenUsage, Usage};
+
+    #[test]
+    fn usage_event_preserves_cache_read_and_write() {
+        let event = aimux_usage_event(&Usage {
+            input_tokens: TokenUsage {
+                total: Some(100),
+                cache_read: Some(20),
+                cache_write: Some(7),
+                ..Default::default()
+            },
+            output_tokens: TokenUsage {
+                total: Some(5),
+                ..Default::default()
+            },
+            raw: None,
+        });
+
+        assert_eq!(
+            event,
+            LlmStreamEvent::Usage {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(5),
+                total_tokens: None,
+                prompt_tokens_details: Some(UsageDetails {
+                    cached_tokens: Some(20),
+                    cache_write_tokens: Some(7),
+                    reasoning_tokens: None,
+                }),
+                completion_tokens_details: Some(CompletionUsageDetails {
+                    reasoning_tokens: None,
+                }),
+            }
+        );
     }
 }

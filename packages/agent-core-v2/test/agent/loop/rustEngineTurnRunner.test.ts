@@ -2675,7 +2675,12 @@ describe('Rust engine approval flow (manual mode)', () => {
     process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
       [
         { type: 'text', delta: 'usage bus' },
-        { type: 'usage', promptTokens: 10, completionTokens: 20 },
+        {
+          type: 'usage',
+          promptTokens: 10,
+          completionTokens: 20,
+          promptTokensDetails: { cachedTokens: 2, cacheWriteTokens: 3 },
+        },
         { type: 'finish', finishReason: 'stop' },
       ],
     ]);
@@ -2695,10 +2700,10 @@ describe('Rust engine approval flow (manual mode)', () => {
     );
     expect(stepCompleted.length).toBeGreaterThan(0);
     const usage = stepCompleted[0]!['usage'] as Record<string, unknown>;
-    expect(usage['inputOther']).toBe(10);
+    expect(usage['inputOther']).toBe(5);
     expect(usage['output']).toBe(20);
-    expect(usage['inputCacheRead']).toBe(0);
-    expect(usage['inputCacheCreation']).toBe(0);
+    expect(usage['inputCacheRead']).toBe(2);
+    expect(usage['inputCacheCreation']).toBe(3);
     expect(usage['inputTokens']).toBeUndefined();
   });
 

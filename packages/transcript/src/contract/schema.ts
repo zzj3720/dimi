@@ -53,6 +53,7 @@ export const transcriptUsageSchema = z.object({
   inputTokens: z.number().optional(),
   outputTokens: z.number().optional(),
   cachedTokens: z.number().optional(),
+  cacheWriteTokens: z.number().optional(),
   cost: z.number().optional(),
 });
 

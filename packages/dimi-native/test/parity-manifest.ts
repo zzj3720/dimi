@@ -155,10 +155,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'usage: cache-write component',
-    migrated: false,
-    gap:
-      'not implemented — Rust usage events do not carry aimux cache-write tokens; ' +
-      'runner reports inputCacheCreation: 0',
+    migrated: true,
+    coveredBy:
+      'engine-differential.test.ts + rustEngineTurnRunner.test.ts (aimux/cache-write wire field maps to inputCacheCreation)',
   },
   {
     domain: 'turn.ended failed error payload includes name',

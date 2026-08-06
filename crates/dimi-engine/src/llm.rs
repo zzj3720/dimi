@@ -59,6 +59,8 @@ pub struct UsageDetails {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u64>,
 }
 
@@ -565,6 +567,11 @@ pub fn parse_openai_sse_chunk(
             total_tokens: usage.get("total_tokens").and_then(|v| v.as_u64()),
             prompt_tokens_details: usage.get("prompt_tokens_details").map(|d| UsageDetails {
                 cached_tokens: d.get("cached_tokens").and_then(|v| v.as_u64()),
+                cache_write_tokens: d
+                    .get("cache_write_tokens")
+                    .or_else(|| d.get("cache_creation_input_tokens"))
+                    .or_else(|| d.get("cacheWriteTokens"))
+                    .and_then(|v| v.as_u64()),
                 reasoning_tokens: d.get("reasoning_tokens").and_then(|v| v.as_u64()),
             }),
             completion_tokens_details: usage.get("completion_tokens_details").map(|d| {
@@ -653,7 +660,7 @@ mod tests {
     #[test]
     fn parse_sse_usage_details_are_carried() {
         let (events, _) = parse_chunk(
-            r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}}"#,
+            r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14,"prompt_tokens_details":{"cached_tokens":2,"cache_write_tokens":3},"completion_tokens_details":{"reasoning_tokens":1}}}"#,
         );
         let LlmStreamEvent::Usage {
             prompt_tokens_details,
@@ -666,6 +673,12 @@ mod tests {
         assert_eq!(
             prompt_tokens_details.as_ref().and_then(|d| d.cached_tokens),
             Some(2)
+        );
+        assert_eq!(
+            prompt_tokens_details
+                .as_ref()
+                .and_then(|d| d.cache_write_tokens),
+            Some(3)
         );
         assert_eq!(
             completion_tokens_details

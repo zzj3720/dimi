@@ -189,6 +189,21 @@ fn minimal_turn_serializes_without_optional_fields() {
 }
 
 #[test]
+fn transcript_usage_serializes_cache_write_in_camel_case() {
+    let usage = TranscriptUsage {
+        input_tokens: Some(100),
+        output_tokens: Some(5),
+        cached_tokens: Some(20),
+        cache_write_tokens: Some(7),
+        cost: None,
+    };
+    assert_eq!(
+        serde_json::to_string(&usage).unwrap(),
+        r#"{"inputTokens":100,"outputTokens":5,"cachedTokens":20,"cacheWriteTokens":7}"#
+    );
+}
+
+#[test]
 fn phase_retrying_serializes_camel_case() {
     let phase = AgentPhase::Retrying {
         turn_id: 3,

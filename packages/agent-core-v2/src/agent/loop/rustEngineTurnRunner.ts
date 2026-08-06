@@ -1059,15 +1059,24 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       const busEvent = { ...event };
       if (event["type"] === "turn.step.completed") {
         const engineUsage = event["usage"] as
-          | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
+          | {
+              inputTokens?: number;
+              outputTokens?: number;
+              cachedTokens?: number;
+              cacheWriteTokens?: number;
+            }
           | undefined;
         if (engineUsage !== undefined) {
           const inputCacheRead = engineUsage.cachedTokens ?? 0;
+          const inputCacheCreation = engineUsage.cacheWriteTokens ?? 0;
           busEvent["usage"] = {
-            inputOther: Math.max((engineUsage.inputTokens ?? 0) - inputCacheRead, 0),
+            inputOther: Math.max(
+              (engineUsage.inputTokens ?? 0) - inputCacheRead - inputCacheCreation,
+              0,
+            ),
             output: engineUsage.outputTokens ?? 0,
             inputCacheRead,
-            inputCacheCreation: 0,
+            inputCacheCreation,
           };
         } else {
           busEvent["usage"] = emptyUsage();
@@ -1213,22 +1222,31 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
           const stepFinish = toText(event["finishReason"] ?? "end_turn");
           const stepNumber = Number(event["step"] ?? 1);
           flushParts(turnId, stepNumber);
-          // Engine usage (inputTokens/outputTokens/cachedTokens) → the TS
+          // Engine usage (inputTokens/outputTokens/cachedTokens/cacheWriteTokens) → the TS
           // four-component TokenUsage + wire usage.record. Per-step parity:
           // every step.end carries THIS step's LLM usage (TS
           // llmRequesterService starts each request at emptyUsage), so a
           // step without recorded tokens gets zeros — never the previous
           // step's numbers carried forward.
           const engineUsage = event["usage"] as
-            | { inputTokens?: number; outputTokens?: number; cachedTokens?: number }
+            | {
+                inputTokens?: number;
+                outputTokens?: number;
+                cachedTokens?: number;
+                cacheWriteTokens?: number;
+              }
             | undefined;
           if (engineUsage !== undefined) {
             const inputCacheRead = engineUsage.cachedTokens ?? 0;
+            const inputCacheCreation = engineUsage.cacheWriteTokens ?? 0;
             usage = {
-              inputOther: Math.max((engineUsage.inputTokens ?? 0) - inputCacheRead, 0),
+              inputOther: Math.max(
+                (engineUsage.inputTokens ?? 0) - inputCacheRead - inputCacheCreation,
+                0,
+              ),
               output: engineUsage.outputTokens ?? 0,
               inputCacheRead,
-              inputCacheCreation: 0,
+              inputCacheCreation,
             };
           } else {
             usage = emptyUsage();

@@ -24,7 +24,8 @@
  *   - `turn.ended` fills the turn header's `durationMs` / `error` plus the
  *     accumulated `usage`: the projector sums this turn's step usages
  *     (`inputTokens = inputOther + inputCacheCreation`,
- *     `cachedTokens = inputCacheRead`, `outputTokens = output`); a turn whose
+ *     `cachedTokens = inputCacheRead`, `cacheWriteTokens = inputCacheCreation`,
+ *     `outputTokens = output`); a turn whose
  *     steps reported no usage gets no `usage`.
  *   - `agent.status.updated` projects two ways: `planMode` / `swarmMode` into
  *     the mode badges, and every other arrived slice (model / thinkingEffort
@@ -357,7 +358,8 @@ export class AgentTranscriptProjector {
    * `TranscriptUsage` and drop the accumulator. Step usages are the engine's
    * four-component `TokenUsage`; the header maps them to the render vocabulary
    * (`inputTokens = inputOther + inputCacheCreation`,
-   * `cachedTokens = inputCacheRead`, `outputTokens = output`). A turn whose
+   * `cachedTokens = inputCacheRead`, `cacheWriteTokens = inputCacheCreation`,
+   * `outputTokens = output`). A turn whose
    * steps all reported no usage gets no `usage` at all (the components have
    * no data either way — the wire never omits a single component).
    */
@@ -375,11 +377,18 @@ export class AgentTranscriptProjector {
       inputCacheRead += usage.inputCacheRead;
       inputCacheCreation += usage.inputCacheCreation;
     }
-    return {
+    const result: {
+      inputTokens: number;
+      cachedTokens: number;
+      outputTokens: number;
+      cacheWriteTokens?: number;
+    } = {
       inputTokens: inputOther + inputCacheCreation,
       cachedTokens: inputCacheRead,
       outputTokens: output,
     };
+    if (inputCacheCreation > 0) result.cacheWriteTokens = inputCacheCreation;
+    return result;
   }
 
   private onStepStarted(event: { turnId: number; step: number }): TranscriptOperation[] {

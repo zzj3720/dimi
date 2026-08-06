@@ -30,6 +30,7 @@ export interface TranscriptUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly cachedTokens?: number;
+  readonly cacheWriteTokens?: number;
   readonly cost?: number;
 }
 
