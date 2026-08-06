@@ -1,0 +1,14 @@
+{"type":"metadata","protocol_version":"1.5","created_at":1785863000000}
+{"type":"context.append_message","time":1785863000001,"message":{"id":"m1","role":"user","content":[{"type":"text","text":"Hello there!"}],"origin":{"kind":"user"}}}
+{"type":"context.append_loop_event","time":1785863000002,"event":{"type":"step.begin","uuid":"s1","turnId":"t1","step":1}}
+{"type":"context.append_loop_event","time":1785863000003,"event":{"type":"content.part","stepUuid":"s1","part":{"type":"think","think":"Let me think about this carefully."}}}
+{"type":"context.append_loop_event","time":1785863000004,"event":{"type":"content.part","stepUuid":"s1","part":{"type":"text","text":"Hello **world**!"}}}
+{"type":"context.append_loop_event","time":1785863000005,"event":{"type":"tool.call","stepUuid":"s1","toolCallId":"call_1","name":"Bash","args":{"command":"ls -la"}}}
+{"type":"context.append_loop_event","time":1785863000006,"event":{"type":"tool.result","toolCallId":"call_1","result":{"output":"total 8\ndrwxr-xr-x  5 user staff  160 Aug  4 10:00 .\n-rw-r--r--  1 user staff  123 Aug  4 10:00 file.txt","isError":false}}}
+{"type":"context.append_loop_event","time":1785863000007,"event":{"type":"step.end","uuid":"s1","finishReason":"end_turn"}}
+{"type":"context.append_message","time":1785863000008,"message":{"id":"m2","role":"user","content":[{"type":"text","text":"Second prompt"}],"origin":{"kind":"injection"}}}
+{"type":"context.append_loop_event","time":1785863000009,"event":{"type":"step.begin","uuid":"s2","turnId":"t2","step":1}}
+{"type":"context.append_loop_event","time":1785863000010,"event":{"type":"content.part","stepUuid":"s2","part":{"type":"text","text":"Another assistant reply"}}}
+{"type":"context.append_loop_event","time":1785863000011,"event":{"type":"tool.call","stepUuid":"s2","toolCallId":"call_2","name":"WebSearch","args":{"query":"rust terminal ui"}}}
+{"type":"context.append_loop_event","time":1785863000012,"event":{"type":"tool.result","toolCallId":"call_2","result":{"output":"Search results...","isError":false}}}
+{"type":"context.append_loop_event","time":1785863000013,"event":{"type":"step.end","uuid":"s2","finishReason":"end_turn"}}

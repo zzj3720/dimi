@@ -552,7 +552,14 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     this.turnRunning = true;
     this.executingTurnId = entry.turnId;
     void this.runTurnNow(entry.turnId, entry.payload.origin)
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        // A failed turn must not vanish silently: the turn clock already
+        // advanced and the user message is in the context, so an invisible
+        // failure leaves the UI waiting forever. Surface it through the
+        // runner's log (previously `catch(() => undefined)` swallowed
+        // everything, e.g. a missing native binding surfaced as nothing).
+        this.log.error("[rustEngineTurnRunner] turn failed to start", { error });
+      })
       .finally(() => {
         this.turnRunning = false;
         this.executingTurnId = undefined;
@@ -573,10 +580,17 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     if (this.disposed) return { turnId };
     // 2. Assemble LLM messages: the profile system prompt (the TS loop
     //    injects it per-request through `generate(systemPrompt, …)`, not via
-    //    the context) plus the context history.
+    //    the context) plus the context history. Partial assistant messages
+    //    (a `step.begin` whose request never completed — e.g. a provider
+    //    failure at restart) are dropped: they carry no content and no tool
+    //    calls, and strict providers reject an empty assistant message
+    //    (TS `contextProjector` parity — it skips `partial === true`).
     const messages = [
       { role: "system", content: this.profile.getSystemPrompt() },
-      ...this.context.get().map((message) => this.toLlmMessage(message)),
+      ...this.context
+        .get()
+        .filter((message) => message.partial !== true)
+        .map((message) => this.toLlmMessage(message)),
     ];
 
     // 3. Run the Rust engine (session API: approvals pause and resume).
@@ -612,7 +626,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         minSteps: COMPLETION_REVIEW_MIN_STEPS,
         reminder: COMPLETION_REVIEW_REMINDER,
       },
-      cwd: this.profile.data().cwd ?? process.cwd(),
+      cwd: this.profile.data().cwd || process.cwd(),
       // No `shell`: the engine resolves its own bash-preferring default
       // (the TS probe chain `/bin/bash` → `/usr/bin/bash` →
       // `/usr/local/bin/bash` → `/bin/sh`), matching the TS bash tool's
@@ -1585,7 +1599,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     });
     this.engineTaskAdapters.set(taskId, adapter);
     try {
-      this.tasks.registerTask(adapter, { taskId, detached: false });
+      this.tasks.registerTask(adapter, { taskId, detached: false, persist: true });
     } catch (error) {
       // Registration can fail (e.g. the agent scope is being torn down): the
       // wire ops still record the lifecycle; TaskList/TaskStop lose the live

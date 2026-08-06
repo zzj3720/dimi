@@ -486,6 +486,11 @@ pub struct RustTurnSession {
     /// subagent tool): retained so `cancel_task` (TaskStop parity) can flip a
     /// task's cancel signal.
     tasks: AgentTasks,
+    /// Shared subagent tool-definition cell: the AsyncAgentTool reads it at
+    /// subagent launch time. The tool registry is populated after session
+    /// construction, so this cell is written on every run/resume re-sync —
+    /// a snapshot taken at construction would stay empty forever.
+    subagent_tools_defs: std::sync::Arc<std::sync::Mutex<Vec<dimi_engine::types::EngineTool>>>,
 }
 
 /// Session teardown (TS `taskService.dispose` parity): once the runner
@@ -754,6 +759,13 @@ impl RustTurnSession {
         let steer_map = registry.steer_map.clone();
         let event_sink = EventSink::new();
         let mut registry = ToolRegistry::new();
+        // Shared subagent tool-defs cell: AsyncAgentTool reads it at subagent
+        // launch time. The tool registry is populated after session
+        // construction (TS hands an empty `tools` array), so this cell is
+        // seeded/updated on every run/resume re-sync — a snapshot taken here
+        // would stay empty forever.
+        let subagent_tools_defs =
+            std::sync::Arc::new(std::sync::Mutex::new(input.tools.clone()));
         // The Bash def mirrors the TS tool's advertised contract
         // (`BASH_PARAMETERS` minus `stdin_mode`/`disable_timeout`, which only
         // apply to the TS-only TaskInput/background paths): same description
@@ -827,6 +839,7 @@ impl RustTurnSession {
                 Box::new(AsyncAgentTool {
                     llm: std::sync::Arc::clone(&llm),
                     tools: subagent_tools,
+                    tools_defs: std::sync::Arc::clone(&subagent_tools_defs),
                     policy: policy.lock().unwrap_or_else(|p| p.into_inner()).clone(),
                     max_steps: input.max_steps_per_turn,
                     shell: input.shell.clone().unwrap_or_else(dimi_exec::env::default_shell),
@@ -891,6 +904,7 @@ impl RustTurnSession {
             forwarder_started: std::sync::atomic::AtomicBool::new(false),
             event_sink,
             tasks,
+            subagent_tools_defs,
         })
     }
 
@@ -1055,7 +1069,14 @@ impl RustTurnSession {
             // registered since the session was constructed).
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
+                let defs = engine_tools(&registry, self.active_tools.as_deref());
+                inner.update_tools(defs.clone());
+                // Subagents launched later must advertise the same current
+                // tool set (the AsyncAgentTool reads this shared cell).
+                *self
+                    .subagent_tools_defs
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = defs;
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
             // Clone the policy snapshot (P1-6): the guard must not survive
@@ -1205,7 +1226,12 @@ impl RustTurnSession {
             let mut inner = self.inner.lock().await;
             {
                 let registry = self.tools.lock().await;
-                inner.update_tools(engine_tools(&registry, self.active_tools.as_deref()));
+                let defs = engine_tools(&registry, self.active_tools.as_deref());
+                inner.update_tools(defs.clone());
+                *self
+                    .subagent_tools_defs
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = defs;
             }
             let channel = std::sync::Arc::clone(&self.event_channel);
             // Clone the policy snapshot (P1-6): the guard must not survive

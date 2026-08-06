@@ -1,0 +1,29 @@
+[package]
+name = "dimi-cli"
+description = "Rust CLI binary — the dimi TUI entry (M6): starts dimi-tui with the real terminal, the wire.jsonl data surface, and the app-shell coordinator, replacing the TS TUI entry."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "dimi-cli"
+path = "src/main.rs"
+
+[dependencies]
+dimi-tui = { path = "../dimi-tui" }
+dimi-store = { path = "../dimi-store" }
+dimi-wire = { path = "../dimi-wire" }
+dimi-engine = { path = "../dimi-engine" }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+toml = "0.8"
+
+[dev-dependencies]
+async-trait = "0.1.91"
+
+[lints]
+workspace = true

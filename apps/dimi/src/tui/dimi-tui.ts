@@ -996,7 +996,13 @@ export class DimiTUI {
     }
     if (text.trim().length === 0) return;
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot send input while session history is replaying.');
+      // History replay is rendering (session resume): do not drop the input —
+      // queue it and flush once the replay finishes (`flushQueuedMessages` is
+      // invoked by the replay renderer's finally). Previously the message was
+      // silently discarded, so a prompt typed during a slow resume vanished.
+      this.enqueueMessage(text, undefined, wasBashMode ? 'bash' : 'prompt');
+      this.updateQueueDisplay();
+      this.state.ui.requestRender();
       return;
     }
     // Shell commands are stored with a leading `!` so ↑ recall can tell them
@@ -1293,6 +1299,20 @@ export class DimiTUI {
         imageAttachmentIds: item.imageAttachmentIds,
       });
     });
+  }
+
+  /** Dispatch every queued message to the active session (replay finished,
+   *  shell finished, compaction finished). Used by the replay renderer to
+   *  flush input that was queued while history was rendering. */
+  flushQueuedMessages(): void {
+    const session = this.session;
+    if (session === undefined) return;
+    while (this.state.queuedMessages.length > 0) {
+      const item = this.shiftQueuedMessage();
+      if (item === undefined) break;
+      this.sendQueuedMessage(session, item);
+    }
+    this.updateQueueDisplay();
   }
 
   private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {

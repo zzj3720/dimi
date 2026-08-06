@@ -456,6 +456,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   registerTask(task: AgentTask, options: RegisterAgentTaskOptions = {}): string {
     const detached = options.detached ?? true;
+    const persist = options.persist === true;
     const timeoutMs = options.timeoutMs ?? task.timeoutMs;
     const entryOptions: RegisterAgentTaskOptions = {
       detached,
@@ -484,7 +485,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputWriteQueue: Promise.resolve(),
       pendingOutput: [],
       pendingOutputBytes: 0,
-      outputPersistStarted: detached,
+      outputPersistStarted: detached || persist,
       waiters: [],
       terminalFired: false,
       recorded: detached,
@@ -525,8 +526,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       });
     this.installForegroundSignal(entry);
 
-    if (this.isDetached(entry)) {
+    if (this.isDetached(entry) || persist) {
       void this.persistLive(entry);
+    }
+    if (this.isDetached(entry)) {
       this.recordTaskStarted(this.toInfo(entry));
     }
     return entry.taskId;
@@ -1089,7 +1092,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const info = this.toInfo(entry);
     entry.persistWriteQueue = entry.persistWriteQueue
       .then(() => persistence.writeTask(info))
-      .catch(() => {});
+      .catch((error: unknown) => {
+        this.log.error("task persist write failed", {
+          taskId: info.taskId,
+          status: info.status,
+          error,
+        });
+      });
     return entry.persistWriteQueue;
   }
 
@@ -1098,7 +1107,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const write = entry.persistWriteQueue
       .catch(() => {})
       .then(() => this.persistence.writeTask(info));
-    entry.persistWriteQueue = write.catch(() => {});
+    entry.persistWriteQueue = write.catch((error: unknown) => {
+      this.log.error("task persist strict write failed", {
+        taskId: info.taskId,
+        status: info.status,
+        error,
+      });
+    });
     return write;
   }
 

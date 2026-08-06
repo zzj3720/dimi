@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.6.14
+
+### Patch Changes
+
+- [`39c1140`](https://github.com/zzj3720/dimi/commit/39c1140ff1583dea0b1c5af580d69f03299c1fc4) - Surface silent turn-start failures: a RustTurnSession constructor error (e.g. a missing native binding after a rebuild) was swallowed by the turn runner's `catch(() => undefined)`, leaving the UI waiting forever with the user message recorded but no turn running. The failure is now logged through the runner's error log instead of vanishing.
+
+- [`1b0bbc0`](https://github.com/zzj3720/dimi/commit/1b0bbc07b88578b41963fc1b179c58d4d103aaf6) - Fix subagent tasks (Agent tool) completing instantly without doing any work: the tool definitions advertised to the nested subagent LLM were snapshotted at session construction, when the tool registry is still empty (TS hands an empty `tools` array and the bridge re-syncs the defs before every run/resume). The snapshot stayed empty forever, so subagent requests carried no tools and the model fell back to fabricated call formats (DSML), "completing" with 0 tool executions. Subagent tool defs are now read from a shared cell that every run/resume re-sync writes.
+
+## 0.6.13
+
+### Patch Changes
+
+- [`7411454`](https://github.com/zzj3720/dimi/commit/7411454cfe94c9bee64d580b6ff521427ff6aadf) - Fix HTTP 400 "insufficient tool messages following tool_calls message" from strict providers (DeepSeek/OpenAI): an async notification that landed between an assistant `tool_calls` and its tool result was sent in that order, and the engine's exchange-closing pass only checked global result existence. Tool results are now reordered back right after their assistant (TS contextProjector slot semantics), unresolved results keep the synthesized interrupted message, and orphan/duplicate results are dropped. Partial assistant messages left by an interrupted step are also filtered out on the TS→engine boundary (strict providers reject an empty assistant message).
+
+## 0.6.12
+
+### Patch Changes
+
+- [`7354c99`](https://github.com/zzj3720/dimi/commit/7354c99cd02a473488e33b76a63beebc29e2a39f) - Fix subagents (Agent tool) not receiving the tool definitions in their LLM request, so they did not know the available tools existed (e.g. claimed there were no file-reading tools); subagent requests now advertise the parent's tool set.
+
+## 0.6.11
+
+### Patch Changes
+
+- [`128a849`](https://github.com/zzj3720/dimi/commit/128a849c939f40d0dabdb5fafac3ce6c7cfc0117) - Fix every Bash tool call failing with "No such file or directory" when the session working directory resolved to an empty string; the shell now falls back to the process working directory.
+
+## 0.6.10
+
+### Patch Changes
+
+- [`f195cc0`](https://github.com/zzj3720/dimi/commit/f195cc0afb8d608042551dea629b0efc4418c85a) - Fix tool definitions being dropped from LLM requests in the Rust engine, which made models write tool calls as literal XML text instead of calling tools; tools are now sent in the format the request path parses.
+
+## 0.6.9
+
+### Patch Changes
+
+- [`6f335e1`](https://github.com/zzj3720/dimi/commit/6f335e14e63f5412989950929cc844d7fb88d74c) - Fix the Rust engine sending the qualified "provider/model" alias as the request model id; strict providers (e.g. OpenCode) rejected it with HTTP 401, so the bare catalog model id is sent instead.
+
+## 0.6.8
+
+### Patch Changes
+
+- [`91da4d2`](https://github.com/zzj3720/dimi/commit/91da4d2689cb4e8b7829144e67f433e898d073d4) - Fix the Rust engine not retrying some transient provider errors (rate limits, overloads, connection failures) that should be retried per step.
+
+- [`91da4d2`](https://github.com/zzj3720/dimi/commit/91da4d2689cb4e8b7829144e67f433e898d073d4) - Fix token usage accounting across tool steps in the Rust engine, suppress repeated identical tool calls, and stop exposing disabled tools to the model.
+
 ## 0.6.7
 
 ### Patch Changes

@@ -109,7 +109,9 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
 
   private enqueueUpdate(work: () => Promise<void>): Promise<void> {
     const run = this.updateQueue.then(work, work);
-    this.updateQueue = run.catch(() => {});
+    this.updateQueue = run.catch((error: unknown) => {
+      this.log.error("session metadata update failed", { error });
+    });
     return run;
   }
 
