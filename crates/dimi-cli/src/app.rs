@@ -114,6 +114,7 @@ fn user_llm_message(content: &str) -> LlmMessage {
         tool_call_id: None,
         tool_calls: None,
         reasoning: None,
+        origin: None,
     }
 }
 
@@ -133,6 +134,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             }),
             TranscriptEntryKind::Assistant => out.push(LlmMessage {
                 role: "assistant".to_string(),
@@ -141,6 +143,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             }),
             TranscriptEntryKind::ToolCall => {
                 // The tool-call card maps back to an assistant message with
@@ -162,6 +165,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                             },
                         }]),
                         reasoning: None,
+                        origin: None,
                     });
                 }
                 // The attached result (when it landed) maps to a `tool`
@@ -174,6 +178,7 @@ fn transcript_messages(entries: &[TranscriptEntry]) -> Vec<LlmMessage> {
                         tool_call_id: Some(result.tool_call_id.clone()),
                         tool_calls: None,
                         reasoning: None,
+                        origin: None,
                     });
                 }
             }
@@ -348,6 +353,8 @@ impl EngineBackend {
             shell: None,
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,

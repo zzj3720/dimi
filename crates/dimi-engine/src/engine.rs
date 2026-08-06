@@ -136,7 +136,9 @@ impl UsageAccumulator {
             return None;
         }
         Some(TranscriptUsage {
-            input_tokens: Some((self.prompt_tokens + self.cached_tokens) as i64),
+            // aimux's input_tokens.total already includes cache-read tokens;
+            // adding cached_tokens here would count them twice.
+            input_tokens: Some(self.prompt_tokens as i64),
             output_tokens: Some(self.completion_tokens as i64),
             cached_tokens: Some(self.cached_tokens as i64),
             cost: None,
@@ -237,6 +239,7 @@ fn close_unresolved_tool_exchanges(messages: &mut Vec<LlmMessage>) {
                     tool_call_id: Some(id),
                     tool_calls: None,
                     reasoning: None,
+                    origin: None,
                 });
             }
         }
@@ -1004,6 +1007,7 @@ impl TurnSession {
                 tool_call_id: Some(skipped.tool_call_id.clone()),
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             });
         }
     }
@@ -1172,7 +1176,21 @@ impl TurnSession {
                     let already_compacted = self
                         .last_compacted_tokens
                         .is_some_and(|last| estimated <= last);
-                    if crate::compaction::should_compact(estimated, max) && !already_compacted {
+                    let trigger_ratio = self
+                        .input
+                        .compaction_trigger_ratio
+                        .unwrap_or(crate::compaction::COMPACTION_TRIGGER_RATIO);
+                    let reserved_context_size = self
+                        .input
+                        .reserved_context_size
+                        .unwrap_or(crate::compaction::RESERVED_CONTEXT_SIZE);
+                    if crate::compaction::should_compact_with_config(
+                        estimated,
+                        max,
+                        trigger_ratio,
+                        reserved_context_size,
+                    ) && !already_compacted
+                    {
                         let _ = self.compact(llm, on_event).await;
                     }
                 }
@@ -1392,6 +1410,7 @@ impl TurnSession {
                                 tool_call_id: None,
                                 tool_calls: None,
                                 reasoning: None,
+                                origin: None,
                             });
                             emit(
                                 on_event,
@@ -1466,6 +1485,7 @@ impl TurnSession {
                                 .collect(),
                         ),
                         reasoning: None,
+                        origin: None,
                     });
                     let stop_turn = match self
                         .execute_batch(
@@ -1652,6 +1672,7 @@ fn tool_result_message(result: &ToolResult) -> LlmMessage {
         tool_call_id: Some(result.tool_call_id.clone()),
         tool_calls: None,
         reasoning: None,
+        origin: None,
     }
 }
 
@@ -1810,6 +1831,26 @@ mod tests {
     use crate::llm::{LlmStreamEvent, ScriptedLlmClient};
     use crate::types::ProviderConfig;
 
+    #[test]
+    fn transcript_usage_does_not_add_cached_tokens_twice() {
+        let mut usage = UsageAccumulator::default();
+        usage.add(&LlmStreamEvent::Usage {
+            prompt_tokens: Some(100),
+            completion_tokens: Some(7),
+            total_tokens: Some(107),
+            prompt_tokens_details: Some(crate::llm::UsageDetails {
+                cached_tokens: Some(20),
+                reasoning_tokens: None,
+            }),
+            completion_tokens_details: None,
+        });
+
+        let transcript = usage.transcript_usage().expect("usage is present");
+        assert_eq!(transcript.input_tokens, Some(100));
+        assert_eq!(transcript.cached_tokens, Some(20));
+        assert_eq!(transcript.output_tokens, Some(7));
+    }
+
     fn input(messages: Vec<LlmMessage>) -> EngineTurnInput {
         input_with_steps(messages, None)
     }
@@ -1831,6 +1872,8 @@ mod tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -1852,6 +1895,7 @@ mod tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -2348,6 +2392,7 @@ mod window_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -2400,6 +2445,8 @@ mod window_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: Some(3),
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -2464,6 +2511,7 @@ mod steer_tests {
                         tool_call_id: None,
                         tool_calls: None,
                         reasoning: None,
+                        origin: None,
                     });
                 }
                 Ok(StreamedTurn {
@@ -2491,6 +2539,7 @@ mod steer_tests {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             }],
             tools: vec![],
             active_tools: None,
@@ -2505,6 +2554,8 @@ mod steer_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -2651,6 +2702,8 @@ mod completion_review_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             max_retries_per_step: None,
@@ -2696,6 +2749,7 @@ mod completion_review_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -2980,6 +3034,7 @@ mod compaction_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -3047,6 +3102,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3179,6 +3236,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3274,6 +3333,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3353,6 +3414,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(1000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3438,6 +3501,7 @@ mod compaction_tests {
                 },
             }]),
             reasoning: None,
+            origin: None,
         });
         messages.push(LlmMessage {
             role: "assistant".to_string(),
@@ -3453,6 +3517,7 @@ mod compaction_tests {
                 },
             }]),
             reasoning: None,
+            origin: None,
         });
         messages.push(LlmMessage {
             role: "tool".to_string(),
@@ -3461,6 +3526,7 @@ mod compaction_tests {
             tool_call_id: Some("call_resolved".to_string()),
             tool_calls: None,
             reasoning: None,
+            origin: None,
         });
         // Push the history over the 2000-token compaction trigger.
         for i in 0..20 {
@@ -3483,6 +3549,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3614,6 +3682,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3698,6 +3768,7 @@ mod compaction_tests {
                 },
             }]),
             reasoning: None,
+            origin: None,
         });
         messages.push(msg("user", "<notification task completed>"));
         messages.push(LlmMessage {
@@ -3707,6 +3778,7 @@ mod compaction_tests {
             tool_call_id: Some("call_interleaved".to_string()),
             tool_calls: None,
             reasoning: None,
+            origin: None,
         });
         messages.push(msg("user", "continue"));
         let input = EngineTurnInput {
@@ -3725,6 +3797,8 @@ mod compaction_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -3778,6 +3852,7 @@ mod cancel_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -3793,6 +3868,7 @@ mod cancel_tests {
                 tool_call_id: Some(id.to_string()),
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             }
         }
 
@@ -3815,6 +3891,7 @@ mod cancel_tests {
                         .collect(),
                 ),
                 reasoning: None,
+                origin: None,
             }
         }
 
@@ -3826,6 +3903,7 @@ mod cancel_tests {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             }
         }
 
@@ -3997,6 +4075,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4086,6 +4166,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4182,6 +4264,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: Some(2000),
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4288,6 +4372,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4390,6 +4476,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4506,6 +4594,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4593,6 +4683,8 @@ mod cancel_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -4686,6 +4778,7 @@ mod approval_batch_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -4764,6 +4857,8 @@ mod approval_batch_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -5632,6 +5727,8 @@ mod dedupe_tests {
             shell: Some("/bin/sh".to_string()),
             context_window: None,
             max_context_tokens: None,
+            reserved_context_size: None,
+            compaction_trigger_ratio: None,
             next_agent_id: None,
             kill_grace_ms: None,
             subagent_model: None,
@@ -5653,6 +5750,7 @@ mod dedupe_tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 

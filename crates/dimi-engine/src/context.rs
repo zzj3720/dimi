@@ -99,6 +99,7 @@ mod tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -132,6 +133,7 @@ mod tests {
                 },
             }]),
             reasoning: None,
+            origin: None,
         };
         let expected = estimate_tokens("assistant")
             + estimate_tokens("hi")
@@ -151,6 +153,7 @@ mod tests {
             tool_call_id: None,
             tool_calls: None,
             reasoning: None,
+            origin: None,
         };
         assert_eq!(
             estimate_tokens_for_message(&message),
@@ -182,6 +185,7 @@ mod tests {
             tool_call_id: Some(tool_call_id.to_string()),
             tool_calls: None,
             reasoning: None,
+            origin: None,
         }
     }
 
@@ -204,6 +208,7 @@ mod tests {
                     .collect(),
             ),
             reasoning: None,
+            origin: None,
         }
     }
 

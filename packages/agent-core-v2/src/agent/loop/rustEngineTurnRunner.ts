@@ -595,6 +595,13 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
 
     // 3. Run the Rust engine (session API: approvals pause and resume).
     const provider = await this.providerConfig();
+    const modelContext = (() => {
+      try {
+        return this.profile.resolveModelContext();
+      } catch {
+        return undefined;
+      }
+    })();
     const inputJson = JSON.stringify({
       turnId,
       origin: toEngineTurnOrigin(origin),
@@ -612,6 +619,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       maxStepsPerTurn: this.maxStepsPerTurn() ?? null,
       maxRetriesPerStep: this.maxRetriesPerStep() ?? null,
       maxContextTokens: this.maxContextTokens() ?? null,
+      reservedContextSize: modelContext?.reservedContextSize ?? null,
+      compactionTriggerRatio: modelContext?.compactionTriggerRatio ?? null,
       nextAgentId: await this.computeNextAgentId(),
       // TaskStop SIGTERM grace (TS `killGracePeriodMs` parity): the engine's
       // bash poller waits this long between SIGTERM and SIGKILL so a trap
@@ -1818,6 +1827,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       ...(message.role === "tool" && message.toolCallId !== undefined
         ? { toolCallId: message.toolCallId }
         : {}),
+      ...(message.origin !== undefined ? { origin: message.origin } : {}),
     };
   }
 

@@ -32,6 +32,10 @@ pub struct LlmMessage {
     pub tool_calls: Option<Vec<LlmToolCall>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<serde_json::Value>,
+    /// Context-memory origin retained across the TS↔Rust boundary so the
+    /// engine can apply the same compaction disposition rules as TS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<serde_json::Value>,
 }
 
 /// A tool call inside an assistant message (OpenAI wire shape).
@@ -150,6 +154,13 @@ pub struct EngineTurnInput {
     /// `fullCompaction` parity). `None` = compaction disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_context_tokens: Option<u32>,
+    /// Reserved context space that triggers compaction before the ordinary
+    /// ratio threshold (TS `reservedContextSize`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserved_context_size: Option<u64>,
+    /// Per-profile compaction trigger ratio (TS `compactionTriggerRatio`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_trigger_ratio: Option<f64>,
     /// First subagent agent-id number to hand out (TS `nextAvailableAgentId`
     /// parity): the runner seeds it from the session's persisted agents plus
     /// the ids this runner already handed out, so `agent-<n>` stays monotonic
@@ -278,5 +289,35 @@ mod ts_boundary_tests {
             Some("call_1"),
             "tool message tool_call_id must survive the TS boundary"
         );
+        assert_eq!(input.reserved_context_size, None);
+        assert_eq!(input.compaction_trigger_ratio, None);
+    }
+
+    #[test]
+    fn deserialize_compaction_metadata_from_ts() {
+        let input: EngineTurnInput = serde_json::from_str(
+            r#"{
+                "turnId": 2,
+                "messages": [{
+                    "role": "user",
+                    "content": "hello",
+                    "origin": { "kind": "system_trigger", "name": "task-notification" }
+                }],
+                "provider": { "baseUrl": "http://example.test/v1", "apiKey": "k", "model": "m" },
+                "maxContextTokens": 200000,
+                "reservedContextSize": 50000,
+                "compactionTriggerRatio": 0.8
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            input.messages[0]
+                .origin
+                .as_ref()
+                .and_then(|origin| origin.get("kind").and_then(serde_json::Value::as_str)),
+            Some("system_trigger")
+        );
+        assert_eq!(input.reserved_context_size, Some(50_000));
+        assert_eq!(input.compaction_trigger_ratio, Some(0.8));
     }
 }

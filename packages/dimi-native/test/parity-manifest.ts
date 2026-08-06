@@ -109,7 +109,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   {
     domain: 'compaction reservedContextSize / observed window / media stripping',
     migrated: false,
-    gap: 'not implemented — compaction triggers on a plain estimate',
+    gap:
+      'reserved-space trigger, origin filtering, and head/tail message selection are implemented; ' +
+      'dynamic-tool stripping, observed-window calibration, media degradation, and partial-message truncation remain',
   },
   {
     domain: 'plan mode orchestration (EnterPlanMode/ExitPlanMode)',
@@ -147,8 +149,15 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'usage: cache-read double counting (aimux semantics)',
+    migrated: true,
+    coveredBy: 'engine transcript_usage_does_not_add_cached_tokens_twice',
+  },
+  {
+    domain: 'usage: cache-write component',
     migrated: false,
-    gap: 'input_tokens may double-count cached tokens — needs aimux verification',
+    gap:
+      'not implemented — Rust usage events do not carry aimux cache-write tokens; ' +
+      'runner reports inputCacheCreation: 0',
   },
   {
     domain: 'turn.ended failed error payload includes name',

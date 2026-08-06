@@ -11,6 +11,8 @@ import { RustTurnSession } from '@dimi-agent/dimi-native';
 
 import { COMPLETION_REVIEW_REMINDER } from '#/agent/completion/completion';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IConfigService } from '#/app/config/config';
+import { LOOP_CONTROL_SECTION } from '#/agent/loop/configSection';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRustEngineTurnRunner, RustEngineTurnRunner } from '#/agent/loop/rustEngineTurnRunner';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -535,7 +537,8 @@ describe('Rust engine turn runner (default)', () => {
       ],
     ]);
     ctx = createTestAgent([permissionModeServices('auto')]);
-    // A 2000-token window: 85% trigger = 1700 tokens.
+    // A 2000-token window: reserved 500 triggers at 1500 tokens, before the
+    // configured 95% ratio threshold (1900).
     ctx.configure({ modelCapabilities: {
       image_in: false,
       video_in: false,
@@ -545,6 +548,10 @@ describe('Rust engine turn runner (default)', () => {
       max_context_tokens: 2000,
       dynamically_loaded_tools: false,
     } });
+    await ctx.get(IConfigService).set(LOOP_CONTROL_SECTION, {
+      reservedContextSize: 500,
+      compactionTriggerRatio: 0.95,
+    });
     ctx.get(IAgentLoopService);
 
     // Seed ~1830 tokens of assistant/tool exchanges (only the summary keeps).

@@ -1053,6 +1053,7 @@ impl RustTurnSession {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             });
         true
     }
@@ -1200,6 +1201,7 @@ impl RustTurnSession {
                 tool_call_id: None,
                 tool_calls: None,
                 reasoning: None,
+                origin: None,
             },
         );
         Ok(())

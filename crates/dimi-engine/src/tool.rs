@@ -2307,6 +2307,7 @@ async fn run_nested_turn(
         tool_call_id: None,
         tool_calls: None,
         reasoning: None,
+        origin: None,
     });
     let input = crate::types::EngineTurnInput {
         turn_id: 0,
@@ -2320,6 +2321,8 @@ async fn run_nested_turn(
         shell: Some(shell),
         context_window: None,
         max_context_tokens: None,
+        reserved_context_size: None,
+        compaction_trigger_ratio: None,
         next_agent_id: None,
         kill_grace_ms: None,
         subagent_model: None,
@@ -2445,6 +2448,7 @@ impl ToolExecutor for AsyncAgentTool {
                                 tool_call_id: None,
                                 tool_calls: None,
                                 reasoning: None,
+                                origin: None,
                             })
                     })
                     .is_some();
@@ -4389,6 +4393,7 @@ mod async_agent_tests {
                     tool_call_id: None,
                     tool_calls: None,
                     reasoning: None,
+                    origin: None,
                 }],
                 started_at: 1,
                 cancel: None,
