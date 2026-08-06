@@ -103,8 +103,9 @@ export const PARITY_MANIFEST: readonly ParityEntry[] = [
   },
   {
     domain: 'WaitFor user-wait parking / notification wake-up',
-    migrated: false,
-    gap: 'not implemented — WaitFor blocks the turn in-engine; the def honestly declares this',
+    migrated: true,
+    coveredBy:
+      'rustEngineTurnRunner.test.ts (default Rust runner routes WaitFor through IAgentWaitService, wakes from a real background task settlement, and re-enters on timeout); standalone engine fallback remains subagent-only',
   },
   {
     domain: 'compaction reservedContextSize / observed window / media stripping',

@@ -6,6 +6,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
 import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IEventBus } from '#/app/event/eventBus';
+import { rustEngineEnabled } from '#/agent/loop/engineMode';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IWireService } from '#/wire/wire';
@@ -29,7 +30,7 @@ export class AgentWaitService extends Disposable implements IAgentWaitService {
 
   constructor(
     @IWireService private readonly wire: IWireService,
-    @IEventBus eventBus: IEventBus,
+    @IEventBus private readonly eventBus: IEventBus,
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @ILogService private readonly log: ILogService,
   ) {
@@ -153,6 +154,10 @@ export class AgentWaitService extends Disposable implements IAgentWaitService {
       timeout_seconds: wait.timeoutSeconds,
       message: 'wait timeout reached; inspect current state before deciding what to do next',
     });
+    if (rustEngineEnabled()) {
+      this.eventBus.publish({ type: 'wait.timeout', wait, content });
+      return;
+    }
     this.loop.enqueue(
       new MessageStepRequest(
         {

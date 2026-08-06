@@ -25,6 +25,9 @@ import { randomUUID } from "node:crypto";
 
 import { RustTurnSession } from "@dimi-agent/dimi-native";
 
+import { type IDisposable } from "#/_base/di/lifecycle";
+import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
+import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
 import { escapeXml } from "#/_base/utils/xml-escape";
 import { IAgentContextMemoryService } from "#/agent/contextMemory/contextMemory";
 import type {
@@ -37,6 +40,7 @@ import { IAgentPermissionModeService } from "#/agent/permissionMode/permissionMo
 import { IAgentToolRegistryService } from "#/agent/toolRegistry/toolRegistry";
 import { IAgentToolPolicyService } from "#/agent/toolPolicy/toolPolicy";
 import { IAgentPermissionRulesService } from "#/agent/permissionRules/permissionRules";
+import { rustEngineEnabled } from "#/agent/loop/engineMode";
 import { EngineTaskAdapter } from "#/agent/loop/engineTaskAdapter";
 import { renderNotificationXml } from "#/agent/task/notificationXml";
 import { taskStarted, taskTerminated } from "#/agent/task/taskOps";
@@ -73,47 +77,12 @@ import {
   COMPLETION_REVIEW_REMINDER,
 } from "#/agent/completion/completion";
 
-// P1-2 (review): the engine's WaitFor waits for a background SUBAGENT task by
-// `agent_id` — a different tool from the TS `waitForTool.ts`, whose schema
-// (`reason`/`timeout_seconds`, no `agent_id`) describes TS user-wait /
-// notification-wake semantics (a parking gap the engine does not implement).
-// The def the model sees must match the engine implementation: `agent_id`
-// required + `timeout_seconds` optional + an honest description of the
-// boundary (subagent wait only, not user wait). An unknown `agent_id` now
-// fails fast on the engine side, so the model gets a real error instead of a
-// guaranteed full-timeout blind wait.
-const WAIT_FOR_NATIVE_DESCRIPTION = [
-  "Wait for a background subagent task to finish (or time out).",
-  "Pass the `agent_id` of a subagent launched by the Agent tool (from its launch output).",
-  "The call blocks until that subagent completes, fails, or the timeout expires, then returns its final status and output.",
-  "This waits on a specific subagent task, NOT on the user: user-wait (waking on user notifications) is not implemented.",
-  "Prefer AgentOutput for a quick status check; use WaitFor when the turn should pause until the subagent finishes.",
-].join(" ");
-
-/** Engine-native tools that execute inside Rust (not through the TS
- *  toolExecutor): the PreToolUse gate and the external-tool registration
- *  distinguish them from TS-side tools. */
-const ENGINE_NATIVE_TOOLS = new Set(['Bash', 'Agent', 'AgentOutput', 'WaitFor']);
-
-const WAIT_FOR_NATIVE_PARAMETERS = {
-  type: "object",
-  properties: {
-    agent_id: {
-      type: "string",
-      description:
-        "Agent id of the running subagent task to wait for, as returned by the Agent tool launch output.",
-    },
-    timeout_seconds: {
-      type: "integer",
-      minimum: 1,
-      maximum: 1800,
-      description:
-        "How long to wait for the subagent before giving up. Defaults to 60; maximum 1800.",
-    },
-  },
-  required: ["agent_id"],
-  additionalProperties: false,
-};
+// The engine-native tools execute inside Rust (not through the TS
+// toolExecutor). WaitFor is deliberately excluded: its durable wait state,
+// timeout, and notification wake-up belong to the AgentWaitService, so the
+// runner must route it through the normal TS tool boundary even though the
+// bridge also has a direct subagent-wait fallback for standalone engine use.
+const ENGINE_NATIVE_TOOLS = new Set(['Bash', 'Agent', 'AgentOutput']);
 
 // P2-4 (review): TS `AgentSystemReminderService.appendSystemReminder` parity —
 // idempotently wrap a reminder in `<system-reminder>` markers. The engine
@@ -127,9 +96,6 @@ function wrapSystemReminder(text: string): string {
   }
   return `<system-reminder>\n${trimmed}\n</system-reminder>`;
 }
-
-import { createDecorator, IInstantiationService } from "#/_base/di/instantiation";
-import { LifecycleScope, ScopeActivation, registerScopedService } from "#/_base/di/scope";
 
 export const IRustEngineTurnRunner = createDecorator<IRustEngineTurnRunner>(
   "rustEngineTurnRunner",
@@ -155,14 +121,6 @@ export interface IRustEngineTurnRunner {
    * a queued turn. Returns whether something was cancelled.
    */
   cancel(turnId?: number): boolean;
-}
-
-/**
- * The Rust engine is the default runtime; the CLI `--legacy` flag sets
- * `DIMI_LEGACY=1` to keep the TS loop (and the node-local OS backends).
- */
-function rustEngineEnabled(): boolean {
-  return process.env["DIMI_LEGACY"] !== "1";
 }
 
 /** Render an engine event/tool value as text (strings pass through). */
@@ -388,6 +346,9 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    *  wire ops on a disposed wire / appending to a disposed context. */
   private disposed = false;
 
+  /** Delivers durable wait timeout messages to the selected turn runtime. */
+  private readonly waitTimeoutSubscription: IDisposable;
+
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -408,6 +369,15 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @ILogService private readonly log: ILogService,
   ) {
+    this.waitTimeoutSubscription = this.eventBus.subscribe("wait.timeout", (event) => {
+      if (!rustEngineEnabled() || this.disposed) return;
+      void this.runTurn({
+        input: [{ type: "text", text: event.content }],
+        origin: { kind: "system_trigger", name: "wait_timeout" },
+      }).catch((error: unknown) => {
+        this.log.error("[rustEngineTurnRunner] wait timeout wake failed", { error });
+      });
+    });
     // Agent-scoped subagent registry id: every RustTurnSession of this agent
     // shares one registry (subagent tasks + steering queues), and no other
     // agent can see them. Released on dispose.
@@ -533,6 +503,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
    */
   dispose(): void {
     this.disposed = true;
+    this.waitTimeoutSubscription.dispose();
     this.approvalAbort?.abort();
     for (const session of this.sessions) {
       session.close();
@@ -729,7 +700,8 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       };
     }
     // Register the TS tool ecosystem (MCP / plugins / skills / built-in file
-    // tools) into the engine; the Rust-native tools stay on the Rust side.
+    // tools) into the engine; only Agent/AgentOutput stay Rust-native. WaitFor
+    // must use the TS wait service so its durable wake state is preserved.
     // Registration is a synchronous napi call that can throw (unknown native
     // tool name / malformed parameter JSON / registry lock busy) — a throw
     // here must NOT escape into `startQueuedTurn`'s `.catch(() => undefined)`
@@ -747,31 +719,19 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
       if (!isToolActiveForRunner(info.name)) continue;
       try {
         if (engineNativeTools.has(info.name)) {
-          // The Rust-native tools (Agent / AgentOutput / WaitFor) are
+          // The Rust-native tools (Agent / AgentOutput) are
           // registered executor-first on the engine side — without an
           // LLM-facing def, so the model could not see them in the request
           // `tools` field. Advertise their defs (name/description/parameters)
           // through the bridge; the engine re-syncs them into every request
           // before each run/resume. Bash keeps the bridge's hardcoded def, so
-          // only the three async tools are pushed from here.
+          // only the two native async tools are pushed from here.
           if (info.name !== 'Bash') {
-            if (info.name === 'WaitFor') {
-              // P1-2 (review): the TS `waitForTool.ts` def (user-wait
-              // semantics, no `agent_id`) does NOT describe the engine's
-              // WaitFor (waits for a subagent task by `agent_id`). Push the
-              // engine-matching def so the model passes `agent_id`.
-              session.registerNativeToolDef(
-                info.name,
-                WAIT_FOR_NATIVE_DESCRIPTION,
-                JSON.stringify(WAIT_FOR_NATIVE_PARAMETERS),
-              );
-            } else {
-              session.registerNativeToolDef(
-                info.name,
-                info.description,
-                JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
-              );
-            }
+            session.registerNativeToolDef(
+              info.name,
+              info.description,
+              JSON.stringify(info.parameters ?? { type: "object", properties: {} }),
+            );
           }
           continue;
         }
@@ -951,7 +911,7 @@ export class RustEngineTurnRunner implements IRustEngineTurnRunner {
         if (engineNativeTools.has(info.name) && info.name !== 'Bash') {
           // A native-def registration failure (unknown native tool name /
           // malformed parameter JSON / registry lock busy) is a config/code
-          // error: the model would silently lose Agent/AgentOutput/WaitFor
+          // error: the model would silently lose Agent/AgentOutput
           // for the whole turn. Log it, surface a failed turn.ended + error
           // on the bus (TS loopService parity — the activity view's busy
           // flag and pending interactions reset on turn.ended), then fail

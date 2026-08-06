@@ -23,6 +23,7 @@ import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivati
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IAgentWaitService } from '#/agent/wait/wait';
 import type { ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { IEventBus } from '#/app/event/eventBus';
@@ -158,7 +159,7 @@ describe('Rust engine turn runner (default)', () => {
     expect(config['baseUrl']).toBe('https://opencode.ai/zen/go/v1');
   });
 
-  it('advertises Agent/AgentOutput/WaitFor defs to the model', async () => {
+  it('advertises Agent and AgentOutput native defs to the model', async () => {
     // The Rust-native tools are registered executor-first on the engine side
     // (no LLM-facing def), so the model cannot see them in the request
     // `tools` field. The runner must push their defs through the bridge.
@@ -216,15 +217,16 @@ describe('Rust engine turn runner (default)', () => {
       proto.registerNativeToolDef = original;
     }
 
-    // Exactly the three async tools — one def each, never Bash, nothing else.
+    // Exactly the two native async tools — one def each, never Bash or the
+    // TS-owned WaitFor, nothing else.
     const names = recorded.map((record) => record.name).sort();
-    expect(names).toEqual(['Agent', 'AgentOutput', 'WaitFor']);
+    expect(names).toEqual(['Agent', 'AgentOutput']);
     // The real napi accepted every def (the spy calls through): a rejected
     // def would have failed the turn, and P2-1 would surface it as a logged
     // registration error — assert none fired.
     expect(errors).toEqual([]);
     const byName = new Map(recorded.map((record) => [record.name, record]));
-    for (const name of ['Agent', 'AgentOutput', 'WaitFor']) {
+    for (const name of ['Agent', 'AgentOutput']) {
       const def = byName.get(name);
       expect(def, `${name} def advertised to the engine`).toBeDefined();
       expect(def!.description.length).toBeGreaterThan(0);
@@ -232,25 +234,135 @@ describe('Rust engine turn runner (default)', () => {
       expect(parameters.type).toBe('object');
       expect(parameters.properties).toBeDefined();
     }
-    // P1-2: WaitFor's def must match the ENGINE implementation. The TS
-    // waitForTool.ts schema (`reason`/`timeout_seconds`, no `agent_id`)
-    // describes the TS user-wait semantics, but the engine waits for a
-    // background SUBAGENT task by `agent_id` — advertising the TS schema made
-    // the model call without `agent_id`, which the engine then resolved to an
-    // empty id and parked for the full 60s timeout. The runner must advertise
-    // `agent_id` as required and describe the subagent-wait boundary honestly
-    // (user-wait / notification-wake semantics are NOT implemented).
-    const waitForDef = byName.get('WaitFor')!;
-    const waitForParameters = JSON.parse(waitForDef.parametersJson) as {
-      type?: unknown;
-      properties?: Record<string, unknown>;
-      required?: string[];
+  });
+
+  it('routes WaitFor through the agent wait service and wakes on a real task notification', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_background',
+          name: 'Bash',
+          argumentsPart: '{"command":"sleep 2; echo wait-wake","timeout":1}',
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_wait',
+          name: 'WaitFor',
+          argumentsPart: JSON.stringify({ reason: 'wait for a notification', timeout_seconds: 60 }),
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    ctx = createTestAgent([permissionModeServices('auto')]);
+    ctx.get(IAgentLoopService);
+    const waits = ctx.get(IAgentWaitService);
+    let rustRuns = 0;
+    const proto = RustTurnSession.prototype as unknown as { run: () => Promise<string> };
+    const originalRun = proto.run;
+    proto.run = function () {
+      rustRuns += 1;
+      return originalRun.call(this);
     };
-    expect(waitForParameters.required).toEqual(['agent_id']);
-    expect(waitForParameters.properties).toHaveProperty('agent_id');
-    expect(waitForParameters.properties).toHaveProperty('timeout_seconds');
-    expect(waitForDef.description).toContain('subagent');
-    expect(waitForDef.description).not.toContain('waits on the current agent');
+    const taskEvents: Array<Record<string, unknown>> = [];
+    ctx.get(IEventBus).subscribe((event) => {
+      if (event.type === 'task.started' || event.type === 'task.terminated') {
+        taskEvents.push(event as Record<string, unknown>);
+      }
+    });
+
+    try {
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'wait for work' }] });
+      await waitForContext(ctx, () => waits.active() !== null, 'active WaitFor wait');
+      expect(waits.active()).toMatchObject({
+        reason: 'wait for a notification',
+        source: 'wait_for',
+        timeoutSeconds: 60,
+      });
+      await waitForContext(
+        ctx,
+        () => taskEvents.some((event) => event['type'] === 'task.terminated'),
+        'real background task settlement',
+      );
+      await waitForContext(ctx, () => waits.active() === null, 'notification wake');
+      await waitForContext(ctx, () => rustRuns >= 2, 'notification Rust turn');
+
+      const terminated = taskEvents.find((event) => event['type'] === 'task.terminated');
+      expect(terminated?.['info']).toMatchObject({ kind: 'process', status: 'completed' });
+      const waitResult = ctx
+        .get(IAgentContextMemoryService)
+        .get()
+        .find(
+          (message) =>
+            message.role === 'tool' &&
+            message.content.some(
+              (part) => part.type === 'text' && part.text.includes('"status":"waiting"'),
+            ),
+        );
+      expect(waitResult).toBeDefined();
+      expect(
+        ctx
+          .get(IAgentContextMemoryService)
+          .get()
+          .filter((message) => message.origin?.kind === 'task'),
+      ).toHaveLength(1);
+    } finally {
+      proto.run = originalRun;
+    }
+  });
+
+  it('re-enters the Rust runner when WaitFor times out', async () => {
+    process.env[RUST_ENGINE_SCRIPTED] = JSON.stringify([
+      [
+        {
+          type: 'tool_call',
+          toolCallId: 'call_wait_timeout',
+          name: 'WaitFor',
+          argumentsPart: JSON.stringify({ reason: 'wait for timeout', timeout_seconds: 1 }),
+        },
+        { type: 'finish', finishReason: 'tool_calls' },
+      ],
+    ]);
+    let runs = 0;
+    const proto = RustTurnSession.prototype as unknown as {
+      run: () => Promise<string>;
+    };
+    const original = proto.run;
+    proto.run = function () {
+      runs += 1;
+      return original.call(this);
+    };
+    try {
+      ctx = createTestAgent();
+      ctx.get(IAgentLoopService);
+      const waits = ctx.get(IAgentWaitService);
+      const timeoutEvents: string[] = [];
+      ctx.get(IEventBus).subscribe('wait.timeout', (event) => timeoutEvents.push(event.content));
+
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'wait for timeout' }] });
+      await waitForContext(ctx, () => waits.active() !== null, 'active timeout wait');
+      await waitForContext(ctx, () => timeoutEvents.length > 0, 'wait timeout event');
+      await waitForContext(ctx, () => runs >= 2, 'Rust timeout wake turn');
+
+      const timeoutWake = ctx
+        .get(IAgentContextMemoryService)
+        .get()
+        .find(
+          (message) =>
+            message.role === 'user' &&
+            message.origin?.kind === 'system_trigger' &&
+            message.origin.name === 'wait_timeout',
+        );
+      expect(timeoutWake).toBeDefined();
+      expect(timeoutWake?.content).toEqual([
+        expect.objectContaining({ type: 'text', text: expect.stringContaining('wait_expired') }),
+      ]);
+    } finally {
+      proto.run = original;
+    }
   });
 
   it('fails the turn explicitly instead of hanging when a native def registration throws', async () => {
@@ -301,7 +413,7 @@ describe('Rust engine turn runner (default)', () => {
       // tool name (P2-1) before the queue is released.
       await waitForContext(ctx, () => errors.length > 0, 'registration failure log');
       expect(errors[0]!.message).toContain('[rustEngineTurnRunner] failed to register native tool def');
-      expect(['Agent', 'AgentOutput', 'WaitFor']).toContain(
+      expect(['Agent', 'AgentOutput']).toContain(
         (errors[0]!.payload as { name?: string } | undefined)?.name,
       );
       expect(String((errors[0]!.payload as { error?: unknown } | undefined)?.error)).toContain(

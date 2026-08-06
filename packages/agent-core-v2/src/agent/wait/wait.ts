@@ -48,6 +48,7 @@ const waitSchema = z.object({
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
+    'wait.timeout': { readonly wait: AgentWait; readonly content: string };
     'wait.started': { readonly wait: AgentWait };
     'wait.terminated': {
       readonly wait: AgentWait;
